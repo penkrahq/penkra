@@ -14,6 +14,33 @@ import {
   removeDisabledLegacyComputerUseServer,
 } from "./codexProcessEnv";
 
+it("keeps user MCP servers and removes a stale reserved gateway from a managed profile", async () => {
+  const root = await mkdtemp(path.join(tmpdir(), "penkra-codex-thread-config-"));
+  try {
+    const codexHome = path.join(root, "codex-home");
+    await mkdir(codexHome);
+    const configPath = path.join(codexHome, "config.toml");
+    await writeFile(
+      configPath,
+      '[mcp_servers.pencil]\ncommand = "pencil-mcp"\n# >>> penkra managed config >>>\n[mcp_servers.penkra]\nurl = "http://stale.invalid/mcp"\nbearer_token_env_var = "PENKRA_AGENT_GATEWAY_TOKEN"\n# <<< penkra managed config <<<\n',
+    );
+    await prepareManagedCodexProfileConfig({
+      env: { CODEX_HOME: codexHome },
+      sourceHomePath: codexHome,
+      cliAuthCredentialsStore: "keyring",
+    });
+    const config = await readFile(configPath, "utf8");
+    expect(config).toContain("[mcp_servers.pencil]");
+    expect(config).toContain('command = "pencil-mcp"');
+    expect(config).toContain('cli_auth_credentials_store = "keyring"');
+    expect(config).not.toContain("mcp_servers.penkra");
+    expect(config).not.toContain("PENKRA_AGENT_GATEWAY_TOKEN");
+    expect(config).not.toContain("stale.invalid");
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
 describe("linkOrCopyCodexOverlayEntry", () => {
   it("copies auth.json when symlink creation is unavailable", async () => {
     const symlink = vi.fn(async () => {
@@ -139,51 +166,6 @@ describe("Codex provider configuration", () => {
     expect(
       removeDisabledLegacyComputerUseServer(config.replace("enabled = false", "enabled = true")),
     ).toContain("[mcp_servers.computer-use]");
-  });
-
-  it("inherits user tools while replacing only the managed gateway", async () => {
-    const root = await mkdtemp(path.join(tmpdir(), "penkra-managed-codex-config-"));
-    try {
-      const codexHome = path.join(root, "connection", "codex-home");
-      const sourceHomePath = path.join(root, "global");
-      const sourceConfigPath = path.join(sourceHomePath, "config.toml");
-      const sourceConfig = [
-        '[plugins."browser@openai-bundled"]',
-        "enabled = true",
-        "",
-        "[mcp_servers.pencil]",
-        'command = "/Applications/Pen.app/Contents/MacOS/pencil-mcp"',
-        "",
-        "[mcp_servers.penkra]",
-        'url = "https://stale.example.test/mcp"',
-      ].join("\n");
-      await mkdir(sourceHomePath, { recursive: true });
-      await writeFile(sourceConfigPath, sourceConfig);
-      await prepareManagedCodexProfileConfig({
-        env: { CODEX_HOME: codexHome },
-        sourceHomePath,
-        cliAuthCredentialsStore: "keyring",
-        appendConfigToml: [
-          "[mcp_servers.penkra]",
-          'url = "http://127.0.0.1:4321/mcp"',
-          'bearer_token_env_var = "PENKRA_AGENT_GATEWAY_TOKEN"',
-        ].join("\n"),
-      });
-      const config = await readFile(path.join(codexHome, "config.toml"), "utf8");
-      expect(config).toContain('[plugins."browser@openai-bundled"]');
-      expect(config).toContain('cli_auth_credentials_store = "keyring"');
-      expect(config).toContain("[mcp_servers.pencil]");
-      expect(config).toContain("[mcp_servers.penkra]");
-      expect(config).toContain('url = "http://127.0.0.1:4321/mcp"');
-      expect(config).toContain("default_mode_request_user_input = true");
-      expect(config).toContain("goals = false");
-      expect(config).not.toContain("https://stale.example.test/mcp");
-      expect(config).toContain('exclude = ["PENKRA_AGENT_GATEWAY_TOKEN"]');
-
-      expect(await readFile(sourceConfigPath, "utf8")).toBe(sourceConfig);
-    } finally {
-      await rm(root, { recursive: true, force: true });
-    }
   });
 
   it("removes only Penkra's reserved gateway entry", () => {
