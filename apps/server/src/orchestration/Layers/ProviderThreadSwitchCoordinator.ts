@@ -104,29 +104,27 @@ export const makeProviderThreadSwitchCoordinator = Effect.gen(function* () {
           ...(thread.modelOptions === null ? {} : { options: JSON.parse(thread.modelOptions) }),
         })
       : input.command.modelSelection;
-    const resolveSelection = () =>
-      resolver
-        .resolveExisting({
-          threadId: input.command.threadId,
-          ...(modelSelection === undefined ? {} : { modelSelection }),
-          ...(nativeSteer
-            ? { connectionId: thread.connectionId }
-            : input.command.connectionId === undefined
-              ? {}
-              : { connectionId: input.command.connectionId }),
-        })
-        .pipe(
-          Effect.mapError(
-            (cause) =>
-              new ProviderThreadSwitchCoordinatorError({
-                code: cause.code,
-                detail: cause.message,
-                cause,
-              }),
-          ),
-        );
+    const selection = yield* resolver
+      .resolveExisting({
+        threadId: input.command.threadId,
+        ...(modelSelection === undefined ? {} : { modelSelection }),
+        ...(nativeSteer
+          ? { connectionId: thread.connectionId }
+          : input.command.connectionId === undefined
+            ? {}
+            : { connectionId: input.command.connectionId }),
+      })
+      .pipe(
+        Effect.mapError(
+          (cause) =>
+            new ProviderThreadSwitchCoordinatorError({
+              code: cause.code,
+              detail: cause.message,
+              cause,
+            }),
+        ),
+      );
 
-    let selection = yield* resolveSelection();
     if (!nativeSteer && thread.state === "running") {
       if (input.command.dispatchMode === "steer") {
         yield* provider
@@ -140,7 +138,6 @@ export const makeProviderThreadSwitchCoordinator = Effect.gen(function* () {
       yield* waitForIdle(input.command.threadId);
       thread = yield* readThread(input.command.threadId);
     }
-    if (!nativeSteer) selection = yield* resolveSelection();
 
     let nativeState: { id: string; providerSessionId: string | null } | undefined;
     if (
