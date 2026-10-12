@@ -22,6 +22,7 @@ import { decodeJsonResult } from "@penkra/shared/schemaJson";
 import { prepareWindowsSafeProcess } from "@penkra/shared/windowsProcess";
 import {
   Array,
+  Duration,
   Effect,
   Exit,
   Fiber,
@@ -32,6 +33,7 @@ import {
   PubSub,
   Ref,
   Result,
+  Schedule,
   Schema,
   Scope,
   Stream,
@@ -1182,7 +1184,12 @@ export function projectProviderStatusesForSettings(
 
 // ── Layer ───────────────────────────────────────────────────────────
 
-export function makeProviderHealthLive() {
+// Latest-release metadata is checked once daily, not on window focus (operator decision 7).
+export const PROVIDER_RELEASE_CHECK_INTERVAL = Duration.hours(24);
+
+export function makeProviderHealthLive(options?: {
+  readonly resolveManagedArtifact?: typeof resolveManagedProviderArtifact;
+}) {
   return Layer.effect(
     ProviderHealth,
     Effect.gen(function* () {
@@ -1268,57 +1275,49 @@ export function makeProviderHealthLive() {
         return projectedStatuses;
       });
 
+      const latestReleases = yield* Ref.make<
+        ReadonlyMap<ProviderKind, { readonly version: string; readonly checkedAt: string }>
+      >(new Map());
+
+      const applyReleaseAdvisories = (
+        statuses: ReadonlyArray<ServerProviderStatus>,
+        releases: ReadonlyMap<
+          ProviderKind,
+          { readonly version: string; readonly checkedAt: string }
+        >,
+      ): ProviderStatuses =>
+        statuses.map((status) => {
+          const currentVersion = status.version ?? null;
+          const release = releases.get(status.provider);
+          if (currentVersion === null || !release) {
+            return {
+              ...status,
+              versionAdvisory: makeSuppressedProviderVersionAdvisory(status),
+            };
+          }
+          const behind = compareSemverVersions(currentVersion, release.version) < 0;
+          return {
+            ...status,
+            versionAdvisory: {
+              status: behind ? "behind_latest" : "current",
+              currentVersion,
+              latestVersion: release.version,
+              updateCommand: null,
+              canUpdate: false,
+              checkedAt: release.checkedAt,
+              message: behind ? "A managed provider update is available." : null,
+            },
+          };
+        });
+
       const enrichStatuses = Effect.fn("enrichProviderStatuses")(function* (
         statuses: ReadonlyArray<ServerProviderStatus>,
       ) {
-        yield* serverSettings.ready.pipe(Effect.catch(() => Effect.void));
-        const enriched = yield* Effect.forEach(
-          statuses,
-          (status) => {
-            const currentVersion = status.version ?? null;
-            if (
-              currentVersion === null ||
-              (status.provider !== CODEX_PROVIDER &&
-                status.provider !== CLAUDE_AGENT_PROVIDER &&
-                status.provider !== OPENCODE_PROVIDER)
-            ) {
-              return Effect.succeed({
-                ...status,
-                versionAdvisory: makeSuppressedProviderVersionAdvisory(status),
-              });
-            }
-            return resolveManagedProviderArtifact({
-              provider: status.provider,
-              version: "latest",
-            }).pipe(
-              Effect.map((artifact) => {
-                const behind = compareSemverVersions(currentVersion, artifact.version) < 0;
-                return {
-                  ...status,
-                  versionAdvisory: {
-                    status: behind ? ("behind_latest" as const) : ("current" as const),
-                    currentVersion,
-                    latestVersion: artifact.version,
-                    updateCommand: null,
-                    canUpdate: false,
-                    checkedAt: new Date().toISOString(),
-                    message: behind ? "A managed provider update is available." : null,
-                  },
-                };
-              }),
-              Effect.catch(() =>
-                Effect.succeed({
-                  ...status,
-                  versionAdvisory: makeSuppressedProviderVersionAdvisory(status),
-                }),
-              ),
-            );
-          },
-          { concurrency: "unbounded" },
+        const releases = yield* Ref.get(latestReleases);
+        return yield* Effect.forEach(
+          applyReleaseAdvisories(statuses, releases),
+          applyVolatileProviderState,
         );
-        return yield* Effect.forEach(enriched, applyVolatileProviderState, {
-          concurrency: "unbounded",
-        });
       });
 
       const checkManagedProviderWhenEnabled = <R>(
@@ -1438,6 +1437,41 @@ export function makeProviderHealthLive() {
 
       yield* serverSettings.streamChanges.pipe(
         Stream.runForEach(() => publishProjectedStatuses().pipe(Effect.asVoid)),
+        Effect.forkIn(refreshScope),
+      );
+
+      const checkLatestReleases = Effect.gen(function* () {
+        yield* serverSettings.ready;
+        const settings = yield* serverSettings.getSettings;
+        yield* Effect.forEach(
+          PROVIDERS.filter((provider) => isProviderEnabledForSettings(provider, settings)),
+          (provider) =>
+            (options?.resolveManagedArtifact ?? resolveManagedProviderArtifact)({
+              provider,
+              version: "latest",
+            }).pipe(
+              Effect.tap((artifact) =>
+                Ref.update(latestReleases, (releases) =>
+                  new Map(releases).set(provider, {
+                    version: artifact.version,
+                    checkedAt: new Date().toISOString(),
+                  }),
+                ),
+              ),
+              Effect.catch((cause) =>
+                Effect.logWarning("provider latest-release check failed", { provider, cause }),
+              ),
+            ),
+          { concurrency: "unbounded", discard: true },
+        );
+        // Apply against the current snapshot, including any probe completed during the lookup.
+        const releases = yield* Ref.get(latestReleases);
+        yield* Ref.update(statusesRef, (statuses) => applyReleaseAdvisories(statuses, releases));
+        yield* Ref.get(statusesRef).pipe(Effect.flatMap(persistStatuses));
+        yield* publishProjectedStatuses();
+      });
+      yield* checkLatestReleases.pipe(
+        Effect.repeat(Schedule.spaced(PROVIDER_RELEASE_CHECK_INTERVAL)),
         Effect.forkIn(refreshScope),
       );
 
