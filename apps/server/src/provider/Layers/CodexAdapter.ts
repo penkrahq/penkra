@@ -1853,6 +1853,18 @@ const makeCodexAdapter = (options?: CodexAdapterLiveOptions) =>
     const hasSession: CodexAdapterShape["hasSession"] = (threadId) =>
       Effect.sync(() => manager.hasSession(threadId));
 
+    const stopAccount: NonNullable<CodexAdapterShape["stopAccount"]> = (connectionId) =>
+      Effect.tryPromise({
+        try: () => manager.stopAccount(connectionId),
+        catch: (cause) =>
+          new ProviderAdapterRequestError({
+            provider: PROVIDER,
+            method: "stopAccount",
+            detail: toMessage(cause, "Failed to stop the Codex account program."),
+            cause,
+          }),
+      });
+
     const stopAll: CodexAdapterShape["stopAll"] = () =>
       Effect.tryPromise({
         try: async () => {
@@ -2134,6 +2146,7 @@ const makeCodexAdapter = (options?: CodexAdapterLiveOptions) =>
       listSessions,
       hasSession,
       stopAll,
+      stopAccount,
       drainRuntimeEvents: runtimeEventIngress.ingress.stop.pipe(
         Effect.andThen(
           awaitProviderRuntimeEventsDrained(

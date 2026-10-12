@@ -296,6 +296,27 @@ it.effect("keeps the real OS home for a Connection-scoped Codex keyring", () =>
   ),
 );
 
+it.effect("Codex account transport identity ignores the thread native-state folder", () =>
+  Effect.gen(function* () {
+    const resolver = yield* ProviderLaunchResolver;
+    const input = {
+      harness: "codex" as const,
+      connectionId,
+      installationId,
+      internalProviderId: null,
+    };
+    const first = yield* resolver.resolveProfile({ ...input, nativeStateIdentity: "thread-a" });
+    const second = yield* resolver.resolveProfile({ ...input, nativeStateIdentity: "thread-b" });
+    assert.strictEqual(first.isolationKey, second.isolationKey);
+    assert.strictEqual(first.profileRoot, second.profileRoot);
+    assert.notStrictEqual(first.nativeStateRoot, second.nativeStateRoot);
+  }).pipe(
+    Effect.provide(ProviderLaunchResolverLive.pipe(Layer.provide(codexDependencies))),
+    Effect.provide(codexDependencies),
+    Effect.provide(NodeServices.layer),
+  ),
+);
+
 it.effect("rejects a QA fixture installation in an ordinary server profile", () =>
   Effect.gen(function* () {
     const resolver = yield* ProviderLaunchResolver;

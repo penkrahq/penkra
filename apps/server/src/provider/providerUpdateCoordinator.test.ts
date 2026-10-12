@@ -170,6 +170,7 @@ describe("provider update coordinator", () => {
           prefix: "penkra-provider-bootstrap-",
         });
         yield* runManagedProviderBootstrapCycle({
+          onProviderInstalled: () => Effect.void,
           providerHealth: {
             getStatuses: Effect.succeed([]),
             refresh: Effect.suspend(refresh),
@@ -220,6 +221,7 @@ describe("provider update coordinator", () => {
     const installManagedArtifact = vi.fn();
     await Effect.runPromise(
       runManagedProviderBootstrapCycle({
+        onProviderInstalled: () => Effect.void,
         providerHealth: {
           getStatuses: Effect.succeed([]),
           refresh: Effect.succeed([]),
@@ -274,6 +276,7 @@ describe("provider update coordinator", () => {
     const updateProvider = vi.fn();
     await Effect.runPromise(
       runAutomaticProviderUpdateCycle({
+        onProviderInstalled: () => Effect.void,
         providerHealth: {
           getStatuses: Effect.succeed([]),
           refresh: Effect.suspend(refresh),
@@ -299,6 +302,7 @@ describe("provider update coordinator", () => {
     const updateProvider = vi.fn();
     await Effect.runPromise(
       runAutomaticProviderUpdateCycle({
+        onProviderInstalled: () => Effect.void,
         providerHealth: {
           getStatuses: Effect.succeed([]),
           refresh: Effect.succeed([outdatedCodex()]),
@@ -328,6 +332,7 @@ describe("provider update coordinator", () => {
           prefix: "penkra-provider-rejected-retry-",
         });
         yield* runAutomaticProviderUpdateCycle({
+          onProviderInstalled: () => Effect.void,
           providerHealth: {
             getStatuses: Effect.succeed([]),
             refresh: Effect.succeed([outdatedCodex()]),
@@ -399,6 +404,7 @@ describe("provider update coordinator", () => {
           prefix: "penkra-provider-update-",
         });
         yield* runAutomaticProviderUpdateCycle({
+          onProviderInstalled: () => Effect.void,
           providerHealth: {
             getStatuses: Effect.succeed([]),
             refresh: Effect.suspend(refresh),
@@ -465,6 +471,7 @@ describe("provider update coordinator", () => {
           prefix: "penkra-provider-custom-path-",
         });
         yield* runAutomaticProviderUpdateCycle({
+          onProviderInstalled: () => Effect.void,
           providerHealth: {
             getStatuses: Effect.succeed([]),
             refresh: Effect.succeed([outdatedCodex()]),
@@ -526,6 +533,7 @@ describe("provider update coordinator", () => {
           prefix: "penkra-provider-opencode-update-",
         });
         yield* runAutomaticProviderUpdateCycle({
+          onProviderInstalled: () => Effect.void,
           providerHealth: {
             getStatuses: Effect.succeed([]),
             refresh: Effect.succeed([outdatedOpenCode()]),

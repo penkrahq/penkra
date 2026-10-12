@@ -200,12 +200,17 @@ export function removeDisabledLegacyComputerUseServer(config: string): string {
 }
 
 function prepareEffectiveCodexConfig(config: string): string {
-  return disableCodexGoals(
-    enableDefaultModeRequestUserInput(
-      enableOfficialComputerUseRoutes(
-        removeDisabledLegacyComputerUseServer(removeReservedPenkraMcpServer(config)),
+  // Explicit unsubscribe closes only that thread immediately, leaving sibling threads alive.
+  return setRootTomlValue(
+    disableCodexGoals(
+      enableDefaultModeRequestUserInput(
+        enableOfficialComputerUseRoutes(
+          removeDisabledLegacyComputerUseServer(removeReservedPenkraMcpServer(config)),
+        ),
       ),
     ),
+    "thread_unload_delay_secs",
+    0,
   );
 }
 
@@ -377,7 +382,7 @@ function normalizeTomlTableHeaderName(line: string): string | undefined {
   return parts.length > 0 ? JSON.stringify(parts) : undefined;
 }
 
-function setRootTomlString(config: string, key: string, value: string): string {
+function setRootTomlValue(config: string, key: string, value: string | number): string {
   const lines = config.split(/\r?\n/);
   const assignment = `${key} = ${JSON.stringify(value)}`;
   let firstTableIndex = lines.length;
@@ -537,7 +542,7 @@ export async function prepareManagedCodexProfileConfig(input: {
           });
     let config = prepareEffectiveCodexConfig(sourceConfig);
     if (input.cliAuthCredentialsStore) {
-      config = setRootTomlString(
+      config = setRootTomlValue(
         config,
         "cli_auth_credentials_store",
         input.cliAuthCredentialsStore,

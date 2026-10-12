@@ -136,6 +136,7 @@ function appendHistoryEntry(stateDir: string, entry: ProviderUpdateHistoryEntry)
 
 type ManagedProviderCoordinatorInput = {
   readonly providerHealth: ProviderHealthShape;
+  readonly onProviderInstalled: (provider: ProviderKind) => Effect.Effect<void, unknown>;
   readonly projectionSnapshotQuery: ProjectionSnapshotQueryShape;
   readonly serverSettings: ServerSettingsShape;
   readonly config: Pick<ServerConfigShape, "stateDir">;
@@ -207,6 +208,7 @@ function installAndRecordManagedArtifact(input: {
           }).pipe(Effect.ignore),
         ),
       );
+    yield* input.coordinator.onProviderInstalled(input.artifact.provider);
     return installed;
   });
 }

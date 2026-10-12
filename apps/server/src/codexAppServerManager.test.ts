@@ -51,6 +51,12 @@ import { CodexJsonlFramer, CodexJsonlWriter } from "./codexAppServerTransport";
 import { ensureDurableThreadWorkspace } from "./scratchWorkspaces";
 import { acquireAgentGatewaySessionLease } from "./agentGateway/sessionLease.ts";
 
+function closeProcessForTest(manager: CodexAppServerManager, transport: unknown): Promise<void> {
+  return (
+    manager as unknown as { closeAccountProcess: (transport: unknown) => Promise<void> }
+  ).closeAccountProcess(transport);
+}
+
 const asThreadId = (value: string): ThreadId => ThreadId.makeUnsafe(value);
 const asTurnId = (value: string): TurnId => TurnId.makeUnsafe(value);
 const fullAccessTurnOverrides = {
@@ -99,16 +105,14 @@ describe("Codex Penkra harness policy", () => {
   it("probes Responses with an isolated read-only turn and requires completion", async () => {
     const manager = new CodexAppServerManager();
     const context = {
-      session: { status: "ready" },
-      terminalTurnIds: new Set(),
-      authProbeCompletedTurnIds: new Set(),
+      probes: new Map<string, { resolve: (success: boolean) => void }>(),
       authProbeThreadId: undefined as string | undefined,
     };
     vi.spyOn(
       manager as unknown as {
-        getOrCreateDiscoverySession: (...args: unknown[]) => Promise<unknown>;
+        getOrCreateManagedProcess: (...args: unknown[]) => Promise<unknown>;
       },
-      "getOrCreateDiscoverySession",
+      "getOrCreateManagedProcess",
     ).mockResolvedValue(context);
     const sendRequest = vi
       .spyOn(
@@ -124,18 +128,18 @@ describe("Codex Penkra harness policy", () => {
     const input = { cwd: "/tmp", managedLaunch: {} as never, model: "catalog-luna", effort: "low" };
     expect(await manager.probeResponses(input)).toBe(true);
     expect(await manager.probeResponses(input)).toBe(false);
-    setTimeout(() => {
-      context.terminalTurnIds.add(TurnId.makeUnsafe("probe-turn-3"));
-      context.authProbeCompletedTurnIds.add(TurnId.makeUnsafe("probe-turn-3"));
-    }, 10);
-    expect(await manager.probeResponses(input)).toBe(true);
-    expect(sendRequest.mock.calls.map((call) => call[1])).toEqual([
+    const pendingProbe = manager.probeResponses(input);
+    await Promise.resolve();
+    await Promise.resolve();
+    context.probes.get("native-auth-probe")!.resolve(true);
+    expect(await pendingProbe).toBe(true);
+    expect(sendRequest.mock.calls.map((call) => call[2])).toEqual([
       "thread/start",
       "turn/start",
       "turn/start",
       "turn/start",
     ]);
-    expect(sendRequest.mock.calls[0]?.[2]).toMatchObject({
+    expect(sendRequest.mock.calls[0]?.[3]).toMatchObject({
       model: "catalog-luna",
       approvalPolicy: "untrusted",
       sandbox: "read-only",
@@ -143,7 +147,7 @@ describe("Codex Penkra harness policy", () => {
       environments: [],
       ephemeral: true,
     });
-    expect(sendRequest.mock.calls[1]?.[2]).toMatchObject({
+    expect(sendRequest.mock.calls[1]?.[3]).toMatchObject({
       threadId: "native-auth-probe",
       model: "catalog-luna",
       effort: "low",
@@ -266,6 +270,16 @@ describe("Codex Penkra harness policy", () => {
       },
     });
     const context = {
+      transport: {
+        key: "test-account",
+        cwd: "test-cwd",
+        connectionIds: new Set(),
+        token: Symbol("test-account"),
+        threads: new Set<unknown>(),
+        probes: new Map(),
+        pendingCloses: new Map(),
+        stopping: false,
+      },
       gatewaySessionLease: {
         connection: {
           url: "http://unused.invalid/mcp",
@@ -284,7 +298,6 @@ describe("Codex Penkra harness policy", () => {
         createdAt: "2026-08-10T00:00:00.000Z",
         updatedAt: "2026-08-10T00:00:00.000Z",
       },
-
       pendingUserInputs: new Map(),
       collabReceiverTurns: new Map(),
       collabReceiverParents: new Map(),
@@ -293,6 +306,7 @@ describe("Codex Penkra harness policy", () => {
       temporaryResourcePaths: new Map(),
       stopping: false,
     };
+    context.transport.threads.add(context);
     vi.spyOn(
       manager as unknown as { emitEvent: (...args: unknown[]) => void },
       "emitEvent",
@@ -391,11 +405,11 @@ describe("Codex Penkra harness policy", () => {
     );
     expect(invoke).toHaveBeenCalledTimes(2);
     expect(writeMessage).toHaveBeenLastCalledWith(
-      context,
+      context.transport,
       expect.objectContaining({ result: expect.objectContaining({ success: false }) }),
     );
     rmSync(resourceRoot, { recursive: true, force: true });
-    expect(writeMessage).toHaveBeenCalledWith(context, {
+    expect(writeMessage).toHaveBeenCalledWith(context.transport, {
       id: 71,
       result: {
         contentItems: response.result.contentItems,
@@ -423,6 +437,16 @@ describe("Codex Penkra harness policy", () => {
       },
     });
     const context = {
+      transport: {
+        key: "test-account",
+        cwd: "test-cwd",
+        connectionIds: new Set(),
+        token: Symbol("test-account"),
+        threads: new Set<unknown>(),
+        probes: new Map(),
+        pendingCloses: new Map(),
+        stopping: false,
+      },
       pendingGatewayTurnStart: undefined as { turnId?: TurnId; registered: boolean } | undefined,
       gatewaySessionLease: {
         connection: { url: "http://unused.invalid/mcp", bearerToken: "thread-token" },
@@ -438,7 +462,6 @@ describe("Codex Penkra harness policy", () => {
         createdAt: "2026-09-29T00:00:00.000Z",
         updatedAt: "2026-09-29T00:00:00.000Z",
       },
-
       pendingUserInputs: new Map(),
       collabReceiverTurns: new Map(),
       collabReceiverParents: new Map(),
@@ -447,6 +470,7 @@ describe("Codex Penkra harness policy", () => {
       temporaryResourcePaths: new Map(),
       stopping: false,
     };
+    context.transport.threads.add(context);
     vi.spyOn(
       manager as unknown as { emitEvent: (...args: unknown[]) => void },
       "emitEvent",
@@ -531,10 +555,15 @@ function createSendTurnHarness(runtimeMode: "approval-required" | "full-access" 
       createdAt: "2026-02-10T00:00:00.000Z",
       updatedAt: "2026-02-10T00:00:00.000Z",
     },
-    account: {
-      type: "unknown",
-      planType: null,
-      sparkEnabled: true,
+    transport: {
+      threads: new Set<unknown>(),
+      probes: new Map(),
+      pendingCloses: new Map(),
+      account: {
+        type: "unknown",
+        planType: null,
+        sparkEnabled: true,
+      },
     },
 
     pendingUserInputs: new Map(),
@@ -544,6 +573,7 @@ function createSendTurnHarness(runtimeMode: "approval-required" | "full-access" 
     terminalTurnIds: new Set<string>(),
   };
 
+  context.transport.threads.add(context);
   const requireSession = vi
     .spyOn(
       manager as unknown as { requireSession: (sessionId: string) => unknown },
@@ -640,7 +670,7 @@ describe("Codex native start ordering", () => {
       (
         manager as unknown as { handleStdoutLine: (context: unknown, line: string) => void }
       ).handleStdoutLine(
-        context,
+        context.transport,
         JSON.stringify({
           jsonrpc: "2.0",
           id: 89,
@@ -657,7 +687,7 @@ describe("Codex native start ordering", () => {
     (
       manager as unknown as { handleStdoutLine: (context: unknown, line: string) => void }
     ).handleStdoutLine(
-      context,
+      context.transport,
       JSON.stringify({
         jsonrpc: "2.0",
         method: "turn/completed",
@@ -674,6 +704,16 @@ describe("Codex native start ordering", () => {
 function createThreadControlHarness() {
   const manager = new CodexAppServerManager();
   const context = {
+    transport: {
+      key: "test-account",
+      cwd: "test-cwd",
+      connectionIds: new Set(),
+      token: Symbol("test-account"),
+      threads: new Set<unknown>(),
+      probes: new Map(),
+      pendingCloses: new Map(),
+      stopping: false,
+    },
     lifecycleGeneration: "generation-request-a",
     session: {
       provider: "codex",
@@ -686,13 +726,13 @@ function createThreadControlHarness() {
       createdAt: "2026-02-10T00:00:00.000Z",
       updatedAt: "2026-02-10T00:00:00.000Z",
     },
-
     pendingUserInputs: new Map(),
     collabReceiverTurns: new Map(),
     collabReceiverParents: new Map(),
     reviewTurnIds: new Set<string>(),
     terminalTurnIds: new Set<string>(),
   };
+  context.transport.threads.add(context);
 
   const requireSession = vi
     .spyOn(
@@ -726,6 +766,16 @@ function createThreadControlHarness() {
 function createPendingUserInputHarness() {
   const manager = new CodexAppServerManager();
   const context = {
+    transport: {
+      key: "test-account",
+      cwd: "test-cwd",
+      connectionIds: new Set(),
+      token: Symbol("test-account"),
+      threads: new Set<unknown>(),
+      probes: new Map(),
+      pendingCloses: new Map(),
+      stopping: false,
+    },
     session: {
       provider: "codex",
       status: "ready",
@@ -737,7 +787,6 @@ function createPendingUserInputHarness() {
       createdAt: "2026-02-10T00:00:00.000Z",
       updatedAt: "2026-02-10T00:00:00.000Z",
     },
-
     pendingUserInputs: new Map([
       [
         "req-user-input-1",
@@ -753,6 +802,7 @@ function createPendingUserInputHarness() {
     reviewTurnIds: new Set<string>(),
     terminalTurnIds: new Set<string>(),
   };
+  context.transport.threads.add(context);
 
   const requireSession = vi
     .spyOn(
@@ -778,6 +828,23 @@ function createPendingUserInputHarness() {
 function createCollabNotificationHarness() {
   const manager = new CodexAppServerManager();
   const context = {
+    transport: {
+      key: "test-account",
+      cwd: "test-cwd",
+      connectionIds: new Set(),
+      token: Symbol("test-account"),
+      threads: new Set<unknown>(),
+      probes: new Map(),
+      pendingCloses: new Map(),
+      stopping: false,
+      account: {
+        type: "unknown",
+        planType: null,
+        sparkEnabled: true,
+      },
+      pending: new Map(),
+      nextRequestId: 1,
+    },
     session: {
       provider: "codex",
       status: "running",
@@ -789,22 +856,14 @@ function createCollabNotificationHarness() {
       createdAt: "2026-02-10T00:00:00.000Z",
       updatedAt: "2026-02-10T00:00:00.000Z",
     },
-    account: {
-      type: "unknown",
-      planType: null,
-      sparkEnabled: true,
-    },
-    pending: new Map(),
-
     pendingUserInputs: new Map(),
-
     collabReceiverTurns: new Map<string, string>(),
     collabReceiverParents: new Map<string, string>(),
     reviewTurnIds: new Set<string>(),
     terminalTurnIds: new Set<string>(),
-    nextRequestId: 1,
     stopping: false,
   };
+  context.transport.threads.add(context);
 
   const emitEvent = vi
     .spyOn(manager as unknown as { emitEvent: (...args: unknown[]) => void }, "emitEvent")
@@ -870,6 +929,16 @@ async function handleServerRequestForTest(
 function createProcessOutputHarness() {
   const manager = new CodexAppServerManager();
   const context = {
+    transport: {
+      key: "test-account",
+      cwd: "test-cwd",
+      connectionIds: new Set(),
+      token: Symbol("test-account"),
+      threads: new Set<unknown>(),
+      probes: new Map(),
+      pendingCloses: new Map(),
+      stopping: false,
+    },
     session: {
       provider: "codex",
       status: "running",
@@ -883,6 +952,7 @@ function createProcessOutputHarness() {
     terminalTurnIds: new Set<string>(),
     stopping: false,
   };
+  context.transport.threads.add(context);
   const emitEvent = vi
     .spyOn(manager as unknown as { emitEvent: (...args: unknown[]) => void }, "emitEvent")
     .mockImplementation(() => {});
@@ -948,6 +1018,24 @@ describe("Codex app-server teardown", () => {
     const manager = new CodexAppServerManager();
     const threadId = asThreadId("thread-codex-failed-turn");
     const context = {
+      transport: {
+        key: "test-account",
+        cwd: "test-cwd",
+        connectionIds: new Set(),
+        token: Symbol("test-account"),
+        threads: new Set<unknown>(),
+        probes: new Map(),
+        pendingCloses: new Map(),
+        stopping: false,
+        account: { type: "unknown", planType: null, sparkEnabled: true },
+        child,
+        stdoutFramer: new CodexJsonlFramer(),
+        stdinWriter: new CodexJsonlWriter(child.stdin),
+        pending: new Map(),
+        stderrLineFramer: new CodexStderrLineFramer(),
+        stderrRecordFramer: new CodexStderrRecordFramer(),
+        nextRequestId: 1,
+      },
       session: {
         provider: "codex",
         status: "error",
@@ -957,22 +1045,14 @@ describe("Codex app-server teardown", () => {
         createdAt: "2026-07-14T00:00:00.000Z",
         updatedAt: "2026-07-14T00:00:00.000Z",
       },
-      account: { type: "unknown", planType: null, sparkEnabled: true },
-      child,
-      stdoutFramer: new CodexJsonlFramer(),
-      stdinWriter: new CodexJsonlWriter(child.stdin),
-      pending: new Map(),
-
       pendingUserInputs: new Map(),
       collabReceiverTurns: new Map(),
       collabReceiverParents: new Map(),
       reviewTurnIds: new Set(),
       terminalTurnIds: new Set(),
-      stderrLineFramer: new CodexStderrLineFramer(),
-      stderrRecordFramer: new CodexStderrRecordFramer(),
-      nextRequestId: 1,
       stopping: false,
     };
+    context.transport.threads.add(context);
     const internals = manager as unknown as {
       sessions: Map<ThreadId, unknown>;
       requireSession: (threadId: ThreadId) => unknown;
@@ -1003,8 +1083,13 @@ describe("Codex app-server teardown", () => {
     }
     const child = new FakeCodexChild();
     let exitProven = false;
+    let enteredTeardown!: () => void;
+    const teardownEntered = new Promise<void>((resolve) => {
+      enteredTeardown = resolve;
+    });
     const teardownProcessTree = vi.fn(
       async (input: { readonly rootPid: number; readonly rootExited: Promise<unknown> }) => {
+        enteredTeardown();
         expect(input.rootPid).toBe(5151);
         await input.rootExited;
         exitProven = true;
@@ -1028,6 +1113,24 @@ describe("Codex app-server teardown", () => {
       "codex",
     );
     const context = {
+      transport: {
+        key: "test-account",
+        cwd: "test-cwd",
+        connectionIds: new Set(),
+        token: Symbol("test-account"),
+        threads: new Set<unknown>(),
+        probes: new Map(),
+        pendingCloses: new Map(),
+        stopping: false,
+        account: { type: "unknown", planType: null, sparkEnabled: true },
+        child,
+        stdoutFramer: new CodexJsonlFramer(),
+        stdinWriter: new CodexJsonlWriter(child.stdin),
+        pending: new Map(),
+        stderrLineFramer: new CodexStderrLineFramer(),
+        stderrRecordFramer: new CodexStderrRecordFramer(),
+        nextRequestId: 1,
+      },
       gatewaySessionLease,
       session: {
         provider: "codex",
@@ -1037,30 +1140,22 @@ describe("Codex app-server teardown", () => {
         createdAt: "2026-07-14T00:00:00.000Z",
         updatedAt: "2026-07-14T00:00:00.000Z",
       },
-      account: { type: "unknown", planType: null, sparkEnabled: true },
-      child,
-      stdoutFramer: new CodexJsonlFramer(),
-      stdinWriter: new CodexJsonlWriter(child.stdin),
-      pending: new Map(),
-
       pendingUserInputs: new Map(),
       collabReceiverTurns: new Map(),
       collabReceiverParents: new Map(),
       reviewTurnIds: new Set(),
       terminalTurnIds: new Set(),
-      stderrLineFramer: new CodexStderrLineFramer(),
-      stderrRecordFramer: new CodexStderrRecordFramer(),
-      nextRequestId: 1,
       stopping: false,
     };
+    context.transport.threads.add(context);
     (
       manager as unknown as {
         sessions: Map<ThreadId, unknown>;
       }
     ).sessions.set(threadId, context);
 
-    const stopping = manager.stopSession(threadId);
-    await Promise.resolve();
+    const stopping = closeProcessForTest(manager, context.transport);
+    await teardownEntered;
     expect(revokeSessionToken).toHaveBeenCalledOnce();
     expect(teardownProcessTree).toHaveBeenCalledTimes(1);
     // Unroutable immediately: follow-ups must fall through to thread/resume
@@ -1101,6 +1196,24 @@ describe("Codex app-server teardown", () => {
       "codex",
     );
     const context = {
+      transport: {
+        key: "test-account",
+        cwd: "test-cwd",
+        connectionIds: new Set(),
+        token: Symbol("test-account"),
+        threads: new Set<unknown>(),
+        probes: new Map(),
+        pendingCloses: new Map(),
+        stopping: false,
+        account: { type: "unknown", planType: null, sparkEnabled: true },
+        child,
+        stdoutFramer: new CodexJsonlFramer(),
+        stdinWriter: new CodexJsonlWriter(child.stdin),
+        pending: new Map(),
+        stderrLineFramer: new CodexStderrLineFramer(),
+        stderrRecordFramer: new CodexStderrRecordFramer(),
+        nextRequestId: 1,
+      },
       gatewaySessionLease,
       session: {
         provider: "codex",
@@ -1110,28 +1223,20 @@ describe("Codex app-server teardown", () => {
         createdAt: "2026-07-14T00:00:00.000Z",
         updatedAt: "2026-07-14T00:00:00.000Z",
       },
-      account: { type: "unknown", planType: null, sparkEnabled: true },
-      child,
-      stdoutFramer: new CodexJsonlFramer(),
-      stdinWriter: new CodexJsonlWriter(child.stdin),
-      pending: new Map(),
-
       pendingUserInputs: new Map(),
       collabReceiverTurns: new Map(),
       collabReceiverParents: new Map(),
       reviewTurnIds: new Set(),
       terminalTurnIds: new Set(),
-      stderrLineFramer: new CodexStderrLineFramer(),
-      stderrRecordFramer: new CodexStderrRecordFramer(),
-      nextRequestId: 1,
       stopping: false,
     };
+    context.transport.threads.add(context);
     const internals = manager as unknown as {
       sessions: Map<ThreadId, unknown>;
       attachProcessListeners: (context: unknown) => void;
     };
     internals.sessions.set(threadId, context);
-    internals.attachProcessListeners(context);
+    internals.attachProcessListeners(context.transport);
 
     child.emit("exit", 1, null);
     child.emit("exit", 1, null);
@@ -1156,6 +1261,38 @@ describe("Codex app-server teardown", () => {
     const reject = vi.fn();
     const timeout = setTimeout(() => undefined, 60_000);
     const context = {
+      transport: {
+        key: "test-account",
+        cwd: "/Users/test/Desktop/protected-workspace",
+        connectionIds: new Set(),
+        token: Symbol("test-account"),
+        threads: new Set<unknown>(),
+        probes: new Map(),
+        pendingCloses: new Map(),
+        stopping: false,
+        account: { type: "unknown", planType: null, sparkEnabled: true },
+        child,
+        binaryPath: "/managed/codex",
+        stdoutFramer: new CodexJsonlFramer(),
+        stdinWriter: new CodexJsonlWriter(child.stdin),
+        pending: new Map([
+          [
+            "1",
+            {
+              method: "initialize",
+              timeout,
+              resolve: vi.fn(),
+              reject,
+            },
+          ],
+        ]),
+        mcpStartupStatuses: new Map(),
+        reportedMcpStartupFailures: new Set(),
+        stderrLineFramer: new CodexStderrLineFramer(),
+        stderrRecordFramer: new CodexStderrRecordFramer(),
+        nextRequestId: 2,
+        lastRequestMethod: "initialize",
+      },
       session: {
         provider: "codex",
         status: "connecting",
@@ -1165,42 +1302,20 @@ describe("Codex app-server teardown", () => {
         createdAt: "2026-07-14T00:00:00.000Z",
         updatedAt: "2026-07-14T00:00:00.000Z",
       },
-      account: { type: "unknown", planType: null, sparkEnabled: true },
-      child,
-      binaryPath: "/managed/codex",
-      stdoutFramer: new CodexJsonlFramer(),
-      stdinWriter: new CodexJsonlWriter(child.stdin),
-      pending: new Map([
-        [
-          "1",
-          {
-            method: "initialize",
-            timeout,
-            resolve: vi.fn(),
-            reject,
-          },
-        ],
-      ]),
-
       pendingUserInputs: new Map(),
       collabReceiverTurns: new Map(),
       collabReceiverParents: new Map(),
       reviewTurnIds: new Set(),
       terminalTurnIds: new Set(),
-      mcpStartupStatuses: new Map(),
-      reportedMcpStartupFailures: new Set(),
-      stderrLineFramer: new CodexStderrLineFramer(),
-      stderrRecordFramer: new CodexStderrRecordFramer(),
-      nextRequestId: 2,
-      lastRequestMethod: "initialize",
       stopping: false,
     };
+    context.transport.threads.add(context);
     const internals = manager as unknown as {
       sessions: Map<ThreadId, unknown>;
       attachProcessListeners: (context: unknown) => void;
     };
     internals.sessions.set(threadId, context);
-    internals.attachProcessListeners(context);
+    internals.attachProcessListeners(context.transport);
 
     child.stderr.write("authorization: bearer-secret-");
     child.stderr.write("value-that-must-not-leak\nfatal: Operation not permitted (os error 1)\n");
@@ -1237,6 +1352,37 @@ describe("Codex app-server teardown", () => {
     const reject = vi.fn();
     const timeout = setTimeout(() => undefined, 60_000);
     const context = {
+      transport: {
+        key: "test-account",
+        cwd: "test-cwd",
+        connectionIds: new Set(),
+        token: Symbol("test-account"),
+        threads: new Set<unknown>(),
+        probes: new Map(),
+        pendingCloses: new Map(),
+        stopping: false,
+        account: { type: "unknown", planType: null, sparkEnabled: true },
+        child,
+        stdoutFramer: new CodexJsonlFramer(1_024),
+        stdinWriter: new CodexJsonlWriter(child.stdin),
+        pending: new Map([
+          [
+            "7",
+            {
+              method: "turn/steer",
+              timeout,
+              resolve,
+              reject,
+            },
+          ],
+        ]),
+        mcpStartupStatuses: new Map(),
+        reportedMcpStartupFailures: new Set(),
+        stderrLineFramer: new CodexStderrLineFramer(),
+        stderrRecordFramer: new CodexStderrRecordFramer(),
+        nextRequestId: 8,
+        lastRequestMethod: "turn/steer",
+      },
       session: {
         provider: "codex",
         status: "running",
@@ -1247,35 +1393,14 @@ describe("Codex app-server teardown", () => {
         createdAt: "2026-09-15T00:00:00.000Z",
         updatedAt: "2026-09-15T00:00:00.000Z",
       },
-      account: { type: "unknown", planType: null, sparkEnabled: true },
-      child,
-      stdoutFramer: new CodexJsonlFramer(1_024),
-      stdinWriter: new CodexJsonlWriter(child.stdin),
-      pending: new Map([
-        [
-          "7",
-          {
-            method: "turn/steer",
-            timeout,
-            resolve,
-            reject,
-          },
-        ],
-      ]),
-
       pendingUserInputs: new Map(),
       collabReceiverTurns: new Map([["child-provider-thread", asTurnId("parent-turn")]]),
       collabReceiverParents: new Map([["child-provider-thread", "parent-provider-thread"]]),
       reviewTurnIds: new Set(),
       terminalTurnIds: new Set(),
-      mcpStartupStatuses: new Map(),
-      reportedMcpStartupFailures: new Set(),
-      stderrLineFramer: new CodexStderrLineFramer(),
-      stderrRecordFramer: new CodexStderrRecordFramer(),
-      nextRequestId: 8,
-      lastRequestMethod: "turn/steer",
       stopping: false,
     };
+    context.transport.threads.add(context);
     const events: Array<{
       readonly method?: string;
       readonly payload?: unknown;
@@ -1286,7 +1411,7 @@ describe("Codex app-server teardown", () => {
       attachProcessListeners: (context: unknown) => void;
     };
     internals.sessions.set(threadId, context);
-    internals.attachProcessListeners(context);
+    internals.attachProcessListeners(context.transport);
 
     child.stdout.write(
       `${JSON.stringify({
@@ -1418,6 +1543,38 @@ describe("Codex app-server teardown", () => {
       const reject = vi.fn();
       const timeout = setTimeout(() => undefined, 60_000);
       const context = {
+        transport: {
+          key: "test-account",
+          cwd: "/Users/test/Desktop/protected-workspace",
+          connectionIds: new Set(),
+          token: Symbol("test-account"),
+          threads: new Set<unknown>(),
+          probes: new Map(),
+          pendingCloses: new Map(),
+          stopping: false,
+          account: { type: "unknown", planType: null, sparkEnabled: true },
+          child,
+          binaryPath: "/managed/codex",
+          stdoutFramer: new CodexJsonlFramer(),
+          stdinWriter: new CodexJsonlWriter(child.stdin),
+          pending: new Map([
+            [
+              "1",
+              {
+                method: "initialize",
+                timeout,
+                resolve: vi.fn(),
+                reject,
+              },
+            ],
+          ]),
+          mcpStartupStatuses: new Map(),
+          reportedMcpStartupFailures: new Set(),
+          stderrLineFramer: new CodexStderrLineFramer(),
+          stderrRecordFramer: new CodexStderrRecordFramer(),
+          nextRequestId: 2,
+          lastRequestMethod: "initialize",
+        },
         session: {
           provider: "codex",
           status: "connecting",
@@ -1427,42 +1584,20 @@ describe("Codex app-server teardown", () => {
           createdAt: "2026-07-14T00:00:00.000Z",
           updatedAt: "2026-07-14T00:00:00.000Z",
         },
-        account: { type: "unknown", planType: null, sparkEnabled: true },
-        child,
-        binaryPath: "/managed/codex",
-        stdoutFramer: new CodexJsonlFramer(),
-        stdinWriter: new CodexJsonlWriter(child.stdin),
-        pending: new Map([
-          [
-            "1",
-            {
-              method: "initialize",
-              timeout,
-              resolve: vi.fn(),
-              reject,
-            },
-          ],
-        ]),
-
         pendingUserInputs: new Map(),
         collabReceiverTurns: new Map(),
         collabReceiverParents: new Map(),
         reviewTurnIds: new Set(),
         terminalTurnIds: new Set(),
-        mcpStartupStatuses: new Map(),
-        reportedMcpStartupFailures: new Set(),
-        stderrLineFramer: new CodexStderrLineFramer(),
-        stderrRecordFramer: new CodexStderrRecordFramer(),
-        nextRequestId: 2,
-        lastRequestMethod: "initialize",
         stopping: false,
       };
+      context.transport.threads.add(context);
       const internals = manager as unknown as {
         sessions: Map<ThreadId, unknown>;
         attachProcessListeners: (context: unknown) => void;
       };
       internals.sessions.set(threadId, context);
-      internals.attachProcessListeners(context);
+      internals.attachProcessListeners(context.transport);
 
       child.stderr.write("fatal: helper launch failed: Operation not permitted (os error 1)\n");
       child.stdout.emit("end");
@@ -1633,13 +1768,17 @@ describe("Codex MCP startup diagnostics", () => {
     const manager = new CodexAppServerManager();
     const events: ProviderEvent[] = [];
     manager.on("event", (event) => events.push(event));
-    const context = { session: { threadId: asThreadId("thread-missing-output") } };
+    const context = {
+      transport: { threads: new Set<unknown>() },
+      session: { threadId: asThreadId("thread-missing-output") },
+    };
+    context.transport.threads.add(context);
     const internals = manager as unknown as {
       handleCodexStderrRecord: (context: unknown, record: string) => void;
     };
 
     internals.handleCodexStderrRecord(
-      context,
+      context.transport,
       "2026-09-15T13:00:35.067479Z ERROR rmcp::transport::worker: Custom tool call output is missing for call id: call-1",
     );
 
@@ -1680,10 +1819,21 @@ describe("Codex MCP startup diagnostics", () => {
     const events: ProviderEvent[] = [];
     manager.on("event", (event) => events.push(event));
     const context = {
+      transport: {
+        key: "test-account",
+        cwd: "test-cwd",
+        connectionIds: new Set(),
+        token: Symbol("test-account"),
+        threads: new Set<unknown>(),
+        probes: new Map(),
+        pendingCloses: new Map(),
+        stopping: false,
+        mcpStartupStatuses: new Map(),
+        reportedMcpStartupFailures: new Set<string>(),
+      },
       session: { threadId: asThreadId("thread-mcp-startup-failure") },
-      mcpStartupStatuses: new Map(),
-      reportedMcpStartupFailures: new Set<string>(),
     };
+    context.transport.threads.add(context);
     const internals = manager as unknown as {
       refreshComputerUseCapabilityHealth: (
         context: unknown,
@@ -1718,10 +1868,21 @@ describe("Codex MCP startup diagnostics", () => {
     const events: ProviderEvent[] = [];
     manager.on("event", (event) => events.push(event));
     const context = {
+      transport: {
+        key: "test-account",
+        cwd: "test-cwd",
+        connectionIds: new Set(),
+        token: Symbol("test-account"),
+        threads: new Set<unknown>(),
+        probes: new Map(),
+        pendingCloses: new Map(),
+        stopping: false,
+        mcpStartupStatuses: new Map(),
+        reportedMcpStartupFailures: new Set<string>(),
+      },
       session: { threadId: asThreadId("thread-mcp-runtime-status-failure") },
-      mcpStartupStatuses: new Map(),
-      reportedMcpStartupFailures: new Set<string>(),
     };
+    context.transport.threads.add(context);
 
     await (
       manager as unknown as {
@@ -1761,10 +1922,21 @@ describe("Codex MCP startup diagnostics", () => {
     const events: ProviderEvent[] = [];
     manager.on("event", (event) => events.push(event));
     const context = {
+      transport: {
+        key: "test-account",
+        cwd: "test-cwd",
+        connectionIds: new Set(),
+        token: Symbol("test-account"),
+        threads: new Set<unknown>(),
+        probes: new Map(),
+        pendingCloses: new Map(),
+        stopping: false,
+        mcpStartupStatuses: new Map(),
+        reportedMcpStartupFailures: new Set<string>(),
+      },
       session: { threadId: asThreadId("thread-mcp-recovery") },
-      mcpStartupStatuses: new Map(),
-      reportedMcpStartupFailures: new Set<string>(),
     };
+    context.transport.threads.add(context);
     const internals = manager as unknown as {
       refreshComputerUseCapabilityHealth: (
         context: unknown,
@@ -2221,7 +2393,7 @@ describe("handleStdoutLine", () => {
         handleStdoutLine: (context: unknown, line: string) => void;
       }
     ).handleStdoutLine(
-      context,
+      context.transport,
       "^CToken usage: total=360,953 input=336,874 (+ 4,219,648 cached) output=24,079 (reasoning 7,982)",
     );
 
@@ -2237,7 +2409,7 @@ describe("handleStdoutLine", () => {
     ).handleStdoutLine.bind(manager);
 
     for (const line of ["Reasoning trace", "Reasoning summary", "Command execution"]) {
-      handleStdoutLine(context, line);
+      handleStdoutLine(context.transport, line);
     }
 
     expect(emitEvent).not.toHaveBeenCalled();
@@ -2252,7 +2424,7 @@ describe("handleStdoutLine", () => {
     ).handleStdoutLine.bind(manager);
 
     for (const line of ["{", "[", '{"scripts": {', "{}", "[]", '{"name":"penkra"}']) {
-      handleStdoutLine(context, line);
+      handleStdoutLine(context.transport, line);
     }
 
     expect(emitEvent).not.toHaveBeenCalled();
@@ -2265,7 +2437,7 @@ describe("handleStdoutLine", () => {
       manager as unknown as {
         handleStdoutLine: (context: unknown, line: string) => void;
       }
-    ).handleStdoutLine(context, '{"method":"item/started"');
+    ).handleStdoutLine(context.transport, '{"method":"item/started"');
 
     expect(emitEvent).not.toHaveBeenCalled();
   });
@@ -2377,7 +2549,7 @@ describe("startSession", () => {
 
   it("reconciles local plugins and reloads skills before opening a thread", async () => {
     const manager = new CodexAppServerManager();
-    const context = {};
+    const context = { transport: {}, session: { threadId: asThreadId("test-thread") } };
     const sendRequest = vi
       .spyOn(
         manager as unknown as {
@@ -2398,19 +2570,27 @@ describe("startSession", () => {
 
     expect(sendRequest.mock.calls).toEqual([
       [
-        context,
+        context.transport,
+        context.session.threadId,
         "plugin/list",
         { cwds: ["/workspace"], marketplaceKinds: ["local"] },
         undefined,
         undefined,
       ],
-      [context, "skills/list", { cwds: ["/workspace"], forceReload: true }, undefined, undefined],
+      [
+        context.transport,
+        context.session.threadId,
+        "skills/list",
+        { cwds: ["/workspace"], forceReload: true },
+        undefined,
+        undefined,
+      ],
     ]);
   });
 
   it("falls back for runtimes with the older plugin and skill list parameter shapes", async () => {
     const manager = new CodexAppServerManager();
-    const context = {};
+    const context = { transport: {}, session: { threadId: asThreadId("test-thread") } };
     const sendRequest = vi
       .spyOn(
         manager as unknown as {
@@ -2436,15 +2616,37 @@ describe("startSession", () => {
 
     expect(sendRequest.mock.calls).toEqual([
       [
-        context,
+        context.transport,
+        context.session.threadId,
         "plugin/list",
         { cwds: ["/workspace"], marketplaceKinds: ["local"] },
         undefined,
         undefined,
       ],
-      [context, "plugin/list", { cwds: ["/workspace"] }, undefined, undefined],
-      [context, "skills/list", { cwds: ["/workspace"], forceReload: true }, undefined, undefined],
-      [context, "skills/list", { cwd: "/workspace", forceReload: true }, undefined, undefined],
+      [
+        context.transport,
+        context.session.threadId,
+        "plugin/list",
+        { cwds: ["/workspace"] },
+        undefined,
+        undefined,
+      ],
+      [
+        context.transport,
+        context.session.threadId,
+        "skills/list",
+        { cwds: ["/workspace"], forceReload: true },
+        undefined,
+        undefined,
+      ],
+      [
+        context.transport,
+        context.session.threadId,
+        "skills/list",
+        { cwd: "/workspace", forceReload: true },
+        undefined,
+        undefined,
+      ],
     ]);
   });
 
@@ -2461,13 +2663,14 @@ describe("startSession", () => {
       manager as unknown as {
         sendRequest: (
           context: unknown,
+          ownerThreadId: ThreadId | null,
           method: string,
           params: unknown,
           timeoutMs: number,
           signal: AbortSignal,
         ) => Promise<unknown>;
       }
-    ).sendRequest(context, "thread/resume", {}, 10_000, controller.signal);
+    ).sendRequest(context, null, "thread/resume", {}, 10_000, controller.signal);
     await Promise.resolve();
     expect(context.pending.size).toBe(1);
 
@@ -2734,9 +2937,14 @@ describe("sendTurn", () => {
     };
     const request = (
       manager as unknown as {
-        sendRequest: (context: unknown, method: string, params: unknown) => Promise<unknown>;
+        sendRequest: (
+          context: unknown,
+          ownerThreadId: ThreadId | null,
+          method: string,
+          params: unknown,
+        ) => Promise<unknown>;
       }
-    ).sendRequest(context, "turn/start", {});
+    ).sendRequest(context, null, "turn/start", {});
     await Promise.resolve();
     (
       manager as unknown as {
@@ -2942,33 +3150,38 @@ describe("sendTurn", () => {
       resumeCursor: { threadId: "thread_1" },
     });
     expect(requireSession).toHaveBeenCalledWith("thread_1");
-    expect(sendRequest).toHaveBeenCalledWith(context, "turn/start", {
-      threadId: "thread_1",
-      ...fullAccessTurnOverrides,
-      summary: "auto",
-      input: [
-        {
-          type: "text",
-          text: "Inspect this image",
-          text_elements: [],
-        },
-        {
-          type: "image",
-          url: "data:image/png;base64,AAAA",
-        },
-      ],
-      model: "gpt-5.3",
-      serviceTier: "fast",
-      effort: "high",
-      collaborationMode: {
-        mode: "default",
-        settings: {
-          model: "gpt-5.3",
-          reasoning_effort: "high",
-          developer_instructions: CODEX_DEVELOPER_INSTRUCTIONS,
+    expect(sendRequest).toHaveBeenCalledWith(
+      context.transport,
+      context.session.threadId,
+      "turn/start",
+      {
+        threadId: "thread_1",
+        ...fullAccessTurnOverrides,
+        summary: "auto",
+        input: [
+          {
+            type: "text",
+            text: "Inspect this image",
+            text_elements: [],
+          },
+          {
+            type: "image",
+            url: "data:image/png;base64,AAAA",
+          },
+        ],
+        model: "gpt-5.3",
+        serviceTier: "fast",
+        effort: "high",
+        collaborationMode: {
+          mode: "default",
+          settings: {
+            model: "gpt-5.3",
+            reasoning_effort: "high",
+            developer_instructions: CODEX_DEVELOPER_INSTRUCTIONS,
+          },
         },
       },
-    });
+    );
     expect(updateSession).toHaveBeenCalledWith(context, {
       status: "running",
       activeTurnId: "turn_1",
@@ -2984,28 +3197,33 @@ describe("sendTurn", () => {
       input: "Check this before changing files",
     });
 
-    expect(sendRequest).toHaveBeenCalledWith(context, "turn/start", {
-      threadId: "thread_1",
-      ...approvalRequiredTurnOverrides,
-      approvalPolicy: "never",
-      summary: "auto",
-      input: [
-        {
-          type: "text",
-          text: "Check this before changing files",
-          text_elements: [],
-        },
-      ],
-      model: "gpt-5.3-codex",
-      collaborationMode: {
-        mode: "default",
-        settings: {
-          model: "gpt-5.3-codex",
-          reasoning_effort: "medium",
-          developer_instructions: CODEX_DEVELOPER_INSTRUCTIONS,
+    expect(sendRequest).toHaveBeenCalledWith(
+      context.transport,
+      context.session.threadId,
+      "turn/start",
+      {
+        threadId: "thread_1",
+        ...approvalRequiredTurnOverrides,
+        approvalPolicy: "never",
+        summary: "auto",
+        input: [
+          {
+            type: "text",
+            text: "Check this before changing files",
+            text_elements: [],
+          },
+        ],
+        model: "gpt-5.3-codex",
+        collaborationMode: {
+          mode: "default",
+          settings: {
+            model: "gpt-5.3-codex",
+            reasoning_effort: "medium",
+            developer_instructions: CODEX_DEVELOPER_INSTRUCTIONS,
+          },
         },
       },
-    });
+    );
   });
 
   it("passes the Codex collaboration preset on turn/start", async () => {
@@ -3016,27 +3234,32 @@ describe("sendTurn", () => {
       input: "PLEASE IMPLEMENT THIS PLAN:\n- step 1",
     });
 
-    expect(sendRequest).toHaveBeenCalledWith(context, "turn/start", {
-      threadId: "thread_1",
-      ...fullAccessTurnOverrides,
-      summary: "auto",
-      input: [
-        {
-          type: "text",
-          text: "PLEASE IMPLEMENT THIS PLAN:\n- step 1",
-          text_elements: [],
-        },
-      ],
-      model: "gpt-5.3-codex",
-      collaborationMode: {
-        mode: "default",
-        settings: {
-          model: "gpt-5.3-codex",
-          reasoning_effort: "medium",
-          developer_instructions: CODEX_DEVELOPER_INSTRUCTIONS,
+    expect(sendRequest).toHaveBeenCalledWith(
+      context.transport,
+      context.session.threadId,
+      "turn/start",
+      {
+        threadId: "thread_1",
+        ...fullAccessTurnOverrides,
+        summary: "auto",
+        input: [
+          {
+            type: "text",
+            text: "PLEASE IMPLEMENT THIS PLAN:\n- step 1",
+            text_elements: [],
+          },
+        ],
+        model: "gpt-5.3-codex",
+        collaborationMode: {
+          mode: "default",
+          settings: {
+            model: "gpt-5.3-codex",
+            reasoning_effort: "medium",
+            developer_instructions: CODEX_DEVELOPER_INSTRUCTIONS,
+          },
         },
       },
-    });
+    );
   });
 
   it("keeps the session model when no explicit model is supplied", async () => {
@@ -3048,27 +3271,32 @@ describe("sendTurn", () => {
       input: "Plan this with my current session model",
     });
 
-    expect(sendRequest).toHaveBeenCalledWith(context, "turn/start", {
-      threadId: "thread_1",
-      ...fullAccessTurnOverrides,
-      summary: "auto",
-      input: [
-        {
-          type: "text",
-          text: "Plan this with my current session model",
-          text_elements: [],
-        },
-      ],
-      model: "gpt-5.2-codex",
-      collaborationMode: {
-        mode: "default",
-        settings: {
-          model: "gpt-5.2-codex",
-          reasoning_effort: "medium",
-          developer_instructions: CODEX_DEVELOPER_INSTRUCTIONS,
+    expect(sendRequest).toHaveBeenCalledWith(
+      context.transport,
+      context.session.threadId,
+      "turn/start",
+      {
+        threadId: "thread_1",
+        ...fullAccessTurnOverrides,
+        summary: "auto",
+        input: [
+          {
+            type: "text",
+            text: "Plan this with my current session model",
+            text_elements: [],
+          },
+        ],
+        model: "gpt-5.2-codex",
+        collaborationMode: {
+          mode: "default",
+          settings: {
+            model: "gpt-5.2-codex",
+            reasoning_effort: "medium",
+            developer_instructions: CODEX_DEVELOPER_INSTRUCTIONS,
+          },
         },
       },
-    });
+    );
   });
 
   it("starts a fresh turn even when the session currently reports running", async () => {
@@ -3098,33 +3326,38 @@ describe("sendTurn", () => {
       turnId: "turn_next",
       resumeCursor: { threadId: "thread_1" },
     });
-    expect(sendRequest).toHaveBeenCalledWith(context, "turn/start", {
-      threadId: "thread_1",
-      ...fullAccessTurnOverrides,
-      summary: "auto",
-      input: [
-        {
-          type: "text",
-          text: "Focus on the failing tests first",
-          text_elements: [],
-        },
-        {
-          type: "image",
-          url: "data:image/png;base64,AAAA",
-        },
-      ],
-      model: "gpt-5.4",
-      serviceTier: "fast",
-      effort: "high",
-      collaborationMode: {
-        mode: "default",
-        settings: {
-          model: "gpt-5.4",
-          reasoning_effort: "high",
-          developer_instructions: CODEX_DEVELOPER_INSTRUCTIONS,
+    expect(sendRequest).toHaveBeenCalledWith(
+      context.transport,
+      context.session.threadId,
+      "turn/start",
+      {
+        threadId: "thread_1",
+        ...fullAccessTurnOverrides,
+        summary: "auto",
+        input: [
+          {
+            type: "text",
+            text: "Focus on the failing tests first",
+            text_elements: [],
+          },
+          {
+            type: "image",
+            url: "data:image/png;base64,AAAA",
+          },
+        ],
+        model: "gpt-5.4",
+        serviceTier: "fast",
+        effort: "high",
+        collaborationMode: {
+          mode: "default",
+          settings: {
+            model: "gpt-5.4",
+            reasoning_effort: "high",
+            developer_instructions: CODEX_DEVELOPER_INSTRUCTIONS,
+          },
         },
       },
-    });
+    );
     expect(updateSession).toHaveBeenCalledWith(context, {
       status: "running",
       activeTurnId: "turn_next",
@@ -3152,7 +3385,8 @@ describe("sendTurn", () => {
     });
 
     expect(sendRequest).toHaveBeenCalledWith(
-      context,
+      context.transport,
+      context.session.threadId,
       "turn/start",
       expect.objectContaining({
         model: "gpt-5.3-codex-spark",
@@ -3183,18 +3417,23 @@ describe("steerTurn", () => {
       turnId: "turn_active",
       resumeCursor: { threadId: "thread_1" },
     });
-    expect(sendRequest).toHaveBeenCalledWith(context, "turn/steer", {
-      threadId: "thread_1",
-      input: [
-        {
-          type: "text",
-          text: "Keep going",
-          text_elements: [],
-        },
-      ],
-      expectedTurnId: "turn_active",
-      clientUserMessageId: "message_steer_1",
-    });
+    expect(sendRequest).toHaveBeenCalledWith(
+      context.transport,
+      context.session.threadId,
+      "turn/steer",
+      {
+        threadId: "thread_1",
+        input: [
+          {
+            type: "text",
+            text: "Keep going",
+            text_elements: [],
+          },
+        ],
+        expectedTurnId: "turn_active",
+        clientUserMessageId: "message_steer_1",
+      },
+    );
     expect(context.collabReceiverTurns.get("child_provider_1")).toBe("turn_active");
   });
 
@@ -3230,7 +3469,7 @@ describe("steerTurn", () => {
     });
 
     expect(result.turnId).toBe("turn_new");
-    expect(sendRequest.mock.calls.map(([, method]) => method)).toEqual([
+    expect(sendRequest.mock.calls.map(([, , method]) => method)).toEqual([
       "turn/steer",
       "thread/read",
       "turn/start",
@@ -3257,7 +3496,7 @@ describe("steerTurn", () => {
         input: "Keep going",
       }),
     ).rejects.toBe(steerError);
-    expect(sendRequest.mock.calls.map(([, method]) => method)).toEqual([
+    expect(sendRequest.mock.calls.map(([, , method]) => method)).toEqual([
       "turn/steer",
       "thread/read",
     ]);
@@ -3268,6 +3507,21 @@ describe("CodexAppServerManager discovery", () => {
   it("wires model discovery through model/list", async () => {
     const manager = new CodexAppServerManager();
     const context = {
+      transport: {
+        key: "test-account",
+        cwd: "test-cwd",
+        connectionIds: new Set(),
+        token: Symbol("test-account"),
+        threads: new Set<unknown>(),
+        probes: new Map(),
+        pendingCloses: new Map(),
+        stopping: false,
+        account: {
+          type: "unknown",
+          planType: null,
+          sparkEnabled: true,
+        },
+      },
       session: {
         provider: "codex",
         status: "ready",
@@ -3275,21 +3529,17 @@ describe("CodexAppServerManager discovery", () => {
         runtimeMode: "full-access",
         model: "gpt-5.5",
       },
-      account: {
-        type: "unknown",
-        planType: null,
-        sparkEnabled: true,
-      },
       collabReceiverTurns: new Map(),
       collabReceiverParents: new Map(),
     };
+    context.transport.threads.add(context);
 
     vi.spyOn(
       manager as unknown as {
-        resolveContextForDiscovery: (threadId?: string) => unknown;
+        resolveProcessForDiscovery: (threadId?: string) => unknown;
       },
-      "resolveContextForDiscovery",
-    ).mockReturnValue(context);
+      "resolveProcessForDiscovery",
+    ).mockReturnValue(context.transport);
     const sendRequest = vi
       .spyOn(
         manager as unknown as {
@@ -3304,7 +3554,7 @@ describe("CodexAppServerManager discovery", () => {
       source: "codex-app-server",
       cached: false,
     });
-    expect(sendRequest).toHaveBeenCalledWith(context, "model/list", {
+    expect(sendRequest).toHaveBeenCalledWith(context.transport, null, "model/list", {
       cursor: null,
       limit: 50,
       includeHidden: false,
@@ -3317,6 +3567,17 @@ describe("CodexAppServerManager discovery", () => {
     try {
       const manager = new CodexAppServerManager();
       const context = {
+        transport: {
+          key: "test-account",
+          cwd: "test-cwd",
+          connectionIds: new Set(),
+          token: Symbol("test-account"),
+          threads: new Set<unknown>(),
+          probes: new Map(),
+          pendingCloses: new Map(),
+          stopping: false,
+          account: { type: "unknown", planType: null, sparkEnabled: true },
+        },
         session: {
           provider: "codex",
           status: "ready",
@@ -3324,14 +3585,14 @@ describe("CodexAppServerManager discovery", () => {
           runtimeMode: "full-access",
           model: "gpt-5.6-sol",
         },
-        account: { type: "unknown", planType: null, sparkEnabled: true },
         collabReceiverTurns: new Map(),
         collabReceiverParents: new Map(),
       };
+      context.transport.threads.add(context);
       vi.spyOn(
-        manager as unknown as { resolveContextForDiscovery: () => unknown },
-        "resolveContextForDiscovery",
-      ).mockReturnValue(context);
+        manager as unknown as { resolveProcessForDiscovery: () => unknown },
+        "resolveProcessForDiscovery",
+      ).mockReturnValue(context.transport);
       const sendRequest = vi
         .spyOn(
           manager as unknown as {
@@ -3374,6 +3635,17 @@ describe("CodexAppServerManager discovery", () => {
     try {
       const manager = new CodexAppServerManager();
       const context = {
+        transport: {
+          key: "test-account",
+          cwd: "test-cwd",
+          connectionIds: new Set(),
+          token: Symbol("test-account"),
+          threads: new Set<unknown>(),
+          probes: new Map(),
+          pendingCloses: new Map(),
+          stopping: false,
+          account: { type: "unknown", planType: null, sparkEnabled: true },
+        },
         session: {
           provider: "codex",
           status: "ready",
@@ -3381,14 +3653,14 @@ describe("CodexAppServerManager discovery", () => {
           runtimeMode: "full-access",
           model: "gpt-5.6-sol",
         },
-        account: { type: "unknown", planType: null, sparkEnabled: true },
         collabReceiverTurns: new Map(),
         collabReceiverParents: new Map(),
       };
+      context.transport.threads.add(context);
       vi.spyOn(
-        manager as unknown as { resolveContextForDiscovery: () => unknown },
-        "resolveContextForDiscovery",
-      ).mockReturnValue(context);
+        manager as unknown as { resolveProcessForDiscovery: () => unknown },
+        "resolveProcessForDiscovery",
+      ).mockReturnValue(context.transport);
       vi.spyOn(
         manager as unknown as {
           sendRequest: (...args: unknown[]) => Promise<unknown>;
@@ -3414,6 +3686,26 @@ describe("CodexAppServerManager discovery", () => {
   it("rejects discovery instead of reusing an unrelated active Connection session", async () => {
     const manager = new CodexAppServerManager();
     const activeContext = {
+      transport: {
+        key: "test-account",
+        cwd: "/repo-a",
+        connectionIds: new Set(),
+        token: Symbol("test-account"),
+        threads: new Set<unknown>(),
+        probes: new Map(),
+        pendingCloses: new Map(),
+        stopping: false,
+        account: {
+          type: "unknown",
+          planType: null,
+          sparkEnabled: true,
+        },
+        child: {
+          killed: false,
+        },
+        pending: new Map(),
+        nextRequestId: 1,
+      },
       session: {
         provider: "codex",
         status: "ready",
@@ -3425,37 +3717,27 @@ describe("CodexAppServerManager discovery", () => {
         createdAt: "2026-02-10T00:00:00.000Z",
         updatedAt: "2026-02-10T00:00:00.000Z",
       },
-      account: {
-        type: "unknown",
-        planType: null,
-        sparkEnabled: true,
-      },
-      child: {
-        killed: false,
-      },
       output: {
         close: vi.fn(),
       },
-      pending: new Map(),
-
       pendingUserInputs: new Map(),
       collabReceiverTurns: new Map(),
       collabReceiverParents: new Map(),
-      nextRequestId: 1,
       stopping: false,
     };
+    activeContext.transport.threads.add(activeContext);
     (
       manager as unknown as {
         sessions: Map<string, unknown>;
       }
     ).sessions.set("thread_active", activeContext);
 
-    const getOrCreateDiscoverySession = vi
+    const getOrCreateManagedProcess = vi
       .spyOn(
         manager as unknown as {
-          getOrCreateDiscoverySession: (cwd: string) => Promise<unknown>;
+          getOrCreateManagedProcess: (cwd: string) => Promise<unknown>;
         },
-        "getOrCreateDiscoverySession",
+        "getOrCreateManagedProcess",
       )
       .mockRejectedValue(new Error("must not be called"));
     const sendRequest = vi
@@ -3474,54 +3756,80 @@ describe("CodexAppServerManager discovery", () => {
     await expect(
       manager.listSkills({ cwd: "/repo-b", threadId: "thread_missing" }),
     ).rejects.toThrow("Unknown session for thread: thread_missing");
-    expect(getOrCreateDiscoverySession).not.toHaveBeenCalled();
+    expect(getOrCreateManagedProcess).not.toHaveBeenCalled();
     expect(sendRequest).not.toHaveBeenCalled();
   });
 
   it("rejects cwd-less discovery without an exact thread", async () => {
     const manager = new CodexAppServerManager();
     const deadContext = {
+      transport: {
+        key: "test-account",
+        cwd: "test-cwd",
+        connectionIds: new Set(),
+        token: Symbol("test-account"),
+        threads: new Set<unknown>(),
+        probes: new Map(),
+        pendingCloses: new Map(),
+        stopping: false,
+        child: {
+          exitCode: null,
+          signalCode: null,
+          killed: true,
+          stdin: new PassThrough(),
+        },
+      },
       session: {
         provider: "codex",
         status: "closed",
         threadId: "thread_dead",
         runtimeMode: "full-access",
       },
-      child: {
-        exitCode: null,
-        signalCode: null,
-        killed: true,
-        stdin: new PassThrough(),
-      },
       stopping: true,
     };
+    deadContext.transport.threads.add(deadContext);
     (
       manager as unknown as {
         sessions: Map<string, unknown>;
       }
     ).sessions.set("thread_dead", deadContext);
-    const getOrCreateDiscoverySession = vi
+    const getOrCreateManagedProcess = vi
       .spyOn(
         manager as unknown as {
-          getOrCreateDiscoverySession: (cwd: string) => Promise<unknown>;
+          getOrCreateManagedProcess: (cwd: string) => Promise<unknown>;
         },
-        "getOrCreateDiscoverySession",
+        "getOrCreateManagedProcess",
       )
       .mockRejectedValue(new Error("must not be called"));
 
     await expect(
       (
         manager as unknown as {
-          resolveContextForDiscovery: () => Promise<unknown>;
+          resolveProcessForDiscovery: () => Promise<unknown>;
         }
-      ).resolveContextForDiscovery(),
+      ).resolveProcessForDiscovery(),
     ).rejects.toThrow("requires an exact active thread session");
-    expect(getOrCreateDiscoverySession).not.toHaveBeenCalled();
+    expect(getOrCreateManagedProcess).not.toHaveBeenCalled();
   });
 
   it("retries skills/list with cwd when a runtime rejects cwds", async () => {
     const manager = new CodexAppServerManager();
     const context = {
+      transport: {
+        key: "test-account",
+        cwd: "test-cwd",
+        connectionIds: new Set(),
+        token: Symbol("test-account"),
+        threads: new Set<unknown>(),
+        probes: new Map(),
+        pendingCloses: new Map(),
+        stopping: false,
+        account: {
+          type: "unknown",
+          planType: null,
+          sparkEnabled: true,
+        },
+      },
       session: {
         provider: "codex",
         status: "ready",
@@ -3532,21 +3840,17 @@ describe("CodexAppServerManager discovery", () => {
         createdAt: "2026-02-10T00:00:00.000Z",
         updatedAt: "2026-02-10T00:00:00.000Z",
       },
-      account: {
-        type: "unknown",
-        planType: null,
-        sparkEnabled: true,
-      },
       collabReceiverTurns: new Map(),
       collabReceiverParents: new Map(),
     };
+    context.transport.threads.add(context);
 
     vi.spyOn(
       manager as unknown as {
-        resolveContextForDiscovery: (threadId?: string) => unknown;
+        resolveProcessForDiscovery: (threadId?: string) => unknown;
       },
-      "resolveContextForDiscovery",
-    ).mockReturnValue(context);
+      "resolveProcessForDiscovery",
+    ).mockReturnValue(context.transport);
     const sendRequest = vi
       .spyOn(
         manager as unknown as {
@@ -3571,10 +3875,10 @@ describe("CodexAppServerManager discovery", () => {
       threadId: "thread_1",
     });
 
-    expect(sendRequest).toHaveBeenNthCalledWith(1, context, "skills/list", {
+    expect(sendRequest).toHaveBeenNthCalledWith(1, context.transport, null, "skills/list", {
       cwds: ["/repo"],
     });
-    expect(sendRequest).toHaveBeenNthCalledWith(2, context, "skills/list", {
+    expect(sendRequest).toHaveBeenNthCalledWith(2, context.transport, null, "skills/list", {
       cwd: "/repo",
     });
     expect(result.skills).toEqual([
@@ -3589,6 +3893,21 @@ describe("CodexAppServerManager discovery", () => {
   it("wires plugin discovery through plugin/list", async () => {
     const manager = new CodexAppServerManager();
     const context = {
+      transport: {
+        key: "test-account",
+        cwd: "test-cwd",
+        connectionIds: new Set(),
+        token: Symbol("test-account"),
+        threads: new Set<unknown>(),
+        probes: new Map(),
+        pendingCloses: new Map(),
+        stopping: false,
+        account: {
+          type: "unknown",
+          planType: null,
+          sparkEnabled: true,
+        },
+      },
       session: {
         provider: "codex",
         status: "ready",
@@ -3596,23 +3915,19 @@ describe("CodexAppServerManager discovery", () => {
         runtimeMode: "full-access",
         model: "gpt-5.5",
       },
-      account: {
-        type: "unknown",
-        planType: null,
-        sparkEnabled: true,
-      },
       collabReceiverTurns: new Map(),
       collabReceiverParents: new Map(),
     };
+    context.transport.threads.add(context);
 
-    const resolveContextForDiscovery = vi
+    const resolveProcessForDiscovery = vi
       .spyOn(
         manager as unknown as {
-          resolveContextForDiscovery: (threadId?: string, cwd?: string) => unknown;
+          resolveProcessForDiscovery: (threadId?: string, cwd?: string) => unknown;
         },
-        "resolveContextForDiscovery",
+        "resolveProcessForDiscovery",
       )
-      .mockReturnValue(context);
+      .mockReturnValue(context.transport);
     const sendRequest = vi
       .spyOn(
         manager as unknown as {
@@ -3633,8 +3948,8 @@ describe("CodexAppServerManager discovery", () => {
       source: "codex-app-server",
       cached: false,
     });
-    expect(resolveContextForDiscovery).toHaveBeenCalledWith("thread_1", "/repo");
-    expect(sendRequest).toHaveBeenCalledWith(context, "plugin/list", {
+    expect(resolveProcessForDiscovery).toHaveBeenCalledWith("thread_1", "/repo");
+    expect(sendRequest).toHaveBeenCalledWith(context.transport, null, "plugin/list", {
       cwds: ["/repo"],
       forceRefetch: true,
     });
@@ -3643,6 +3958,21 @@ describe("CodexAppServerManager discovery", () => {
   it("wires plugin details through plugin/read", async () => {
     const manager = new CodexAppServerManager();
     const context = {
+      transport: {
+        key: "test-account",
+        cwd: "test-cwd",
+        connectionIds: new Set(),
+        token: Symbol("test-account"),
+        threads: new Set<unknown>(),
+        probes: new Map(),
+        pendingCloses: new Map(),
+        stopping: false,
+        account: {
+          type: "unknown",
+          planType: null,
+          sparkEnabled: true,
+        },
+      },
       session: {
         provider: "codex",
         status: "ready",
@@ -3650,21 +3980,17 @@ describe("CodexAppServerManager discovery", () => {
         runtimeMode: "full-access",
         model: "gpt-5.5",
       },
-      account: {
-        type: "unknown",
-        planType: null,
-        sparkEnabled: true,
-      },
       collabReceiverTurns: new Map(),
       collabReceiverParents: new Map(),
     };
+    context.transport.threads.add(context);
 
     vi.spyOn(
       manager as unknown as {
-        resolveContextForDiscovery: (threadId?: string, cwd?: string) => unknown;
+        resolveProcessForDiscovery: (threadId?: string, cwd?: string) => unknown;
       },
-      "resolveContextForDiscovery",
-    ).mockReturnValue(context);
+      "resolveProcessForDiscovery",
+    ).mockReturnValue(context.transport);
     const sendRequest = vi
       .spyOn(
         manager as unknown as {
@@ -3704,7 +4030,7 @@ describe("CodexAppServerManager discovery", () => {
       source: "codex-app-server",
       cached: false,
     });
-    expect(sendRequest).toHaveBeenCalledWith(context, "plugin/read", {
+    expect(sendRequest).toHaveBeenCalledWith(context.transport, null, "plugin/read", {
       marketplacePath: "/marketplace.json",
       pluginName: "github",
     });
@@ -3734,10 +4060,15 @@ describe("provider thread control", () => {
     const result = await manager.readThread(asThreadId("thread_1"));
 
     expect(requireSession).toHaveBeenCalledWith("thread_1");
-    expect(sendRequest).toHaveBeenCalledWith(context, "thread/read", {
-      threadId: "thread_1",
-      includeTurns: true,
-    });
+    expect(sendRequest).toHaveBeenCalledWith(
+      context.transport,
+      context.session.threadId,
+      "thread/read",
+      {
+        threadId: "thread_1",
+        includeTurns: true,
+      },
+    );
     expect(result).toEqual({
       threadId: "thread_1",
       cwd: null,
@@ -3764,10 +4095,15 @@ describe("provider thread control", () => {
 
     const result = await manager.readThread(asThreadId("thread_1"));
 
-    expect(sendRequest).toHaveBeenCalledWith(context, "thread/read", {
-      threadId: "thread_1",
-      includeTurns: true,
-    });
+    expect(sendRequest).toHaveBeenCalledWith(
+      context.transport,
+      context.session.threadId,
+      "thread/read",
+      {
+        threadId: "thread_1",
+        includeTurns: true,
+      },
+    );
     expect(result).toEqual({
       threadId: "thread_1",
       cwd: null,
@@ -3791,10 +4127,15 @@ describe("provider thread control", () => {
 
     const result = await manager.revertThread(asThreadId("thread_1"), asTurnId("turn_replaced"));
 
-    expect(sendRequest).toHaveBeenCalledWith(context, "thread/revert", {
-      threadId: "thread_1",
-      beforeTurnId: "turn_replaced",
-    });
+    expect(sendRequest).toHaveBeenCalledWith(
+      context.transport,
+      context.session.threadId,
+      "thread/revert",
+      {
+        threadId: "thread_1",
+        beforeTurnId: "turn_replaced",
+      },
+    );
     expect(updateSession).toHaveBeenCalledWith(context, {
       status: "ready",
       activeTurnId: undefined,
@@ -3829,18 +4170,36 @@ describe("provider thread control", () => {
 
     await manager.interruptTurn(asThreadId("thread_1"));
 
-    expect(sendRequest).toHaveBeenNthCalledWith(1, context, "turn/interrupt", {
-      threadId: "thread_1",
-      turnId: "turn_review_old",
-    });
-    expect(sendRequest).toHaveBeenNthCalledWith(2, context, "thread/read", {
-      threadId: "thread_1",
-      includeTurns: true,
-    });
-    expect(sendRequest).toHaveBeenNthCalledWith(3, context, "turn/interrupt", {
-      threadId: "thread_1",
-      turnId: "turn_review_new",
-    });
+    expect(sendRequest).toHaveBeenNthCalledWith(
+      1,
+      context.transport,
+      context.session.threadId,
+      "turn/interrupt",
+      {
+        threadId: "thread_1",
+        turnId: "turn_review_old",
+      },
+    );
+    expect(sendRequest).toHaveBeenNthCalledWith(
+      2,
+      context.transport,
+      context.session.threadId,
+      "thread/read",
+      {
+        threadId: "thread_1",
+        includeTurns: true,
+      },
+    );
+    expect(sendRequest).toHaveBeenNthCalledWith(
+      3,
+      context.transport,
+      context.session.threadId,
+      "turn/interrupt",
+      {
+        threadId: "thread_1",
+        turnId: "turn_review_new",
+      },
+    );
     expect(updateSession).toHaveBeenCalledWith(context, {
       activeTurnId: "turn_review_new",
     });
@@ -3891,9 +4250,14 @@ describe("provider thread control", () => {
     const compactPromise = manager.compactThread(asThreadId("thread_1"));
 
     await vi.waitFor(() => {
-      expect(sendRequest).toHaveBeenCalledWith(context, "thread/compact/start", {
-        threadId: "thread_1",
-      });
+      expect(sendRequest).toHaveBeenCalledWith(
+        context.transport,
+        context.session.threadId,
+        "thread/compact/start",
+        {
+          threadId: "thread_1",
+        },
+      );
       expect(updateSession).toHaveBeenCalledWith(context, {
         status: "running",
       });
@@ -3923,9 +4287,14 @@ describe("provider thread control", () => {
 
     await manager.compactThread(asThreadId("thread_1"));
 
-    expect(sendRequest).toHaveBeenCalledWith(context, "thread/compact/start", {
-      threadId: "thread_1",
-    });
+    expect(sendRequest).toHaveBeenCalledWith(
+      context.transport,
+      context.session.threadId,
+      "thread/compact/start",
+      {
+        threadId: "thread_1",
+      },
+    );
     expect(updateSession).not.toHaveBeenCalled();
     expect(emitEvent).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -3951,7 +4320,7 @@ describe("respondToUserInput", () => {
     });
 
     expect(requireSession).toHaveBeenCalledWith("thread_1");
-    expect(writeMessage).toHaveBeenCalledWith(context, {
+    expect(writeMessage).toHaveBeenCalledWith(context.transport, {
       id: 42,
       result: {
         answers: {
@@ -3983,7 +4352,7 @@ describe("respondToUserInput", () => {
     });
 
     expect(requireSession).toHaveBeenCalledWith("thread_1");
-    expect(writeMessage).toHaveBeenCalledWith(context, {
+    expect(writeMessage).toHaveBeenCalledWith(context.transport, {
       id: 42,
       result: {
         answers: {
@@ -4208,7 +4577,7 @@ describe("collab child conversation routing", () => {
       scope: "child",
     });
 
-    expect(writeMessage).toHaveBeenCalledWith(context, {
+    expect(writeMessage).toHaveBeenCalledWith(context.transport, {
       id: 43,
       result: {
         answers: {
@@ -4771,12 +5140,17 @@ describe("handleServerNotification error normalization", () => {
 });
 
 describe("CodexAppServerManager process teardown", () => {
-  it("keeps one stop in flight and publishes closed eagerly", async () => {
+  it("keeps one stop in flight and publishes closed after exit proof", async () => {
     let proveExit: (() => void) | undefined;
     const exitProof = new Promise<void>((resolve) => {
       proveExit = resolve;
     });
+    let enteredTeardown!: () => void;
+    const teardownEntered = new Promise<void>((resolve) => {
+      enteredTeardown = resolve;
+    });
     const teardownProcessTree = vi.fn(async () => {
+      enteredTeardown();
       await exitProof;
       return { escalated: false, signalErrors: [] };
     });
@@ -4791,6 +5165,27 @@ describe("CodexAppServerManager process teardown", () => {
       }
     });
     const context = {
+      transport: {
+        key: "test-account",
+        cwd: "test-cwd",
+        connectionIds: new Set(),
+        token: Symbol("test-account"),
+        threads: new Set<unknown>(),
+        probes: new Map(),
+        pendingCloses: new Map(),
+        stopping: false,
+        account: { type: "unknown", planType: null, sparkEnabled: true },
+        child: {
+          pid: 42_424,
+          exitCode: null,
+          signalCode: null,
+          once: vi.fn(),
+          removeListener: vi.fn(),
+        },
+        stdinWriter: { close: vi.fn(), write: vi.fn().mockResolvedValue(undefined) },
+        pending: new Map(),
+        nextRequestId: 1,
+      },
       session: {
         provider: "codex",
         status: "ready",
@@ -4801,45 +5196,39 @@ describe("CodexAppServerManager process teardown", () => {
         createdAt: "2026-02-10T00:00:00.000Z",
         updatedAt: "2026-02-10T00:00:00.000Z",
       },
-      account: { type: "unknown", planType: null, sparkEnabled: true },
-      child: {
-        pid: 42_424,
-        exitCode: null,
-        signalCode: null,
-        once: vi.fn(),
-        removeListener: vi.fn(),
-      },
-      pending: new Map(),
-
       pendingUserInputs: new Map(),
       collabReceiverTurns: new Map(),
       collabReceiverParents: new Map(),
       reviewTurnIds: new Set(),
       terminalTurnIds: new Set(),
-      nextRequestId: 1,
       stopping: false,
     };
+    context.transport.threads.add(context);
     (
       manager as unknown as {
         sessions: Map<ThreadId, unknown>;
       }
     ).sessions.set(threadId, context);
 
-    const firstStop = manager.stopSession(threadId);
-    const concurrentStop = manager.stopSession(threadId);
+    (manager as unknown as { accountProcesses: Map<string, unknown> }).accountProcesses.set(
+      context.transport.key,
+      { token: context.transport.token, process: Promise.resolve(context.transport) },
+    );
+    const firstStop = closeProcessForTest(manager, context.transport);
+    const concurrentStop = closeProcessForTest(manager, context.transport);
 
+    await teardownEntered;
     expect(teardownProcessTree).toHaveBeenCalledTimes(1);
-    // Closed publishes eagerly: the session must become unroutable the moment
-    // stop begins, with teardown proof continuing behind the returned promise.
-    expect(closedEvents).toEqual(["session/closed"]);
+    // The session becomes unroutable immediately, but closes only after exit proof.
+    expect(closedEvents).toEqual([]);
     expect(manager.hasSession(threadId)).toBe(false);
     expect(manager.listSessions()).toHaveLength(0);
     expect(
       (
         manager as unknown as {
-          sessions: Map<ThreadId, unknown>;
+          accountProcesses: Map<string, unknown>;
         }
-      ).sessions.has(threadId),
+      ).accountProcesses.has(context.transport.key),
     ).toBe(true);
 
     proveExit?.();
@@ -4869,6 +5258,27 @@ describe("CodexAppServerManager process teardown", () => {
       }
     });
     const context = {
+      transport: {
+        key: "test-account",
+        cwd: "test-cwd",
+        connectionIds: new Set(),
+        token: Symbol("test-account"),
+        threads: new Set<unknown>(),
+        probes: new Map(),
+        pendingCloses: new Map(),
+        stopping: false,
+        account: { type: "unknown", planType: null, sparkEnabled: true },
+        child: {
+          pid: 42_425,
+          exitCode: null,
+          signalCode: null,
+          once: vi.fn(),
+          removeListener: vi.fn(),
+        },
+        stdinWriter: { close: vi.fn(), write: vi.fn().mockResolvedValue(undefined) },
+        pending: new Map(),
+        nextRequestId: 1,
+      },
       session: {
         provider: "codex",
         status: "ready",
@@ -4878,38 +5288,28 @@ describe("CodexAppServerManager process teardown", () => {
         createdAt: "2026-02-10T00:00:00.000Z",
         updatedAt: "2026-02-10T00:00:00.000Z",
       },
-      account: { type: "unknown", planType: null, sparkEnabled: true },
-      child: {
-        pid: 42_425,
-        exitCode: null,
-        signalCode: null,
-        once: vi.fn(),
-        removeListener: vi.fn(),
-      },
-      pending: new Map(),
-
       pendingUserInputs: new Map(),
       collabReceiverTurns: new Map(),
       collabReceiverParents: new Map(),
       reviewTurnIds: new Set(),
       terminalTurnIds: new Set(),
-      nextRequestId: 1,
       stopping: false,
     };
+    context.transport.threads.add(context);
     (
       manager as unknown as {
         sessions: Map<ThreadId, unknown>;
       }
     ).sessions.set(threadId, context);
 
-    await expect(manager.stopSession(threadId)).rejects.toThrow(
-      "Failed to prove Codex app-server process-tree exit",
+    await expect(closeProcessForTest(manager, context.transport)).rejects.toThrow(
+      "Failed to prove Codex account process-tree exit",
     );
     expect(manager.hasSession(threadId)).toBe(false);
     expect(manager.listSessions()).toHaveLength(0);
-    expect(closedEvents).toEqual(["session/closed"]);
+    expect(closedEvents).toEqual([]);
 
-    await manager.stopSession(threadId);
+    await closeProcessForTest(manager, context.transport);
     expect(teardownProcessTree).toHaveBeenCalledTimes(2);
     expect(manager.listSessions()).toHaveLength(0);
     expect(closedEvents).toEqual(["session/closed"]);
@@ -5026,7 +5426,7 @@ describe("native permission policy", () => {
         "item/fileRead/requestApproval",
       ]) {
         await handleServerRequestForTest(manager, context, { id: method, method, params: {} });
-        expect(writeMessage).toHaveBeenLastCalledWith(context, {
+        expect(writeMessage).toHaveBeenLastCalledWith(context.transport, {
           id: method,
           result: { decision: runtimeMode === "full-access" ? "accept" : "decline" },
         });
