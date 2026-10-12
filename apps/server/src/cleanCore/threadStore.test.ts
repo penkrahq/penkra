@@ -10,7 +10,6 @@ import {
   moveSidebarItem,
   moveFolder,
   moveSpace,
-  publishSidebarRows,
   setThreadArchived,
   upsertThreadItem,
 } from "./threadStore.ts";
@@ -325,74 +324,50 @@ it("publishes per-thread changes and stops after unsubscribe", () => {
   assert.deepStrictEqual(seen, ["thread-1"]);
 });
 
-it.effect(
-  "moveFolder renumbers destination siblings and repeats without writes or broadcasts",
-  () =>
-    withDb(
-      Effect.gen(function* () {
-        const sql = yield* SqlClient.SqlClient;
-        yield* runMigrations();
-        yield* sql`INSERT INTO projection_spaces (space_id, name, icon, sort_order, created_at, updated_at)
+it.effect("moveFolder renumbers destination siblings and repeats without writes", () =>
+  withDb(
+    Effect.gen(function* () {
+      const sql = yield* SqlClient.SqlClient;
+      yield* runMigrations();
+      yield* sql`INSERT INTO projection_spaces (space_id, name, icon, sort_order, created_at, updated_at)
           VALUES ('source', 'Source', '', 0, ${baseThread.createdAt}, ${baseThread.createdAt}),
           ('destination', 'Destination', '', 1, ${baseThread.createdAt}, ${baseThread.createdAt})`;
-        for (const [id, spaceId, order] of [
-          ["a", "source", 0],
-          ["b", "destination", 0],
-          ["c", "destination", 1],
-        ] as const) {
-          yield* sql`INSERT INTO projection_folders (folder_id, title, workspace_root, space_id,
+      for (const [id, spaceId, order] of [
+        ["a", "source", 0],
+        ["b", "destination", 0],
+        ["c", "destination", 1],
+      ] as const) {
+        yield* sql`INSERT INTO projection_folders (folder_id, title, workspace_root, space_id,
         sidebar_sort_order, created_at, updated_at) VALUES (${id}, ${id}, NULL, ${spaceId},
         ${order}, ${baseThread.createdAt}, ${baseThread.createdAt})`;
-        }
-        const publisher = makeThreadPublisher();
-        const seen: unknown[] = [];
-        publisher.subscribeSidebar((change) => seen.push(change));
-        const input = {
-          folderId: "a",
-          spaceId: "destination",
-          position: { type: "before", itemId: "c" } as const,
-          updatedAt: "2026-10-09T00:00:09.000Z",
-        };
-        const changed = yield* moveFolder(input);
-        assert.deepStrictEqual(changed, { folderIds: ["a", "c"], threadIds: [] });
-        yield* publishSidebarRows(publisher, "folder", changed.folderIds);
-        assert.deepStrictEqual(seen, [
-          {
-            kind: "folder",
-            folderId: "a",
-            spaceId: "destination",
-            sidebarSortOrder: 1,
-            updatedAt: input.updatedAt,
-          },
-          {
-            kind: "folder",
-            folderId: "c",
-            spaceId: "destination",
-            sidebarSortOrder: 2,
-            updatedAt: input.updatedAt,
-          },
-        ]);
-        const repeat = yield* moveFolder({ ...input, updatedAt: "2026-10-09T00:00:10.000Z" });
-        assert.deepStrictEqual(repeat, { folderIds: [], threadIds: [] });
-        yield* publishSidebarRows(publisher, "folder", repeat.folderIds);
-        assert.equal(seen.length, 2);
-        const rows = yield* sql<{
-          readonly id: string;
-          readonly order: number;
-          readonly updatedAt: string;
-        }>`
+      }
+      const input = {
+        folderId: "a",
+        spaceId: "destination",
+        position: { type: "before", itemId: "c" } as const,
+        updatedAt: "2026-10-09T00:00:09.000Z",
+      };
+      const changed = yield* moveFolder(input);
+      assert.deepStrictEqual(changed, { folderIds: ["a", "c"], threadIds: [] });
+      const repeat = yield* moveFolder({ ...input, updatedAt: "2026-10-09T00:00:10.000Z" });
+      assert.deepStrictEqual(repeat, { folderIds: [], threadIds: [] });
+      const rows = yield* sql<{
+        readonly id: string;
+        readonly order: number;
+        readonly updatedAt: string;
+      }>`
       SELECT folder_id AS id, sidebar_sort_order AS "order", updated_at AS "updatedAt"
       FROM projection_folders ORDER BY sidebar_sort_order`;
-        assert.deepStrictEqual(rows, [
-          { id: "b", order: 0, updatedAt: baseThread.createdAt },
-          { id: "a", order: 1, updatedAt: input.updatedAt },
-          { id: "c", order: 2, updatedAt: input.updatedAt },
-        ]);
-      }),
-    ),
+      assert.deepStrictEqual(rows, [
+        { id: "b", order: 0, updatedAt: baseThread.createdAt },
+        { id: "a", order: 1, updatedAt: input.updatedAt },
+        { id: "c", order: 2, updatedAt: input.updatedAt },
+      ]);
+    }),
+  ),
 );
 
-it.effect("moveSpace renumbers active siblings and repeats without writes or broadcasts", () =>
+it.effect("moveSpace renumbers active siblings and repeats without writes", () =>
   withDb(
     Effect.gen(function* () {
       const sql = yield* SqlClient.SqlClient;
@@ -405,9 +380,6 @@ it.effect("moveSpace renumbers active siblings and repeats without writes or bro
         yield* sql`INSERT INTO projection_spaces (space_id, name, icon, sort_order, created_at, updated_at)
         VALUES (${id}, ${id}, '', ${order}, ${baseThread.createdAt}, ${baseThread.createdAt})`;
       }
-      const publisher = makeThreadPublisher();
-      const seen: unknown[] = [];
-      publisher.subscribeSidebar((change) => seen.push(change));
       const input = {
         spaceId: "a",
         position: { type: "after", itemId: "c" } as const,
@@ -415,16 +387,8 @@ it.effect("moveSpace renumbers active siblings and repeats without writes or bro
       };
       const changed = yield* moveSpace(input);
       assert.deepStrictEqual(changed, ["b", "c", "a"]);
-      yield* publishSidebarRows(publisher, "space", changed);
-      assert.deepStrictEqual(seen, [
-        { kind: "space", spaceId: "b", sortOrder: 0, updatedAt: input.updatedAt },
-        { kind: "space", spaceId: "c", sortOrder: 1, updatedAt: input.updatedAt },
-        { kind: "space", spaceId: "a", sortOrder: 2, updatedAt: input.updatedAt },
-      ]);
       const repeat = yield* moveSpace({ ...input, updatedAt: "2026-10-09T00:00:10.000Z" });
       assert.deepStrictEqual(repeat, []);
-      yield* publishSidebarRows(publisher, "space", repeat);
-      assert.equal(seen.length, 3);
       const rows = yield* sql<{
         readonly id: string;
         readonly order: number;

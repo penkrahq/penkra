@@ -9,8 +9,15 @@ import {
   WS_PROTOCOL_MAX_REVISION,
   WS_SERVER_CAPABILITIES,
   type OrchestrationReadModel,
+  type OrchestrationSpace,
+  type OrchestrationFolder,
   type OrchestrationStartupSnapshot,
 } from "@penkra/contracts";
+
+export type FixtureReadModel = OrchestrationReadModel & {
+  spaces: ReadonlyArray<OrchestrationSpace>;
+  folders: ReadonlyArray<OrchestrationFolder>;
+};
 
 export interface EffectRpcWebSocketClient {
   readonly send: (data: string) => void;
@@ -125,7 +132,7 @@ export function flattenEffectRpcRequestPayload(
 }
 
 export function createStartupSnapshotFromReadModel(
-  snapshot: OrchestrationReadModel,
+  snapshot: FixtureReadModel,
   runningThreads: OrchestrationStartupSnapshot["runningThreads"],
 ): OrchestrationStartupSnapshot {
   return {

@@ -1,3 +1,4 @@
+import type { CleanCoreGetNavigationResult } from "@penkra/contracts";
 // FILE: storeProjection.ts
 // Purpose: Owns normalized slice writes, sidebar projections, and snapshot integration.
 // Exports: Pure projection transitions used by the facade and orchestration reducer.
@@ -21,7 +22,6 @@ import {
   capThreadActivities,
   compareChatMessagesForTranscript,
   dedupeActivitiesById,
-  deepEqualJson,
   latestDeliveryFailureReason,
   mapFolders,
   mapSpaces,
@@ -180,6 +180,32 @@ function buildNormalizedSlice<TId extends string, TValue>(
 const messageId = (message: ChatMessage): MessageId => message.id;
 const activityId = (activity: Thread["activities"][number]): string => activity.id;
 
+/** Replace navigation with the complete canonical read; thread detail is independent. */
+export function syncServerNavigation(
+  state: AppState,
+  navigation: CleanCoreGetNavigationResult,
+): AppState {
+  rememberProjectUiState(state.folders);
+  rememberProjectLocalNames(state.folders);
+  const folderIds = new Set<string>(navigation.folders.map((folder) => folder.id));
+  const spaceIds = new Set(navigation.spaces.map((space) => space.id));
+  let next = {
+    ...state,
+    folders: state.folders.filter((folder) => folderIds.has(folder.id)),
+    spaces: state.spaces.filter((space) => spaceIds.has(space.id)),
+    ...(state.deletedFolderIdsById === undefined
+      ? {}
+      : {
+          deletedFolderIdsById: Object.fromEntries(
+            Object.entries(state.deletedFolderIdsById).filter(([id]) => folderIds.has(id)),
+          ),
+        }),
+  };
+  for (const space of navigation.spaces) next = upsertSpace(next, space);
+  for (const folder of navigation.folders) next = upsertProject(next, folder, "id-only");
+  return next;
+}
+
 export function upsertProject(
   state: AppState,
   incoming: ProjectNormalizationInput,
@@ -204,10 +230,7 @@ export function upsertProject(
   };
 }
 
-export function upsertSpace(
-  state: AppState,
-  incoming: OrchestrationReadModel["spaces"][number] | OrchestrationSpaceShell,
-): AppState {
+export function upsertSpace(state: AppState, incoming: OrchestrationSpaceShell): AppState {
   const existing = state.spaces.find((space) => space.id === incoming.id);
   const nextSpace = normalizeSpace(incoming, existing);
   if (nextSpace.archivedAt != null) return removeSpace(state, incoming.id);
@@ -775,7 +798,7 @@ function retireConfirmedDeletionTombstones(
   state: AppState,
   snapshotSequence: number,
   presentThreadIds: ReadonlySet<string>,
-  presentFolderIds: ReadonlySet<string>,
+  presentFolderIds?: ReadonlySet<string>,
 ): AppState {
   if (snapshotSequence < (state.shellSnapshotSequence ?? 0)) {
     return state;
@@ -785,11 +808,10 @@ function retireConfirmedDeletionTombstones(
     snapshotSequence,
     presentThreadIds,
   );
-  const deletedFolderIdsById = retireDeletionTombstones(
-    state.deletedFolderIdsById,
-    snapshotSequence,
-    presentFolderIds,
-  );
+  const deletedFolderIdsById =
+    presentFolderIds === undefined
+      ? state.deletedFolderIdsById
+      : retireDeletionTombstones(state.deletedFolderIdsById, snapshotSequence, presentFolderIds);
   if (
     deletedThreadIdsById === state.deletedThreadIdsById &&
     deletedFolderIdsById === state.deletedFolderIdsById
@@ -1237,18 +1259,6 @@ export function syncServerThreadShell(
 export function applyShellEvent(state: AppState, event: OrchestrationShellStreamEvent): AppState {
   let nextState: AppState;
   switch (event.kind) {
-    case "space-upserted":
-      nextState = upsertSpace(state, event.space);
-      break;
-    case "space-removed":
-      nextState = removeSpace(state, event.spaceId);
-      break;
-    case "folder-upserted":
-      nextState = upsertProject(state, event.folder, "id-only");
-      break;
-    case "folder-removed":
-      nextState = removeDeletedProjectFromClientState(state, event.folderId, event.sequence);
-      break;
     case "thread-upserted": {
       nextState = syncServerThreadShell(state, event.thread.id, event.thread);
       break;
@@ -1278,24 +1288,9 @@ export function syncServerReadModel(state: AppState, readModel: OrchestrationRea
   const livePresentThreadIds = new Set<string>(
     readModel.threads.filter((thread) => thread.deletedAt === null).map((thread) => thread.id),
   );
-  const livePresentFolderIds = new Set<string>(
-    readModel.folders.filter((project) => project.deletedAt === null).map((project) => project.id),
-  );
-  const spaces = mapSpaces(
-    (readModel.spaces ?? []).filter(
-      (space) => space.deletedAt === null && space.archivedAt === null,
-    ),
-    state.spaces ?? [],
-  );
-  const folders = mapFolders(
-    readModel.folders.filter(
-      (project) =>
-        project.deletedAt === null &&
-        project.archivedAt == null &&
-        deletedFolderIdsById[project.id] === undefined,
-    ),
-    state.folders,
-  );
+
+  const spaces = state.spaces;
+  const folders = state.folders;
   const nextThreads = readModel.threads
     .filter(
       (thread) =>
@@ -1376,7 +1371,6 @@ export function syncServerReadModel(state: AppState, readModel: OrchestrationRea
       advanced,
       readModel.snapshotSequence,
       livePresentThreadIds,
-      livePresentFolderIds,
     );
   }
   return retireConfirmedDeletionTombstones(
@@ -1390,6 +1384,5 @@ export function syncServerReadModel(state: AppState, readModel: OrchestrationRea
     },
     readModel.snapshotSequence,
     livePresentThreadIds,
-    livePresentFolderIds,
   );
 }

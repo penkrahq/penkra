@@ -14,11 +14,9 @@ import { isSessionRunningTurn, latestTurnMatchesTurnId } from "./session-logic";
 import { shouldInterruptProvisionalCompletion } from "@penkra/shared/turnContinuation";
 import {
   MAX_THREAD_MESSAGES,
-  arraysShallowEqual,
   asActivityRecord,
   createThreadActivityAccumulator,
   compareChatMessagesForTranscript,
-  deepEqualJson,
   latestDeliveryFailureReason,
   normalizeActivities,
   normalizeChatMessage,
@@ -28,16 +26,7 @@ import {
   providerReferenceArraysEqual,
   withOrchestrationEventSequence,
 } from "./storeNormalization";
-import {
-  applySpaceOrder,
-  applyShellEvent,
-  applyThreadUpdate,
-  removeSpace,
-  removeDeletedProjectFromClientState,
-  removeDeletedThreadFromClientState,
-  upsertProject,
-  upsertSpace,
-} from "./storeProjection";
+import { applyThreadUpdate } from "./storeProjection";
 import type { AppState } from "./storeState";
 import type { ChatMessage, Thread } from "./types";
 
@@ -497,120 +486,6 @@ function applyOrchestrationEvent(
   options?: ApplyOrchestrationEventOptions,
 ): AppState {
   switch (event.type) {
-    case "space.created":
-      return upsertSpace(state, {
-        id: event.payload.spaceId,
-        name: event.payload.name,
-        icon: event.payload.icon,
-        sortOrder: event.payload.sortOrder,
-        createdAt: event.payload.createdAt,
-        updatedAt: event.payload.updatedAt,
-      });
-
-    case "space.updated": {
-      const existing = state.spaces.find((space) => space.id === event.payload.spaceId);
-      const updatedState = existing
-        ? upsertSpace(state, {
-            ...existing,
-            name: event.payload.name ?? existing.name,
-            icon: event.payload.icon ?? existing.icon,
-            updatedAt: event.payload.updatedAt,
-          })
-        : state;
-      return updatedState;
-    }
-
-    case "space.archived":
-      return removeSpace(state, event.payload.spaceId);
-
-    case "space.restored": {
-      const existing = state.spaces.find((space) => space.id === event.payload.spaceId);
-      if (!existing) return state;
-      return upsertSpace(state, {
-        ...existing,
-        name: event.payload.name ?? existing.name,
-        archivedAt: null,
-        updatedAt: event.payload.restoredAt,
-      });
-    }
-
-    case "space.deleted":
-      return removeSpace(state, event.payload.spaceId);
-
-    case "folder.created":
-      return upsertProject(
-        state,
-        {
-          id: event.payload.folderId,
-          title: event.payload.title,
-          workspaceRoot: event.payload.workspaceRoot,
-          defaultModelSelection: event.payload.defaultModelSelection,
-          iconDataUrl: event.payload.iconDataUrl ?? null,
-          spaceId: event.payload.spaceId,
-          createdAt: event.payload.createdAt,
-          updatedAt: event.payload.updatedAt,
-        },
-        "id-only",
-      );
-
-    case "folder.updated": {
-      const existingProject = state.folders.find(
-        (project) => project.id === event.payload.folderId,
-      );
-      if (!existingProject) {
-        return state;
-      }
-      return upsertProject(
-        state,
-        {
-          id: existingProject.id,
-          title: event.payload.title ?? existingProject.remoteName,
-          workspaceRoot:
-            event.payload.workspaceRoot !== undefined
-              ? event.payload.workspaceRoot
-              : existingProject.cwd || null,
-          defaultModelSelection:
-            event.payload.defaultModelSelection !== undefined
-              ? event.payload.defaultModelSelection
-              : existingProject.defaultModelSelection,
-          iconDataUrl:
-            event.payload.iconDataUrl !== undefined
-              ? event.payload.iconDataUrl
-              : existingProject.iconDataUrl,
-          spaceId: existingProject.spaceId,
-          createdAt: existingProject.createdAt ?? event.payload.updatedAt,
-          updatedAt: event.payload.updatedAt,
-        },
-        "id-only",
-      );
-    }
-
-    case "folder.moved": {
-      const existingFolder = state.folders.find((folder) => folder.id === event.payload.folderId);
-      return existingFolder
-        ? upsertProject(
-            state,
-            {
-              id: existingFolder.id,
-              title: existingFolder.remoteName,
-              workspaceRoot: existingFolder.cwd || null,
-              defaultModelSelection: existingFolder.defaultModelSelection,
-              iconDataUrl: existingFolder.iconDataUrl,
-              spaceId: event.payload.spaceId,
-              sidebarSortOrder: existingFolder.sidebarSortOrder,
-              createdAt: existingFolder.createdAt ?? event.payload.updatedAt,
-              updatedAt: event.payload.updatedAt,
-              archivedAt: existingFolder.archivedAt ?? null,
-            },
-            "id-only",
-          )
-        : state;
-    }
-
-    case "folder.deleted": {
-      return removeDeletedProjectFromClientState(state, event.payload.folderId, event.sequence);
-    }
-
     // Historical marker events remain decodable but no longer affect UI state.
     case "thread.marker-added":
     case "thread.marker-removed":

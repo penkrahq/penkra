@@ -20,7 +20,10 @@ it.effect("drops script metadata and preserves folder rows", () =>
     yield* seed;
     const before =
       yield* sql`SELECT folder_id, title, workspace_root, created_at, updated_at FROM projection_folders`;
-    assert.deepStrictEqual(yield* runMigrations(), [[195, "RemoveFolderScripts"]]);
+    assert.deepStrictEqual(yield* runMigrations(), [
+      [195, "RemoveFolderScripts"],
+      [196, "RemoveNavigationEvents"],
+    ]);
     assert.deepStrictEqual(
       yield* sql`SELECT folder_id, title, workspace_root, created_at, updated_at FROM projection_folders`,
       before,

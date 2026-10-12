@@ -572,8 +572,6 @@ export type OrchestrationThreadShell = typeof OrchestrationThreadShell.Type;
 
 export const OrchestrationReadModel = Schema.Struct({
   snapshotSequence: NonNegativeInt,
-  spaces: Schema.Array(OrchestrationSpace),
-  folders: Schema.Array(OrchestrationFolder),
   threads: Schema.Array(OrchestrationThread),
   updatedAt: IsoDateTime,
 });
@@ -588,31 +586,6 @@ export const OrchestrationStartupSnapshot = Schema.Struct({
 export type OrchestrationStartupSnapshot = typeof OrchestrationStartupSnapshot.Type;
 
 export const OrchestrationShellStreamEvent = Schema.Union([
-  Schema.Struct({
-    kind: Schema.Literal("space-upserted"),
-    sequence: NonNegativeInt,
-    space: OrchestrationSpaceShell,
-  }),
-  Schema.Struct({
-    kind: Schema.Literal("space-removed"),
-    sequence: NonNegativeInt,
-    spaceId: SpaceId,
-    updatedAt: IsoDateTime,
-    preserveAssignments: Schema.optional(Schema.Boolean).pipe(
-      Schema.withDecodingDefault(() => false),
-    ),
-  }),
-
-  Schema.Struct({
-    kind: Schema.Literal("folder-upserted"),
-    sequence: NonNegativeInt,
-    folder: OrchestrationFolderShell,
-  }),
-  Schema.Struct({
-    kind: Schema.Literal("folder-removed"),
-    sequence: NonNegativeInt,
-    folderId: FolderId,
-  }),
   Schema.Struct({
     kind: Schema.Literal("thread-upserted"),
     sequence: NonNegativeInt,
@@ -635,52 +608,7 @@ export const OrchestrationShellStreamItem = Schema.Union([
 ]);
 export type OrchestrationShellStreamItem = typeof OrchestrationShellStreamItem.Type;
 
-export const SpaceCreateCommand = Schema.Struct({
-  type: Schema.Literal("space.create"),
-  commandId: CommandId,
-  spaceId: SpaceId,
-  name: SpaceName,
-  icon: SpaceIconName,
-  createdAt: IsoDateTime,
-});
-
-export const SpaceUpdateCommand = Schema.Struct({
-  type: Schema.Literal("space.update"),
-  commandId: CommandId,
-  spaceId: SpaceId,
-  name: Schema.optional(SpaceName),
-  icon: Schema.optional(SpaceIconName),
-});
-
-export const SpaceDeleteCommand = Schema.Struct({
-  type: Schema.Literal("space.delete"),
-  commandId: CommandId,
-  spaceId: SpaceId,
-});
-
-export const SpaceArchiveCommand = Schema.Struct({
-  type: Schema.Literal("space.archive"),
-  commandId: CommandId,
-  spaceId: SpaceId,
-});
-
-export const SpaceRestoreCommand = Schema.Struct({
-  type: Schema.Literal("space.restore"),
-  commandId: CommandId,
-  spaceId: SpaceId,
-  name: Schema.optional(SpaceName),
-});
-
 /** Bulk assignment into one persisted target Space, applied atomically. */
-export const FolderMoveCommand = Schema.Struct({
-  type: Schema.Literal("folder.move"),
-  commandId: CommandId,
-  spaceId: SpaceId,
-  folderIds: Schema.Array(FolderId).check(
-    Schema.isMinLength(1),
-    Schema.isMaxLength(FOLDER_MOVE_MAX_COUNT),
-  ),
-});
 
 export const SidebarItemReference = Schema.Union([
   Schema.Struct({ kind: Schema.Literal("folder"), id: FolderId }),
@@ -700,39 +628,6 @@ export const SidebarItemMovePosition = Schema.Union([
   Schema.Struct({ type: Schema.Literal("start") }),
 ]);
 export type SidebarItemMovePosition = typeof SidebarItemMovePosition.Type;
-
-export const FolderCreateCommand = Schema.Struct({
-  type: Schema.Literal("folder.create"),
-  commandId: CommandId,
-  folderId: FolderId,
-  title: TrimmedNonEmptyString,
-  workspaceRoot: Schema.optional(Schema.NullOr(TrimmedNonEmptyString)).pipe(
-    Schema.withDecodingDefault(() => null),
-  ),
-  createWorkspaceRootIfMissing: Schema.optional(Schema.Boolean).pipe(
-    Schema.withDecodingDefault(() => false),
-  ),
-  defaultModelSelection: Schema.optional(Schema.NullOr(ModelSelection)),
-  spaceId: SpaceId,
-  createdAt: IsoDateTime,
-});
-
-const FolderUpdateCommand = Schema.Struct({
-  type: Schema.Literal("folder.update"),
-  commandId: CommandId,
-  folderId: FolderId,
-  title: Schema.optional(TrimmedNonEmptyString),
-  workspaceRoot: Schema.optional(Schema.NullOr(TrimmedNonEmptyString)),
-  defaultModelSelection: Schema.optional(Schema.NullOr(ModelSelection)),
-  iconDataUrl: Schema.optional(Schema.NullOr(FolderIconDataUrl)),
-  archivedAt: Schema.optional(Schema.NullOr(IsoDateTime)),
-});
-
-const FolderDeleteCommand = Schema.Struct({
-  type: Schema.Literal("folder.delete"),
-  commandId: CommandId,
-  folderId: FolderId,
-});
 
 export const ThreadImportedMessage = Schema.Struct({
   messageId: MessageId,
@@ -912,15 +807,6 @@ const ThreadActivityReadModelTouchCommand = Schema.Struct({
 });
 
 const DispatchableClientOrchestrationCommand = Schema.Union([
-  SpaceCreateCommand,
-  SpaceUpdateCommand,
-  SpaceArchiveCommand,
-  SpaceRestoreCommand,
-  SpaceDeleteCommand,
-  FolderMoveCommand,
-  FolderCreateCommand,
-  FolderUpdateCommand,
-  FolderDeleteCommand,
   ThreadTurnStartCommand,
   ThreadTurnPlayCommand,
   ThreadTurnInterruptCommand,
@@ -934,15 +820,6 @@ export type DispatchableClientOrchestrationCommand =
   typeof DispatchableClientOrchestrationCommand.Type;
 
 export const ClientOrchestrationCommand = Schema.Union([
-  SpaceCreateCommand,
-  SpaceUpdateCommand,
-  SpaceArchiveCommand,
-  SpaceRestoreCommand,
-  SpaceDeleteCommand,
-  FolderMoveCommand,
-  FolderCreateCommand,
-  FolderUpdateCommand,
-  FolderDeleteCommand,
   ClientThreadTurnStartCommand,
   ThreadTurnPlayCommand,
   ThreadTurnInterruptCommand,
@@ -1060,15 +937,6 @@ export const OrchestrationCommand = Schema.Union([
 export type OrchestrationCommand = typeof OrchestrationCommand.Type;
 
 export const OrchestrationEventType = Schema.Literals([
-  "space.created",
-  "space.updated",
-  "space.archived",
-  "space.restored",
-  "space.deleted",
-  "folder.created",
-  "folder.updated",
-  "folder.moved",
-  "folder.deleted",
   "thread.marker-added",
   "thread.marker-removed",
   "thread.marker-done-set",
@@ -1095,72 +963,6 @@ export type OrchestrationEventType = typeof OrchestrationEventType.Type;
 export const OrchestrationAggregateKind = Schema.Literals(["space", "folder", "thread"]);
 export type OrchestrationAggregateKind = typeof OrchestrationAggregateKind.Type;
 export const OrchestrationActorKind = Schema.Literals(["client", "server", "provider"]);
-
-export const SpaceCreatedPayload = Schema.Struct({
-  spaceId: SpaceId,
-  name: SpaceName,
-  icon: SpaceIconName,
-  sortOrder: NonNegativeInt,
-  createdAt: IsoDateTime,
-  updatedAt: IsoDateTime,
-});
-
-export const SpaceUpdatedPayload = Schema.Struct({
-  spaceId: SpaceId,
-  name: Schema.optional(SpaceName),
-  icon: Schema.optional(SpaceIconName),
-  updatedAt: IsoDateTime,
-});
-
-export const SpaceDeletedPayload = Schema.Struct({
-  spaceId: SpaceId,
-  deletedAt: IsoDateTime,
-});
-
-export const SpaceArchivedPayload = Schema.Struct({
-  spaceId: SpaceId,
-  archivedAt: IsoDateTime,
-});
-
-export const SpaceRestoredPayload = Schema.Struct({
-  spaceId: SpaceId,
-  name: Schema.optional(SpaceName),
-  restoredAt: IsoDateTime,
-});
-
-export const FolderCreatedPayload = Schema.Struct({
-  folderId: FolderId,
-  title: TrimmedNonEmptyString,
-  workspaceRoot: Schema.NullOr(TrimmedNonEmptyString),
-  defaultModelSelection: Schema.NullOr(ModelSelection),
-  iconDataUrl: Schema.optional(Schema.NullOr(FolderIconDataUrl)),
-  spaceId: SpaceId,
-  sidebarSortOrder: Schema.optional(NonNegativeInt).pipe(Schema.withDecodingDefault(() => 0)),
-  createdAt: IsoDateTime,
-  updatedAt: IsoDateTime,
-});
-
-export const FolderUpdatedPayload = Schema.Struct({
-  folderId: FolderId,
-  title: Schema.optional(TrimmedNonEmptyString),
-  workspaceRoot: Schema.optional(Schema.NullOr(TrimmedNonEmptyString)),
-  defaultModelSelection: Schema.optional(Schema.NullOr(ModelSelection)),
-  iconDataUrl: Schema.optional(Schema.NullOr(FolderIconDataUrl)),
-  sidebarSortOrder: Schema.optional(NonNegativeInt),
-  archivedAt: Schema.optional(Schema.NullOr(IsoDateTime)),
-  updatedAt: IsoDateTime,
-});
-
-export const FolderDeletedPayload = Schema.Struct({
-  folderId: FolderId,
-  deletedAt: IsoDateTime,
-});
-
-export const FolderMovedPayload = Schema.Struct({
-  folderId: FolderId,
-  spaceId: SpaceId,
-  updatedAt: IsoDateTime,
-});
 
 const HistoricalThreadMarkerPayload = Schema.Record(Schema.String, Schema.Unknown);
 
@@ -1338,51 +1140,6 @@ const EventBaseFields = {
 } as const;
 
 export const OrchestrationEvent = Schema.Union([
-  Schema.Struct({
-    ...EventBaseFields,
-    type: Schema.Literal("space.created"),
-    payload: SpaceCreatedPayload,
-  }),
-  Schema.Struct({
-    ...EventBaseFields,
-    type: Schema.Literal("space.updated"),
-    payload: SpaceUpdatedPayload,
-  }),
-  Schema.Struct({
-    ...EventBaseFields,
-    type: Schema.Literal("space.archived"),
-    payload: SpaceArchivedPayload,
-  }),
-  Schema.Struct({
-    ...EventBaseFields,
-    type: Schema.Literal("space.restored"),
-    payload: SpaceRestoredPayload,
-  }),
-  Schema.Struct({
-    ...EventBaseFields,
-    type: Schema.Literal("space.deleted"),
-    payload: SpaceDeletedPayload,
-  }),
-  Schema.Struct({
-    ...EventBaseFields,
-    type: Schema.Literal("folder.created"),
-    payload: FolderCreatedPayload,
-  }),
-  Schema.Struct({
-    ...EventBaseFields,
-    type: Schema.Literal("folder.updated"),
-    payload: FolderUpdatedPayload,
-  }),
-  Schema.Struct({
-    ...EventBaseFields,
-    type: Schema.Literal("folder.moved"),
-    payload: FolderMovedPayload,
-  }),
-  Schema.Struct({
-    ...EventBaseFields,
-    type: Schema.Literal("folder.deleted"),
-    payload: FolderDeletedPayload,
-  }),
   Schema.Struct({
     ...EventBaseFields,
     type: Schema.Literal("thread.marker-added"),

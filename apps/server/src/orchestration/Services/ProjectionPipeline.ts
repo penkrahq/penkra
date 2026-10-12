@@ -11,13 +11,6 @@ import { ServiceMap } from "effect";
 import type { Effect } from "effect";
 
 import type { ProjectionRepositoryError } from "../../persistence/Errors.ts";
-import type { FolderMetadataOrchestrationEvent } from "../folderMetadataProjection.ts";
-import type { SpaceMetadataOrchestrationEvent } from "../spaceMetadataProjection.ts";
-
-export type ShellMetadataOrchestrationEvent =
-  | FolderMetadataOrchestrationEvent
-  | SpaceMetadataOrchestrationEvent;
-
 /**
  * OrchestrationProjectionPipelineShape - Service API for projection execution.
  */
@@ -58,14 +51,6 @@ export interface OrchestrationProjectionPipelineShape {
    */
   readonly projectDeferredEvent: (
     event: OrchestrationEvent,
-  ) => Effect.Effect<void, ProjectionRepositoryError>;
-
-  /**
-   * Project a single folder metadata event while the caller already owns the
-   * surrounding transaction.
-   */
-  readonly folderMetadataEvent: (
-    event: ShellMetadataOrchestrationEvent,
   ) => Effect.Effect<void, ProjectionRepositoryError>;
 }
 

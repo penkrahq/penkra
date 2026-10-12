@@ -78,7 +78,6 @@ import {
   ServerListProviderUsageResult,
   ServerLifecycleStreamEvent,
   ServerGetSettingsResult,
-  ServerListWorktreesResult,
   ServerRefreshProvidersResult,
   ServerUpdateSettingsInput,
   ServerUpdateSettingsResult,
@@ -110,6 +109,8 @@ import {
   CleanCoreEditQueuedMessageInput,
   QueuedEditDraftNotEmptyError,
   CleanCoreGetThreadShellInput,
+  CleanCoreGetNavigationResult,
+  CleanCoreUpdateNavigationInput,
   CleanCoreGetFoldersInput,
   CleanCoreGetFoldersResult,
   CleanCoreListThreadsInput,
@@ -538,6 +539,17 @@ export const WsCleanCoreEditQueuedMessageRpc = Rpc.make(WS_METHODS.cleanCoreEdit
   success: CleanCoreQueuedMessageResult,
   error: Schema.Union([WsRpcError, QueuedEditDraftNotEmptyError]),
 });
+export const WsCleanCoreGetNavigationRpc = Rpc.make(WS_METHODS.cleanCoreGetNavigation, {
+  payload: Schema.Struct({}),
+  success: CleanCoreGetNavigationResult,
+  error: WsRpcError,
+});
+export const WsCleanCoreUpdateNavigationRpc = Rpc.make(WS_METHODS.cleanCoreUpdateNavigation, {
+  payload: CleanCoreUpdateNavigationInput,
+  success: CleanCoreGetNavigationResult,
+  error: WsRpcError,
+});
+
 export const WsCleanCoreGetFoldersRpc = Rpc.make(WS_METHODS.cleanCoreGetFolders, {
   payload: CleanCoreGetFoldersInput,
   success: CleanCoreGetFoldersResult,
@@ -660,6 +672,8 @@ export const WsFeatureRpcGroup = RpcGroup.make(
   WsCleanCoreGetFolderAppTabsRpc,
   WsCleanCoreUpdateFolderAppTabsRpc,
   WsCleanCoreCreateAndSendThreadRpc,
+  WsCleanCoreGetNavigationRpc,
+  WsCleanCoreUpdateNavigationRpc,
   WsCleanCoreGetFoldersRpc,
   WsCleanCoreGetThreadShellRpc,
   WsCleanCoreListArchivedNavigationRpc,

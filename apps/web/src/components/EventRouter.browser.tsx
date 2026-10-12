@@ -1,3 +1,4 @@
+import type { FixtureReadModel as ContractReadModel } from "../test/effectRpcWebSocketMock.ts";
 import "../index.css";
 import { resetThreadListForTests } from "../threadListStore";
 
@@ -12,7 +13,6 @@ import {
   TurnId,
   type OrchestrationEvent,
   type OrchestrationGetThreadTurnsPageResult,
-  type OrchestrationReadModel as ContractReadModel,
   type OrchestrationSyncStreamItem,
   type OrchestrationThread as ContractThread,
   type ModelSelection,
@@ -89,6 +89,7 @@ interface AcknowledgementObservation {
   deliveryId: string;
   appliedSequence: number;
   rootTitle: string | null;
+  threadError: string | null;
   rootMessageTexts: string[];
   rootDetailSync: string | null;
 }
@@ -96,6 +97,9 @@ interface AcknowledgementObservation {
 let fixture: TestFixture;
 let subscribeSyncRequestCount = 0;
 let syncStreamRequestId: string | null = null;
+let navigationStreamClient: Parameters<typeof sendEffectRpcChunk>[0] | undefined;
+let navigationReadCount = 0;
+let navigationStreamRequestId: string | undefined;
 let syncStreamClient: EffectRpcWebSocketClient | null = null;
 let domainStreamRequestCount = 0;
 let getThreadTurnsPageRequests: ThreadId[] = [];
@@ -232,6 +236,7 @@ function observeAcknowledgement(requestBody: Record<string, unknown>): void {
     deliveryId: String(requestBody.deliveryId),
     appliedSequence: Number(requestBody.appliedSequence),
     rootTitle: useStore.getState().folders.find((folder) => folder.id === PROJECT_ID)?.name ?? null,
+    threadError: rootThread?.session?.lastError ?? null,
     rootMessageTexts: rootThread?.messages.map((message) => message.text) ?? [],
     rootDetailSync: useStore.getState().threadDetailSyncById?.[THREAD_ID] ?? null,
   });
@@ -406,6 +411,11 @@ function resolveUnaryRequest(method: string, body: Record<string, unknown>): unk
     return createThreadItemsPageFromFixtureSnapshot(body.threadId as ThreadId);
   if (method === WS_METHODS.cleanCoreGetThreadRuntime)
     return { state: "idle", activeTurnId: null, lastError: null };
+  if (method === WS_METHODS.cleanCoreGetNavigation) {
+    navigationReadCount += 1;
+    const { spaces, folders } = createStartupSnapshotFromReadModel(fixture.snapshot, []);
+    return { spaces, folders };
+  }
   if (method === WS_METHODS.serverGetConfig) return fixture.serverConfig;
   if (method === WS_METHODS.projectsSearchEntries) return { entries: [], truncated: false };
   return {};
@@ -459,9 +469,13 @@ const worker = setupWorker(
         sendEffectRpcChunk(client, request.id, { type: "snapshot", config: fixture.serverConfig });
         return;
       }
+      if (method === WS_METHODS.cleanCoreSubscribeSidebar) {
+        navigationStreamClient = client;
+        navigationStreamRequestId = request.id;
+        return;
+      }
       if (
         method === WS_METHODS.cleanCoreSubscribeThread ||
-        method === WS_METHODS.cleanCoreSubscribeSidebar ||
         method === WS_METHODS.subscribeServerProviderStatuses ||
         method === WS_METHODS.subscribeServerSettings ||
         method === WS_METHODS.subscribeProjectWorkspaceChanges
@@ -504,21 +518,27 @@ function sendSyncDelivery(item: OrchestrationSyncStreamItem): void {
   sendEffectRpcChunk(syncStreamClient, syncStreamRequestId, item);
 }
 
-function createFolderUpdatedEvent(input: {
+function createSessionUpdatedEvent(input: {
   sequence: number;
   title: string;
   occurredAt: string;
 }): OrchestrationEvent {
   return {
     sequence: input.sequence,
-    eventId: EventId.makeUnsafe(`event-folder-updated-${input.sequence}`),
-    aggregateKind: "folder",
-    aggregateId: PROJECT_ID,
-    type: "folder.updated",
+    eventId: EventId.makeUnsafe(`event-session-updated-${input.sequence}`),
+    aggregateKind: "thread",
+    aggregateId: THREAD_ID,
+    type: "thread.session-set",
     payload: {
-      folderId: PROJECT_ID,
-      title: input.title,
-      updatedAt: input.occurredAt,
+      threadId: THREAD_ID,
+      session: {
+        threadId: THREAD_ID,
+        providerName: fixture.snapshot.threads[0]!.modelSelection.provider,
+        status: "ready",
+        activeTurnId: null,
+        lastError: input.title,
+        updatedAt: input.occurredAt,
+      },
     },
     occurredAt: input.occurredAt,
     commandId: null,
@@ -586,6 +606,9 @@ describe("EventRouter uniform orchestration sync", () => {
     subscribeSyncRequestCount = 0;
     syncStreamRequestId = null;
     syncStreamClient = null;
+    navigationReadCount = 0;
+    navigationStreamClient = undefined;
+    navigationStreamRequestId = undefined;
     domainStreamRequestCount = 0;
     getThreadTurnsPageRequests = [];
     holdThreadTurnsPageRequests = false;
@@ -664,18 +687,48 @@ describe("EventRouter uniform orchestration sync", () => {
     }
   });
 
+  it("re-reads canonical navigation on bare pushes and removes missing rows", async () => {
+    const mounted = await mountApp();
+    try {
+      await vi.waitFor(() => expect(navigationStreamRequestId).toBeDefined());
+      fixture = {
+        ...fixture,
+        snapshot: {
+          ...fixture.snapshot,
+          folders: fixture.snapshot.folders.map((row) => ({ ...row, title: "Canonical title" })),
+        },
+      };
+      sendEffectRpcChunk(navigationStreamClient!, navigationStreamRequestId!, {
+        kind: "navigation",
+      });
+      await vi.waitFor(() => expect(navigationReadCount).toBeGreaterThan(0));
+      await vi.waitFor(() =>
+        expect(useStore.getState().folders.find((row) => row.id === PROJECT_ID)?.name).toBe(
+          "Canonical title",
+        ),
+      );
+      fixture = { ...fixture, snapshot: { ...fixture.snapshot, folders: [] } };
+      sendEffectRpcChunk(navigationStreamClient!, navigationStreamRequestId!, {
+        kind: "navigation",
+      });
+      await vi.waitFor(() => expect(useStore.getState().folders).toEqual([]));
+    } finally {
+      await mounted.cleanup();
+    }
+  });
+
   it("applies streamed events in order and cumulatively acknowledges applied state", async () => {
     const mounted = await mountApp();
 
     try {
       await vi.waitFor(() => expect(acknowledgementObservations).toHaveLength(1));
 
-      const firstEvent = createFolderUpdatedEvent({
+      const firstEvent = createSessionUpdatedEvent({
         sequence: 2,
         title: "First streamed title",
         occurredAt: "2026-03-04T12:00:01.000Z",
       });
-      const secondEvent = createFolderUpdatedEvent({
+      const secondEvent = createSessionUpdatedEvent({
         sequence: 3,
         title: "Second streamed title",
         occurredAt: "2026-03-04T12:00:02.000Z",
@@ -690,9 +743,9 @@ describe("EventRouter uniform orchestration sync", () => {
       expect(acknowledgementObservations.at(-1)).toMatchObject({
         deliveryId: "sync-event-3",
         appliedSequence: 3,
-        rootTitle: "Second streamed title",
+        threadError: "Second streamed title",
       });
-      expect(useStore.getState().folders.find((folder) => folder.id === PROJECT_ID)?.name).toBe(
+      expect(getThreadFromState(useStore.getState(), THREAD_ID)?.session?.lastError).toBe(
         "Second streamed title",
       );
       expect(subscribeSyncRequestCount).toBe(1);
@@ -736,7 +789,7 @@ describe("EventRouter uniform orchestration sync", () => {
         sendSyncDelivery({
           kind: "event",
           deliveryId: "sync-event-failed",
-          event: createFolderUpdatedEvent({
+          event: createSessionUpdatedEvent({
             sequence: 2,
             title: "Must not partially apply",
             occurredAt: "2026-03-04T12:00:01.000Z",
@@ -744,7 +797,7 @@ describe("EventRouter uniform orchestration sync", () => {
         });
 
         await vi.waitFor(() => {
-          const samples = getChatLifecycleDiagnosticSamples("*");
+          const samples = getChatLifecycleDiagnosticSamples(THREAD_ID);
           expect(
             samples.some(
               (sample) =>
@@ -761,16 +814,16 @@ describe("EventRouter uniform orchestration sync", () => {
             ),
           ).toBe(true);
         });
-        expect(useStore.getState().folders.find((folder) => folder.id === PROJECT_ID)?.name).toBe(
-          "Project",
-        );
+        expect(
+          getThreadFromState(useStore.getState(), THREAD_ID)?.session?.lastError,
+        ).toBeUndefined();
         expect(acknowledgementObservations.at(-1)?.appliedSequence).toBe(1);
 
         await vi.waitFor(() => expect(subscribeSyncRequestCount).toBe(2));
         sendSyncDelivery({
           kind: "event",
           deliveryId: "sync-event-recovered",
-          event: createFolderUpdatedEvent({
+          event: createSessionUpdatedEvent({
             sequence: 3,
             title: "Recovered streamed title",
             occurredAt: "2026-03-04T12:00:02.000Z",
@@ -778,17 +831,21 @@ describe("EventRouter uniform orchestration sync", () => {
         });
 
         await vi.waitFor(() => {
-          expect(useStore.getState().folders.find((folder) => folder.id === PROJECT_ID)?.name).toBe(
+          expect(getThreadFromState(useStore.getState(), THREAD_ID)?.session?.lastError).toBe(
             "Recovered streamed title",
           );
           expect(acknowledgementObservations.at(-1)?.appliedSequence).toBe(3);
           expect(
-            getChatLifecycleDiagnosticSamples("*").some(
+            getChatLifecycleDiagnosticSamples(THREAD_ID).some(
               (sample) =>
                 sample.event === "sync-publication-recovered" && sample.recoveryAttempt === 1,
             ),
           ).toBe(true);
-          expect(getPersistedChatSyncIncidents().map((sample) => sample.event)).toEqual([
+          expect(
+            getPersistedChatSyncIncidents()
+              .filter((sample) => sample.threadId === THREAD_ID)
+              .map((sample) => sample.event),
+          ).toEqual([
             "sync-publication-apply-failed",
             "sync-publication-recovery-scheduled",
             "sync-publication-recovered",
@@ -804,8 +861,8 @@ describe("EventRouter uniform orchestration sync", () => {
     const mounted = await mountApp();
     let streamedTitleStoreUpdates = 0;
     const unsubscribeStoreUpdates = useStore.subscribe((state, previousState) => {
-      const title = state.folders.find((folder) => folder.id === PROJECT_ID)?.name;
-      const previousTitle = previousState.folders.find((folder) => folder.id === PROJECT_ID)?.name;
+      const title = getThreadFromState(state, THREAD_ID)?.session?.lastError;
+      const previousTitle = getThreadFromState(previousState, THREAD_ID)?.session?.lastError;
       if (title !== previousTitle && title?.startsWith("Streamed title ")) {
         streamedTitleStoreUpdates += 1;
       }
@@ -819,7 +876,7 @@ describe("EventRouter uniform orchestration sync", () => {
         sendSyncDelivery({
           kind: "event",
           deliveryId: "sync-lease-1",
-          event: createFolderUpdatedEvent({
+          event: createSessionUpdatedEvent({
             sequence,
             title: `Streamed title ${sequence}`,
             occurredAt: new Date(Date.parse(NOW_ISO) + sequence * 1_000).toISOString(),
@@ -828,7 +885,7 @@ describe("EventRouter uniform orchestration sync", () => {
       }
 
       await vi.waitFor(() => {
-        expect(useStore.getState().folders.find((folder) => folder.id === PROJECT_ID)?.name).toBe(
+        expect(getThreadFromState(useStore.getState(), THREAD_ID)?.session?.lastError).toBe(
           "Streamed title 201",
         );
       });

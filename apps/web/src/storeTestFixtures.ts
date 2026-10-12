@@ -1,3 +1,4 @@
+import type { FixtureReadModel as OrchestrationReadModel } from "./test/effectRpcWebSocketMock.ts";
 // FILE: storeTestFixtures.ts
 // Purpose: Shared builders for store facade, projection, and event reducer tests.
 // Exports: Minimal normalized-state and orchestration payload fixtures.
@@ -9,7 +10,6 @@ import {
   ThreadId,
   TurnId,
   type OrchestrationEvent,
-  type OrchestrationReadModel,
   type OrchestrationStartupSnapshot,
   type OrchestrationThreadActivity,
 } from "@penkra/contracts";

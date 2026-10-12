@@ -1,4 +1,3 @@
-import {} from "@penkra/contracts";
 import { describe, expect, it } from "vitest";
 import {
   MessageId,
@@ -11,50 +10,13 @@ import {
 } from "@penkra/contracts";
 import { Effect } from "effect";
 
-import {
-  findThreadById,
-  listThreadsByFolderId,
-  requireNonNegativeInteger,
-  requireFolderHasNoThreads,
-  requireThread,
-  requireThreadAbsent,
-} from "./commandInvariants.ts";
+import { findThreadById, requireNonNegativeInteger, requireThread } from "./commandInvariants.ts";
 
 const now = new Date().toISOString();
-const spaceId = SpaceId.makeUnsafe("space-test");
 
 const readModel: OrchestrationReadModel = {
   snapshotSequence: 2,
   updatedAt: now,
-  spaces: [],
-  folders: [
-    {
-      id: FolderId.makeUnsafe("project-a"),
-      spaceId,
-      title: "Project A",
-      workspaceRoot: "/tmp/project-a",
-      defaultModelSelection: {
-        provider: "codex",
-        model: "gpt-5-codex",
-      },
-      createdAt: now,
-      updatedAt: now,
-      deletedAt: null,
-    },
-    {
-      id: FolderId.makeUnsafe("project-b"),
-      spaceId,
-      title: "Project B",
-      workspaceRoot: "/tmp/project-b",
-      defaultModelSelection: {
-        provider: "codex",
-        model: "gpt-5-codex",
-      },
-      createdAt: now,
-      updatedAt: now,
-      deletedAt: null,
-    },
-  ],
   threads: [
     {
       id: ThreadId.makeUnsafe("thread-1"),
@@ -139,12 +101,9 @@ const messageSendCommand: OrchestrationCommand = {
 };
 
 describe("commandInvariants", () => {
-  it("finds threads by id and project", () => {
+  it("finds threads by id", () => {
     expect(findThreadById(readModel, ThreadId.makeUnsafe("thread-1"))?.folderId).toBe("project-a");
     expect(findThreadById(readModel, ThreadId.makeUnsafe("missing"))).toBeUndefined();
-    expect(
-      listThreadsByFolderId(readModel, FolderId.makeUnsafe("project-b")).map((thread) => thread.id),
-    ).toEqual([ThreadId.makeUnsafe("thread-2")]);
   });
 
   it("requires existing thread", async () => {
@@ -196,33 +155,5 @@ describe("commandInvariants", () => {
         }),
       ),
     ).rejects.toThrow("greater than or equal to 0");
-  });
-
-  it("requires project to have no remaining threads before delete", async () => {
-    const deleteCommand: OrchestrationCommand = {
-      type: "folder.delete",
-      commandId: CommandId.makeUnsafe("cmd-project-delete"),
-      folderId: FolderId.makeUnsafe("project-a"),
-    };
-
-    await expect(
-      Effect.runPromise(
-        requireFolderHasNoThreads({
-          readModel,
-          command: deleteCommand,
-          folderId: FolderId.makeUnsafe("project-a"),
-        }),
-      ),
-    ).rejects.toThrow("still has 2 threads");
-
-    await expect(
-      Effect.runPromise(
-        requireFolderHasNoThreads({
-          readModel,
-          command: deleteCommand,
-          folderId: FolderId.makeUnsafe("project-missing"),
-        }),
-      ),
-    ).resolves.toBeUndefined();
   });
 });

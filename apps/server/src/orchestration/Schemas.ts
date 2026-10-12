@@ -1,13 +1,4 @@
 import {
-  SpaceCreatedPayload as ContractsSpaceCreatedPayloadSchema,
-  SpaceUpdatedPayload as ContractsSpaceUpdatedPayloadSchema,
-  SpaceArchivedPayload as ContractsSpaceArchivedPayloadSchema,
-  SpaceRestoredPayload as ContractsSpaceRestoredPayloadSchema,
-  SpaceDeletedPayload as ContractsSpaceDeletedPayloadSchema,
-  FolderCreatedPayload as ContractsFolderCreatedPayloadSchema,
-  FolderUpdatedPayload as ContractsFolderUpdatedPayloadSchema,
-  FolderMovedPayload as ContractsFolderMovedPayloadSchema,
-  FolderDeletedPayload as ContractsFolderDeletedPayloadSchema,
   ThreadMessageSentPayload as ContractsThreadMessageSentPayloadSchema,
   ThreadSessionSetPayload as ContractsThreadSessionSetPayloadSchema,
   ThreadActivityAppendedPayload as ContractsThreadActivityAppendedPayloadSchema,
@@ -20,15 +11,6 @@ import {
 } from "@penkra/contracts";
 
 // Server-internal alias surface, backed by contract schemas as the source of truth.
-export const SpaceCreatedPayload = ContractsSpaceCreatedPayloadSchema;
-export const SpaceUpdatedPayload = ContractsSpaceUpdatedPayloadSchema;
-export const SpaceArchivedPayload = ContractsSpaceArchivedPayloadSchema;
-export const SpaceRestoredPayload = ContractsSpaceRestoredPayloadSchema;
-export const SpaceDeletedPayload = ContractsSpaceDeletedPayloadSchema;
-export const FolderCreatedPayload = ContractsFolderCreatedPayloadSchema;
-export const FolderUpdatedPayload = ContractsFolderUpdatedPayloadSchema;
-export const FolderMovedPayload = ContractsFolderMovedPayloadSchema;
-export const FolderDeletedPayload = ContractsFolderDeletedPayloadSchema;
 
 export const MessageSentPayloadSchema = ContractsThreadMessageSentPayloadSchema;
 export const ThreadSessionSetPayload = ContractsThreadSessionSetPayloadSchema;

@@ -16,7 +16,6 @@ import {
   type AuthRevokePairingLinkInput,
   type AuthSessionState,
   type AuthWebSocketTokenResult,
-  type ThreadId,
   type OrchestrationEvent,
   type OrchestrationShellStreamItem,
   type OrchestrationSyncStreamItem,
@@ -494,6 +493,8 @@ export function createWsNativeApi(): NativeApi {
       listArchivedThreads: (input) =>
         transport.request(WS_METHODS.cleanCoreListArchivedThreads, input),
       restoreThread: (input) => transport.request(WS_METHODS.cleanCoreRestoreThread, input),
+      getNavigation: () => transport.request(WS_METHODS.cleanCoreGetNavigation),
+      updateNavigation: (input) => transport.request(WS_METHODS.cleanCoreUpdateNavigation, input),
       getFolders: (input) => transport.request(WS_METHODS.cleanCoreGetFolders, input),
       getThread: (input) => transport.request(WS_METHODS.cleanCoreGetThread, input),
       sendMessage: (input) => transport.request(WS_METHODS.cleanCoreSendMessage, input),

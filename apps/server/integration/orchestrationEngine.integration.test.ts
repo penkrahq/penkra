@@ -1,7 +1,8 @@
+import * as SqlClient from "effect/unstable/sql/SqlClient";
+import { ThreadPublisher } from "../src/cleanCore/ThreadPublisher";
+import { updateNavigation } from "../src/cleanCore/navigation.ts";
 import { LOCAL_LOOPBACK_ATTACHMENT_PRINCIPAL } from "../src/managedAttachmentPrincipal.ts";
 import { createThreadFixture } from "../src/cleanCore/threadFixtures.ts";
-import fs from "node:fs";
-import path from "node:path";
 
 import {
   CommandId,
@@ -31,7 +32,7 @@ const asEventId = (value: string): EventId => EventId.makeUnsafe(value);
 const PROJECT_ID = asFolderId("project-1");
 const THREAD_ID = ThreadId.makeUnsafe("thread-1");
 const FIXTURE_TURN_ID = "fixture-turn";
-const APPROVAL_REQUEST_ID = "req-approval-1";
+
 const itLiveUnlessCi = (process.env.CI ? it.skip : it.live) as typeof it.live;
 type IntegrationProvider = ProviderKind;
 
@@ -77,22 +78,34 @@ function runtimeBase(eventId: string, createdAt: string, provider: IntegrationPr
 }
 
 function withHarness<A, E>(
-  use: (harness: OrchestrationIntegrationHarness) => Effect.Effect<A, E>,
+  use: (
+    harness: OrchestrationIntegrationHarness,
+  ) => Effect.Effect<A, E, SqlClient.SqlClient | ThreadPublisher>,
   provider: IntegrationProvider = "codex",
 ) {
   return Effect.acquireUseRelease(
     makeOrchestrationIntegrationHarness({ provider }),
-    use,
+    (harness) =>
+      use(harness).pipe(
+        Effect.provideService(SqlClient.SqlClient, harness.sql),
+        Effect.provideService(ThreadPublisher, harness.publisher),
+      ),
     (harness) => harness.dispose,
   ).pipe(Effect.provide(NodeServices.layer));
 }
 
 function withRealCodexHarness<A, E>(
-  use: (harness: OrchestrationIntegrationHarness) => Effect.Effect<A, E>,
+  use: (
+    harness: OrchestrationIntegrationHarness,
+  ) => Effect.Effect<A, E, SqlClient.SqlClient | ThreadPublisher>,
 ) {
   return Effect.acquireUseRelease(
     makeOrchestrationIntegrationHarness({ provider: "codex", realCodex: true }),
-    use,
+    (harness) =>
+      use(harness).pipe(
+        Effect.provideService(SqlClient.SqlClient, harness.sql),
+        Effect.provideService(ThreadPublisher, harness.publisher),
+      ),
     (harness) => harness.dispose,
   ).pipe(Effect.provide(NodeServices.layer));
 }
@@ -104,27 +117,29 @@ const seedProjectAndThread = (harness: OrchestrationIntegrationHarness) =>
     const defaultModel = `test-model-${provider}`;
     const personalSpaceId = SpaceId.makeUnsafe("penkra-personal");
 
-    yield* harness.engine.dispatch({
-      type: "space.create",
-      commandId: CommandId.makeUnsafe("cmd-space-create"),
-      spaceId: personalSpaceId,
-      name: "Personal",
-      icon: "home",
-      createdAt,
+    yield* updateNavigation({
+      update: {
+        action: "space.create",
+        spaceId: personalSpaceId,
+        name: "Personal",
+        icon: "home",
+        createdAt,
+      },
     });
 
-    yield* harness.engine.dispatch({
-      type: "folder.create",
-      commandId: CommandId.makeUnsafe("cmd-project-create"),
-      folderId: PROJECT_ID,
-      title: "Integration Project",
-      workspaceRoot: null,
-      spaceId: personalSpaceId,
-      defaultModelSelection: {
-        provider,
-        model: defaultModel,
+    yield* updateNavigation({
+      update: {
+        action: "folder.create",
+        folderId: PROJECT_ID,
+        title: "Integration Project",
+        workspaceRoot: null,
+        spaceId: personalSpaceId,
+        defaultModelSelection: {
+          provider,
+          model: defaultModel,
+        },
+        createdAt,
       },
-      createdAt,
     });
 
     yield* harness.sql`UPDATE projection_folders SET workspace_root = ${harness.workspaceDir} WHERE folder_id = ${PROJECT_ID}`;
@@ -239,27 +254,29 @@ it.live.skipIf(!process.env.CODEX_BINARY_PATH)(
         const createdAt = nowIso();
         const personalSpaceId = SpaceId.makeUnsafe("penkra-personal-real-codex");
 
-        yield* harness.engine.dispatch({
-          type: "space.create",
-          commandId: CommandId.makeUnsafe("cmd-space-create-real-codex"),
-          spaceId: personalSpaceId,
-          name: "Personal",
-          icon: "home",
-          createdAt,
+        yield* updateNavigation({
+          update: {
+            action: "space.create",
+            spaceId: personalSpaceId,
+            name: "Personal",
+            icon: "home",
+            createdAt,
+          },
         });
 
-        yield* harness.engine.dispatch({
-          type: "folder.create",
-          commandId: CommandId.makeUnsafe("cmd-project-create-real-codex"),
-          folderId: PROJECT_ID,
-          title: "Integration Project",
-          workspaceRoot: null,
-          spaceId: personalSpaceId,
-          defaultModelSelection: {
-            provider: "codex",
-            model: "gpt-5.3-codex",
+        yield* updateNavigation({
+          update: {
+            action: "folder.create",
+            folderId: PROJECT_ID,
+            title: "Integration Project",
+            workspaceRoot: null,
+            spaceId: personalSpaceId,
+            defaultModelSelection: {
+              provider: "codex",
+              model: "gpt-5.3-codex",
+            },
+            createdAt,
           },
-          createdAt,
         });
 
         yield* harness.sql`UPDATE projection_folders SET workspace_root = ${harness.workspaceDir} WHERE folder_id = ${PROJECT_ID}`;

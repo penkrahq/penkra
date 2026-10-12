@@ -6,8 +6,6 @@ import { Effect, Exit, Layer } from "effect";
 import * as SqlClient from "effect/unstable/sql/SqlClient";
 import { SqlitePersistenceMemory } from "../../persistence/Layers/Sqlite.ts";
 import {
-  STARTUP_SPACES_SQL,
-  STARTUP_FOLDERS_SQL,
   buildFolderShellPageQuery,
   buildThreadShellPageQuery,
   buildTranscriptSearchQuery,
@@ -459,11 +457,7 @@ it.effect("startup reads navigation and canonical running rows only through thei
         snapshot.folders.map((row) => row.id),
         ["folder"],
       );
-      for (const [statement, index] of [
-        [STARTUP_SPACES_SQL, "idx_projection_spaces_visible_order"],
-        [STARTUP_FOLDERS_SQL, "idx_folders_created_live"],
-        [RUNNING_THREADS_SQL, "idx_threads_running_live"],
-      ]) {
+      for (const [statement, index] of [[RUNNING_THREADS_SQL, "idx_threads_running_live"]]) {
         const plan = yield* sql.unsafe<{ detail: string }>("EXPLAIN QUERY PLAN " + statement);
         assert.isTrue(
           plan.some((row) => row.detail.includes(index!)),

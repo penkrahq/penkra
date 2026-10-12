@@ -1,6 +1,7 @@
+import { updateNavigation } from "../cleanCore/navigation.ts";
 import { ConnectionRateLimitsLive } from "../providerUsage/ConnectionRateLimits.ts";
 import { createThreadFixture } from "../cleanCore/threadFixtures.ts";
-import {} from "@penkra/contracts";
+
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -20,17 +21,7 @@ import {
   type ProviderTurnStartResult,
 } from "@penkra/contracts";
 import * as NodeServices from "@effect/platform-node/NodeServices";
-import {
-  Clock,
-  Deferred,
-  Duration,
-  Effect,
-  Exit,
-  Layer,
-  ManagedRuntime,
-  Option,
-  Scope,
-} from "effect";
+import { Clock, Deferred, Duration, Effect, Exit, Layer, ManagedRuntime, Scope } from "effect";
 import * as SqlClient from "effect/unstable/sql/SqlClient";
 import { TestClock } from "effect/testing";
 import { describe, expect, it } from "vitest";
@@ -331,6 +322,7 @@ async function makeProviderRuntime(
     Layer.provideMerge(NodeServices.layer),
   );
   const orchestrationLayer = OrchestrationEngineLive.pipe(
+    Layer.provideMerge(ThreadPublisherLive),
     Layer.provide(OrchestrationProjectionPipelineLive),
     Layer.provide(OrchestrationProjectionSnapshotQueryLive),
     Layer.provide(OrchestrationEventStoreLive),
@@ -515,25 +507,27 @@ async function makeProviderRuntime(
   }
   const now = "2026-09-07T10:00:00.000Z";
   await runtime.runPromise(
-    engine.dispatch({
-      type: "space.create",
-      commandId: CommandId.makeUnsafe("cmd-boundary-space"),
-      spaceId: SpaceId.makeUnsafe("space-boundary"),
-      name: "Boundary",
-      icon: "home",
-      createdAt: now,
+    updateNavigation({
+      update: {
+        action: "space.create",
+        spaceId: SpaceId.makeUnsafe("space-boundary"),
+        name: "Boundary",
+        icon: "home",
+        createdAt: now,
+      },
     }),
   );
   await runtime.runPromise(
-    engine.dispatch({
-      type: "folder.create",
-      commandId: CommandId.makeUnsafe("cmd-boundary-folder"),
-      folderId: FolderId.makeUnsafe("folder-boundary"),
-      title: "Boundary",
-      workspaceRoot: null,
-      spaceId: SpaceId.makeUnsafe("space-boundary"),
-      defaultModelSelection: MODEL_SELECTION,
-      createdAt: now,
+    updateNavigation({
+      update: {
+        action: "folder.create",
+        folderId: FolderId.makeUnsafe("folder-boundary"),
+        title: "Boundary",
+        workspaceRoot: null,
+        spaceId: SpaceId.makeUnsafe("space-boundary"),
+        defaultModelSelection: MODEL_SELECTION,
+        createdAt: now,
+      },
     }),
   );
   await runtime.runPromise(

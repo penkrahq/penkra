@@ -86,6 +86,8 @@ import type {
   CleanCoreQueuedMessageResult,
   CleanCoreEditQueuedMessageInput,
   CleanCoreGetThreadShellInput,
+  CleanCoreGetNavigationResult,
+  CleanCoreUpdateNavigationInput,
   CleanCoreGetFoldersInput,
   CleanCoreGetFoldersResult,
   CleanCoreListThreadsInput,
@@ -1055,6 +1057,10 @@ export interface NativeApi {
       input: CleanCoreListArchivedThreadsInput,
     ) => Promise<CleanCoreListArchivedThreadsResult>;
     restoreThread: (input: CleanCoreRestoreThreadInput) => Promise<void>;
+    getNavigation: () => Promise<CleanCoreGetNavigationResult>;
+    updateNavigation: (
+      input: CleanCoreUpdateNavigationInput,
+    ) => Promise<CleanCoreGetNavigationResult>;
     getFolders: (input: CleanCoreGetFoldersInput) => Promise<CleanCoreGetFoldersResult>;
     getThread: (input: CleanCoreGetThreadShellInput) => Promise<CleanCoreThreadSummary | null>;
     sendMessage: (input: CleanCoreSendMessageInput) => Promise<CleanCoreSendResult>;

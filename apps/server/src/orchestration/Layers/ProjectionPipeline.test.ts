@@ -1,3 +1,5 @@
+import { ThreadPublisherLive } from "../../cleanCore/ThreadPublisher.ts";
+import { updateNavigation } from "../../cleanCore/navigation.ts";
 import { seedThreadFolderFixture, createThreadFixture } from "../../cleanCore/threadFixtures.ts";
 import { createThread, markThreadVisited } from "../../cleanCore/threadStore.ts";
 import {
@@ -45,6 +47,7 @@ const makeProjectionPipelinePrefixedTestLayer = (prefix: string) =>
     Layer.provideMerge(OrchestrationEventStoreLive),
     Layer.provideMerge(ServerConfig.layerTest(process.cwd(), { prefix })),
     Layer.provideMerge(SqlitePersistenceMemory),
+    Layer.provideMerge(ThreadPublisherLive),
     Layer.provideMerge(NodeServices.layer),
   );
 
@@ -80,6 +83,11 @@ const exists = (filePath: string) =>
     return fileInfo._tag === "Success";
   });
 
+const seedSpace = Effect.gen(function* () {
+  const sql = yield* SqlClient.SqlClient;
+  yield* sql`INSERT OR IGNORE INTO projection_spaces (space_id,name,icon,sort_order,created_at,updated_at) VALUES ('penkra-personal','Personal','home',0,'2026-01-01T00:00:00.000Z','2026-01-01T00:00:00.000Z')`;
+});
+
 const BaseTestLayer = makeProjectionPipelinePrefixedTestLayer("penkra-projection-pipeline-test-");
 
 it.layer(BaseTestLayer)("OrchestrationProjectionPipeline", (it) => {
@@ -90,24 +98,16 @@ it.layer(BaseTestLayer)("OrchestrationProjectionPipeline", (it) => {
       const sql = yield* SqlClient.SqlClient;
       const now = new Date().toISOString();
 
-      yield* eventStore.append({
-        type: "folder.created",
-        eventId: EventId.makeUnsafe("evt-1"),
-        aggregateKind: "folder",
-        aggregateId: FolderId.makeUnsafe("project-1"),
-        occurredAt: now,
-        commandId: CommandId.makeUnsafe("cmd-1"),
-        causationEventId: null,
-        correlationId: CommandId.makeUnsafe("cmd-1"),
-        metadata: {},
-        payload: {
+      yield* seedSpace;
+      yield* updateNavigation({
+        update: {
+          action: "folder.create",
           folderId: FolderId.makeUnsafe("project-1"),
           spaceId: SpaceId.makeUnsafe("penkra-personal"),
           title: "Project 1",
           workspaceRoot: "/tmp/project-1",
           defaultModelSelection: null,
           createdAt: now,
-          updatedAt: now,
         },
       });
 
@@ -184,7 +184,7 @@ it.layer(BaseTestLayer)("OrchestrationProjectionPipeline", (it) => {
       `;
       assert.equal(stateRows.length, Object.keys(ORCHESTRATION_PROJECTOR_NAMES).length);
       for (const row of stateRows) {
-        assert.equal(row.lastAppliedSequence, 2);
+        assert.equal(row.lastAppliedSequence, 1);
       }
     }),
   );
@@ -197,24 +197,16 @@ it.layer(BaseTestLayer)("OrchestrationProjectionPipeline", (it) => {
       const createdAt = "2026-08-19T12:00:00.000Z";
       const visitedAt = "2026-08-19T12:05:00.000Z";
 
-      yield* eventStore.append({
-        type: "folder.created",
-        eventId: EventId.makeUnsafe("evt-visit-project"),
-        aggregateKind: "folder",
-        aggregateId: FolderId.makeUnsafe("project-visit"),
-        occurredAt: createdAt,
-        commandId: CommandId.makeUnsafe("cmd-visit-project"),
-        causationEventId: null,
-        correlationId: CommandId.makeUnsafe("cmd-visit-project"),
-        metadata: {},
-        payload: {
+      yield* seedSpace;
+      yield* updateNavigation({
+        update: {
+          action: "folder.create",
           folderId: FolderId.makeUnsafe("project-visit"),
           spaceId: SpaceId.makeUnsafe("penkra-personal"),
           title: "Project",
           workspaceRoot: "/tmp/project-visit",
           defaultModelSelection: null,
           createdAt,
-          updatedAt: createdAt,
         },
       });
       yield* projectionPipeline.bootstrap;
@@ -274,24 +266,16 @@ it.layer(BaseTestLayer)("OrchestrationProjectionPipeline", (it) => {
       const startedAt = "2026-07-21T00:00:02.000Z";
       const failedAt = "2026-07-21T00:00:03.000Z";
 
-      yield* appendAndProject({
-        type: "folder.created",
-        eventId: EventId.makeUnsafe("evt-retained-error-project"),
-        aggregateKind: "folder",
-        aggregateId: FolderId.makeUnsafe("project-retained-error"),
-        occurredAt: createdAt,
-        commandId: CommandId.makeUnsafe("cmd-retained-error-project"),
-        causationEventId: null,
-        correlationId: CommandId.makeUnsafe("cmd-retained-error-project"),
-        metadata: {},
-        payload: {
+      yield* seedSpace;
+      yield* updateNavigation({
+        update: {
+          action: "folder.create",
           folderId: FolderId.makeUnsafe("project-retained-error"),
           spaceId: SpaceId.makeUnsafe("penkra-personal"),
           title: "Retained error project",
           workspaceRoot: "/tmp/project-retained-error",
           defaultModelSelection: null,
           createdAt,
-          updatedAt: createdAt,
         },
       });
       yield* projectionPipeline.bootstrap;
@@ -558,11 +542,13 @@ it.effect("fast-forwards lagging hot projector cursors before restart replay", (
     const firstProjectionLayer = OrchestrationProjectionPipelineLive.pipe(
       Layer.provideMerge(OrchestrationEventStoreLive),
       Layer.provideMerge(persistenceLayer),
+      Layer.provideMerge(ThreadPublisherLive),
     );
     const readCursors: Array<number> = [];
     const secondProjectionLayer = OrchestrationProjectionPipelineLive.pipe(
       Layer.provideMerge(makeObservedEventStoreLayer(readCursors)),
       Layer.provideMerge(persistenceLayer),
+      Layer.provideMerge(ThreadPublisherLive),
     );
     const folderId = FolderId.makeUnsafe("project-bootstrap-fast-forward");
     const threadId = ThreadId.makeUnsafe("thread-bootstrap-fast-forward");
@@ -573,24 +559,16 @@ it.effect("fast-forwards lagging hot projector cursors before restart replay", (
       const eventStore = yield* OrchestrationEventStore;
       const projectionPipeline = yield* OrchestrationProjectionPipeline;
 
-      yield* eventStore.append({
-        type: "folder.created",
-        eventId: EventId.makeUnsafe("evt-bootstrap-fast-forward-project"),
-        aggregateKind: "folder",
-        aggregateId: folderId,
-        occurredAt: createdAt,
-        commandId: CommandId.makeUnsafe("cmd-bootstrap-fast-forward-project"),
-        causationEventId: null,
-        correlationId: CorrelationId.makeUnsafe("cmd-bootstrap-fast-forward-project"),
-        metadata: {},
-        payload: {
+      yield* seedSpace;
+      yield* updateNavigation({
+        update: {
+          action: "folder.create",
           folderId,
           spaceId: SpaceId.makeUnsafe("penkra-personal"),
           title: "Bootstrap fast-forward project",
           workspaceRoot: "/tmp/project-bootstrap-fast-forward",
           defaultModelSelection: null,
           createdAt,
-          updatedAt: createdAt,
         },
       });
       yield* projectionPipeline.bootstrap;
@@ -656,7 +634,7 @@ it.effect("fast-forwards lagging hot projector cursors before restart replay", (
     }).pipe(Effect.provide(secondProjectionLayer));
 
     assert.equal(readCursors.length, projectorStates.length);
-    assert.deepEqual([...new Set(readCursors)], [latestSequence]);
+    assert.deepEqual([...new Set(readCursors)], [0, latestSequence]);
     for (const row of projectorStates) {
       assert.equal(row.lastAppliedSequence, latestSequence);
     }
@@ -676,32 +654,50 @@ it.effect("drains 2,501 file-backed events to a captured high-water fence", () =
   Effect.gen(function* () {
     const { dbPath } = yield* ServerConfig;
     const persistenceLayer = makeSqlitePersistenceLive(dbPath);
-    const eventStoreLayer = OrchestrationEventStoreLive.pipe(Layer.provideMerge(persistenceLayer));
+    const eventStoreLayer = OrchestrationEventStoreLive.pipe(
+      Layer.provideMerge(persistenceLayer),
+      Layer.provideMerge(ThreadPublisherLive),
+    );
     const folderId = FolderId.makeUnsafe("project-bootstrap-paged");
+    const threadId = ThreadId.makeUnsafe("thread-bootstrap-paged");
     const occurredAt = "2026-07-14T01:00:00.000Z";
 
     yield* Effect.gen(function* () {
       const eventStore = yield* OrchestrationEventStore;
       const sql = yield* SqlClient.SqlClient;
-      yield* eventStore.append({
-        type: "folder.created",
-        eventId: EventId.makeUnsafe("evt-bootstrap-paged-created"),
-        aggregateKind: "folder",
-        aggregateId: folderId,
-        occurredAt,
-        commandId: CommandId.makeUnsafe("cmd-bootstrap-paged-created"),
-        causationEventId: null,
-        correlationId: CorrelationId.makeUnsafe("cmd-bootstrap-paged-created"),
-        metadata: {},
-        payload: {
+      yield* seedSpace;
+      yield* updateNavigation({
+        update: {
+          action: "folder.create",
           folderId,
           spaceId: SpaceId.makeUnsafe("penkra-personal"),
           title: "Project 0",
           workspaceRoot: "/tmp/project-bootstrap-paged",
           defaultModelSelection: null,
           createdAt: occurredAt,
-          updatedAt: occurredAt,
         },
+      });
+      yield* createThreadFixture(sql, {
+        threadId,
+        folderId,
+        title: "Paged",
+        modelSelection: { provider: "codex", model: "gpt-5-codex" },
+        runtimeMode: "full-access",
+        createdAt: occurredAt,
+        connection: { kind: "selected", connectionId: null },
+        creator: { kind: "user" },
+      });
+      yield* eventStore.append({
+        type: "thread.session-stop-requested",
+        eventId: EventId.makeUnsafe("evt-bootstrap-paged-initial"),
+        aggregateKind: "thread",
+        aggregateId: threadId,
+        occurredAt,
+        commandId: null,
+        causationEventId: null,
+        correlationId: null,
+        metadata: {},
+        payload: { threadId, createdAt: occurredAt },
       });
       yield* sql`
         WITH RECURSIVE digits(n) AS (
@@ -729,19 +725,18 @@ it.effect("drains 2,501 file-backed events to a captured high-water fence", () =
         )
         SELECT
           'evt-bootstrap-paged-' || n,
-          'folder',
-          ${folderId},
+          'thread',
+          ${threadId},
           n,
-          'folder.updated',
+          'thread.activity-appended',
           ${occurredAt},
           'cmd-bootstrap-paged-' || n,
           NULL,
           'cmd-bootstrap-paged-' || n,
           'user',
           json_object(
-            'folderId', ${folderId},
-            'title', 'Project ' || n,
-            'updatedAt', ${occurredAt}
+            'threadId', ${threadId},
+            'activity', json_object('id', 'activity-bootstrap-paged-' || n, 'tone', 'info', 'kind', 'test', 'summary', 'Activity ' || n, 'payload', json('{}'), 'turnId', NULL, 'createdAt', ${occurredAt})
           ),
           '{}'
         FROM numbered
@@ -761,19 +756,26 @@ it.effect("drains 2,501 file-backed events to a captured high-water fence", () =
                 if (!appendedAfterFence) {
                   appendedAfterFence = true;
                   yield* eventStore.append({
-                    type: "folder.updated",
-                    eventId: EventId.makeUnsafe("evt-bootstrap-paged-after-fence"),
-                    aggregateKind: "folder",
-                    aggregateId: folderId,
+                    type: "thread.activity-appended",
+                    eventId: EventId.makeUnsafe("evt-after-fence"),
+                    aggregateKind: "thread",
+                    aggregateId: threadId,
                     occurredAt,
-                    commandId: CommandId.makeUnsafe("cmd-bootstrap-paged-after-fence"),
+                    commandId: null,
                     causationEventId: null,
-                    correlationId: CorrelationId.makeUnsafe("cmd-bootstrap-paged-after-fence"),
+                    correlationId: null,
                     metadata: {},
                     payload: {
-                      folderId,
-                      title: "Project after fence",
-                      updatedAt: occurredAt,
+                      threadId,
+                      activity: {
+                        id: EventId.makeUnsafe("activity-after-fence"),
+                        tone: "info",
+                        kind: "test",
+                        summary: "After fence",
+                        payload: {},
+                        turnId: null,
+                        createdAt: occurredAt,
+                      },
                     },
                   });
                 }
@@ -791,14 +793,15 @@ it.effect("drains 2,501 file-backed events to a captured high-water fence", () =
     const projectionLayer = OrchestrationProjectionPipelineLive.pipe(
       Layer.provideMerge(appendAfterFenceLayer),
       Layer.provideMerge(persistenceLayer),
+      Layer.provideMerge(ThreadPublisherLive),
     );
 
     const result = yield* Effect.gen(function* () {
       const projectionPipeline = yield* OrchestrationProjectionPipeline;
       const sql = yield* SqlClient.SqlClient;
       yield* projectionPipeline.bootstrap;
-      const folders = yield* sql<{ readonly title: string }>`
-        SELECT title FROM projection_folders WHERE folder_id = ${folderId}
+      const activities = yield* sql<{ readonly summary: string }>`
+        SELECT summary FROM projection_thread_activities WHERE activity_id='activity-bootstrap-paged-2500'
       `;
       const cursors = yield* sql<{ readonly lastAppliedSequence: number }>`
         SELECT last_applied_sequence AS "lastAppliedSequence" FROM projection_state
@@ -806,10 +809,10 @@ it.effect("drains 2,501 file-backed events to a captured high-water fence", () =
       const eventCount = yield* sql<{ readonly count: number }>`
         SELECT COUNT(*) AS count FROM orchestration_events
       `;
-      return { folders, cursors, eventCount: eventCount[0]?.count ?? 0 };
+      return { activities, cursors, eventCount: eventCount[0]?.count ?? 0 };
     }).pipe(Effect.provide(projectionLayer));
 
-    assert.deepEqual(result.folders, [{ title: "Project 2500" }]);
+    assert.deepEqual(result.activities, [{ summary: "Activity 2500" }]);
     assert.equal(result.eventCount, 2_502);
     assert.equal(result.cursors.length, Object.keys(ORCHESTRATION_PROJECTOR_NAMES).length);
     for (const cursor of result.cursors) {
@@ -983,24 +986,16 @@ it.layer(BaseTestLayer)("OrchestrationProjectionPipeline", (it) => {
         const now = new Date().toISOString();
         const later = new Date(Date.now() + 1_000).toISOString();
 
-        yield* eventStore.append({
-          type: "folder.created",
-          eventId: EventId.makeUnsafe("evt-clear-attachments-1"),
-          aggregateKind: "folder",
-          aggregateId: FolderId.makeUnsafe("project-clear-attachments"),
-          occurredAt: now,
-          commandId: CommandId.makeUnsafe("cmd-clear-attachments-1"),
-          causationEventId: null,
-          correlationId: CommandId.makeUnsafe("cmd-clear-attachments-1"),
-          metadata: {},
-          payload: {
+        yield* seedSpace;
+        yield* updateNavigation({
+          update: {
+            action: "folder.create",
             folderId: FolderId.makeUnsafe("project-clear-attachments"),
             spaceId: SpaceId.makeUnsafe("penkra-personal"),
             title: "Project Clear Attachments",
             workspaceRoot: "/tmp/project-clear-attachments",
             defaultModelSelection: null,
             createdAt: now,
-            updatedAt: now,
           },
         });
 
@@ -1100,24 +1095,16 @@ it.layer(
       const now = new Date().toISOString();
       const later = new Date(Date.now() + 1_000).toISOString();
 
-      yield* eventStore.append({
-        type: "folder.created",
-        eventId: EventId.makeUnsafe("evt-overwrite-1"),
-        aggregateKind: "folder",
-        aggregateId: FolderId.makeUnsafe("project-overwrite"),
-        occurredAt: now,
-        commandId: CommandId.makeUnsafe("cmd-overwrite-1"),
-        causationEventId: null,
-        correlationId: CommandId.makeUnsafe("cmd-overwrite-1"),
-        metadata: {},
-        payload: {
+      yield* seedSpace;
+      yield* updateNavigation({
+        update: {
+          action: "folder.create",
           folderId: FolderId.makeUnsafe("project-overwrite"),
           spaceId: SpaceId.makeUnsafe("penkra-personal"),
           title: "Project Overwrite",
           workspaceRoot: "/tmp/project-overwrite",
           defaultModelSelection: null,
           createdAt: now,
-          updatedAt: now,
         },
       });
 
@@ -1234,24 +1221,16 @@ it.layer(
 
       const appendAndProject = makeAppendAndProject(eventStore, projectionPipeline);
 
-      yield* appendAndProject({
-        type: "folder.created",
-        eventId: EventId.makeUnsafe("evt-rollback-1"),
-        aggregateKind: "folder",
-        aggregateId: FolderId.makeUnsafe("project-rollback"),
-        occurredAt: now,
-        commandId: CommandId.makeUnsafe("cmd-rollback-1"),
-        causationEventId: null,
-        correlationId: CorrelationId.makeUnsafe("cmd-rollback-1"),
-        metadata: {},
-        payload: {
+      yield* seedSpace;
+      yield* updateNavigation({
+        update: {
+          action: "folder.create",
           folderId: FolderId.makeUnsafe("project-rollback"),
           spaceId: SpaceId.makeUnsafe("penkra-personal"),
           title: "Project Rollback",
           workspaceRoot: "/tmp/project-rollback",
           defaultModelSelection: null,
           createdAt: now,
-          updatedAt: now,
         },
       });
 
@@ -1272,7 +1251,7 @@ it.layer(
 
       yield* sql`
         CREATE TRIGGER fail_thread_messages_projection_state_update
-        BEFORE UPDATE ON projection_state
+        BEFORE INSERT ON projection_state
         WHEN NEW.projector = 'projection.thread-messages'
         BEGIN
           SELECT RAISE(ABORT, 'forced-projection-state-failure');
@@ -1344,24 +1323,16 @@ it.layer(
       const iso = (offsetSeconds: number) =>
         new Date(Date.parse(createdAt) + offsetSeconds * 1_000).toISOString();
 
-      yield* appendAndProject({
-        type: "folder.created",
-        eventId: EventId.makeUnsafe("evt-stream-append-project"),
-        aggregateKind: "folder",
-        aggregateId: folderId,
-        occurredAt: createdAt,
-        commandId: CommandId.makeUnsafe("cmd-stream-append-project"),
-        causationEventId: null,
-        correlationId: CorrelationId.makeUnsafe("cmd-stream-append-project"),
-        metadata: {},
-        payload: {
+      yield* seedSpace;
+      yield* updateNavigation({
+        update: {
+          action: "folder.create",
           folderId,
           spaceId: SpaceId.makeUnsafe("penkra-personal"),
           title: "Stream Append Project",
           workspaceRoot: "/tmp/project-stream-append",
           defaultModelSelection: null,
           createdAt,
-          updatedAt: createdAt,
         },
       });
 
@@ -1564,24 +1535,16 @@ it.layer(
       const messageId = MessageId.makeUnsafe("message-stream-restart");
       const createdAt = "2026-04-02T10:00:00.000Z";
 
-      yield* appendAndProject({
-        type: "folder.created",
-        eventId: EventId.makeUnsafe("evt-stream-restart-project"),
-        aggregateKind: "folder",
-        aggregateId: folderId,
-        occurredAt: createdAt,
-        commandId: CommandId.makeUnsafe("cmd-stream-restart-project"),
-        causationEventId: null,
-        correlationId: CorrelationId.makeUnsafe("cmd-stream-restart-project"),
-        metadata: {},
-        payload: {
+      yield* seedSpace;
+      yield* updateNavigation({
+        update: {
+          action: "folder.create",
           folderId,
           spaceId: SpaceId.makeUnsafe("penkra-personal"),
           title: "Stream Restart Project",
           workspaceRoot: "/tmp/project-stream-restart",
           defaultModelSelection: null,
           createdAt,
-          updatedAt: createdAt,
         },
       });
 
@@ -1719,24 +1682,16 @@ it.layer(
         );
       }
 
-      yield* appendAndProject({
-        type: "folder.created",
-        eventId: EventId.makeUnsafe("evt-revert-files-1"),
-        aggregateKind: "folder",
-        aggregateId: FolderId.makeUnsafe("project-revert-files"),
-        occurredAt: now,
-        commandId: CommandId.makeUnsafe("cmd-revert-files-1"),
-        causationEventId: null,
-        correlationId: CorrelationId.makeUnsafe("cmd-revert-files-1"),
-        metadata: {},
-        payload: {
+      yield* seedSpace;
+      yield* updateNavigation({
+        update: {
+          action: "folder.create",
           folderId: FolderId.makeUnsafe("project-revert-files"),
           spaceId: SpaceId.makeUnsafe("penkra-personal"),
           title: "Project Revert Files",
           workspaceRoot: "/tmp/project-revert-files",
           defaultModelSelection: null,
           createdAt: now,
-          updatedAt: now,
         },
       });
 
@@ -1928,24 +1883,16 @@ it.layer(BaseTestLayer)("OrchestrationProjectionPipeline", (it) => {
       const sql = yield* SqlClient.SqlClient;
       const now = new Date().toISOString();
 
-      yield* eventStore.append({
-        type: "folder.created",
-        eventId: EventId.makeUnsafe("evt-a1"),
-        aggregateKind: "folder",
-        aggregateId: FolderId.makeUnsafe("project-a"),
-        occurredAt: now,
-        commandId: CommandId.makeUnsafe("cmd-a1"),
-        causationEventId: null,
-        correlationId: CorrelationId.makeUnsafe("cmd-a1"),
-        metadata: {},
-        payload: {
+      yield* seedSpace;
+      yield* updateNavigation({
+        update: {
+          action: "folder.create",
           folderId: FolderId.makeUnsafe("project-a"),
           spaceId: SpaceId.makeUnsafe("penkra-personal"),
           title: "Project A",
           workspaceRoot: "/tmp/project-a",
           defaultModelSelection: null,
           createdAt: now,
-          updatedAt: now,
         },
       });
 
@@ -2044,24 +1991,16 @@ it.layer(BaseTestLayer)("OrchestrationProjectionPipeline", (it) => {
       const sql = yield* SqlClient.SqlClient;
       const now = new Date().toISOString();
 
-      yield* eventStore.append({
-        type: "folder.created",
-        eventId: EventId.makeUnsafe("evt-empty-1"),
-        aggregateKind: "folder",
-        aggregateId: FolderId.makeUnsafe("project-empty"),
-        occurredAt: now,
-        commandId: CommandId.makeUnsafe("cmd-empty-1"),
-        causationEventId: null,
-        correlationId: CorrelationId.makeUnsafe("cmd-empty-1"),
-        metadata: {},
-        payload: {
+      yield* seedSpace;
+      yield* updateNavigation({
+        update: {
+          action: "folder.create",
           folderId: FolderId.makeUnsafe("project-empty"),
           spaceId: SpaceId.makeUnsafe("penkra-personal"),
           title: "Project Empty",
           workspaceRoot: "/tmp/project-empty",
           defaultModelSelection: null,
           createdAt: now,
-          updatedAt: now,
         },
       });
 
@@ -2164,11 +2103,13 @@ it.layer(BaseTestLayer)("OrchestrationProjectionPipeline", (it) => {
 
 const engineLayer = it.layer(
   OrchestrationEngineLive.pipe(
+    Layer.provideMerge(ThreadPublisherLive),
     Layer.provide(OrchestrationProjectionPipelineLive),
     Layer.provide(OrchestrationProjectionSnapshotQueryLive),
     Layer.provide(OrchestrationEventStoreLive),
     Layer.provide(OrchestrationCommandReceiptRepositoryLive),
     Layer.provideMerge(SqlitePersistenceMemory),
+    Layer.provideMerge(ThreadPublisherLive),
     Layer.provideMerge(
       ServerConfig.layerTest(process.cwd(), {
         prefix: "penkra-projection-pipeline-engine-dispatch-",
@@ -2179,138 +2120,6 @@ const engineLayer = it.layer(
 );
 
 engineLayer("OrchestrationProjectionPipeline via engine dispatch", (it) => {
-  it.effect("folders dispatched engine events immediately", () =>
-    Effect.gen(function* () {
-      const engine = yield* OrchestrationEngineService;
-      const sql = yield* SqlClient.SqlClient;
-      const createdAt = new Date().toISOString();
-      const spaceId = SpaceId.makeUnsafe("space-live-project");
-
-      yield* engine.dispatch({
-        type: "space.create",
-        commandId: CommandId.makeUnsafe("cmd-live-space"),
-        spaceId,
-        name: "Live Space",
-        icon: "home",
-        createdAt,
-      });
-
-      yield* engine.dispatch({
-        type: "folder.create",
-        commandId: CommandId.makeUnsafe("cmd-live-project"),
-        folderId: FolderId.makeUnsafe("project-live"),
-        title: "Live Project",
-        workspaceRoot: null,
-        spaceId,
-        defaultModelSelection: {
-          provider: "codex",
-          model: "gpt-5-codex",
-        },
-        createdAt,
-      });
-
-      const projectRows = yield* sql<{ readonly title: string }>`
-        SELECT
-          title
-        FROM projection_folders
-        WHERE folder_id = 'project-live'
-      `;
-      assert.deepEqual(projectRows, [{ title: "Live Project" }]);
-
-      const projectorRows = yield* sql<{ readonly lastAppliedSequence: number }>`
-        SELECT
-          last_applied_sequence AS "lastAppliedSequence"
-        FROM projection_state
-        WHERE projector = 'projection.folders'
-      `;
-      assert.deepEqual(projectorRows, [{ lastAppliedSequence: 2 }]);
-
-      const snapshotProjectorRows = yield* sql<{
-        readonly projector: string;
-        readonly lastAppliedSequence: number;
-      }>`
-        SELECT
-          projector,
-          last_applied_sequence AS "lastAppliedSequence"
-        FROM projection_state
-        WHERE projector IN (
-          'projection.folders',
-          'projection.threads',
-          'projection.thread-messages',
-          'projection.thread-activities',
-          'projection.thread-sessions'
-        )
-        ORDER BY projector ASC
-      `;
-      assert.deepEqual(snapshotProjectorRows, [
-        { projector: "projection.folders", lastAppliedSequence: 2 },
-        { projector: "projection.thread-activities", lastAppliedSequence: 2 },
-        { projector: "projection.thread-messages", lastAppliedSequence: 2 },
-        { projector: "projection.thread-sessions", lastAppliedSequence: 2 },
-      ]);
-    }),
-  );
-
-  it.effect("folders persist updated metadata from folder.update", () =>
-    Effect.gen(function* () {
-      const engine = yield* OrchestrationEngineService;
-      const sql = yield* SqlClient.SqlClient;
-      const createdAt = new Date().toISOString();
-      const personalSpaceId = SpaceId.makeUnsafe("penkra-personal");
-
-      yield* engine.dispatch({
-        type: "space.create",
-        commandId: CommandId.makeUnsafe("cmd-scripts-space-create"),
-        spaceId: personalSpaceId,
-        name: "Personal",
-        icon: "home",
-        createdAt,
-      });
-
-      yield* engine.dispatch({
-        type: "folder.create",
-        commandId: CommandId.makeUnsafe("cmd-scripts-project-create"),
-        folderId: FolderId.makeUnsafe("project-scripts"),
-        title: "Scripts Project",
-        workspaceRoot: null,
-        spaceId: personalSpaceId,
-        defaultModelSelection: {
-          provider: "codex",
-          model: "gpt-5-codex",
-        },
-        createdAt,
-      });
-
-      yield* engine.dispatch({
-        type: "folder.update",
-        commandId: CommandId.makeUnsafe("cmd-scripts-project-update"),
-        folderId: FolderId.makeUnsafe("project-scripts"),
-        iconDataUrl: "data:image/webp;base64,Y3VzdG9t",
-        defaultModelSelection: {
-          provider: "codex",
-          model: "gpt-5",
-        },
-      });
-
-      const projectRows = yield* sql<{
-        readonly defaultModelSelection: string;
-        readonly iconDataUrl: string | null;
-      }>`
-        SELECT
-          default_model_selection_json AS "defaultModelSelection",
-          icon_data_url AS "iconDataUrl"
-        FROM projection_folders
-        WHERE folder_id = 'project-scripts'
-      `;
-      assert.deepEqual(projectRows, [
-        {
-          defaultModelSelection: '{"provider":"codex","model":"gpt-5"}',
-          iconDataUrl: "data:image/webp;base64,Y3VzdG9t",
-        },
-      ]);
-    }),
-  );
-
   it.effect("routes telemetry activities only through their owning hot projector", () =>
     Effect.gen(function* () {
       const engine = yield* OrchestrationEngineService;
@@ -2320,23 +2129,26 @@ engineLayer("OrchestrationProjectionPipeline via engine dispatch", (it) => {
       const folderId = FolderId.makeUnsafe("project-routed-telemetry");
       const threadId = ThreadId.makeUnsafe("thread-routed-telemetry");
 
-      yield* engine.dispatch({
-        type: "space.create",
-        commandId: CommandId.makeUnsafe("cmd-routed-space"),
-        spaceId,
-        name: "Routed telemetry",
-        icon: "home",
-        createdAt,
+      yield* updateNavigation({
+        update: {
+          action: "space.create",
+          spaceId,
+          name: "Routed telemetry",
+          icon: "home",
+          createdAt,
+        },
       });
-      yield* engine.dispatch({
-        type: "folder.create",
-        commandId: CommandId.makeUnsafe("cmd-routed-project"),
-        folderId,
-        spaceId,
-        title: "Routed telemetry",
-        workspaceRoot: null,
-        defaultModelSelection: { provider: "codex", model: "gpt-5-codex" },
-        createdAt,
+      yield* seedSpace;
+      yield* updateNavigation({
+        update: {
+          action: "folder.create",
+          folderId,
+          spaceId,
+          title: "Routed telemetry",
+          workspaceRoot: null,
+          defaultModelSelection: { provider: "codex", model: "gpt-5-codex" },
+          createdAt,
+        },
       });
       yield* createThreadFixture(sql, {
         threadId: threadId,

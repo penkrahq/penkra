@@ -8,7 +8,6 @@ import {
   MessageId,
   ProviderConnectionId,
   FolderId,
-  SpaceId,
   ThreadId,
   TurnId,
 } from "@penkra/contracts";
@@ -16,7 +15,6 @@ import { describe, expect, it } from "vitest";
 
 import { applyOrchestrationEvents, applyOrchestrationEventsHotPath } from "./storeEventReducer";
 import {
-  applyShellEvent,
   syncServerThreadShell,
   syncServerReadModel,
   syncServerThreadDetailHotPath,
@@ -27,7 +25,6 @@ import {
   makeDomainEvent,
   makeActivity,
   makeState,
-  makeProject,
   makeReadModelThread,
   makeReadModel,
   threadsOf,
@@ -716,69 +713,6 @@ describe("store event reducer", () => {
     expect(threadsOf(rendererB.getState())[0]?.messages).toEqual(
       threadsOf(rendererA.getState())[0]?.messages,
     );
-  });
-
-  it("hydrates and removes empty Spaces without manufacturing null folder assignments", () => {
-    const spaceId = SpaceId.makeUnsafe("space-work");
-    let state = applyOrchestrationEvents(makeState(makeThread()), [
-      makeDomainEvent("space.created", {
-        spaceId,
-        name: "Work",
-        icon: "bag",
-        sortOrder: 0,
-        createdAt: "2026-07-15T10:00:00.000Z",
-        updatedAt: "2026-07-15T10:00:00.000Z",
-      }),
-      makeDomainEvent("folder.moved", {
-        folderId: FolderId.makeUnsafe("project-1"),
-        spaceId,
-        updatedAt: "2026-07-15T10:00:01.000Z",
-      }),
-    ]);
-
-    expect(state.spaces.map((space) => space.id)).toEqual([spaceId]);
-    expect(state.folders[0]?.spaceId).toBe(spaceId);
-
-    state = applyOrchestrationEvents(state, [
-      makeDomainEvent("space.archived", {
-        spaceId,
-        archivedAt: "2026-07-15T10:00:01.100Z",
-      }),
-    ]);
-    expect(state.spaces).toEqual([]);
-    state = applyOrchestrationEvents(state, [
-      makeDomainEvent("space.restored", {
-        spaceId,
-        name: "Restored Work",
-        restoredAt: "2026-07-15T10:00:01.200Z",
-      }),
-    ]);
-    // The domain event carries no complete row; restoration arrives as a shell broadcast.
-    state = applyShellEvent(state, {
-      kind: "space-upserted",
-      sequence: 4,
-      space: {
-        id: spaceId,
-        name: "Restored Work",
-        icon: "bag",
-        sortOrder: 0,
-        createdAt: "2026-07-15T10:00:00.000Z",
-        updatedAt: "2026-07-15T10:00:01.200Z",
-        archivedAt: null,
-      },
-    });
-    expect(state.spaces[0]).toMatchObject({ id: spaceId, name: "Restored Work", icon: "bag" });
-
-    state = applyOrchestrationEvents(state, [
-      makeDomainEvent("space.deleted", {
-        spaceId,
-        deletedAt: "2026-07-15T10:00:02.000Z",
-      }),
-    ]);
-
-    expect(state.spaces).toEqual([]);
-    expect(state.folders[0]?.spaceId).toBe(spaceId);
-    expect(state.folders[0]?.updatedAt).toBe("2026-07-15T10:00:01.000Z");
   });
 
   it("preserves plugin mention references from live thread.message-sent events", () => {
@@ -1884,157 +1818,6 @@ describe("store event reducer", () => {
       });
     },
   );
-
-  it("adds folders immediately from live folder.created events", () => {
-    const next = applyOrchestrationEvents(
-      {
-        spaces: [],
-
-        folders: [],
-
-        sidebarThreadSummaryById: {},
-        threadsHydrated: false,
-      },
-      [
-        makeDomainEvent(
-          "folder.created",
-          {
-            folderId: FolderId.makeUnsafe("project-live"),
-            spaceId: SpaceId.makeUnsafe("space-test"),
-            title: "Live Project",
-            workspaceRoot: "/tmp/live-project",
-            defaultModelSelection: {
-              provider: "codex",
-              model: "gpt-5-codex",
-            },
-            createdAt: "2026-02-27T00:00:00.000Z",
-            updatedAt: "2026-02-27T00:00:00.000Z",
-          },
-          { aggregateKind: "folder" },
-        ),
-      ],
-    );
-
-    expect(next.folders).toHaveLength(1);
-    expect(next.folders[0]).toMatchObject({
-      id: FolderId.makeUnsafe("project-live"),
-      name: "Live Project",
-      remoteName: "Live Project",
-      folderName: "live-project",
-      cwd: "/tmp/live-project",
-      createdAt: "2026-02-27T00:00:00.000Z",
-      updatedAt: "2026-02-27T00:00:00.000Z",
-    });
-  });
-
-  it("normalizes a virtual folder without inventing a physical cwd", () => {
-    const next = applyOrchestrationEvents(
-      {
-        spaces: [],
-
-        folders: [],
-
-        sidebarThreadSummaryById: {},
-        threadsHydrated: false,
-      },
-      [
-        makeDomainEvent(
-          "folder.created",
-          {
-            folderId: FolderId.makeUnsafe("folder-virtual"),
-            spaceId: SpaceId.makeUnsafe("space-test"),
-            title: "Ideas",
-            workspaceRoot: null,
-            defaultModelSelection: null,
-            createdAt: "2026-08-02T00:00:00.000Z",
-            updatedAt: "2026-08-02T00:00:00.000Z",
-          },
-          { aggregateKind: "folder" },
-        ),
-      ],
-    );
-
-    expect(next.folders[0]).toMatchObject({
-      name: "Ideas",
-      folderName: "Ideas",
-      cwd: "",
-    });
-  });
-
-  it("adopts authoritative folder titles from live folder.updated events", () => {
-    const initialState: AppState = {
-      spaces: [],
-
-      folders: [
-        makeProject({
-          id: FolderId.makeUnsafe("project-live"),
-          name: "Local Name",
-          remoteName: "Original Name",
-          localName: "Local Name",
-          folderName: "original-project",
-          cwd: "/tmp/original-project",
-          createdAt: "2026-02-27T00:00:00.000Z",
-          updatedAt: "2026-02-27T00:00:00.000Z",
-        }),
-      ],
-
-      sidebarThreadSummaryById: {},
-      threadsHydrated: true,
-    };
-
-    const next = applyOrchestrationEvents(initialState, [
-      makeDomainEvent(
-        "folder.updated",
-        {
-          folderId: FolderId.makeUnsafe("project-live"),
-          title: "Renamed Remotely",
-          workspaceRoot: "/tmp/renamed-project",
-          defaultModelSelection: null,
-          updatedAt: "2026-02-27T00:05:00.000Z",
-        },
-        { aggregateKind: "folder" },
-      ),
-    ]);
-
-    expect(next.folders[0]).toMatchObject({
-      id: FolderId.makeUnsafe("project-live"),
-      name: "Renamed Remotely",
-      remoteName: "Renamed Remotely",
-      folderName: "renamed-project",
-      localName: null,
-      cwd: "/tmp/renamed-project",
-      defaultModelSelection: null,
-      updatedAt: "2026-02-27T00:05:00.000Z",
-    });
-  });
-
-  it("removes folders immediately from live folder.deleted events", () => {
-    const next = applyOrchestrationEvents(
-      {
-        spaces: [],
-
-        folders: [makeProject({ id: FolderId.makeUnsafe("project-live") })],
-
-        sidebarThreadSummaryById: {},
-        threadsHydrated: true,
-      },
-      [
-        makeDomainEvent(
-          "folder.deleted",
-          {
-            folderId: FolderId.makeUnsafe("project-live"),
-            deletedAt: "2026-02-27T00:06:00.000Z",
-          },
-          { aggregateKind: "folder" },
-        ),
-      ],
-    );
-
-    expect(next.folders).toEqual([]);
-    expect(next.deletedFolderIdsById?.[FolderId.makeUnsafe("project-live")]).toEqual(
-      expect.any(Number),
-    );
-  });
 
   it("settles a running latest turn immediately when session stop is requested", () => {
     const initialState = makeState(

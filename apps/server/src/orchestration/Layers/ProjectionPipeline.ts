@@ -16,8 +16,6 @@ import {
 import { OrchestrationEventStore } from "../../persistence/Services/OrchestrationEventStore.ts";
 import { ManagedAttachmentRepository } from "../../persistence/Services/ManagedAttachments.ts";
 import { ProjectionPendingInteractionRepository } from "../../persistence/Services/ProjectionPendingInteractions.ts";
-import { ProjectionFolderRepository } from "../../persistence/Services/ProjectionFolders.ts";
-import { ProjectionSpaceRepository } from "../../persistence/Services/ProjectionSpaces.ts";
 import { ProjectionStateRepository } from "../../persistence/Services/ProjectionState.ts";
 import { ProjectionThreadActivityRepository } from "../../persistence/Services/ProjectionThreadActivities.ts";
 import {
@@ -27,8 +25,6 @@ import {
 import { ProjectionThreadSessionRepository } from "../../persistence/Services/ProjectionThreadSessions.ts";
 import { ProjectionTurnRepository } from "../../persistence/Services/ProjectionTurns.ts";
 import { ProjectionPendingInteractionRepositoryLive } from "../../persistence/Layers/ProjectionPendingInteractions.ts";
-import { ProjectionFolderRepositoryLive } from "../../persistence/Layers/ProjectionFolders.ts";
-import { ProjectionSpaceRepositoryLive } from "../../persistence/Layers/ProjectionSpaces.ts";
 import { ProjectionStateRepositoryLive } from "../../persistence/Layers/ProjectionState.ts";
 import { ProjectionThreadActivityRepositoryLive } from "../../persistence/Layers/ProjectionThreadActivities.ts";
 import { ProjectionThreadMessageRepositoryLive } from "../../persistence/Layers/ProjectionThreadMessages.ts";
@@ -39,14 +35,7 @@ import { ServerConfig } from "../../config.ts";
 import {
   OrchestrationProjectionPipeline,
   type OrchestrationProjectionPipelineShape,
-  type ShellMetadataOrchestrationEvent,
 } from "../Services/ProjectionPipeline.ts";
-import {
-  applyFolderMetadataProjection,
-  advanceFolderMetadataSnapshotState,
-  FOLDER_METADATA_SNAPSHOT_PROJECTORS,
-} from "../folderMetadataProjection.ts";
-import { applySpaceMetadataProjection } from "../spaceMetadataProjection.ts";
 import { resolveStableMessageTurnId } from "../messageTurnId.ts";
 import { settleTurnStateFromSession } from "../turnLifecycle.ts";
 import { deriveTurnStartSession } from "../turnStartSession.ts";
@@ -59,7 +48,6 @@ import {
 
 export const ORCHESTRATION_PROJECTOR_NAMES = {
   hot: "projection.hot",
-  folders: "projection.folders",
   threadMessages: "projection.thread-messages",
   threadActivities: "projection.thread-activities",
   threadSessions: "projection.thread-sessions",
@@ -110,18 +98,6 @@ function extractApprovalFailureSettlementStatus(
   return status === "retryable" || status === "uncertain" ? status : null;
 }
 
-const PROJECT_EVENT_TYPES = new Set<OrchestrationEvent["type"]>([
-  "space.created",
-  "space.updated",
-  "space.updated",
-  "space.archived",
-  "space.restored",
-  "space.deleted",
-  "folder.created",
-  "folder.updated",
-  "folder.deleted",
-]);
-
 const THREAD_MESSAGE_PROJECTION_EVENT_TYPES = new Set<OrchestrationEvent["type"]>([
   "thread.message-sent",
   "thread.message-delivery-set",
@@ -161,10 +137,6 @@ function shouldApplyPendingInteractionsProjection(event: OrchestrationEvent): bo
       event.payload.activity.kind === "user-input.resolved" ||
       event.payload.activity.kind === "provider.user-input.respond.failed")
   );
-}
-
-function maxIso(left: string | null, right: string): string {
-  return left === null || right > left ? right : left;
 }
 
 function rollbackProjectionMessagesFromMessage(
@@ -306,8 +278,6 @@ const makeOrchestrationProjectionPipeline = Effect.gen(function* () {
   const eventStore = yield* OrchestrationEventStore;
   const managedAttachments = yield* ManagedAttachmentRepository;
   const projectionStateRepository = yield* ProjectionStateRepository;
-  const projectionFolderRepository = yield* ProjectionFolderRepository;
-  const projectionSpaceRepository = yield* ProjectionSpaceRepository;
   const projectionThreadMessageRepository = yield* ProjectionThreadMessageRepository;
   const projectionThreadActivityRepository = yield* ProjectionThreadActivityRepository;
   const projectionThreadSessionRepository = yield* ProjectionThreadSessionRepository;
@@ -317,37 +287,6 @@ const makeOrchestrationProjectionPipeline = Effect.gen(function* () {
   const fileSystem = yield* FileSystem.FileSystem;
   const path = yield* Path.Path;
   const serverConfig = yield* ServerConfig;
-
-  const applyFoldersProjection: ProjectorDefinition["apply"] = (event, _attachmentSideEffects) => {
-    switch (event.type) {
-      case "folder.created":
-      case "folder.updated":
-      case "folder.deleted":
-        return applyFolderMetadataProjection({
-          event,
-          projectionFolderRepository,
-        }).pipe(Effect.asVoid);
-      case "folder.moved":
-        return applyFolderMetadataProjection({ event, projectionFolderRepository }).pipe(
-          Effect.asVoid,
-        );
-      case "space.created":
-      case "space.updated":
-      case "space.archived":
-      case "space.restored":
-        return applySpaceMetadataProjection({
-          event,
-          projectionSpaceRepository,
-        }).pipe(Effect.asVoid);
-      case "space.deleted":
-        return applySpaceMetadataProjection({
-          event,
-          projectionSpaceRepository,
-        }).pipe(Effect.asVoid);
-      default:
-        return Effect.void;
-    }
-  };
 
   /**
    * Streaming assistant deltas arrive one command per token chunk. Reading the
@@ -1418,12 +1357,6 @@ const makeOrchestrationProjectionPipeline = Effect.gen(function* () {
 
   const projectors: ReadonlyArray<ProjectorDefinition> = [
     {
-      name: ORCHESTRATION_PROJECTOR_NAMES.folders,
-      phase: "hot",
-      shouldApply: (event) => PROJECT_EVENT_TYPES.has(event.type),
-      apply: applyFoldersProjection,
-    },
-    {
       name: ORCHESTRATION_PROJECTOR_NAMES.threadMessages,
       phase: "hot",
       shouldApply: (event) => THREAD_MESSAGE_PROJECTION_EVENT_TYPES.has(event.type),
@@ -1459,27 +1392,15 @@ const makeOrchestrationProjectionPipeline = Effect.gen(function* () {
       apply: applyPendingInteractionsProjection,
     },
   ];
-  const projectsProjector = projectors.find(
-    (projector) => projector.name === ORCHESTRATION_PROJECTOR_NAMES.folders,
-  );
-
-  // Folder metadata changes only touch the folder projection, so keep them
-  // off the slower full-projector pass used by thread and runtime events.
   const selectProjectorsForEvent = (
     event: OrchestrationEvent,
     phase?: ProjectorDefinition["phase"],
-  ): ReadonlyArray<ProjectorDefinition> => {
-    const filterProjectors = (candidates: ReadonlyArray<ProjectorDefinition>) =>
-      candidates.filter(
-        (projector) =>
-          (phase === undefined || projector.phase === phase) &&
-          (projector.shouldApply?.(event) ?? true),
-      );
-
-    return filterProjectors(
-      PROJECT_EVENT_TYPES.has(event.type) && projectsProjector ? [projectsProjector] : projectors,
+  ) =>
+    projectors.filter(
+      (projector) =>
+        (phase === undefined || projector.phase === phase) &&
+        (projector.shouldApply?.(event) ?? true),
     );
-  };
 
   const runProjectorsForEventCore = (
     selectedProjectors: ReadonlyArray<ProjectorDefinition>,
@@ -1715,56 +1636,6 @@ const makeOrchestrationProjectionPipeline = Effect.gen(function* () {
         ),
       );
 
-  const advanceSnapshotProjectorStates = (event: OrchestrationEvent) =>
-    sql.withTransaction(
-      Effect.forEach(FOLDER_METADATA_SNAPSHOT_PROJECTORS, (projector) =>
-        projectionStateRepository.upsert({
-          projector,
-          lastAppliedSequence: event.sequence,
-          updatedAt: event.occurredAt,
-        }),
-      ),
-    );
-
-  const applyShellMetadataProjection = (event: ShellMetadataOrchestrationEvent) => {
-    switch (event.type) {
-      case "space.created":
-      case "space.updated":
-      case "space.archived":
-      case "space.restored":
-        return applySpaceMetadataProjection({
-          event,
-          projectionSpaceRepository,
-        });
-      case "space.deleted":
-        return applySpaceMetadataProjection({
-          event,
-          projectionSpaceRepository,
-        });
-      case "folder.created":
-      case "folder.updated":
-      case "folder.moved":
-      case "folder.deleted":
-        return applyFolderMetadataProjection({
-          event,
-          projectionFolderRepository,
-        });
-    }
-  };
-
-  const folderMetadataEvent: OrchestrationProjectionPipelineShape["folderMetadataEvent"] = (
-    event,
-  ) =>
-    applyShellMetadataProjection(event).pipe(
-      Effect.flatMap(() =>
-        advanceFolderMetadataSnapshotState({
-          event,
-          projectionStateRepository,
-        }),
-      ),
-      Effect.asVoid,
-    );
-
   const projectHotEventInCurrentTransaction: OrchestrationProjectionPipelineShape["projectHotEventInCurrentTransaction"] =
     (event) =>
       runProjectorsForHotEvent(
@@ -1802,13 +1673,7 @@ const makeOrchestrationProjectionPipeline = Effect.gen(function* () {
   const projectEvent: OrchestrationProjectionPipelineShape["projectEvent"] = (event) =>
     projectHotEventInOwnTransaction(event).pipe(
       Effect.andThen(projectDeferredEvent(event)),
-      Effect.flatMap(() =>
-        PROJECT_EVENT_TYPES.has(event.type) ? advanceSnapshotProjectorStates(event) : Effect.void,
-      ),
       Effect.asVoid,
-      Effect.catchTag("SqlError", (sqlError) =>
-        Effect.fail(toPersistenceSqlError("ProjectionPipeline.projectEvent:query")(sqlError)),
-      ),
     );
 
   const bootstrap: OrchestrationProjectionPipelineShape["bootstrap"] = Effect.gen(function* () {
@@ -1834,7 +1699,6 @@ const makeOrchestrationProjectionPipeline = Effect.gen(function* () {
     projectEvent,
     projectHotEventInCurrentTransaction,
     projectDeferredEvent,
-    folderMetadataEvent,
   } satisfies OrchestrationProjectionPipelineShape;
 });
 
@@ -1843,8 +1707,6 @@ export const OrchestrationProjectionPipelineLive = Layer.effect(
   makeOrchestrationProjectionPipeline,
 ).pipe(
   Layer.provideMerge(NodeServices.layer),
-  Layer.provideMerge(ProjectionFolderRepositoryLive),
-  Layer.provideMerge(ProjectionSpaceRepositoryLive),
   Layer.provideMerge(ProjectionThreadMessageRepositoryLive),
   Layer.provideMerge(ProjectionThreadActivityRepositoryLive),
   Layer.provideMerge(ProjectionThreadSessionRepositoryLive),

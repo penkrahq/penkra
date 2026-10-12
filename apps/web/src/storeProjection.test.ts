@@ -8,7 +8,6 @@ import {
   EventId,
   MessageId,
   FolderId,
-  SpaceId,
   ThreadId,
   TurnId,
   type OrchestrationGetThreadTurnsPageResult,
@@ -26,6 +25,7 @@ import {
   removeDeletedProjectFromClientState,
   removeDeletedThreadFromClientState,
   syncServerStartupSnapshot,
+  syncServerNavigation,
   syncServerThreadShell,
   syncServerReadModel,
   syncServerThreadDetailHotPath,
@@ -40,7 +40,6 @@ import {
   makeActivity,
   makeDomainEvent,
   makeState,
-  makeProject,
   makeReadModelThread,
   makeReadModel,
   makeStartupSnapshot,
@@ -951,216 +950,6 @@ describe("store projection", () => {
     expect(threadsOf(afterStaleReadModel)).toEqual([]);
   });
 
-  it("keeps distinct folder identities even when they use the same physical path", () => {
-    const initialState: AppState = {
-      spaces: [],
-
-      folders: [
-        makeProject({
-          id: FolderId.makeUnsafe("project-old"),
-          name: "Local Name",
-          remoteName: "Old Name",
-          localName: "Local Name",
-          cwd: "/tmp/shared-root",
-        }),
-      ],
-
-      sidebarThreadSummaryById: {},
-      threadsHydrated: true,
-    };
-
-    const next = applyShellEvent(initialState, {
-      kind: "folder-upserted",
-      sequence: 2,
-      folder: {
-        spaceId: SpaceId.makeUnsafe("space-test"),
-        id: FolderId.makeUnsafe("project-new"),
-        title: "Server Name",
-        workspaceRoot: "/tmp/shared-root",
-        defaultModelSelection: null,
-        createdAt: "2026-02-27T00:00:00.000Z",
-        updatedAt: "2026-02-27T00:05:00.000Z",
-      },
-    } satisfies OrchestrationShellStreamEvent);
-
-    expect(next.folders).toHaveLength(2);
-    expect(next.folders[0]).toMatchObject({
-      id: FolderId.makeUnsafe("project-old"),
-      name: "Local Name",
-    });
-    expect(next.folders[1]).toMatchObject({
-      id: FolderId.makeUnsafe("project-new"),
-      name: "Server Name",
-      remoteName: "Server Name",
-      localName: null,
-      cwd: "/tmp/shared-root",
-    });
-  });
-
-  it("moves an archived folder out of the active project collection", () => {
-    const folderId = FolderId.makeUnsafe("project-archive");
-    const initialState: AppState = {
-      ...makeState(makeThread({ folderId })),
-      folders: [makeProject({ id: folderId })],
-    };
-    const project = makeReadModelProject({ id: folderId });
-
-    const next = applyShellEvent(initialState, {
-      kind: "folder-upserted",
-      sequence: 4,
-      folder: {
-        ...project,
-        archivedAt: "2026-08-21T00:00:00.000Z",
-      },
-    } satisfies OrchestrationShellStreamEvent);
-
-    expect(next.folders).toEqual([]);
-    expect(next.shellSnapshotSequence).toBe(4);
-  });
-
-  it("removes an empty Space without rewriting folder assignments", () => {
-    const spaceId = SpaceId.makeUnsafe("space-shell-delete");
-    const initialState: AppState = {
-      spaces: [
-        {
-          id: spaceId,
-          name: "Work",
-          icon: "bag",
-          sortOrder: 0,
-          createdAt: "2026-07-15T10:00:00.000Z",
-          updatedAt: "2026-07-15T10:00:00.000Z",
-        },
-      ],
-
-      folders: [
-        makeProject({
-          id: FolderId.makeUnsafe("project-shell-space"),
-          spaceId,
-          updatedAt: "2026-07-15T10:00:01.000Z",
-        }),
-      ],
-
-      sidebarThreadSummaryById: {},
-      threadsHydrated: true,
-    };
-
-    const next = applyShellEvent(initialState, {
-      kind: "space-removed",
-      sequence: 3,
-      spaceId,
-      updatedAt: "2026-07-15T10:00:02.000Z",
-    } satisfies OrchestrationShellStreamEvent);
-
-    expect(next.spaces).toEqual([]);
-    expect(next.folders[0]).toMatchObject({
-      spaceId,
-      updatedAt: "2026-07-15T10:00:01.000Z",
-    });
-  });
-
-  it("restores a Space from its broadcast without losing assignments", () => {
-    const spaceId = SpaceId.makeUnsafe("space-shell-archive");
-    const space = {
-      id: spaceId,
-      name: "Work",
-      icon: "bag" as const,
-      sortOrder: 0,
-      createdAt: "2026-07-15T10:00:00.000Z",
-      updatedAt: "2026-07-15T10:00:00.000Z",
-    };
-    const initialState: AppState = {
-      spaces: [space],
-
-      folders: [makeProject({ spaceId })],
-
-      sidebarThreadSummaryById: {},
-      threadsHydrated: true,
-    };
-
-    const archived = applyShellEvent(initialState, {
-      kind: "space-removed",
-      sequence: 2,
-      spaceId,
-      updatedAt: "2026-07-15T10:00:01.000Z",
-      preserveAssignments: true,
-    });
-
-    expect(archived.spaces).toEqual([]);
-    expect(archived.folders[0]?.spaceId).toBe(spaceId);
-
-    const restored = applyShellEvent(archived, {
-      kind: "space-upserted",
-      sequence: 3,
-      space: { ...space, updatedAt: "2026-07-15T10:00:02.000Z" },
-    });
-
-    expect(restored.spaces).toEqual([{ ...space, updatedAt: "2026-07-15T10:00:02.000Z" }]);
-    expect(restored.folders[0]?.spaceId).toBe(spaceId);
-  });
-
-  it("drops descendant thread state when a shell project removal arrives", () => {
-    const initialState = syncServerReadModel(
-      {
-        spaces: [],
-
-        folders: [
-          makeProject({
-            id: FolderId.makeUnsafe("project-shell"),
-            cwd: "/tmp/project-shell",
-          }),
-          makeProject({
-            id: FolderId.makeUnsafe("project-other"),
-            cwd: "/tmp/project-other",
-          }),
-        ],
-
-        sidebarThreadSummaryById: {},
-        threadsHydrated: true,
-      },
-      {
-        snapshotSequence: 1,
-        updatedAt: "2026-02-27T00:00:00.000Z",
-        spaces: [],
-        folders: [
-          makeReadModelProject({
-            id: FolderId.makeUnsafe("project-shell"),
-            workspaceRoot: "/tmp/project-shell",
-          }),
-          makeReadModelProject({
-            id: FolderId.makeUnsafe("project-other"),
-            workspaceRoot: "/tmp/project-other",
-          }),
-        ],
-        threads: [
-          makeReadModelThread({
-            id: ThreadId.makeUnsafe("thread-project-1"),
-            folderId: FolderId.makeUnsafe("project-shell"),
-          }),
-          makeReadModelThread({
-            id: ThreadId.makeUnsafe("thread-project-2"),
-            folderId: FolderId.makeUnsafe("project-other"),
-          }),
-        ],
-      },
-    );
-
-    const next = applyShellEvent(initialState, {
-      kind: "folder-removed",
-      sequence: 2,
-      folderId: FolderId.makeUnsafe("project-shell"),
-    } satisfies OrchestrationShellStreamEvent);
-
-    expect(next.folders.map((project) => project.id)).toEqual([
-      FolderId.makeUnsafe("project-other"),
-    ]);
-    expect(threadsOf(next).map((thread) => thread.id)).toEqual([
-      ThreadId.makeUnsafe("thread-project-2"),
-    ]);
-    expect(next.threadIds).toEqual([ThreadId.makeUnsafe("thread-project-2")]);
-    expect(next.threadShellById?.[ThreadId.makeUnsafe("thread-project-1")]).toBeUndefined();
-    expect(next.sidebarThreadSummaryById["thread-project-1"]).toBeUndefined();
-  });
-
   it("preserves cross-task creation provenance from the read model", () => {
     const sourceThreadId = ThreadId.makeUnsafe("source-thread");
     const initialState = makeState(makeThread());
@@ -1386,7 +1175,7 @@ describe("store projection", () => {
       ],
     };
 
-    const next = syncServerReadModel(initialState, readModel);
+    const next = syncServerNavigation(initialState, readModel);
 
     expect(next.folders[0]?.defaultModelSelection?.model).toBe("openai/gpt-5.4");
   });
@@ -1399,7 +1188,7 @@ describe("store projection", () => {
       }),
     );
 
-    const next = syncServerReadModel(initialState, readModel);
+    const next = syncServerReadModel(syncServerNavigation(initialState, readModel), readModel);
 
     expect(next.folders[0]?.updatedAt).toBe("2026-02-27T00:00:00.000Z");
     expect(threadsOf(next)[0]?.updatedAt).toBe("2026-02-27T00:05:00.000Z");
@@ -2507,16 +2296,6 @@ describe("store projection", () => {
     const readModel = {
       snapshotSequence: 1,
       updatedAt: "2026-02-28T00:00:00.000Z",
-      spaces: [],
-      folders: [
-        makeReadModelProject({
-          defaultModelSelection: {
-            provider: "codex",
-            model: "gpt-5-codex",
-          },
-          updatedAt: "2026-02-27T00:00:00.000Z",
-        }),
-      ],
       threads: [
         makeReadModelThread({
           modelSelection: {
@@ -2630,7 +2409,7 @@ describe("deletion tombstone retirement", () => {
     return removeDeletedThreadFromClientState(hydrated, deletedThreadId, deletedAtSequence);
   }
 
-  it("retires a project tombstone once the read model reports the project soft-deleted", () => {
+  it("retires a folder tombstone once a canonical navigation read confirms removal", () => {
     const hydrated = syncServerReadModel(
       makeState(makeThread({ id: deletedThreadId, folderId })),
       makeReadModel(makeReadModelThread({ id: deletedThreadId, folderId })),
@@ -2638,17 +2417,19 @@ describe("deletion tombstone retirement", () => {
     const deletedState = removeDeletedProjectFromClientState(hydrated, folderId, 5);
     expect(deletedState.deletedFolderIdsById?.[folderId]).toBe(5);
 
-    const next = syncServerReadModel(deletedState, {
-      ...makeReadModel(
-        makeReadModelThread({
-          id: deletedThreadId,
-          folderId,
-          deletedAt: "2026-02-27T00:09:00.000Z",
-        }),
-      ),
-      snapshotSequence: 9,
-      folders: [makeReadModelProject({ deletedAt: "2026-02-27T00:09:00.000Z" })],
-    });
+    const next = syncServerReadModel(
+      syncServerNavigation(deletedState, { spaces: [], folders: [] }),
+      {
+        ...makeReadModel(
+          makeReadModelThread({
+            id: deletedThreadId,
+            folderId,
+            deletedAt: "2026-02-27T00:09:00.000Z",
+          }),
+        ),
+        snapshotSequence: 9,
+      },
+    );
 
     expect(next.deletedFolderIdsById?.[folderId]).toBeUndefined();
     expect(next.deletedThreadIdsById?.[deletedThreadId]).toBeUndefined();
@@ -2656,7 +2437,7 @@ describe("deletion tombstone retirement", () => {
     expect(threadsOf(next)).toHaveLength(0);
   });
 
-  it("keeps a project tombstone while the read model still lists the project as live", () => {
+  it("does not let a thread-only read retire a folder tombstone", () => {
     const hydrated = syncServerReadModel(
       makeState(makeThread({ id: deletedThreadId, folderId })),
       makeReadModel(makeReadModelThread({ id: deletedThreadId, folderId })),

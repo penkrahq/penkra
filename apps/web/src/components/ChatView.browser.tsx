@@ -1,3 +1,4 @@
+import type { FixtureReadModel as ContractReadModel } from "../test/effectRpcWebSocketMock.ts";
 import { Schema } from "effect";
 import { promoteThreadCreate } from "../lib/threadCreatePromotion";
 import { toastManager } from "./ui/toast";
@@ -16,7 +17,6 @@ import {
   MessageId,
   ORCHESTRATION_WS_METHODS,
   ProviderConnectionId,
-  type OrchestrationReadModel as ContractReadModel,
   type OrchestrationEvent,
   type FolderId,
   type ServerConfig,
@@ -39,11 +39,7 @@ import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } 
 import { render } from "vitest-browser-react";
 
 import { type ComposerImageAttachment, useComposerDraftStore } from "../composerDraftStore";
-import {
-  advanceComposerSendPreflightAppliedSequence,
-  getComposerSendPreflight,
-  resetComposerSendPreflightsForTests,
-} from "../composerSendPreflight";
+import { resetComposerSendPreflightsForTests } from "../composerSendPreflight";
 import {
   AUTO_SCROLL_BOTTOM_THRESHOLD_PX,
   getScrollContainerDistanceFromBottom,
@@ -139,6 +135,7 @@ const cleanCoreThreadChangeEmitters = new Map<ThreadId, () => void>();
 const cleanCoreSidebarChangeEmitters = new Set<
   (threadId: ThreadId, kind: "thread" | "thread.created") => void
 >();
+const cleanCoreNavigationChangeEmitters = new Set<() => void>();
 let unsubscribeCoreFixtureStore: (() => void) | undefined;
 
 function closeFixtureSockets(): void {
@@ -1320,12 +1317,12 @@ function createSnapshotWithInterruptedCommand(): OrchestrationReadModel {
   };
 }
 
-function recordFolderCreateCommand(command: unknown): boolean {
+function recordFolderCreateUpdate(command: unknown): boolean {
   if (
     !command ||
     typeof command !== "object" ||
-    !("type" in command) ||
-    command.type !== "folder.create" ||
+    !("action" in command) ||
+    command.action !== "folder.create" ||
     !("folderId" in command) ||
     !("workspaceRoot" in command) ||
     !("title" in command)
@@ -1352,7 +1349,6 @@ function recordFolderCreateCommand(command: unknown): boolean {
     ...fixture,
     snapshot: {
       ...fixture.snapshot,
-      snapshotSequence: fixture.snapshot.snapshotSequence + 1,
       folders: [
         ...fixture.snapshot.folders.filter((project) => project.id !== folderId),
         {
@@ -1378,12 +1374,12 @@ function recordFolderCreateCommand(command: unknown): boolean {
   return true;
 }
 
-function recordSpaceCreateCommand(command: unknown): boolean {
+function recordSpaceCreateUpdate(command: unknown): boolean {
   if (
     !command ||
     typeof command !== "object" ||
-    !("type" in command) ||
-    command.type !== "space.create" ||
+    !("action" in command) ||
+    command.action !== "space.create" ||
     !("spaceId" in command) ||
     typeof command.spaceId !== "string" ||
     !("name" in command) ||
@@ -1396,7 +1392,6 @@ function recordSpaceCreateCommand(command: unknown): boolean {
     ...fixture,
     snapshot: {
       ...fixture.snapshot,
-      snapshotSequence: fixture.snapshot.snapshotSequence + 1,
       spaces: [
         ...fixture.snapshot.spaces.filter((space) => space.id !== spaceId),
         {
@@ -1752,10 +1747,18 @@ function resolveWsRpc(body: WsRequestEnvelope["body"]): unknown {
     // would omit the success value from the serialized Exit.
     return null;
   }
+  if (tag === WS_METHODS.cleanCoreGetNavigation) {
+    const { spaces, folders } = createStartupSnapshotFromReadModel(fixture.snapshot, []);
+    return { spaces, folders };
+  }
+  if (tag === WS_METHODS.cleanCoreUpdateNavigation) {
+    if (!recordSpaceCreateUpdate(body.update) && !recordFolderCreateUpdate(body.update))
+      throw new Error("Unexpected navigation fixture update");
+    for (const emit of cleanCoreNavigationChangeEmitters) emit();
+    const navigation = createStartupSnapshotFromReadModel(fixture.snapshot, []);
+    return { spaces: navigation.spaces, folders: navigation.folders };
+  }
   if (tag === ORCHESTRATION_WS_METHODS.dispatchCommand) {
-    if (recordSpaceCreateCommand(body.command) || recordFolderCreateCommand(body.command)) {
-      return { sequence: fixture.snapshot.snapshotSequence };
-    }
     return { sequence: fixture.snapshot.snapshotSequence + 1 };
   }
   if (tag === WS_METHODS.serverGetConfig) {
@@ -2116,6 +2119,9 @@ const worker = setupWorker(
         return;
       }
       if (method === WS_METHODS.cleanCoreSubscribeSidebar) {
+        cleanCoreNavigationChangeEmitters.add(() =>
+          sendEffectRpcChunk(client, parsed.request.id, { kind: "navigation" }),
+        );
         cleanCoreSidebarChangeEmitters.add((threadId, kind) =>
           sendEffectRpcChunk(client, parsed.request.id, { kind, threadId }),
         );
@@ -3400,6 +3406,7 @@ describe("ChatView timeline estimator parity (full app)", () => {
     fixtureDrafts.clear();
     unsubscribeCoreFixtureStore?.();
     cleanCoreSidebarChangeEmitters.clear();
+    cleanCoreNavigationChangeEmitters.clear();
     unsubscribeCoreFixtureStore = useStore.subscribe((state, previous) => {
       for (const id of state.threadIds ?? []) {
         const thread = getThreadFromState(state, id),
@@ -7140,11 +7147,12 @@ describe("ChatView timeline estimator parity (full app)", () => {
       configurable: true,
       value: {
         ...wsNativeApi,
-        orchestration: {
-          ...wsNativeApi?.orchestration,
-          dispatchCommand: vi.fn(async (command: unknown) => {
-            expect(recordSpaceCreateCommand(command)).toBe(true);
-            return { sequence: fixture.snapshot.snapshotSequence };
+        cleanCore: {
+          ...wsNativeApi?.cleanCore,
+          updateNavigation: vi.fn(async (input: { update: unknown }) => {
+            expect(recordSpaceCreateUpdate(input.update)).toBe(true);
+            const { spaces, folders } = createStartupSnapshotFromReadModel(fixture.snapshot, []);
+            return { spaces, folders };
           }),
         },
       },
@@ -7296,37 +7304,14 @@ describe("ChatView timeline estimator parity (full app)", () => {
       configurable: true,
       value: {
         ...wsNativeApi,
-        orchestration: {
-          ...wsNativeApi?.orchestration,
-          dispatchCommand: vi.fn(async (command: unknown) => {
-            wsRequests.push({
-              _tag: ORCHESTRATION_WS_METHODS.dispatchCommand,
-              command,
-            });
-            recordFolderCreateCommand(command);
-            const createdFolder = fixture.snapshot.folders.at(-1);
-            if (createdFolder) {
-              queueMicrotask(() => {
-                emitSyncDomainEvent?.(
-                  makeDomainEvent(
-                    "folder.created",
-                    {
-                      folderId: createdFolder.id,
-                      title: createdFolder.title,
-                      workspaceRoot: createdFolder.workspaceRoot,
-                      defaultModelSelection: createdFolder.defaultModelSelection,
-                      iconDataUrl: createdFolder.iconDataUrl ?? null,
-                      spaceId: createdFolder.spaceId,
-                      sidebarSortOrder: createdFolder.sidebarSortOrder ?? 0,
-                      createdAt: createdFolder.createdAt,
-                      updatedAt: createdFolder.updatedAt,
-                    },
-                    { sequence: fixture.snapshot.snapshotSequence },
-                  ),
-                );
-              });
-            }
-            return { sequence: fixture.snapshot.snapshotSequence };
+        cleanCore: {
+          ...wsNativeApi?.cleanCore,
+          updateNavigation: vi.fn(async (input: { update: unknown }) => {
+            wsRequests.push({ _tag: WS_METHODS.cleanCoreUpdateNavigation, update: input.update });
+            expect(recordFolderCreateUpdate(input.update)).toBe(true);
+            for (const emit of cleanCoreNavigationChangeEmitters) emit();
+            const { spaces, folders } = createStartupSnapshotFromReadModel(fixture.snapshot, []);
+            return { spaces, folders };
           }),
         },
       },
@@ -7346,16 +7331,16 @@ describe("ChatView timeline estimator parity (full app)", () => {
         () => {
           const projectCreateRequest = wsRequests.find(
             (request) =>
-              request._tag === ORCHESTRATION_WS_METHODS.dispatchCommand &&
-              "command" in request &&
-              request.command &&
-              typeof request.command === "object" &&
-              "type" in request.command &&
-              request.command.type === "folder.create" &&
-              "workspaceRoot" in request.command &&
-              request.command.workspaceRoot === null &&
-              "title" in request.command &&
-              request.command.title === "New Project",
+              request._tag === WS_METHODS.cleanCoreUpdateNavigation &&
+              "update" in request &&
+              request.update &&
+              typeof request.update === "object" &&
+              "action" in request.update &&
+              request.update.action === "folder.create" &&
+              "workspaceRoot" in request.update &&
+              request.update.workspaceRoot === null &&
+              "title" in request.update &&
+              request.update.title === "New Project",
           );
           expect(projectCreateRequest).toBeDefined();
         },
@@ -7419,9 +7404,9 @@ describe("ChatView timeline estimator parity (full app)", () => {
       configurable: true,
       value: {
         ...wsNativeApi,
-        orchestration: {
-          ...wsNativeApi?.orchestration,
-          dispatchCommand: vi.fn(async () => {
+        cleanCore: {
+          ...wsNativeApi?.cleanCore,
+          updateNavigation: vi.fn(async () => {
             throw new Error("Project creation failed for test.");
           }),
         },

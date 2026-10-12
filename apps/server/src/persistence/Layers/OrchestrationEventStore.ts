@@ -118,41 +118,12 @@ function normalizeLegacyEventRow(row: ParsedPersistedEventRow): ParsedPersistedE
   };
 
   if (
-    (row.type === "folder.created" || row.type === "folder.updated") &&
-    originalPayload.defaultModelSelection !== undefined &&
-    originalPayload.defaultModelSelection !== null
-  ) {
-    payloadWithNormalizedModelSelection().defaultModelSelection = normalizePersistedModelSelection(
-      originalPayload.defaultModelSelection,
-    );
-  }
-
-  if (
     LEGACY_MODEL_SELECTION_EVENT_TYPES.has(row.type) &&
     originalPayload.modelSelection !== undefined
   ) {
     payloadWithNormalizedModelSelection().modelSelection = normalizePersistedModelSelection(
       originalPayload.modelSelection,
     );
-  }
-
-  if (
-    (row.type === "folder.created" || row.type === "folder.updated") &&
-    originalPayload.defaultModelSelection === undefined
-  ) {
-    const nextPayload = payloadWithNormalizedModelSelection();
-    const legacyModel = readTrimmedString(originalPayload, "defaultModel");
-    nextPayload.defaultModelSelection = legacyModel
-      ? normalizeLegacyModelSelection({
-          provider: originalPayload.defaultProvider,
-          model: legacyModel,
-          options: originalPayload.defaultModelOptions,
-        })
-      : null;
-    delete nextPayload.defaultProvider;
-    delete nextPayload.defaultModel;
-    delete nextPayload.defaultModelOptions;
-    return { ...row, payload: nextPayload };
   }
 
   if (

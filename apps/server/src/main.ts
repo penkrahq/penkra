@@ -48,8 +48,7 @@ import { ServerSettingsService } from "./serverSettings";
 import { formatHostForUrl, isLoopbackHost, isWildcardHost } from "./startupAccess";
 import { AnalyticsServiceLayerLive } from "./telemetry/Layers/AnalyticsService";
 import { AnalyticsService } from "./telemetry/Services/AnalyticsService";
-import { OrchestrationEngineService } from "./orchestration/Services/OrchestrationEngine";
-import { ensureDefaultSpaces } from "./orchestration/defaultSpacesBootstrap";
+import { ensureDefaultSpaces } from "./cleanCore/navigation";
 import {
   consumeDesktopParentPidFromEnvironment,
   waitForDesktopParentDisconnect,
@@ -396,12 +395,11 @@ const makeServerProgram = (input: CliInput) => {
       );
     }
 
-    const orchestrationEngine = yield* OrchestrationEngineService;
     yield* runStartupStage(
       "provider-connection-login.initialize",
       providerConnectionLoginCoordinator.initialize,
     );
-    yield* runStartupStage("default-spaces.ensure", ensureDefaultSpaces(orchestrationEngine));
+    yield* runStartupStage("default-spaces.ensure", ensureDefaultSpaces);
     const startedServer = yield* runStartupStage("http-runtime.start", start);
     yield* startThreadRetentionJob();
 

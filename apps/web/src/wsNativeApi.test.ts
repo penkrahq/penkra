@@ -4,11 +4,9 @@
 // Depends on: wsTransport mock plus contracts channel constants.
 
 import {
-  CommandId,
   type ContextMenuItem,
   EventId,
   ORCHESTRATION_WS_CHANNELS,
-  ORCHESTRATION_WS_METHODS,
   type OrchestrationEvent,
   FolderId,
   SpaceId,
@@ -341,24 +339,16 @@ describe("wsNativeApi", () => {
     const orchestrationEvent = {
       sequence: 1,
       eventId: EventId.makeUnsafe("event-1"),
-      aggregateKind: "folder",
-      aggregateId: FolderId.makeUnsafe("project-1"),
+      aggregateKind: "thread",
+      aggregateId: ThreadId.makeUnsafe("thread-1"),
       occurredAt: "2026-02-24T00:00:00.000Z",
       commandId: null,
       causationEventId: null,
       correlationId: null,
       metadata: {},
-      type: "folder.created",
-      payload: {
-        folderId: FolderId.makeUnsafe("project-1"),
-        spaceId: SpaceId.makeUnsafe("space-test"),
-        title: "Project",
-        workspaceRoot: "/tmp/workspace",
-        defaultModelSelection: null,
-        createdAt: "2026-02-24T00:00:00.000Z",
-        updatedAt: "2026-02-24T00:00:00.000Z",
-      },
-    } satisfies Extract<OrchestrationEvent, { type: "folder.created" }>;
+      type: "thread.session-stop-requested",
+      payload: { threadId: ThreadId.makeUnsafe("thread-1"), createdAt: "2026-02-24T00:00:00.000Z" },
+    } satisfies Extract<OrchestrationEvent, { type: "thread.session-stop-requested" }>;
     emitPush(ORCHESTRATION_WS_CHANNELS.domainEvent, orchestrationEvent);
     expect(onDomainEvent).toHaveBeenCalledTimes(1);
     expect(onDomainEvent).toHaveBeenCalledWith(orchestrationEvent);
@@ -366,30 +356,24 @@ describe("wsNativeApi", () => {
     expect(channelListeners.has(ORCHESTRATION_WS_CHANNELS.domainEvent)).toBe(false);
   });
 
-  it("sends orchestration dispatch commands directly", async () => {
-    requestMock.mockResolvedValue(undefined);
+  it("sends canonical navigation updates and returns committed rows", async () => {
+    const result = { spaces: [], folders: [] };
+    requestMock.mockResolvedValue(result);
     const { createWsNativeApi } = await import("./wsNativeApi");
-
     const api = createWsNativeApi();
-    const command = {
-      type: "folder.create",
-      commandId: CommandId.makeUnsafe("cmd-1"),
-      folderId: FolderId.makeUnsafe("project-1"),
-      spaceId: SpaceId.makeUnsafe("space-test"),
-      title: "Project",
-      workspaceRoot: "/tmp/project",
-      defaultModelSelection: {
-        provider: "codex",
-        model: "gpt-5-codex",
+    const input = {
+      update: {
+        action: "folder.create",
+        folderId: FolderId.makeUnsafe("project-1"),
+        spaceId: SpaceId.makeUnsafe("space-test"),
+        title: "Project",
+        workspaceRoot: "/tmp/project",
+        defaultModelSelection: { provider: "codex", model: "gpt-5-codex" },
+        createdAt: "2026-02-24T00:00:00.000Z",
       },
-      createdAt: "2026-02-24T00:00:00.000Z",
     } as const;
-    await api.orchestration.dispatchCommand(command);
-
-    expect(requestMock).toHaveBeenCalledWith(ORCHESTRATION_WS_METHODS.dispatchCommand, command, {
-      timeoutMs: null,
-      retryOnReconnect: true,
-    });
+    expect(await api.cleanCore.updateNavigation(input)).toEqual(result);
+    expect(requestMock).toHaveBeenCalledWith(WS_METHODS.cleanCoreUpdateNavigation, input);
   });
 
   it("forwards canonical question answers and lifecycle unchanged", async () => {

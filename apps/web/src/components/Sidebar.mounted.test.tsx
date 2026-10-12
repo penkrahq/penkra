@@ -121,7 +121,7 @@ beforeEach(() => {
   rows.forEach(applyThreadRow);
   api.listThreads.mockResolvedValue({ threads: rows, nextCursor: null });
   useStore.setState({ spaces: [space], folders: [folder], threadsHydrated: true });
-  useSpacesUiStore.setState({ activeSpaceId: spaceId, pendingActiveSpace: null });
+  useSpacesUiStore.setState({ activeSpaceId: spaceId });
   persistSidebarUiState({
     collapsedSpaceIds: [],
     chatThreadListExtraPages: 0,
