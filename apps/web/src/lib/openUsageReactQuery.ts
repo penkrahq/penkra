@@ -6,7 +6,7 @@ import { openUsageProviderIdForProvider } from "./openUsageRateLimits";
 const OPEN_USAGE_BASE_URL = "http://127.0.0.1:6736";
 const OPEN_USAGE_ENABLED_STORAGE_KEY = "penkra.openUsage.enabled";
 
-function isOpenUsagePollingEnabled(): boolean {
+function isOpenUsageEnabled(): boolean {
   if (typeof window === "undefined") {
     return false;
   }
@@ -24,13 +24,13 @@ export function openUsageProviderSnapshotQueryOptions(
   input: { enabled?: boolean } = {},
 ) {
   const providerId = openUsageProviderIdForProvider(provider);
-  const openUsageEnabled = isOpenUsagePollingEnabled();
+  const openUsageEnabled = isOpenUsageEnabled();
 
   return queryOptions({
     queryKey: openUsageQueryKeys.provider(provider),
     enabled: (input.enabled ?? true) && openUsageEnabled && providerId !== null,
-    staleTime: 15_000,
-    refetchInterval: 15_000,
+    staleTime: Infinity,
+    refetchOnMount: "always",
     refetchOnWindowFocus: false,
     queryFn: async (): Promise<unknown | null> => {
       if (!providerId) return null;

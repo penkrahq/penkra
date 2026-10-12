@@ -87,8 +87,8 @@ import { usePreloadRouteChunks } from "../hooks/usePreloadRouteChunks";
 import { useSyncDesktopTopBarTrafficLightGutterZoom } from "../hooks/useDesktopTopBarGutter";
 import { useTheme } from "../hooks/useTheme";
 import { useNativeFontSmoothing } from "../hooks/useNativeFontSmoothing";
+import { invalidateProviderData } from "../lib/providerDataRefresh";
 import { providerModelDiscoveryInvalidationFingerprint } from "../lib/providerDiscoveryInvalidation";
-import { providerDiscoveryQueryKeys } from "../lib/providerDiscoveryReactQuery";
 import { useAppSettings } from "../appSettings";
 import { ConnectionDefaultsMigration } from "../components/ConnectionDefaultsMigration";
 import {
@@ -1140,11 +1140,8 @@ function EventRouter() {
       .catch(() => undefined);
 
     const unsubWelcome = onServerWelcome((payload) => {
-      // A new server process has an empty Claude discovery cache and may run a
-      // corrected mapper or a newer managed runtime. Refresh mounted pickers.
-      void queryClient.invalidateQueries({
-        queryKey: providerDiscoveryQueryKeys.modelsForProvider("claudeAgent"),
-      });
+      // A server restart may change installations or account discovery data.
+      void invalidateProviderData(queryClient);
       void (async () => {
         setServerWorkspacePaths({
           homeDir: payload.homeDir,
@@ -1183,14 +1180,7 @@ function EventRouter() {
       providerDiscoveryInvalidationFingerprint = nextProviderDiscoveryFingerprint;
 
       void reconcileServerProviderStatuses(queryClient, payload.providers).catch(() => undefined);
-      if (shouldInvalidateProviderDiscovery) {
-        void queryClient.invalidateQueries({
-          queryKey: ["provider-discovery", "models", "opencode"],
-        });
-        void queryClient.invalidateQueries({
-          queryKey: providerDiscoveryQueryKeys.agentsForProvider("opencode"),
-        });
-      }
+      if (shouldInvalidateProviderDiscovery) void invalidateProviderData(queryClient);
     });
     const unsubWsTransportState = addWsTransportStateListener(
       (state) => {

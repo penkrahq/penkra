@@ -9,7 +9,7 @@ import {
   type ServerProviderUsageSnapshot,
 } from "@penkra/contracts";
 import { IconKey, IconUser } from "@tabler/icons-react";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useMemo, useState } from "react";
 
 import { Button } from "~/components/ui/button";
@@ -21,6 +21,7 @@ import {
   MenuTrigger,
 } from "~/components/ui/menu";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "~/components/ui/tooltip";
+import { invalidateProviderUsage } from "~/lib/providerDataRefresh";
 import { ensureNativeApi } from "~/nativeApi";
 import { ExternalLinkIcon, PlusIcon } from "~/lib/icons";
 import {
@@ -208,6 +209,7 @@ export function ComposerConnectionControl(props: {
   const selected =
     choices.find((choice) => choice.connectionId === props.selectedConnectionId) ??
     (props.selectedConnectionId === undefined ? choices[0] : undefined);
+  const queryClient = useQueryClient();
   const usageQuery = useQuery(
     serverAllProviderUsageQueryOptions({
       enabled: open && available.length > 0,
@@ -233,7 +235,14 @@ export function ComposerConnectionControl(props: {
   const title = apiKey ? `${selected.label} API key` : selected.label;
 
   return (
-    <ComposerPickerMenu open={open} onOpenChange={setOpen} keepOpenOnSubmenuInteraction>
+    <ComposerPickerMenu
+      open={open}
+      onOpenChange={(nextOpen) => {
+        setOpen(nextOpen);
+        if (nextOpen) void invalidateProviderUsage(queryClient);
+      }}
+      keepOpenOnSubmenuInteraction
+    >
       <Tooltip>
         <TooltipTrigger
           render={

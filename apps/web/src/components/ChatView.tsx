@@ -209,6 +209,7 @@ import {
   buildSearchableModelOptions,
   useComposerCommandMenuItems,
 } from "../hooks/useComposerCommandMenuItems";
+import { invalidateProviderData } from "../lib/providerDataRefresh";
 import { useProviderModelCatalog } from "../hooks/useProviderModelCatalog";
 import { PenkraMark } from "./foundations/penkra-mark-shared/PenkraMark";
 import {
@@ -2040,6 +2041,7 @@ function ChatViewContent({
     );
   }, [providerConnectionsQuery.data, selectedProvider]);
   const handleConnectionChange = (connectionId: ProviderConnectionId | null) => {
+    void invalidateProviderData(queryClient);
     useComposerDraftStore
       .getState()
       .setConnectionSelection(threadId, selectedProvider, connectionId);

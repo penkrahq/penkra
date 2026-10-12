@@ -216,8 +216,8 @@ export function serverProviderUsageSnapshotQueryOptions(input: {
   return queryOptions({
     queryKey: serverQueryKeys.providerUsage(input.provider, input.homePath),
     enabled: (input.enabled ?? true) && input.provider !== null && input.provider !== undefined,
-    staleTime: 30_000,
-    refetchInterval: 30_000,
+    staleTime: Infinity,
+    refetchOnMount: "always",
     refetchOnWindowFocus: false,
     queryFn: async () => {
       if (!input.provider) return null;
@@ -251,7 +251,8 @@ export function serverAllProviderUsageQueryOptions(
   return queryOptions({
     queryKey: serverQueryKeys.allProviderUsage(provider, connectionIds),
     enabled,
-    staleTime: 60_000,
+    staleTime: Infinity,
+    refetchOnMount: "always",
     refetchInterval: false,
     refetchOnWindowFocus: false,
     queryFn: async () =>
