@@ -247,3 +247,17 @@ describe("threadItemToUserContent", () => {
     expect(content.dispatchOrigin).toBe("agent");
   });
 });
+
+it("turn timing records do not add a transcript or work-log row", () => {
+  const turn = item("turn", {
+    sourceId: "turn:timed",
+    text: null,
+    data: JSON.stringify({
+      startedAt: "2026-10-09T00:00:00.000Z",
+      endedAt: "2026-10-09T00:00:12.000Z",
+    }),
+  });
+  expect(threadItemToWorkLogEntry(turn)).toBeNull();
+  expect(threadItemsToTimelineEntries([turn, item("text")])).toHaveLength(1);
+  expect(threadItemsToTimelineEntries([turn, item("text")])[0]?.id).toBe("s-7");
+});

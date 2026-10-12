@@ -14,7 +14,14 @@ import * as SqlClient from "effect/unstable/sql/SqlClient";
 import type { CleanCoreProviderEvent } from "./providerStreamConsumer.ts";
 import { capThreadItemData } from "./threadItemData.ts";
 
-export type ThreadItemKind = "user" | "text" | "reasoning" | "tool" | "question" | "notice";
+export type ThreadItemKind =
+  | "user"
+  | "text"
+  | "reasoning"
+  | "tool"
+  | "question"
+  | "notice"
+  | "turn";
 
 export interface ThreadItemInput {
   readonly threadId: string;
@@ -515,13 +522,15 @@ export const settleRunningItems = (threadId: string, at: string, turnId?: string
     if (turnId === undefined || turnId === null) {
       yield* sql`
         UPDATE thread_items
-        SET status = 'interrupted', updated_at = ${at}
+        SET status = 'interrupted', updated_at = ${at},
+            data = CASE WHEN kind = 'turn' THEN json_set(data, '$.endedAt', ${at}) ELSE data END
         WHERE thread_id = ${threadId} AND status IN ('running', 'streaming')
       `;
     } else {
       yield* sql`
         UPDATE thread_items
-        SET status = 'interrupted', updated_at = ${at}
+        SET status = 'interrupted', updated_at = ${at},
+            data = CASE WHEN kind = 'turn' THEN json_set(data, '$.endedAt', ${at}) ELSE data END
         WHERE thread_id = ${threadId} AND status IN ('running', 'streaming')
           AND (turn_id = ${turnId} OR turn_id IS NULL)
       `;

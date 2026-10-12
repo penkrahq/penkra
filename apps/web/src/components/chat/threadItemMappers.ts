@@ -103,6 +103,8 @@ export function threadItemToActivity(item: CleanCoreThreadItem): OrchestrationTh
 }
 
 export function threadItemToWorkLogEntry(item: CleanCoreThreadItem): WorkLogEntry | null {
+  // Turn records supply timing, not an extra work-log row.
+  if (item.kind === "turn") return null;
   const entry = deriveWorkLogEntries([threadItemToActivity(item)], undefined)[0] ?? null;
   if (entry === null || item.kind !== "tool") return entry;
   const toolStatus = TOOL_STATUS_BY_ITEM_STATUS[item.status];

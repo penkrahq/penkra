@@ -1,5 +1,8 @@
 import { seedThreadFolderFixture } from "./threadFixtures.ts";
 import { assert, it } from "@effect/vitest";
+import fs from "node:fs/promises";
+import os from "node:os";
+import path from "node:path";
 import { Cause, Effect, Exit } from "effect";
 import * as SqlClient from "effect/unstable/sql/SqlClient";
 
@@ -76,9 +79,9 @@ it.effect("turn start/end drive threads.state; items go through the upsert", () 
       assert.deepStrictEqual(idle, [{ state: "idle", activeTurnId: null }]);
 
       const items = yield* sql<{ readonly sourceId: string }>`
-        SELECT source_id AS "sourceId" FROM thread_items WHERE thread_id = 'thread-1'
+        SELECT source_id AS "sourceId" FROM thread_items WHERE thread_id = 'thread-1' ORDER BY seq
       `;
-      assert.deepStrictEqual(items, [{ sourceId: "msg-1" }]);
+      assert.deepStrictEqual(items, [{ sourceId: "turn:turn-1" }, { sourceId: "msg-1" }]);
     }),
   ),
 );
@@ -477,6 +480,12 @@ it.effect("a failed turn settlement rolls back state and items and publishes not
         yield* sql`SELECT status FROM thread_items WHERE source_id='running-tool'`,
         [{ status: "running" }],
       );
+      assert.deepStrictEqual(yield* sql`SELECT status,data FROM thread_items WHERE kind='turn'`, [
+        {
+          status: "running",
+          data: JSON.stringify({ startedAt: baseThread.createdAt, endedAt: null }),
+        },
+      ]);
       assert.deepStrictEqual(changes, []);
       assert.deepStrictEqual(outcomes, []);
       yield* sql`DROP TRIGGER fail_settlement`;
@@ -698,3 +707,145 @@ for (const state of ["completed", "error"] as const) {
     ),
   );
 }
+
+for (const outcome of ["completed", "interrupted", "error"] as const) {
+  it.effect(`persists ${outcome} turn timing in the thread state transaction`, () =>
+    withDb(
+      Effect.gen(function* () {
+        yield* runMigrations();
+        yield* seedThreadFolderFixture("core-test-folder", "space-1");
+        yield* createThread(baseThread);
+        const publisher = makeThreadPublisher();
+        const startedAt = "2026-10-09T00:00:01.000Z";
+        const endedAt = "2026-10-09T00:00:12.000Z";
+        yield* applyProviderEvent(publisher, {
+          type: "turn.started",
+          threadId: baseThread.id,
+          turnId: "timed",
+          at: startedAt,
+        });
+        const sql = yield* SqlClient.SqlClient;
+        assert.deepStrictEqual(yield* sql`SELECT kind,status,data FROM thread_items`, [
+          { kind: "turn", status: "running", data: JSON.stringify({ startedAt, endedAt: null }) },
+        ]);
+        yield* applyProviderEvent(publisher, {
+          type: "turn.ended",
+          threadId: baseThread.id,
+          turnId: "timed",
+          state: outcome,
+          at: endedAt,
+        });
+        assert.deepStrictEqual(yield* sql`SELECT source_id,turn_id,status,data FROM thread_items`, [
+          {
+            source_id: "turn:timed",
+            turn_id: "timed",
+            status: outcome === "completed" ? "done" : outcome,
+            data: JSON.stringify({ startedAt, endedAt }),
+          },
+        ]);
+        assert.deepStrictEqual(yield* sql`SELECT state,active_turn_id FROM threads`, [
+          { state: outcome === "error" ? "error" : "idle", active_turn_id: null },
+        ]);
+      }),
+    ),
+  );
+}
+
+for (const settledBeforeRestart of [false, true]) {
+  it.effect(
+    `${settledBeforeRestart ? "completed turn" : "startup cut-off"} timing survives a database reopen`,
+    () =>
+      Effect.scoped(
+        Effect.gen(function* () {
+          const directory = yield* Effect.acquireRelease(
+            Effect.promise(() => fs.mkdtemp(path.join(os.tmpdir(), "penkra-turn-timing-"))),
+            (directory) => Effect.promise(() => fs.rm(directory, { recursive: true, force: true })),
+          );
+          const filename = path.join(directory, "state.sqlite");
+          const startedAt = "2026-10-09T00:00:01.000Z";
+          const endedAt = "2026-10-09T00:00:12.000Z";
+          yield* Effect.scoped(
+            Effect.gen(function* () {
+              yield* runMigrations();
+              yield* seedThreadFolderFixture("core-test-folder", "space-1");
+              yield* createThread(baseThread);
+              yield* applyProviderEvent(makeThreadPublisher(), {
+                type: "turn.started",
+                threadId: baseThread.id,
+                turnId: "restart",
+                at: startedAt,
+              });
+              if (settledBeforeRestart)
+                yield* applyProviderEvent(makeThreadPublisher(), {
+                  type: "turn.ended",
+                  threadId: baseThread.id,
+                  turnId: "restart",
+                  state: "completed",
+                  at: endedAt,
+                });
+            }).pipe(Effect.provide(NodeSqliteClient.layer({ filename }))),
+          );
+          yield* Effect.scoped(
+            Effect.gen(function* () {
+              yield* settleRunningThreadsOnStartup(makeThreadPublisher(), endedAt);
+              const sql = yield* SqlClient.SqlClient;
+              assert.deepStrictEqual(
+                yield* sql`SELECT status,data FROM thread_items WHERE kind='turn'`,
+                [
+                  {
+                    status: settledBeforeRestart ? "done" : "interrupted",
+                    data: JSON.stringify({ startedAt, endedAt }),
+                  },
+                ],
+              );
+            }).pipe(Effect.provide(NodeSqliteClient.layer({ filename }))),
+          );
+          yield* Effect.scoped(
+            Effect.gen(function* () {
+              const sql = yield* SqlClient.SqlClient;
+              const [turn] = yield* sql<{
+                status: string;
+                data: string;
+              }>`SELECT status,data FROM thread_items WHERE kind='turn'`;
+              const timing = JSON.parse(turn!.data);
+              assert.equal(turn!.status, settledBeforeRestart ? "done" : "interrupted");
+              assert.equal(Date.parse(timing.endedAt) - Date.parse(timing.startedAt), 11_000);
+            }).pipe(Effect.provide(NodeSqliteClient.layer({ filename }))),
+          );
+        }),
+      ),
+  );
+}
+
+it.effect("a failed turn-marker insert rolls back running state and publishes nothing", () =>
+  withDb(
+    Effect.gen(function* () {
+      yield* runMigrations();
+      yield* seedThreadFolderFixture("core-test-folder", "space-1");
+      yield* createThread(baseThread);
+      const sql = yield* SqlClient.SqlClient;
+      const publisher = makeThreadPublisher();
+      const changes: unknown[] = [];
+      publisher.subscribeAll((change) => changes.push(change));
+      publisher.subscribeProvider((event) => changes.push(event));
+      yield* sql`CREATE TEMP TRIGGER fail_turn_insert BEFORE INSERT ON thread_items WHEN NEW.kind='turn'
+      BEGIN SELECT RAISE(ABORT, 'injected turn insert failure'); END`;
+      const result = yield* Effect.exit(
+        applyProviderEvent(publisher, {
+          type: "turn.started",
+          threadId: baseThread.id,
+          turnId: "rejected",
+          at: "2026-10-09T00:00:01.000Z",
+        }),
+      );
+      assert.isTrue(Exit.isFailure(result));
+      if (Exit.isFailure(result))
+        assert.include(Cause.pretty(result.cause), "injected turn insert failure");
+      assert.deepStrictEqual(yield* sql`SELECT state,active_turn_id FROM threads`, [
+        { state: "idle", active_turn_id: null },
+      ]);
+      assert.deepStrictEqual(yield* sql`SELECT * FROM thread_items`, []);
+      assert.deepStrictEqual(changes, []);
+    }),
+  ),
+);

@@ -155,3 +155,26 @@ it.effect("treats quotes and FTS operators as literal query text; empty queries 
     }),
   ),
 );
+
+it.effect("turn markers are excluded from transcript search", () =>
+  withDb(
+    Effect.gen(function* () {
+      yield* runMigrations();
+      yield* seedThreadFolderFixture(folderId, spaceId);
+      yield* addThread("turn-search", "Ordinary title");
+      const sql = yield* SqlClient.SqlClient;
+      yield* sql`INSERT INTO thread_items(thread_id,seq,source_id,turn_id,kind,status,text,data,created_at,updated_at)
+      VALUES ('turn-search',1,'turn:search','search','turn','done','private timing needle','{}',
+        '2026-10-10T00:00:00.000Z','2026-10-10T00:00:00.000Z')`;
+      assert.deepStrictEqual(
+        (yield* searchThreads({ spaceId, query: "needle", cursor: null })).threads,
+        [],
+      );
+      yield* addMessage("turn-search", 2, "user needle");
+      assert.equal(
+        (yield* searchThreads({ spaceId, query: "needle", cursor: null })).threads[0]?.messageId,
+        "turn-search:2",
+      );
+    }),
+  ),
+);

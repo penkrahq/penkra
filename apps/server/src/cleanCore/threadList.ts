@@ -187,6 +187,7 @@ export const searchThreads = (input: CleanCoreSearchThreadsInput) =>
         FROM thread_items_search JOIN thread_items i ON i.rowid = thread_items_search.rowid
         JOIN threads t ON t.id = i.thread_id
         WHERE thread_items_search MATCH ${phrase}
+          AND i.kind != 'turn'
           AND t.space_id = ${input.spaceId} AND t.archived_at IS NULL AND t.deleted_at IS NULL
       ), candidates AS (
         SELECT t.*,

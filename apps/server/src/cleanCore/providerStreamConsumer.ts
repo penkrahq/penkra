@@ -76,6 +76,16 @@ const writeProviderEvent = (event: CleanCoreProviderEvent) =>
     switch (event.type) {
       case "turn.started": {
         yield* setThreadState(event.threadId, "running", event.turnId, null, event.at);
+        yield* upsertThreadItem({
+          threadId: event.threadId,
+          sourceId: `turn:${event.turnId}`,
+          turnId: event.turnId,
+          kind: "turn",
+          status: "running",
+          data: JSON.stringify({ startedAt: event.at, endedAt: null }),
+          createdAt: event.at,
+          updatedAt: event.at,
+        });
         return [event.threadId];
       }
       case "turn.ended": {
@@ -86,6 +96,11 @@ const writeProviderEvent = (event: CleanCoreProviderEvent) =>
           event.state === "error" ? (event.error ?? "Turn failed") : null,
           event.at,
         );
+        const sql = yield* SqlClient.SqlClient;
+        yield* sql`UPDATE thread_items
+          SET status = ${event.state === "completed" ? "done" : event.state},
+              data = json_set(data, '$.endedAt', ${event.at}), updated_at = ${event.at}
+          WHERE thread_id = ${event.threadId} AND source_id = ${`turn:${event.turnId}`} AND kind = 'turn'`;
         // The turn's outcome settles its still-running items in the same write.
         yield* settleRunningItems(event.threadId, event.at, event.turnId);
         return [event.threadId];
