@@ -1,8 +1,8 @@
 /**
  * AnalyticsService - Anonymous telemetry capture contract.
  *
- * Provides a best-effort event API for runtime telemetry and a strict
- * `captureImmediate` method for call sites that need explicit error handling.
+ * Queues best-effort telemetry, sends full batches in the background, and
+ * exposes an explicit flush for partial batches.
  *
  * @module AnalyticsService
  */
@@ -10,7 +10,7 @@ import { Effect, Layer, ServiceMap } from "effect";
 
 export interface AnalyticsServiceShape {
   /**
-   * Capture an event immediately; returns typed failure when capture fails.
+   * Queue an event without waiting for the network; full batches send in the background.
    */
   readonly record: (
     event: string,

@@ -7,7 +7,7 @@
  * @module AnalyticsServiceLive
  */
 
-import { Config, DateTime, Effect, Layer, Ref } from "effect";
+import { Config, DateTime, Duration, Effect, Layer, Queue, Ref, Semaphore } from "effect";
 import { HttpClient, HttpClientRequest, HttpClientResponse } from "effect/unstable/http";
 
 import { ServerConfig } from "../../config.ts";
@@ -31,12 +31,18 @@ const TelemetryEnvConfig = Config.all({
   ),
 });
 
+// PostHog's standard flush interval sends partial batches without a one-second polling loop.
+export const ANALYTICS_FLUSH_INTERVAL = Duration.seconds(10);
+
 const makeAnalyticsService = Effect.gen(function* () {
   const telemetryConfig = yield* TelemetryEnvConfig.asEffect();
   const httpClient = yield* HttpClient.HttpClient;
   const serverConfig = yield* ServerConfig;
   const identifier = yield* getTelemetryIdentifier;
   const bufferRef = yield* Ref.make<ReadonlyArray<BufferedAnalyticsEvent>>([]);
+  // One pending signal is enough: its worker drains every full batch in the buffer.
+  const flushRequests = yield* Effect.acquireRelease(Queue.dropping<void>(1), Queue.shutdown);
+  const flushLock = yield* Semaphore.make(1);
   const clientType = serverConfig.mode === "desktop" ? "desktop-app" : "cli-web-client";
   const telemetryEnabled =
     telemetryConfig.enabled &&
@@ -99,35 +105,44 @@ const makeAnalyticsService = Effect.gen(function* () {
       );
     });
 
-  const flush: AnalyticsServiceShape["flush"] = Effect.gen(function* () {
-    while (true) {
-      const batch = yield* Ref.modify(bufferRef, (current) => {
-        if (current.length === 0) {
-          return [[] as ReadonlyArray<BufferedAnalyticsEvent>, current] as const;
+  const drainBuffer = (mode: "full" | "all") =>
+    flushLock.withPermits(1)(
+      Effect.gen(function* () {
+        while (true) {
+          const batch = yield* Ref.modify(bufferRef, (current) => {
+            if (
+              current.length === 0 ||
+              (mode === "full" && current.length < telemetryConfig.flushBatchSize)
+            ) {
+              return [[] as ReadonlyArray<BufferedAnalyticsEvent>, current] as const;
+            }
+            const nextBatch = current.slice(0, telemetryConfig.flushBatchSize);
+            const remaining = current.slice(nextBatch.length);
+            return [nextBatch, remaining] as const;
+          });
+
+          if (batch.length === 0) {
+            return;
+          }
+
+          yield* sendBatch(batch).pipe(
+            Effect.catch((error) =>
+              Ref.update(bufferRef, (current) => [...batch, ...current]).pipe(
+                Effect.flatMap(() => Effect.fail(error)),
+              ),
+            ),
+          );
         }
-        const nextBatch = current.slice(0, telemetryConfig.flushBatchSize);
-        const remaining = current.slice(nextBatch.length);
-        return [nextBatch, remaining] as const;
-      });
-
-      if (batch.length === 0) {
-        return;
-      }
-
-      yield* sendBatch(batch).pipe(
-        Effect.catch((error) =>
-          Ref.update(bufferRef, (current) => [...batch, ...current]).pipe(
-            Effect.flatMap(() => Effect.fail(error)),
-          ),
-        ),
-      );
-    }
-  }).pipe(Effect.catch((cause) => Effect.logError("Failed to flush telemetry", { cause })));
+      }).pipe(Effect.catch((cause) => Effect.logError("Failed to flush telemetry", { cause }))),
+    );
+  const flush: AnalyticsServiceShape["flush"] = drainBuffer("all");
 
   const record: AnalyticsServiceShape["record"] = Effect.fnUntraced(function* (event, properties) {
     if (!telemetryEnabled || !identifier) return;
 
     const enqueueResult = yield* enqueueBufferedEvent(event, properties);
+    if (enqueueResult.size >= telemetryConfig.flushBatchSize)
+      yield* Queue.offer(flushRequests, undefined);
     if (enqueueResult.dropped) {
       yield* Effect.logDebug("analytics buffer full; dropping oldest event", {
         size: enqueueResult.size,
@@ -136,9 +151,14 @@ const makeAnalyticsService = Effect.gen(function* () {
     }
   });
 
-  yield* Effect.forever(Effect.sleep(1000).pipe(Effect.flatMap(() => flush)), {
-    disableYield: true,
-  }).pipe(Effect.forkScoped);
+  yield* Effect.forever(Queue.take(flushRequests).pipe(Effect.andThen(drainBuffer("full")))).pipe(
+    Effect.forkScoped,
+  );
+  yield* Effect.sleep(ANALYTICS_FLUSH_INTERVAL).pipe(
+    Effect.andThen(flush),
+    Effect.forever,
+    Effect.forkScoped,
+  );
 
   yield* Effect.addFinalizer(() => flush);
 
