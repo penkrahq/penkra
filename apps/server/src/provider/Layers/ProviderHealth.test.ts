@@ -2,7 +2,7 @@ import * as NodeServices from "@effect/platform-node/NodeServices";
 import type { ServerProviderStatus } from "@penkra/contracts";
 import { DEFAULT_SERVER_SETTINGS, ServerProviderUpdateError } from "@penkra/contracts";
 import { describe, it, assert } from "@effect/vitest";
-import { Effect, FileSystem, Layer, Path, Sink, Stream } from "effect";
+import { Deferred, Duration, Effect, Fiber, FileSystem, Layer, Path, Sink, Stream } from "effect";
 import * as PlatformError from "effect/PlatformError";
 import { ChildProcessSpawner } from "effect/unstable/process";
 import { vi } from "vitest";
@@ -30,6 +30,7 @@ import {
   parseClaudeAuthStatusFromOutput,
   providerStatusesEqual,
   ProviderHealthLive,
+  PROVIDER_RELEASE_CHECK_INTERVAL,
   projectProviderStatusesForSettings,
   readCodexConfigModelProvider,
   stabilizeProviderStatusesAgainstTransientTimeouts,
@@ -373,6 +374,83 @@ it.layer(NodeServices.layer)("ProviderHealth", (it) => {
   });
 
   describe("startup refresh behavior", () => {
+    it.effect(
+      "checks latest releases at startup without repeating lookups on foreground refresh",
+      () =>
+        Effect.gen(function* () {
+          const fileSystem = yield* FileSystem.FileSystem;
+          const baseDir = yield* fileSystem.makeTempDirectoryScoped({
+            prefix: "provider-release-check-",
+          });
+          yield* writeProviderStatusCache({
+            filePath: resolveProviderStatusCachePath({
+              stateDir: `${baseDir}/userdata`,
+              provider: "codex",
+            }),
+            provider: { ...cachedReadyCodexStatus, version: "1.0.0" },
+          });
+          const lookupStarted = yield* Deferred.make<void>();
+          const releaseLookup = yield* Deferred.make<void>();
+          let lookups = 0;
+          const settings = {
+            ...allProvidersDisabledSettings,
+            providers: {
+              ...allProvidersDisabledSettings.providers,
+              codex: { ...DEFAULT_SERVER_SETTINGS.providers.codex, enabled: true },
+            },
+          };
+          const layer = makeProviderHealthLive({
+            resolveManagedArtifact: (input) =>
+              Effect.gen(function* () {
+                assert.strictEqual(input.provider, "codex");
+                assert.strictEqual(input.version, "latest");
+                lookups += 1;
+                yield* Deferred.succeed(lookupStarted, undefined);
+                yield* Deferred.await(releaseLookup);
+                return {
+                  provider: "codex" as const,
+                  version: "2.0.0",
+                  platform: "darwin" as const,
+                  architecture: "arm64" as const,
+                  url: "https://example.test/codex",
+                  sha256: "a".repeat(64),
+                  assetName: "codex",
+                  archive: "raw" as const,
+                  executableRelativePath: "codex",
+                  metadataUrl: "https://example.test/releases/latest",
+                  source: "github-release" as const,
+                };
+              }),
+          }).pipe(
+            Layer.provideMerge(ServerSettingsService.layerTest(settings)),
+            Layer.provideMerge(ServerConfig.layerTest(process.cwd(), baseDir)),
+          );
+          yield* Effect.gen(function* () {
+            const health = yield* ProviderHealth;
+            yield* Deferred.await(lookupStarted);
+            const published = yield* health.streamChanges.pipe(
+              Stream.filter((statuses) =>
+                statuses.some((status) => status.versionAdvisory?.latestVersion === "2.0.0"),
+              ),
+              Stream.runHead,
+              Effect.forkChild,
+            );
+            yield* Deferred.succeed(releaseLookup, undefined);
+            const result = yield* Fiber.join(published);
+            assert.ok(result._tag === "Some");
+            assert.strictEqual(result.value[0]?.versionAdvisory?.status, "behind_latest");
+            assert.strictEqual(lookups, 1);
+            yield* health.refresh;
+            yield* health.refresh;
+            assert.strictEqual(lookups, 1);
+            assert.strictEqual(
+              Duration.toMillis(PROVIDER_RELEASE_CHECK_INTERVAL),
+              24 * 60 * 60 * 1000,
+            );
+          }).pipe(Effect.provide(layer));
+        }),
+    );
+
     it.effect("serves cached statuses without spawning provider CLIs on layer startup", () =>
       Effect.gen(function* () {
         const fileSystem = yield* FileSystem.FileSystem;
