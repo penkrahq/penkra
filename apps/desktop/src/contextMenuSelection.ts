@@ -1,5 +1,9 @@
 // FILE: contextMenuSelection.ts
-// Purpose: Arbitrates Electron menu click/close callback ordering without dropping selections.
+// Purpose: Settle selection before Electron's post-selection popup close callback.
+// Electron macOS posts popupCloseCallback after itemSelected:
+// https://github.com/electron/electron/blob/v44.4.1/shell/browser/ui/cocoa/electron_menu_controller.mm#L643-L650
+// Chromium executes the command before its menu-closed delegate:
+// https://github.com/chromium/chromium/blob/152.0.7977.78/ui/views/controls/menu/menu_runner_impl.cc#L233-L243
 
 export interface ContextMenuSelection<T extends string> {
   readonly result: Promise<T | null>;
@@ -7,11 +11,7 @@ export interface ContextMenuSelection<T extends string> {
   readonly dismiss: () => void;
 }
 
-export function createContextMenuSelection<T extends string>(
-  scheduleDismissal: (callback: () => void) => void = (callback) =>
-    globalThis.setTimeout(callback, 0),
-): ContextMenuSelection<T> {
-  let selectedId: T | null = null;
+export function createContextMenuSelection<T extends string>(): ContextMenuSelection<T> {
   let settled = false;
   let resolveResult: (value: T | null) => void = () => undefined;
   const result = new Promise<T | null>((resolve) => {
@@ -25,13 +25,10 @@ export function createContextMenuSelection<T extends string>(
   return {
     result,
     select: (id) => {
-      selectedId = id;
       settle(id);
     },
     dismiss: () => {
-      // Electron can report popup closure before dispatching the item's click callback.
-      // Give that callback one event-loop turn before treating this as a dismissal.
-      scheduleDismissal(() => settle(selectedId));
+      settle(null);
     },
   };
 }
