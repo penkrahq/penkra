@@ -1,12 +1,16 @@
 // FILE: workspaceWatcher.ts
-// Purpose: Watch active project roots once and publish cache invalidations on filesystem events.
+// Purpose: Watch folder roots and durable thread scratch folders; publish cwd-scoped filesystem changes.
 // Layer: Server infrastructure
 
 import path from "node:path";
 import { watch, type FSWatcher } from "node:fs";
+import { mkdir } from "node:fs/promises";
 
 import type { ProjectWorkspaceChangeEvent } from "@penkra/contracts";
 import { Effect, Fiber, Layer, PubSub, ServiceMap, Stream } from "effect";
+
+import { ServerConfig } from "./config";
+import { DURABLE_THREAD_WORKSPACES_DIRNAME } from "./scratchWorkspaces";
 
 import { OrchestrationEngineService } from "./orchestration/Services/OrchestrationEngine";
 
@@ -95,6 +99,7 @@ export class WorkspaceWatcherManager {
     private readonly readProjectRoots: () => Promise<readonly (string | null)[]>,
     private readonly publish: (event: ProjectWorkspaceChangeEvent) => void,
     private readonly createWorkspaceWatch: CreateWorkspaceWatch = createNodeWorkspaceWatch,
+    private readonly scratchRoot: string | null = null,
   ) {}
 
   start(): Promise<void> {
@@ -122,7 +127,9 @@ export class WorkspaceWatcherManager {
     const roots = await this.readProjectRoots();
     this.projectRoots = [
       ...new Set(
-        roots.filter((root): root is string => root !== null).map((root) => path.resolve(root)),
+        [...roots, this.scratchRoot]
+          .filter((root): root is string => root !== null)
+          .map((root) => path.resolve(root)),
       ),
     ];
     const desiredWatchRoots = new Set(deduplicateWorkspaceRoots(this.projectRoots));
@@ -157,9 +164,20 @@ export class WorkspaceWatcherManager {
   }
 
   private publishPathChange(watchRoot: string, changedPath: string): void {
-    const matchingRoots = this.rootsForWatch(watchRoot).filter((root) =>
-      isWithin(root, changedPath),
-    );
+    const scratchRelative =
+      this.scratchRoot !== null && isWithin(this.scratchRoot, changedPath)
+        ? path.relative(this.scratchRoot, changedPath).split(path.sep)
+        : [];
+    // One recursive parent watch also sees scratch folders created after startup.
+    // Attribute their files to the per-thread cwd used by the query keys.
+    const scratchCwd =
+      this.scratchRoot !== null && scratchRelative.length > 1
+        ? path.join(this.scratchRoot, scratchRelative[0]!)
+        : null;
+    const matchingRoots = [
+      ...this.rootsForWatch(watchRoot),
+      ...(scratchCwd === null ? [] : [scratchCwd]),
+    ].filter((root) => isWithin(root, changedPath));
     const projectRoot = matchingRoots.toSorted((left, right) => right.length - left.length)[0];
     if (!projectRoot) return;
     const gitChanged = isGitMetadataPath(projectRoot, changedPath);
@@ -206,6 +224,9 @@ export const WorkspaceWatcherLive = Layer.effect(
   WorkspaceWatcher,
   Effect.gen(function* () {
     const engine = yield* OrchestrationEngineService;
+    const config = yield* ServerConfig;
+    const scratchRoot = path.join(config.stateDir, DURABLE_THREAD_WORKSPACES_DIRNAME);
+    yield* Effect.promise(() => mkdir(scratchRoot, { recursive: true, mode: 0o700 }));
     const changes = yield* Effect.acquireRelease(
       PubSub.sliding<ProjectWorkspaceChangeEvent>(256),
       PubSub.shutdown,
@@ -224,6 +245,8 @@ export const WorkspaceWatcherLive = Layer.effect(
             ),
         ),
       (event) => void Effect.runFork(PubSub.publish(changes, event)),
+      createNodeWorkspaceWatch,
+      scratchRoot,
     );
 
     yield* Effect.acquireRelease(

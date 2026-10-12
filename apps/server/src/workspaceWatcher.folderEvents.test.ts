@@ -1,5 +1,11 @@
 import { EventEmitter } from "node:events";
-import { Effect, Exit, Layer, Queue, Scope, Stream } from "effect";
+import { mkdtemp, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import path from "node:path";
+import { ServerConfig } from "./config";
+import { DURABLE_THREAD_WORKSPACES_DIRNAME } from "./scratchWorkspaces";
+import * as NodeServices from "@effect/platform-node/NodeServices";
+import { Effect, Exit, Layer, Queue, Scope, Stream, ServiceMap } from "effect";
 import {
   FolderId,
   SpaceId,
@@ -20,6 +26,7 @@ vi.mock("node:fs", async (original) => ({
 }));
 
 it("watches newly created folders, moves a changed root, and retains an unchanged watch through the live event consumer", async () => {
+  const stateDir = await mkdtemp(path.join(tmpdir(), "penkra-folder-watch-"));
   const events = await Effect.runPromise(Queue.unbounded<OrchestrationEvent>());
   const scope = await Effect.runPromise(Scope.make("sequential"));
   let roots: string[] = [];
@@ -74,13 +81,27 @@ it("watches newly created folders, moves a changed root, and retains an unchange
     streamDomainEvents: Stream.fromQueue(events),
   } as unknown as OrchestrationEngineShape;
   try {
-    await Effect.runPromise(
+    const context = await Effect.runPromise(
       Layer.buildWithScope(
-        WorkspaceWatcherLive.pipe(Layer.provide(Layer.succeed(OrchestrationEngineService, engine))),
+        WorkspaceWatcherLive.pipe(
+          Layer.provideMerge(
+            Layer.merge(
+              Layer.succeed(OrchestrationEngineService, engine),
+              ServerConfig.layerTest(process.cwd(), stateDir).pipe(
+                Layer.provide(NodeServices.layer),
+              ),
+            ),
+          ),
+        ),
         scope,
       ),
     );
-    expect(watch).not.toHaveBeenCalled();
+    const scratchRoot = path.join(
+      ServiceMap.get(context, ServerConfig).stateDir,
+      DURABLE_THREAD_WORKSPACES_DIRNAME,
+    );
+    expect(watch).toHaveBeenCalledOnce();
+    expect(watch.mock.calls[0]?.[0]).toBe(scratchRoot);
     const publish = (type: OrchestrationEvent["type"]) =>
       Effect.runPromise(Queue.offer(events, { type } as OrchestrationEvent));
     const nextWatch = () =>
@@ -91,16 +112,16 @@ it("watches newly created folders, moves a changed root, and retains an unchange
     const created = nextWatch();
     await publish("folder.created");
     await created;
-    expect(watch).toHaveBeenCalledTimes(1);
-    expect(watch.mock.calls[0]?.[0]).toBe("/new-folder");
+    expect(watch).toHaveBeenCalledTimes(2);
+    expect(watch.mock.calls[1]?.[0]).toBe("/new-folder");
 
     roots = ["/changed-folder"];
     const changed = nextWatch();
     await publish("folder.updated");
     await changed;
-    expect(closers[0]).toHaveBeenCalledTimes(1);
-    expect(watch).toHaveBeenCalledTimes(2);
-    expect(watch.mock.calls[1]?.[0]).toBe("/changed-folder");
+    expect(closers[1]).toHaveBeenCalledTimes(1);
+    expect(watch).toHaveBeenCalledTimes(3);
+    expect(watch.mock.calls[2]?.[0]).toBe("/changed-folder");
 
     // Sequential stream processing gives a completion barrier: the next read
     // cannot begin until the preceding unchanged update finished reconciliation.
@@ -113,11 +134,13 @@ it("watches newly created folders, moves a changed root, and retains an unchange
     await publish("folder.updated");
     await publish("folder.updated");
     await unchanged;
-    expect(watch).toHaveBeenCalledTimes(2);
-    expect(closers[1]).not.toHaveBeenCalled();
+    expect(watch).toHaveBeenCalledTimes(3);
+    expect(closers[2]).not.toHaveBeenCalled();
   } finally {
     await Effect.runPromise(Scope.close(scope, Exit.void));
     await Effect.runPromise(Queue.shutdown(events));
+    await rm(stateDir, { recursive: true, force: true });
   }
-  expect(closers[1]).toHaveBeenCalledTimes(1);
+  expect(closers[0]).toHaveBeenCalledTimes(1);
+  expect(closers[2]).toHaveBeenCalledTimes(1);
 });

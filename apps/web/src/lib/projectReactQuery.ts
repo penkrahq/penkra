@@ -62,7 +62,6 @@ export async function invalidateProjectQueriesForWorkspaceChange(
 const DEFAULT_SEARCH_ENTRIES_LIMIT = 80;
 const DEFAULT_DISCOVER_SCRIPTS_DEPTH = 2;
 const DEFAULT_SEARCH_LOCAL_ENTRIES_LIMIT = 50;
-const DEFAULT_SEARCH_LOCAL_ENTRIES_STALE_TIME = 10_000;
 const LOCAL_PREVIEW_GRANT_REFRESH_SAFETY_MS = 15_000;
 const LOCAL_PREVIEW_GRANT_MIN_REFETCH_INTERVAL_MS = 1_000;
 export const LOCAL_PREVIEW_GRANT_MAX_REFETCH_INTERVAL_MS = 30_000;
@@ -248,7 +247,6 @@ export function projectSearchLocalEntriesQueryOptions(input: {
   enabled?: boolean;
   limit?: number;
   includeFiles?: boolean;
-  staleTime?: number;
 }) {
   const limit = input.limit ?? DEFAULT_SEARCH_LOCAL_ENTRIES_LIMIT;
   const trimmedQuery = input.query.trim();
@@ -267,7 +265,8 @@ export function projectSearchLocalEntriesQueryOptions(input: {
       });
     },
     enabled: (input.enabled ?? true) && input.rootPath !== null && trimmedQuery.length >= 2,
-    staleTime: input.staleTime ?? DEFAULT_SEARCH_LOCAL_ENTRIES_STALE_TIME,
+    staleTime: Infinity,
+    refetchOnWindowFocus: "always",
     placeholderData: (previous) => previous ?? EMPTY_SEARCH_LOCAL_ENTRIES_RESULT,
   });
 }

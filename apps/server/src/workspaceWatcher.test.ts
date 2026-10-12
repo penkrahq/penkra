@@ -3,7 +3,12 @@ import os from "node:os";
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 
 import { describe, expect, it } from "vitest";
-import type { ProjectWorkspaceChangeEvent } from "@penkra/contracts";
+import { ThreadId, type ProjectWorkspaceChangeEvent } from "@penkra/contracts";
+
+import {
+  ensureDurableThreadWorkspace,
+  DURABLE_THREAD_WORKSPACES_DIRNAME,
+} from "./scratchWorkspaces";
 
 import {
   deduplicateWorkspaceRoots,
@@ -112,6 +117,38 @@ describe("workspace watcher lifecycle", () => {
     callbacks.change(path.join(root, "src/later.ts"));
     callbacks.lostSync();
     expect(events).toHaveLength(3);
+  });
+
+  it("publishes a real scratch-file edit with its thread cwd", async () => {
+    const stateDir = await mkdtemp(path.join(os.tmpdir(), "penkra-scratch-watch-"));
+    const cwd = ensureDurableThreadWorkspace(ThreadId.makeUnsafe("scratch-thread"), stateDir);
+    const file = path.join(cwd, "note.txt");
+    await writeFile(file, "before");
+    let resolveEvent!: (event: ProjectWorkspaceChangeEvent) => void;
+    const published = new Promise<ProjectWorkspaceChangeEvent>((resolve) => {
+      resolveEvent = resolve;
+    });
+    const manager = new WorkspaceWatcherManager(
+      async () => [],
+      (event) => {
+        if (event.cwd === cwd && event.filesChanged) resolveEvent(event);
+      },
+      undefined,
+      path.join(stateDir, DURABLE_THREAD_WORKSPACES_DIRNAME),
+    );
+    try {
+      await manager.start();
+      await writeFile(file, "after");
+      expect(await published).toEqual({
+        cwd,
+        filesChanged: true,
+        gitChanged: false,
+        lostSync: false,
+      });
+    } finally {
+      await manager.close();
+      await rm(stateDir, { recursive: true, force: true });
+    }
   });
 
   it("publishes recursive file changes and closes the built-in watcher", async () => {
