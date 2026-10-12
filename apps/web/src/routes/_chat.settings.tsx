@@ -3,8 +3,11 @@
 // Layer: Route screen
 // Exports: Settings route component for `/settings`
 
+import { useEffect } from "react";
+import { useQueryClient } from "@tanstack/react-query";
 import { createFileRoute, useNavigate, useSearch } from "@tanstack/react-router";
 
+import { invalidateProviderData } from "../lib/providerDataRefresh";
 import { SettingsPageContent } from "../components/settings/pages/SettingsPageContent";
 import {
   SettingsPage,
@@ -40,6 +43,10 @@ function settingsPageFromSection(section: SettingsSectionId): SettingsPageId {
 }
 
 function SettingsRouteView() {
+  const queryClient = useQueryClient();
+  useEffect(() => {
+    void invalidateProviderData(queryClient);
+  }, [queryClient]);
   const navigate = useNavigate();
   const routeSearch = useSearch({ strict: false }) as Record<string, unknown>;
   const activePage = settingsPageFromSection(normalizeSettingsSection(routeSearch.section));

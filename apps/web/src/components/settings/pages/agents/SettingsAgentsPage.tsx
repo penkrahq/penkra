@@ -18,11 +18,8 @@ import { toastManager } from "~/components/ui/toast";
 import { ComposerPickerMenuPopup } from "~/components/chat/ComposerPickerMenuPopup";
 import { EllipsisIcon, PlusIcon, XIcon } from "~/lib/icons";
 import { declaredConnectionProviders } from "~/lib/managedConnectionProviders";
-import {
-  providerConnectionQueryKeys,
-  providerConnectionsQueryOptions,
-} from "~/lib/providerConnectionsReactQuery";
-import { providerDiscoveryQueryKeys } from "~/lib/providerDiscoveryReactQuery";
+import { providerConnectionsQueryOptions } from "~/lib/providerConnectionsReactQuery";
+import { invalidateProviderData } from "~/lib/providerDataRefresh";
 import { ensureNativeApi } from "~/nativeApi";
 import { useComposerDraftStore } from "~/composerDraftStore";
 import { saveDefaultConnection } from "~/lib/connectionDefaults";
@@ -133,10 +130,7 @@ export function SettingsAgentsPage(_props: { embedded?: boolean } = {}) {
   );
 
   const refresh = useCallback(async () => {
-    await Promise.all([
-      queryClient.invalidateQueries({ queryKey: providerConnectionQueryKeys.all }),
-      queryClient.invalidateQueries({ queryKey: providerDiscoveryQueryKeys.all }),
-    ]);
+    await invalidateProviderData(queryClient);
   }, [queryClient]);
 
   const clearAdd = useCallback(() => {

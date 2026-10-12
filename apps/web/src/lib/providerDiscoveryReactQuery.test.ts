@@ -8,7 +8,6 @@ import { createAppQueryClient } from "./appQueryClient";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
-  PROVIDER_MODEL_DISCOVERY_STALE_TIME_MS,
   isInitialModelDiscoveryPending,
   providerDiscoveryQueryKeys,
   providerModelsQueryOptions,
@@ -72,11 +71,8 @@ describe("isInitialModelDiscoveryPending", () => {
 });
 
 describe("providerModelsQueryOptions", () => {
-  it("keeps successful model discovery fresh for one day", () => {
-    expect(providerModelsQueryOptions({ provider: "codex" }).staleTime).toBe(
-      PROVIDER_MODEL_DISCOVERY_STALE_TIME_MS,
-    );
-    expect(PROVIDER_MODEL_DISCOVERY_STALE_TIME_MS).toBe(24 * 60 * 60_000);
+  it("keeps discovery fresh until a data-change event invalidates it", () => {
+    expect(providerModelsQueryOptions({ provider: "codex" }).staleTime).toBe(Infinity);
   });
 
   it("requests the picker-only presentation catalog", async () => {
@@ -149,7 +145,7 @@ describe("providerModelsQueryOptions", () => {
     expect(queryClient.getQueryData(options.queryKey)).toEqual(catalog);
   });
 
-  it("hydrates OpenCode from its persisted catalog while refreshing in the background", async () => {
+  it("hydrates OpenCode from its persisted catalog until a change invalidates it", async () => {
     stubLocalStorage();
     const catalog = {
       models: [{ slug: "opencode/big-pickle", name: "Big Pickle" }],
@@ -169,7 +165,6 @@ describe("providerModelsQueryOptions", () => {
         : cachedOptions.initialData;
 
     expect(initialData).toEqual({ ...catalog, cached: true });
-    expect(cachedOptions.initialDataUpdatedAt).toBe(0);
     expect(listModels).toHaveBeenCalledTimes(1);
   });
 
@@ -187,9 +182,12 @@ describe("providerModelsQueryOptions", () => {
         .mockResolvedValueOnce({ models: [], source: "managed-connections", cached: false }),
     );
 
-    await createAppQueryClient().fetchQuery(providerModelsQueryOptions(input));
+    const client = createAppQueryClient();
+    await client.fetchQuery(providerModelsQueryOptions(input));
     expect(storage.size).toBe(1);
-    await createAppQueryClient().fetchQuery(providerModelsQueryOptions(input));
+    await client.invalidateQueries({ queryKey: providerDiscoveryQueryKeys.all });
+    await client.fetchQuery(providerModelsQueryOptions(input));
+    client.clear();
 
     expect(listModels).toHaveBeenCalledTimes(2);
     expect(storage.size).toBe(0);

@@ -48,8 +48,6 @@ const EMPTY_PLUGINS_RESULT: ProviderListPluginsResult = {
 };
 
 const OPENCODE_MODEL_CACHE_KEY_PREFIX = "penkra:opencode-model-catalog:v1:";
-const OPENCODE_MODEL_CACHE_MAX_AGE_MS = 7 * 24 * 60 * 60_000;
-export const PROVIDER_MODEL_DISCOVERY_STALE_TIME_MS = 24 * 60 * 60_000;
 const decodeProviderListModelsResult = Schema.decodeUnknownSync(ProviderListModelsResult);
 
 function openCodeModelCacheKey(input: {
@@ -82,18 +80,7 @@ function readOpenCodeModelCache(input: {
     const raw = globalThis.localStorage?.getItem(openCodeModelCacheKey(input));
     if (!raw) return undefined;
     const parsed: unknown = JSON.parse(raw);
-    if (typeof parsed !== "object" || parsed === null || !("storedAt" in parsed)) {
-      return undefined;
-    }
-    const storedAt = (parsed as { storedAt?: unknown }).storedAt;
-    if (
-      typeof storedAt !== "number" ||
-      !Number.isFinite(storedAt) ||
-      Date.now() - storedAt > OPENCODE_MODEL_CACHE_MAX_AGE_MS ||
-      !("result" in parsed)
-    ) {
-      return undefined;
-    }
+    if (typeof parsed !== "object" || parsed === null || !("result" in parsed)) return undefined;
     const result = decodeProviderListModelsResult((parsed as { result: unknown }).result);
     return result.models.length > 0 ? { ...result, cached: true } : undefined;
   } catch {
@@ -120,7 +107,7 @@ function writeOpenCodeModelCache(
       storage.removeItem(key);
       return;
     }
-    storage.setItem(key, JSON.stringify({ storedAt: Date.now(), result }));
+    storage.setItem(key, JSON.stringify({ result }));
   } catch {
     // Discovery remains authoritative. A blocked or full localStorage must not
     // turn a successful model refresh into a user-visible failure.
@@ -362,13 +349,10 @@ export function providerModelsQueryOptions(input: {
       return result;
     },
     enabled: input.enabled ?? true,
-    staleTime: PROVIDER_MODEL_DISCOVERY_STALE_TIME_MS,
+    staleTime: Infinity,
     ...(input.provider === "opencode"
       ? {
           initialData: () => readOpenCodeModelCache(discoveryIdentity),
-          // Persisted data is deliberately stale: render it synchronously, then
-          // refresh it without replacing the composer model control.
-          initialDataUpdatedAt: 0,
         }
       : {}),
     placeholderData: (previous) => previous ?? EMPTY_MODELS_RESULT,
@@ -404,7 +388,7 @@ export function providerAgentsQueryOptions(input: {
       });
     },
     enabled: input.enabled ?? true,
-    staleTime: 60_000,
+    staleTime: Infinity,
     placeholderData: (previous) => previous ?? EMPTY_AGENTS_RESULT,
   });
 }
@@ -426,7 +410,7 @@ export function providerPluginsQueryOptions(input: {
       });
     },
     enabled: input.enabled ?? true,
-    staleTime: 30_000,
+    staleTime: Infinity,
     placeholderData: (previous) => previous ?? EMPTY_PLUGINS_RESULT,
   });
 }
