@@ -8,8 +8,8 @@ The file must be a JSON array of rules:
 
 ```json
 [
-  { "key": "mod+g", "command": "terminal.toggle" },
-  { "key": "mod+shift+g", "command": "terminal.new", "when": "terminalFocus" }
+  { "key": "mod+g", "command": "sidebar.toggle" },
+  { "key": "mod+shift+g", "command": "chat.new" }
 ]
 ```
 
@@ -19,15 +19,10 @@ See the full schema for more details: [`packages/contracts/src/keybindings.ts`](
 
 ```json
 [
-  { "key": "mod+j", "command": "terminal.toggle" },
-  { "key": "mod+d", "command": "terminal.split", "when": "terminalFocus" },
-  { "key": "mod+n", "command": "terminal.new", "when": "terminalFocus" },
-  { "key": "mod+w", "command": "terminal.close", "when": "terminalFocus" },
-  { "key": "mod+n", "command": "chat.new", "when": "!terminalFocus" },
-  { "key": "mod+shift+o", "command": "chat.new", "when": "!terminalFocus" },
-  { "key": "mod+shift+n", "command": "chat.newLocal", "when": "!terminalFocus" },
-  { "key": "mod+shift+t", "command": "chat.newTerminal", "when": "!terminalFocus" },
-  { "key": "cmd+l", "command": "composer.focus.toggle", "when": "!terminalFocus" },
+  { "key": "mod+n", "command": "chat.new" },
+  { "key": "mod+shift+o", "command": "chat.new" },
+  { "key": "mod+shift+n", "command": "chat.newLocal" },
+  { "key": "cmd+l", "command": "composer.focus.toggle" },
   { "key": "mod+o", "command": "editor.openFavorite" }
 ]
 ```
@@ -48,16 +43,10 @@ Invalid rules are ignored. Invalid config files are ignored. Warnings are logged
 
 ### Available Commands
 
-- `terminal.toggle`: open/close terminal drawer
-- `terminal.split`: split terminal (in focused terminal context by default)
-- `terminal.new`: create new terminal (in focused terminal context by default)
-- `terminal.close`: close/kill the focused terminal (in focused terminal context by default)
 - `chat.new`: create a new chat thread preserving the active thread's branch/worktree state
 - `chat.newLocal`: create a new chat thread for the active project in a new environment (local/worktree determined by app settings (default `local`))
-- `chat.newTerminal`: create a new terminal-first thread preserving the active thread's branch/worktree state
 - `composer.focus.toggle`: focus or blur the chat prompt composer
 - `editor.openFavorite`: open current project/worktree in the last-used editor
-- `script.{id}.run`: run a project script by id (for example `script.test.run`)
 
 ### Key Syntax
 
@@ -80,8 +69,9 @@ Examples:
 
 Currently available context keys:
 
-- `terminalFocus`
-- `terminalOpen`
+- `modelPickerOpen`
+- `traitsPickerOpen`
+- `isMac`
 
 Supported operators:
 
@@ -92,9 +82,9 @@ Supported operators:
 
 Examples:
 
-- `"when": "terminalFocus"`
-- `"when": "terminalOpen && !terminalFocus"`
-- `"when": "terminalFocus || terminalOpen"`
+- `"when": "modelPickerOpen"`
+- `"when": "isMac && !modelPickerOpen"`
+- `"when": "modelPickerOpen || traitsPickerOpen"`
 
 Unknown condition keys evaluate to `false`.
 
