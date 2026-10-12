@@ -184,42 +184,32 @@ export function ComposerLocalDirectoryMenu(props: {
     if (isAwaitingHomeDir) return;
     if (entriesByPath[expandedDirectory] !== undefined) return;
     if (loadingPaths.has(expandedDirectory)) return;
-    // Timeout-0 keeps every state write asynchronous (no wasted pre-paint
-    // render), which also keeps this component eligible for React Compiler.
-    let cancelled = false;
-    const timeoutId = window.setTimeout(() => {
-      if (cancelled) return;
-      const api = readNativeApi();
-      if (!api) {
-        setErrorMessage("App is still connecting. Try again in a moment.");
-        return;
-      }
+    const api = readNativeApi();
+    if (!api) {
+      setErrorMessage("App is still connecting. Try again in a moment.");
+      return;
+    }
 
-      setLoadingPaths((current) => new Set(current).add(expandedDirectory));
-      void api.folders
-        .listDirectories({
-          cwd: expandedDirectory,
-          includeFiles: true,
-        })
-        .then((result) => {
-          setEntriesByPath((current) => ({ ...current, [expandedDirectory]: result.entries }));
-        })
-        .catch((error) => {
-          setEntriesByPath((current) => ({ ...current, [expandedDirectory]: [] }));
-          setErrorMessage(summarizeDirectoryLoadError(error));
-        })
-        .finally(() => {
-          setLoadingPaths((current) => {
-            const next = new Set(current);
-            next.delete(expandedDirectory);
-            return next;
-          });
+    setLoadingPaths((current) => new Set(current).add(expandedDirectory));
+    void api.folders
+      .listDirectories({
+        cwd: expandedDirectory,
+        includeFiles: true,
+      })
+      .then((result) => {
+        setEntriesByPath((current) => ({ ...current, [expandedDirectory]: result.entries }));
+      })
+      .catch((error) => {
+        setEntriesByPath((current) => ({ ...current, [expandedDirectory]: [] }));
+        setErrorMessage(summarizeDirectoryLoadError(error));
+      })
+      .finally(() => {
+        setLoadingPaths((current) => {
+          const next = new Set(current);
+          next.delete(expandedDirectory);
+          return next;
         });
-    }, 0);
-    return () => {
-      cancelled = true;
-      window.clearTimeout(timeoutId);
-    };
+      });
   }, [entriesByPath, expandedDirectory, isAwaitingHomeDir, loadingPaths]);
 
   const rawEntries = entriesByPath[expandedDirectory];
