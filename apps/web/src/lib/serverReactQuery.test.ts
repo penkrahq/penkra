@@ -10,7 +10,6 @@ import {
   reconcileServerProviderStatuses,
   refreshServerConfigAfterTransportOpen,
   serverAllProviderUsageQueryOptions,
-  serverProviderUsageSnapshotQueryOptions,
   serverQueryKeys,
 } from "./serverReactQuery";
 
@@ -137,18 +136,10 @@ describe("server provider status reconciliation", () => {
 
 describe("serverAllProviderUsageQueryOptions", () => {
   it("can be disabled by provider-scoped usage surfaces", () => {
-    const options = serverAllProviderUsageQueryOptions(false);
+    const options = serverAllProviderUsageQueryOptions({ enabled: false, connectionIds: [] });
 
     expect(options.enabled).toBe(false);
     expect(options.refetchInterval).toBe(false);
-  });
-
-  it("keys provider-scoped usage separately from the all-provider batch", () => {
-    const scoped = serverAllProviderUsageQueryOptions({ provider: "claudeAgent" });
-    const all = serverAllProviderUsageQueryOptions();
-
-    expect(scoped.queryKey).toEqual(serverQueryKeys.allProviderUsage("claudeAgent"));
-    expect(all.queryKey).toEqual(serverQueryKeys.allProviderUsage(null));
   });
 
   it("keys connection-scoped usage independently", () => {
@@ -162,16 +153,5 @@ describe("serverAllProviderUsageQueryOptions", () => {
     expect(scoped.queryKey).toEqual(
       serverQueryKeys.allProviderUsage("claudeAgent", [first, second]),
     );
-  });
-});
-
-describe("serverProviderUsageSnapshotQueryOptions", () => {
-  it("can be disabled by privacy-safe active surfaces", () => {
-    const options = serverProviderUsageSnapshotQueryOptions({
-      provider: "opencode",
-      enabled: false,
-    });
-
-    expect(options.enabled).toBe(false);
   });
 });

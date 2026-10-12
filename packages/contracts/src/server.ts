@@ -152,21 +152,10 @@ export const ServerProviderUsageSnapshot = Schema.Struct({
 });
 export type ServerProviderUsageSnapshot = typeof ServerProviderUsageSnapshot.Type;
 
-export const ServerGetProviderUsageSnapshotInput = Schema.Struct({
-  provider: ProviderKind,
-  homePath: Schema.optional(TrimmedNonEmptyString),
-});
-export type ServerGetProviderUsageSnapshotInput = typeof ServerGetProviderUsageSnapshotInput.Type;
-
-export const ServerGetProviderUsageSnapshotResult = Schema.NullOr(ServerProviderUsageSnapshot);
-export type ServerGetProviderUsageSnapshotResult = typeof ServerGetProviderUsageSnapshotResult.Type;
-
-// Batch live-usage fetch for supported providers, powering the Settings → Usage section and
-// provider-scoped usage chips. Unfiltered requests return one entry per supported provider
-// (including needs-auth/error) so the UI can render a row each.
+// Live account usage requested by the composer account picker.
 export const ServerListProviderUsageInput = Schema.Struct({
   provider: Schema.optional(ProviderKind),
-  connectionIds: Schema.optional(Schema.Array(ProviderConnectionId)),
+  connectionIds: Schema.Array(ProviderConnectionId),
 });
 export type ServerListProviderUsageInput = typeof ServerListProviderUsageInput.Type;
 

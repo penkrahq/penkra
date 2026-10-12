@@ -1,11 +1,10 @@
 // FILE: providerUsage/index.ts
 // Purpose: Orchestrate the live provider-usage fetchers — defensive batch fetch (one failure never
-// blocks the others), and enrichment of Codex/Claude live snapshots. Exposes both a plain async API
+// blocks the others). Exposes both a plain async API
 // (for tests) and an Effect that reads ServerConfig (for the WS RPC handler).
 
 import type {
   ProviderConnectionId,
-  ProviderKind,
   ServerListProviderUsageInput,
   ServerListProviderUsageResult,
   ServerProviderUsageSnapshot,
@@ -18,7 +17,7 @@ import {
   type ProviderConnectionRecord,
 } from "../persistence/Services/ProviderConnections";
 import { ConnectionRateLimits, type ConnectionRateLimitObservation } from "./ConnectionRateLimits";
-import { buildProviderChildEnvironment, type ProviderChildKind } from "../providerChildEnvironment";
+import { buildProviderChildEnvironment } from "../providerChildEnvironment";
 import {
   providerConnectionProfileRoot,
   providerCredentialProfileIdentity,
@@ -28,16 +27,10 @@ import {
   findStaticCredentialMethod,
   getProviderConnectionManifest,
 } from "../provider/providerConnectionManifests";
-import { loadLocalProviderUsageLines } from "../providerUsageSnapshot";
 import { errorSnapshot, unsupportedSnapshot } from "./parse";
 import { PROVIDER_USAGE_FETCHERS } from "./registry";
 import { mergeConnectionUsageSnapshots, snapshotFromConnectionRateLimitFact } from "./runtimeFacts";
 import type { ProviderUsageContext } from "./types";
-
-// Providers whose live snapshot is enriched with on-disk token-total lines (24h/7d/30d).
-const LOCAL_ARCHIVE_PROVIDERS: ReadonlySet<ProviderKind> = new Set(["codex", "claudeAgent"]);
-const providerChildKind = (provider: ProviderKind): ProviderChildKind =>
-  provider === "claudeAgent" ? "claude" : provider;
 
 function buildContext(): ProviderUsageContext {
   return {
@@ -192,115 +185,40 @@ export async function collectProviderConnectionUsageSnapshots(input: {
   );
 }
 
-async function fetchProviderUsage(
-  provider: ProviderKind,
-  ctx: ProviderUsageContext,
-): Promise<ServerProviderUsageSnapshot | null> {
-  const fetcher = PROVIDER_USAGE_FETCHERS[provider];
-  if (!fetcher) {
-    return null;
-  }
-
-  const providerContext: ProviderUsageContext = {
-    ...ctx,
-    env: buildProviderChildEnvironment({
-      provider: providerChildKind(provider),
-      baseEnv: ctx.env,
-    }),
-  };
-  return fetcher
-    .fetch(providerContext)
-    .catch(() =>
-      errorSnapshot(provider, ctx.nowMs, "live-usage", "Usage fetch failed unexpectedly."),
-    );
-}
-
-async function enrichWithLocalUsage(
-  snapshot: ServerProviderUsageSnapshot,
-  ctx: ProviderUsageContext,
-): Promise<ServerProviderUsageSnapshot> {
-  if ((snapshot.status ?? "ok") !== "ok" || !LOCAL_ARCHIVE_PROVIDERS.has(snapshot.provider)) {
-    return snapshot;
-  }
-  const localLines = await loadLocalProviderUsageLines({
-    provider: snapshot.provider,
-    homeDir: ctx.homeDir,
-  });
-  if (localLines.length === 0) {
-    return snapshot;
-  }
-  return { ...snapshot, usageLines: [...snapshot.usageLines, ...localLines] };
-}
-
-/** Plain async batch fetch for supported providers. Never throws. */
-export async function collectProviderUsageSnapshots(
-  ctx: ProviderUsageContext,
-  options: { provider?: ProviderKind } = {},
-): Promise<ServerProviderUsageSnapshot[]> {
-  const providers = options.provider
-    ? ([options.provider] as ProviderKind[])
-    : (Object.keys(PROVIDER_USAGE_FETCHERS) as ProviderKind[]);
-  const settled = await Promise.allSettled(
-    providers.map(async (provider) => {
-      const snapshot = await fetchProviderUsage(provider, ctx);
-      return snapshot ? enrichWithLocalUsage(snapshot, ctx) : null;
-    }),
-  );
-
-  return settled
-    .map((result) => (result.status === "fulfilled" ? result.value : null))
-    .filter((snapshot): snapshot is ServerProviderUsageSnapshot => snapshot !== null);
-}
-
 export const listProviderUsage = Effect.fn(function* (input: ServerListProviderUsageInput) {
   const serverConfig = yield* ServerConfig;
-  if (input.connectionIds !== undefined) {
-    const connections = yield* ProviderConnectionRepository;
-    const usageFacts = yield* ConnectionRateLimits;
-    const context = { ...buildContext(), homeDir: serverConfig.homeDir };
-    const uniqueConnectionIds = [...new Set(input.connectionIds)];
-    const records = yield* Effect.forEach(uniqueConnectionIds, (connectionId) =>
-      connections.getRecord(connectionId).pipe(Effect.map(Option.getOrNull)),
-    );
-    const activeRecords = records.filter(
-      (record): record is ProviderConnectionRecord =>
-        record !== null &&
-        record.lifecycle === "active" &&
-        (input.provider === undefined || record.harness === input.provider),
-    );
-    const facts = yield* Effect.forEach(activeRecords, (record) =>
-      usageFacts
-        .get(record.id)
-        .pipe(Effect.map((fact) => [record.id, Option.getOrNull(fact)] as const)),
-    );
-    const rateLimitFacts = new Map(
-      facts.filter(
-        (entry): entry is readonly [ProviderConnectionId, ConnectionRateLimitObservation] =>
-          entry[1] !== null,
-      ),
-    );
-    return yield* Effect.tryPromise({
-      try: () =>
-        collectProviderConnectionUsageSnapshots({
-          connections: activeRecords,
-          stateDir: serverConfig.stateDir,
-          ctx: context,
-          rateLimitFacts,
-        }),
-      catch: () => [] as unknown as ServerListProviderUsageResult,
-    });
-  }
+  const connections = yield* ProviderConnectionRepository;
+  const usageFacts = yield* ConnectionRateLimits;
+  const context = { ...buildContext(), homeDir: serverConfig.homeDir };
+  const uniqueConnectionIds = [...new Set(input.connectionIds)];
+  const records = yield* Effect.forEach(uniqueConnectionIds, (connectionId) =>
+    connections.getRecord(connectionId).pipe(Effect.map(Option.getOrNull)),
+  );
+  const activeRecords = records.filter(
+    (record): record is ProviderConnectionRecord =>
+      record !== null &&
+      record.lifecycle === "active" &&
+      (input.provider === undefined || record.harness === input.provider),
+  );
+  const facts = yield* Effect.forEach(activeRecords, (record) =>
+    usageFacts
+      .get(record.id)
+      .pipe(Effect.map((fact) => [record.id, Option.getOrNull(fact)] as const)),
+  );
+  const rateLimitFacts = new Map(
+    facts.filter(
+      (entry): entry is readonly [ProviderConnectionId, ConnectionRateLimitObservation] =>
+        entry[1] !== null,
+    ),
+  );
   return yield* Effect.tryPromise({
     try: () =>
-      collectProviderUsageSnapshots(
-        {
-          ...buildContext(),
-          homeDir: serverConfig.homeDir,
-        },
-        {
-          ...(input.provider ? { provider: input.provider } : {}),
-        },
-      ),
-    catch: () => [] as unknown as ServerListProviderUsageResult,
+      collectProviderConnectionUsageSnapshots({
+        connections: activeRecords,
+        stateDir: serverConfig.stateDir,
+        ctx: context,
+        rateLimitFacts,
+      }),
+    catch: () => [] as ServerListProviderUsageResult,
   });
 });
