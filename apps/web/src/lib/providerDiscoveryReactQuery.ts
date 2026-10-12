@@ -362,7 +362,7 @@ export function providerModelsQueryOptions(input: {
       return result;
     },
     enabled: input.enabled ?? true,
-    retry: 3,
+    retry: false,
     staleTime: PROVIDER_MODEL_DISCOVERY_STALE_TIME_MS,
     ...(input.provider === "opencode"
       ? {

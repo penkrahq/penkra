@@ -104,17 +104,25 @@ describe("providerModelsQueryOptions", () => {
     expect(queryClient.getQueryState(codex.queryKey)?.isInvalidated).toBe(false);
   });
 
-  it("keeps retrying transient failures for other providers", () => {
-    expect(providerModelsQueryOptions({ provider: "codex" }).retry).toBe(3);
-    expect(providerModelsQueryOptions({ provider: "opencode" }).retry).toBe(3);
+  it("fails once and allows an explicit retry without a timed retry", async () => {
+    const catalog = { models: [{ slug: "auto", name: "Auto" }], source: "test", cached: false };
+    const listModels = mockListModels(
+      vi.fn().mockRejectedValueOnce(new Error("discovery exploded")).mockResolvedValueOnce(catalog),
+    );
+    const options = providerModelsQueryOptions({ provider: "codex" });
+    const client = new QueryClient();
+    await expect(client.fetchQuery(options)).rejects.toThrow("discovery exploded");
+    expect(listModels).toHaveBeenCalledTimes(1);
+    expect(client.getQueryState(options.queryKey)?.error?.message).toBe("discovery exploded");
+    await expect(client.fetchQuery(options)).resolves.toEqual(catalog);
+    expect(listModels).toHaveBeenCalledTimes(2);
+    client.clear();
+    expect(providerModelsQueryOptions({ provider: "opencode" }).retry).toBe(false);
   });
 
   it("surfaces real errors instead of masking them as empty catalogs", async () => {
     mockListModels(vi.fn().mockRejectedValue(new Error("discovery exploded")));
-    const options = {
-      ...providerModelsQueryOptions({ provider: "opencode", enabled: true }),
-      retry: false as const,
-    };
+    const options = providerModelsQueryOptions({ provider: "opencode", enabled: true });
 
     const queryClient = new QueryClient();
     await expect(queryClient.fetchQuery(options)).rejects.toThrow("discovery exploded");
@@ -130,10 +138,7 @@ describe("providerModelsQueryOptions", () => {
     const listModels = mockListModels(
       vi.fn().mockResolvedValueOnce(catalog).mockRejectedValue(new Error("provider went away")),
     );
-    const options = {
-      ...providerModelsQueryOptions({ provider: "opencode", enabled: true }),
-      retry: false as const,
-    };
+    const options = providerModelsQueryOptions({ provider: "opencode", enabled: true });
 
     const queryClient = new QueryClient();
     await expect(queryClient.fetchQuery(options)).resolves.toEqual(catalog);
