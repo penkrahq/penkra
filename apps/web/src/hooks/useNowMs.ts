@@ -3,26 +3,23 @@
 // Layer: Web hook
 // Exports: useNowMs
 
-import { useEffect, useState } from "react";
+import { useLayoutEffect, useState } from "react";
 
-export function useNowMs(enabled: boolean, intervalMs = 1_000): number {
+// Elapsed labels show whole seconds, so the default clock ticks once per second (decision 6b).
+const DEFAULT_CLOCK_TICK_MS = 1_000;
+
+export function useNowMs(enabled: boolean, intervalMs = DEFAULT_CLOCK_TICK_MS): number {
   const [nowMs, setNowMs] = useState(() => Date.now());
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     if (!enabled) {
       return;
     }
-    // Timeout-0 instead of a synchronous set: the immediate refresh lands a
-    // tick after enabling, which is invisible for elapsed-time labels and
-    // keeps this hook eligible for React Compiler optimization.
-    const timeoutId = window.setTimeout(() => {
-      setNowMs(Date.now());
-    }, 0);
+    setNowMs(Date.now());
     const intervalId = window.setInterval(() => {
       setNowMs(Date.now());
     }, intervalMs);
     return () => {
-      window.clearTimeout(timeoutId);
       window.clearInterval(intervalId);
     };
   }, [enabled, intervalMs]);
