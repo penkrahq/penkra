@@ -13,7 +13,7 @@ import type { ProviderSkillDescriptor } from "@penkra/contracts";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import {
-  clearSkillsCatalogCacheForTests,
+  resetSkillsCatalogForTests,
   discoverSkillsCatalog,
   filterDisabledSkills,
   mergeSkillsIntoCatalog,
@@ -39,7 +39,7 @@ description: ${description}
 }
 
 beforeEach(() => {
-  clearSkillsCatalogCacheForTests();
+  resetSkillsCatalogForTests();
   root = mkdtempSync(path.join(os.tmpdir(), "penkra-skills-catalog-"));
   homeDir = path.join(root, "home");
   penkraBaseDir = path.join(homeDir, ".penkra");
@@ -152,20 +152,13 @@ describe("discoverSkillsCatalog", () => {
     expect(claudeShared?.scope).toBe("penkra");
   });
 
-  it("serves cached results within the TTL and rescans on forceReload", async () => {
+  it("reads skills added on disk on the next discovery without a clock advance", async () => {
     await writeSkill(path.join(penkraBaseDir, "skills", "first"), "first", "First skill");
-
     const initial = await discoverSkillsCatalog({ homeDir, penkraBaseDir });
     expect(initial.map((skill) => skill.name)).toEqual(["first"]);
-
-    // A skill added after the first scan is invisible to the cached entry...
     await writeSkill(path.join(penkraBaseDir, "skills", "second"), "second", "Second skill");
-    const cached = await discoverSkillsCatalog({ homeDir, penkraBaseDir });
-    expect(cached.map((skill) => skill.name)).toEqual(["first"]);
-
-    // ...but forceReload bypasses the cache and refreshes it.
-    const reloaded = await discoverSkillsCatalog({ homeDir, penkraBaseDir, forceReload: true });
-    expect(reloaded.map((skill) => skill.name).sort()).toEqual(["first", "second"]);
+    const refreshed = await discoverSkillsCatalog({ homeDir, penkraBaseDir });
+    expect(refreshed.map((skill) => skill.name).sort()).toEqual(["first", "second"]);
   });
 
   it("includes project-level .penkra skills when a cwd is provided", async () => {

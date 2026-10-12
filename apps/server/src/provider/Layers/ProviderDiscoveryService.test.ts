@@ -38,7 +38,7 @@ import {
 } from "../Services/ProviderLaunchResolver.ts";
 import { ProviderConnectionRepository } from "../../persistence/Services/ProviderConnections.ts";
 import { ProviderInstallationRepository } from "../../persistence/Services/ProviderInstallations.ts";
-import { clearSkillsCatalogCacheForTests } from "../skillsCatalog.ts";
+import { resetSkillsCatalogForTests } from "../skillsCatalog.ts";
 import { ProviderDiscoveryServiceLive } from "./ProviderDiscoveryService.ts";
 
 let root: string;
@@ -160,7 +160,7 @@ const runListModels = (input: {
 };
 
 beforeEach(async () => {
-  clearSkillsCatalogCacheForTests();
+  resetSkillsCatalogForTests();
   root = mkdtempSync(path.join(os.tmpdir(), "discovery-service-"));
   homeDir = path.join(root, "home");
   baseDir = path.join(homeDir, ".penkra");
