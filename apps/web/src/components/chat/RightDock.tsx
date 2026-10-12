@@ -41,9 +41,6 @@ import { isFindSurfaceVisible } from "~/lib/find/findVisibility";
 export const RIGHT_DOCK_MIN_WIDTH = 26 * 16;
 export const RIGHT_DOCK_DEFAULT_WIDTH = "max(28rem, calc(50vw - 8rem))";
 
-// Match the dock CSS opening transition before ending its entrance presentation (decision 6a).
-const RIGHT_DOCK_OPENING_MOTION_MS = 300;
-
 interface RightDockProps {
   state: RightDockFolderState;
   minWidth: number;
@@ -115,25 +112,22 @@ export function RightDock(props: RightDockProps) {
   }, [props.state.open, registerFindSurface]);
   const minWidth = props.minWidth;
   const previousOpenRef = useRef(props.state.open);
-  const openingThisRender = props.state.open && !previousOpenRef.current;
-  const openingStartedAtRef = useRef<number | null>(null);
-  if (openingThisRender) openingStartedAtRef.current = Date.now();
-  const [openingMotion, setOpeningMotion] = useState(false);
-  useEffect(() => {
+  const [openingMotion, setOpeningMotion] = useState({
+    active: false,
+    startedAt: null as number | null,
+  });
+  useLayoutEffect(() => {
     const wasOpen = previousOpenRef.current;
     previousOpenRef.current = props.state.open;
     if (!props.state.open) {
-      setOpeningMotion(false);
-      openingStartedAtRef.current = null;
+      setOpeningMotion({ active: false, startedAt: null });
       return;
     }
     if (wasOpen) return;
-    setOpeningMotion(true);
-    const timer = window.setTimeout(() => {
-      setOpeningMotion(false);
-      openingStartedAtRef.current = null;
-    }, RIGHT_DOCK_OPENING_MOTION_MS);
-    return () => window.clearTimeout(timer);
+    setOpeningMotion({ active: true, startedAt: Date.now() });
+    return () => {
+      previousOpenRef.current = false;
+    };
   }, [props.state.open]);
   useLayoutEffect(() => {
     const wrapper = contentRef.current?.closest<HTMLElement>("[data-slot='sidebar-wrapper']");
@@ -225,6 +219,10 @@ export function RightDock(props: RightDockProps) {
     >
       <Sidebar
         data-pencil-component="ayA7J"
+        onTransitionEnd={(event) => {
+          if (event.target !== event.currentTarget || event.propertyName !== "width") return;
+          setOpeningMotion({ active: false, startedAt: null });
+        }}
         side="right"
         positioning="inline"
         collapsible="offcanvas"
@@ -295,8 +293,8 @@ export function RightDock(props: RightDockProps) {
               <div className="absolute inset-0 flex min-h-0 w-full">
                 {props.renderPane(activePane, {
                   isVisible: props.state.open,
-                  animateEntrance: openingThisRender || openingMotion,
-                  animationStartedAtEpochMs: openingStartedAtRef.current,
+                  animateEntrance: openingMotion.active,
+                  animationStartedAtEpochMs: openingMotion.startedAt,
                 })}
               </div>
             ) : null}
