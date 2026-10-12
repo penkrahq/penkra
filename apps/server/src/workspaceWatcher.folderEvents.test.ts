@@ -1,6 +1,11 @@
 import { EventEmitter } from "node:events";
 import { Effect, Exit, Layer, Queue, Scope, Stream } from "effect";
-import type { OrchestrationEvent, OrchestrationReadModel } from "@penkra/contracts";
+import {
+  FolderId,
+  SpaceId,
+  type OrchestrationEvent,
+  type OrchestrationReadModel,
+} from "@penkra/contracts";
 import { expect, it, vi } from "vitest";
 import {
   OrchestrationEngineService,
@@ -33,9 +38,38 @@ it("watches newly created folders, moves a changed root, and retains an unchange
     getCommandReadModel: () =>
       Effect.sync(() => {
         readComplete?.();
+        const at = "2026-10-11T00:00:00.000Z";
+        const spaceId = SpaceId.makeUnsafe("watch-space");
         return {
-          folders: roots.map((workspaceRoot) => ({ workspaceRoot, deletedAt: null })),
-        } as OrchestrationReadModel;
+          snapshotSequence: 0,
+          spaces: [
+            {
+              id: spaceId,
+              name: "Watch space",
+              icon: "bag",
+              sortOrder: 0,
+              createdAt: at,
+              updatedAt: at,
+              archivedAt: null,
+              deletedAt: null,
+            },
+          ],
+          folders: roots.map((workspaceRoot) => ({
+            id: FolderId.makeUnsafe("watch-folder"),
+            title: "Watch folder",
+            workspaceRoot,
+            defaultModelSelection: null,
+            scripts: [],
+            spaceId,
+            sidebarSortOrder: 0,
+            createdAt: at,
+            updatedAt: at,
+            archivedAt: null,
+            deletedAt: null,
+          })),
+          threads: [],
+          updatedAt: at,
+        } satisfies OrchestrationReadModel;
       }),
     streamDomainEvents: Stream.fromQueue(events),
   } as unknown as OrchestrationEngineShape;
