@@ -53,6 +53,8 @@ const runtimeMock = {
 };
 
 const OpenCodeRuntimeTestDouble: OpenCodeRuntimeShape = {
+  stopAccount: () => Effect.void,
+  stopAll: () => Effect.void,
   startOpenCodeServerProcess: ({ binaryPath, cwd, processEnv }) =>
     Effect.gen(function* () {
       const index = runtimeMock.state.startCalls.length + 1;

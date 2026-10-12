@@ -216,7 +216,17 @@ function createMockOpenCodeRuntime(options?: {
     } as unknown as OpencodeClient;
   };
 
+  const stoppedAccounts: ProviderConnectionId[] = [];
+  let stoppedAll = 0;
   const runtime: OpenCodeRuntimeShape = {
+    stopAccount: (id) =>
+      Effect.sync(() => {
+        stoppedAccounts.push(id);
+      }),
+    stopAll: () =>
+      Effect.sync(() => {
+        stoppedAll++;
+      }),
     startOpenCodeServerProcess: () => unexpectedOperation("startOpenCodeServerProcess"),
     connectToOpenCodeServer: (input) =>
       Effect.gen(function* () {
@@ -263,6 +273,10 @@ function createMockOpenCodeRuntime(options?: {
   };
 
   return {
+    stoppedAccounts,
+    get stoppedAll() {
+      return stoppedAll;
+    },
     abortCalls,
     cliModelCalls,
     connectCalls,
@@ -918,6 +932,67 @@ describe("OpenCodeAdapter runtime lifecycle", () => {
       source: "opencode",
       cached: false,
     });
+  });
+
+  it("account removal closes only its sessions and program, and update closes warm programs", async () => {
+    const runtime = createMockOpenCodeRuntime();
+    const a = ProviderConnectionId.makeUnsafe("account-a");
+    const b = ProviderConnectionId.makeUnsafe("account-b");
+    const threadA = asThreadId("account-thread-a");
+    const threadB = asThreadId("account-thread-b");
+    await Effect.runPromise(
+      Effect.scoped(
+        Effect.gen(function* () {
+          const adapter = yield* OpenCodeAdapter;
+          for (const [threadId, connectionId] of [
+            [threadA, a],
+            [threadB, b],
+          ] as const) {
+            yield* adapter.startSession({
+              provider: "opencode",
+              threadId,
+              runtimeMode: "full-access",
+              modelSelection: { provider: "opencode", model: "openai/gpt-5.5" },
+              cwd: process.cwd(),
+              managedLaunch: {
+                binaryPath: "/managed/opencode",
+                profileRoot: "/isolated/profile",
+                nativeStateRoot: "/isolated/native",
+                connectionId,
+                isolationKey: connectionId,
+                childEnvironment: () => ({}),
+              },
+            });
+          }
+          if (!adapter.stopAccount) throw new Error("OpenCode must close an account program");
+          yield* adapter.stopAccount(a);
+          expect(runtime.stoppedAccounts).toEqual([a]);
+          expect(yield* adapter.hasSession(threadA)).toBe(false);
+          expect(yield* adapter.hasSession(threadB)).toBe(true);
+          yield* adapter.sendTurn({
+            threadId: threadB,
+            input: "Other account still works",
+            attachments: [],
+          });
+          yield* adapter.stopAll();
+          expect(runtime.stoppedAll).toBe(1);
+          expect(yield* adapter.hasSession(threadB)).toBe(false);
+          expect(runtime.connectCalls.map((call) => call.connectionId)).toEqual([a, b]);
+        }).pipe(
+          Effect.provide(
+            makeOpenCodeAdapterLive({
+              runtime: runtime.runtime,
+              loadSharedMcpConfig: async () => "{}",
+            }).pipe(
+              Layer.provideMerge(
+                ServerConfig.layerTest(process.cwd(), { prefix: "opencode-stop-account-test-" }),
+              ),
+              Layer.provideMerge(NodeServices.layer),
+            ),
+          ),
+        ),
+      ),
+    );
   });
 
   it("passes the session cwd to managed OpenCode server connections", async () => {

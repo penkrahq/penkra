@@ -36,10 +36,6 @@ import {
 import { ProjectionSnapshotQuery } from "./orchestration/Services/ProjectionSnapshotQuery";
 import { settleRunningThreadsOnStartup } from "./cleanCore/providerStreamConsumer.ts";
 import { ThreadPublisher } from "./cleanCore/ThreadPublisher.ts";
-import {
-  ProviderSessionReaper,
-  type ProviderSessionReaperShape,
-} from "./provider/Services/ProviderSessionReaper";
 import { ProviderService, type ProviderServiceShape } from "./provider/Services/ProviderService";
 import { ServerLifecycleEvents } from "./serverLifecycleEvents";
 import { ServerRuntimeStartup } from "./serverRuntimeStartup";
@@ -70,7 +66,6 @@ export interface ServerShape {
     | ProviderRuntimeIngestionService
     | ProviderCommandReactor
     | ProjectionSnapshotQuery
-    | ProviderSessionReaper
     | ThreadPublisher
     | ProviderService
     | ServerRuntimeStartup
@@ -98,7 +93,6 @@ export function startServerRuntimeSubscriptions(input: {
   readonly threadPublisher: typeof ThreadPublisher.Service;
   readonly providerRuntimeIngestion: Pick<ProviderRuntimeIngestionShape, "start">;
   readonly providerCommandReactor: Pick<ProviderCommandReactorShape, "start">;
-  readonly providerSessionReaper: Pick<ProviderSessionReaperShape, "start">;
   readonly subscriptionsScope: Scope.Closeable;
   readonly startedAt: string;
 }) {
@@ -116,10 +110,6 @@ export function startServerRuntimeSubscriptions(input: {
     yield* runStartupStage(
       "provider-command-dispatch.start",
       Scope.provide(input.providerCommandReactor.start, input.subscriptionsScope),
-    );
-    yield* runStartupStage(
-      "provider-session-reaper.start",
-      Scope.provide(input.providerSessionReaper.start(), input.subscriptionsScope),
     );
   });
 }
@@ -187,7 +177,6 @@ export const createEffectServer = Effect.fn(function* (
   const providerRuntimeIngestion = yield* ProviderRuntimeIngestionService;
   const providerCommandReactor = yield* ProviderCommandReactor;
   const providerService = yield* ProviderService;
-  const providerSessionReaper = yield* ProviderSessionReaper;
   const threadPublisher = yield* ThreadPublisher;
   const runtimeStartup = yield* ServerRuntimeStartup;
   const serverSettings = yield* ServerSettingsService;
@@ -268,7 +257,6 @@ export const createEffectServer = Effect.fn(function* (
     threadPublisher,
     providerRuntimeIngestion,
     providerCommandReactor,
-    providerSessionReaper,
     subscriptionsScope,
     startedAt: new Date().toISOString(),
   });

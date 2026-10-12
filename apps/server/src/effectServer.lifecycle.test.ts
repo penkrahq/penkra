@@ -153,27 +153,12 @@ describe("server runtime subscription startup", () => {
                 () => Effect.sync(() => stopped.push("provider-command-dispatch")),
               ),
             },
-            providerSessionReaper: {
-              start: () =>
-                Effect.acquireRelease(
-                  Effect.sync(() => started.push("provider-session-reaper")),
-                  () => Effect.sync(() => stopped.push("provider-session-reaper")),
-                ).pipe(Effect.asVoid),
-            },
             subscriptionsScope,
             startedAt: at,
           });
-          expect(started).toEqual([
-            "provider-runtime-ingestion",
-            "provider-command-dispatch",
-            "provider-session-reaper",
-          ]);
+          expect(started).toEqual(["provider-runtime-ingestion", "provider-command-dispatch"]);
           yield* Scope.close(subscriptionsScope, Exit.void);
-          expect(stopped).toEqual([
-            "provider-session-reaper",
-            "provider-command-dispatch",
-            "provider-runtime-ingestion",
-          ]);
+          expect(stopped).toEqual(["provider-command-dispatch", "provider-runtime-ingestion"]);
         }).pipe(Effect.provide(NodeSqliteClient.layerMemory())),
       );
     } finally {

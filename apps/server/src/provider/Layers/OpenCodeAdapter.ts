@@ -12,6 +12,7 @@ import {
   RuntimeItemId,
   RuntimeRequestId,
   type ThreadTokenUsageSnapshot,
+  type ProviderConnectionId,
   ThreadId,
   type ToolLifecycleItemType,
   TurnId,
@@ -163,6 +164,7 @@ interface OpenCodeTurnSnapshot {
 }
 
 interface OpenCodeSessionContext {
+  readonly connectionId: ProviderConnectionId | null;
   hostPolicyDelivered?: boolean;
   gatewaySessionLease?: AgentGatewaySessionLease;
   session: ProviderSession;
@@ -3422,6 +3424,9 @@ export function makeOpenCodeAdapterLive(options?: OpenCodeAdapterLiveOptions) {
                         ? { experimentalWebSockets: true }
                         : {}),
                       ...(poolIsolationKey ? { poolIsolationKey } : {}),
+                      ...(input.managedLaunch?.connectionId
+                        ? { connectionId: input.managedLaunch.connectionId }
+                        : {}),
                       ...(managedProcessEnv ? { processEnv: managedProcessEnv } : {}),
                     });
                     const client = openCodeRuntime.createOpenCodeSdkClient({
@@ -3578,6 +3583,7 @@ export function makeOpenCodeAdapterLive(options?: OpenCodeAdapterLiveOptions) {
                 };
 
                 const context: OpenCodeSessionContext = {
+                  connectionId: input.managedLaunch?.connectionId ?? null,
                   session,
                   gatewaySessionLease: agentGatewaySessionLease,
                   ...(input.lifecycleGeneration !== undefined
@@ -4064,6 +4070,9 @@ export function makeOpenCodeAdapterLive(options?: OpenCodeAdapterLiveOptions) {
                   ...(input.managedLaunch
                     ? {
                         poolIsolationKey: input.managedLaunch.isolationKey,
+                        ...(input.managedLaunch.connectionId
+                          ? { connectionId: input.managedLaunch.connectionId }
+                          : {}),
                         processEnv: input.managedLaunch.childEnvironment(process.env),
                       }
                     : {}),
@@ -4387,6 +4396,36 @@ export function makeOpenCodeAdapterLive(options?: OpenCodeAdapterLiveOptions) {
             (context) => Effect.ignoreCause(stopOpenCodeContext(context)),
             { concurrency: "unbounded", discard: true },
           );
+          yield* openCodeRuntime.stopAll().pipe(
+            Effect.mapError(
+              (cause) =>
+                new ProviderAdapterRequestError({
+                  provider,
+                  method: "stopAll",
+                  detail: String(cause),
+                  cause,
+                }),
+            ),
+          );
+        });
+
+      const stopAccount: NonNullable<OpenCodeAdapterShape["stopAccount"]> = (connectionId) =>
+        Effect.gen(function* () {
+          for (const context of sessions.values()) {
+            if (context.connectionId !== connectionId) continue;
+            yield* stopSession(context.session.threadId);
+          }
+          yield* openCodeRuntime.stopAccount(connectionId).pipe(
+            Effect.mapError(
+              (cause) =>
+                new ProviderAdapterRequestError({
+                  provider,
+                  method: "stopAccount",
+                  detail: String(cause),
+                  cause,
+                }),
+            ),
+          );
         });
 
       return {
@@ -4407,6 +4446,7 @@ export function makeOpenCodeAdapterLive(options?: OpenCodeAdapterLiveOptions) {
         rollbackThread,
         compactThread,
         stopAll,
+        stopAccount,
         drainRuntimeEvents: awaitProviderRuntimeEventsDrained(
           Queue.size(runtimeEvents).pipe(Effect.map((size) => size === 0)),
         ),

@@ -47,7 +47,10 @@ import {
 import * as Semaphore from "effect/Semaphore";
 import { nonEmptyTrimmed } from "@penkra/shared/text";
 
-import { ProviderValidationError } from "../Errors.ts";
+import {
+  ProviderValidationError,
+  type ProviderSessionDirectoryPersistenceError,
+} from "../Errors.ts";
 import { PENDING_INTERACTION_NOT_FOUND_FAILURE_CODE } from "@penkra/shared/threadSummary";
 import { ProviderAdapterRegistry } from "../Services/ProviderAdapterRegistry.ts";
 import type { ProviderManagedLaunchContext } from "../Services/ProviderAdapter.ts";
@@ -123,7 +126,7 @@ function normalizeProviderAuthoredText(event: ProviderRuntimeEvent): ProviderRun
 export interface ProviderServiceLiveOptions {
   readonly canonicalEventLogPath?: string;
   readonly canonicalEventLogger?: EventNdjsonLogger;
-  readonly runtimeIdleStopMs?: number;
+  readonly threadSessionIdleMs?: number;
   /** Test/embedding override for the lossless runtime-event fan-out budget. */
   readonly runtimeEventBufferCapacity?: number;
   /** Production journal hook. The event must be durable before this effect returns. */
@@ -151,13 +154,10 @@ export interface ProviderServiceLiveOptions {
   }) => Effect.Effect<ProviderManagedLaunchContext, unknown>;
 }
 
-const DEFAULT_PROVIDER_RUNTIME_IDLE_STOP_MS = 10 * 60 * 1000;
+// Claude owns one process per thread; idle conversations resume after a 30-minute stop.
+export const THREAD_SESSION_IDLE_MS = 30 * 60 * 1000;
 export const PROVIDER_RUNTIME_EVENT_BUFFER_CAPACITY = 2_048;
 export const PROVIDER_RUNTIME_QUARANTINE_CAUSE_MAX_BYTES = 16 * 1024;
-const configuredProviderRuntimeIdleStopMs = process.env.PENKRA_PROVIDER_RUNTIME_IDLE_STOP_MS;
-const PROVIDER_RUNTIME_IDLE_STOP_MS = Number.isFinite(Number(configuredProviderRuntimeIdleStopMs))
-  ? Math.max(0, Number(configuredProviderRuntimeIdleStopMs))
-  : DEFAULT_PROVIDER_RUNTIME_IDLE_STOP_MS;
 
 export function summarizeProviderRuntimeQuarantineCause(cause: string): {
   readonly cause: string;
@@ -459,10 +459,7 @@ const makeProviderService = (options?: ProviderServiceLiveOptions) =>
     // invalidate async stop work when new user work starts in that gap.
     const runtimeIdleGenerations = new Map<ThreadId, symbol>();
     const runtimeIdleStopsInFlight = new Map<ThreadId, Promise<void>>();
-    const runtimeIdleStopMs = Math.max(
-      0,
-      options?.runtimeIdleStopMs ?? PROVIDER_RUNTIME_IDLE_STOP_MS,
-    );
+    const threadSessionIdleMs = Math.max(0, options?.threadSessionIdleMs ?? THREAD_SESSION_IDLE_MS);
     let stopIdleRuntimeSession: ((threadId: ThreadId, generation: symbol) => void) | null = null;
 
     const invalidateRuntimeIdleGeneration = (threadId: ThreadId): symbol => {
@@ -490,15 +487,22 @@ const makeProviderService = (options?: ProviderServiceLiveOptions) =>
       runtimeIdleTimers.delete(threadId);
     };
 
-    const scheduleRuntimeIdleStop = (threadId: ThreadId) => {
+    const scheduleRuntimeIdleStop = (threadId: ThreadId, provider: ProviderSession["provider"]) => {
       clearRuntimeIdleTimer(threadId);
+      if (provider !== "claudeAgent") return;
+      const dispatch = dispatchStateByThread.get(threadId);
+      if (
+        (dispatch?.outstandingTurnIds.size ?? 0) > 0 ||
+        (dispatch?.inFlightGenerations.size ?? 0) > 0
+      )
+        return;
       // A parent turn can finish while provider-native tasks keep running in
       // the same subprocess. Those tasks own the runtime until the last one
       // settles, even though the adapter session otherwise looks idle-ready.
       if ((liveRuntimeTaskIds.get(threadId)?.size ?? 0) > 0) {
         return;
       }
-      if (runtimeIdleStopMs <= 0) {
+      if (threadSessionIdleMs <= 0) {
         retireRuntimeIdleGeneration(threadId);
         return;
       }
@@ -507,7 +511,7 @@ const makeProviderService = (options?: ProviderServiceLiveOptions) =>
       const timer = setTimeout(() => {
         runtimeIdleTimers.delete(threadId);
         stopIdleRuntimeSession?.(threadId, generation);
-      }, runtimeIdleStopMs);
+      }, threadSessionIdleMs);
       timer.unref();
       runtimeIdleTimers.set(threadId, timer);
     };
@@ -519,14 +523,18 @@ const makeProviderService = (options?: ProviderServiceLiveOptions) =>
       clearRuntimeIdleTimer(threadId);
     };
 
-    const markRuntimeTaskSettled = (threadId: ThreadId, taskId: string): void => {
+    const markRuntimeTaskSettled = (
+      threadId: ThreadId,
+      taskId: string,
+      provider: ProviderSession["provider"],
+    ): void => {
       const taskIds = liveRuntimeTaskIds.get(threadId);
       taskIds?.delete(taskId);
       if (taskIds && taskIds.size > 0) {
         return;
       }
       liveRuntimeTaskIds.delete(threadId);
-      scheduleRuntimeIdleStop(threadId);
+      scheduleRuntimeIdleStop(threadId, provider);
     };
 
     const waitForRuntimeIdleStop = (threadId: ThreadId): Effect.Effect<void> =>
@@ -536,7 +544,7 @@ const makeProviderService = (options?: ProviderServiceLiveOptions) =>
       threadId: ThreadId,
       effect: Effect.Effect<A, E, R>,
       options?: { readonly scheduleIdleStopOnSuccess?: boolean },
-    ): Effect.Effect<A, E, R> =>
+    ): Effect.Effect<A, E | ProviderSessionDirectoryPersistenceError, R> =>
       Effect.suspend(() => {
         const existingIdleStop = runtimeIdleStopsInFlight.get(threadId);
         const displacedIdleStop = existingIdleStop !== undefined || runtimeIdleTimers.has(threadId);
@@ -549,19 +557,27 @@ const makeProviderService = (options?: ProviderServiceLiveOptions) =>
           Effect.onExit((exit) =>
             Exit.isSuccess(exit)
               ? options?.scheduleIdleStopOnSuccess === true
-                ? Effect.sync(() => scheduleRuntimeIdleStop(threadId))
+                ? Effect.gen(function* () {
+                    const binding = yield* directory.getBinding(threadId);
+                    if (Option.isSome(binding))
+                      scheduleRuntimeIdleStop(threadId, binding.value.provider);
+                  })
                 : Effect.void
               : displacedIdleStop
-                ? Effect.sync(() => scheduleRuntimeIdleStop(threadId))
+                ? Effect.gen(function* () {
+                    const binding = yield* directory.getBinding(threadId);
+                    if (Option.isSome(binding))
+                      scheduleRuntimeIdleStop(threadId, binding.value.provider);
+                  })
                 : Effect.sync(() => retireRuntimeIdleGeneration(threadId)),
           ),
         );
       });
 
     const reconcileRuntimeIdleTimer = (event: ProviderRuntimeEvent) => {
+      clearRuntimeIdleTimer(event.threadId);
       switch (event.type) {
         case "turn.started":
-          clearRuntimeIdleTimer(event.threadId);
           return;
         case "task.started":
         case "task.progress":
@@ -574,19 +590,19 @@ const makeProviderService = (options?: ProviderServiceLiveOptions) =>
             event.payload.status === "killed" ||
             event.payload.status === "paused"
           ) {
-            markRuntimeTaskSettled(event.threadId, event.payload.taskId);
+            markRuntimeTaskSettled(event.threadId, event.payload.taskId, event.provider);
           } else {
             markRuntimeTaskLive(event.threadId, event.payload.taskId);
           }
           return;
         case "task.completed":
-          markRuntimeTaskSettled(event.threadId, event.payload.taskId);
+          markRuntimeTaskSettled(event.threadId, event.payload.taskId, event.provider);
           return;
         case "session.started":
         case "thread.started":
         case "turn.completed":
         case "turn.aborted":
-          scheduleRuntimeIdleStop(event.threadId);
+          scheduleRuntimeIdleStop(event.threadId, event.provider);
           return;
         case "thread.state.changed":
           if (
@@ -597,14 +613,16 @@ const makeProviderService = (options?: ProviderServiceLiveOptions) =>
             if (event.payload.state === "archived" || event.payload.state === "closed") {
               liveRuntimeTaskIds.delete(event.threadId);
             }
-            scheduleRuntimeIdleStop(event.threadId);
           }
+          scheduleRuntimeIdleStop(event.threadId, event.provider);
           return;
         case "session.exited":
           liveRuntimeTaskIds.delete(event.threadId);
           clearRuntimeIdleTimer(event.threadId);
           retireRuntimeIdleGeneration(event.threadId);
           return;
+        default:
+          scheduleRuntimeIdleStop(event.threadId, event.provider);
       }
     };
 
@@ -2079,7 +2097,7 @@ const makeProviderService = (options?: ProviderServiceLiveOptions) =>
     stopIdleRuntimeSession = (threadId, generation) => {
       const stopEffect = Effect.gen(function* () {
         const binding = Option.getOrUndefined(yield* directory.getBinding(threadId));
-        if (!binding) {
+        if (!binding || binding.provider !== "claudeAgent") {
           retireRuntimeIdleGeneration(threadId, generation);
           return;
         }
@@ -2095,23 +2113,23 @@ const makeProviderService = (options?: ProviderServiceLiveOptions) =>
           retireRuntimeIdleGeneration(threadId, generation);
           return;
         }
-        const isIdleReadySession =
+        const isIdleSession =
           session?.status === "ready" ||
+          session?.status === "error" ||
           (session?.status === "running" &&
             binding.status === "stopped" &&
             (bindingRuntimePayload.lastRuntimeEvent === "thread.state.changed" ||
               bindingRuntimePayload.lastRuntimeEvent === "provider.compactThread"));
         if (
           !session ||
-          !isIdleReadySession ||
+          !isIdleSession ||
           session.activeTurnId !== undefined ||
           (liveRuntimeTaskIds.get(threadId)?.size ?? 0) > 0
         ) {
           retireRuntimeIdleGeneration(threadId, generation);
           return;
         }
-        // Live adapter snapshots can temporarily omit cursors even though the
-        // directory already persisted one from an earlier runtime event.
+        // Stopping without a saved native cursor would lose this conversation on restart.
         if (!hasResumeCursor(session.resumeCursor) && !hasResumeCursor(binding.resumeCursor)) {
           retireRuntimeIdleGeneration(threadId, generation);
           return;

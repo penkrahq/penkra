@@ -2844,8 +2844,68 @@ managedRouting.layer("ProviderService managed launch enforcement", (it) => {
   );
 });
 
-const idleCleanup = makeProviderServiceLayer({ runtimeIdleStopMs: 100 });
+const idleCleanup = makeProviderServiceLayer({ threadSessionIdleMs: 100 });
 idleCleanup.layer("ProviderServiceLive idle cleanup", (it) => {
+  it.effect("keeps Claude alive without a saved resume cursor", () =>
+    Effect.gen(function* () {
+      const provider = yield* ProviderService;
+      const runtimeRepository = yield* ProviderSessionRuntimeRepository;
+      const threadId = asThreadId("idle-without-cursor");
+      const otherId = asThreadId("idle-with-cursor-control");
+      yield* provider.startSession(threadId, {
+        provider: "claudeAgent",
+        threadId,
+        runtimeMode: "full-access",
+      });
+      yield* provider.startSession(otherId, {
+        provider: "claudeAgent",
+        threadId: otherId,
+        runtimeMode: "full-access",
+      });
+      idleCleanup.claude.updateSession(threadId, withoutResumeCursor);
+      const runtime = yield* runtimeRepository.getByThreadId({ threadId });
+      assert.equal(Option.isSome(runtime), true);
+      if (Option.isSome(runtime))
+        yield* runtimeRepository.upsert({ ...runtime.value, resumeCursor: null });
+      const eventId = asEventId("idle-no-cursor-state");
+      const published = yield* provider.streamEvents.pipe(
+        Stream.filter((event) => event.eventId === eventId),
+        Stream.runHead,
+        Effect.forkScoped,
+      );
+      yield* Effect.yieldNow;
+      yield* idleCleanup.claude.waitForRuntimeSubscribers();
+      idleCleanup.claude.emit({
+        type: "session.state.changed",
+        eventId,
+        provider: "claudeAgent",
+        threadId,
+        createdAt: "2026-10-11T00:00:00.000Z",
+        payload: { state: "ready" },
+      });
+      yield* Fiber.join(published);
+      let stopped!: () => void;
+      const stoppedEvent = new Promise<void>((resolve) => {
+        stopped = resolve;
+      });
+      const originalStop = idleCleanup.claude.stopSession.getMockImplementation()!;
+      idleCleanup.claude.stopSession.mockImplementationOnce((id) =>
+        originalStop(id).pipe(Effect.tap(() => Effect.sync(stopped))),
+      );
+      idleCleanup.claude.emit({
+        type: "turn.completed",
+        eventId: asEventId("idle-with-cursor-completed"),
+        provider: "claudeAgent",
+        threadId: otherId,
+        createdAt: "2026-10-11T00:00:01.000Z",
+        payload: { state: "completed" },
+      });
+      yield* Effect.promise(() => stoppedEvent);
+      assert.equal(yield* idleCleanup.claude.hasSession(otherId), false);
+      assert.equal(yield* idleCleanup.claude.hasSession(threadId), true);
+    }),
+  );
+
   it.effect("does not schedule idle cleanup for a stale terminal event", () =>
     Effect.gen(function* () {
       const provider = yield* ProviderService;
@@ -2855,11 +2915,11 @@ idleCleanup.layer("ProviderServiceLive idle cleanup", (it) => {
       const newerTurnId = asTurnId("turn-idle-stale-newer");
 
       yield* provider.startSession(threadId, {
-        provider: "codex",
+        provider: "claudeAgent",
         threadId,
         runtimeMode: "full-access",
       });
-      idleCleanup.codex.sendTurn
+      idleCleanup.claude.sendTurn
         .mockImplementationOnce((input) =>
           Effect.succeed({ threadId: input.threadId, turnId: olderTurnId }),
         )
@@ -2869,12 +2929,12 @@ idleCleanup.layer("ProviderServiceLive idle cleanup", (it) => {
       yield* provider.sendTurn({ threadId, input: "older", attachments: [] });
       yield* provider.sendTurn({ threadId, input: "newer", attachments: [] });
 
-      idleCleanup.codex.stopSession.mockClear();
-      yield* idleCleanup.codex.waitForRuntimeSubscribers();
-      idleCleanup.codex.emit({
+      idleCleanup.claude.stopSession.mockClear();
+      yield* idleCleanup.claude.waitForRuntimeSubscribers();
+      idleCleanup.claude.emit({
         type: "turn.aborted",
         eventId: asEventId("runtime-idle-stale-older-aborted"),
-        provider: "codex",
+        provider: "claudeAgent",
         createdAt: "2026-02-27T00:04:00.000Z",
         threadId,
         turnId: olderTurnId,
@@ -2886,24 +2946,24 @@ idleCleanup.layer("ProviderServiceLive idle cleanup", (it) => {
       const runtimePayload = asRuntimePayloadRecord(binding?.runtimePayload);
       assert.equal(binding?.status, "running");
       assert.equal(runtimePayload.activeTurnId, newerTurnId);
-      assert.equal(idleCleanup.codex.stopSession.mock.calls.length, 0);
+      assert.equal(idleCleanup.claude.stopSession.mock.calls.length, 0);
 
-      idleCleanup.codex.emit({
+      idleCleanup.claude.emit({
         type: "turn.completed",
         eventId: asEventId("runtime-idle-newer-completed"),
-        provider: "codex",
+        provider: "claudeAgent",
         createdAt: "2026-02-27T00:04:01.000Z",
         threadId,
         turnId: newerTurnId,
         payload: { state: "completed" },
       });
       yield* waitUntil(
-        () => idleCleanup.codex.stopSession.mock.calls.length > 0,
+        () => idleCleanup.claude.stopSession.mock.calls.length > 0,
         500,
         20,
         "matching terminal idle cleanup",
       );
-      assert.deepEqual(idleCleanup.codex.stopSession.mock.calls[0]?.[0], threadId);
+      assert.deepEqual(idleCleanup.claude.stopSession.mock.calls[0]?.[0], threadId);
       yield* waitUntilEffect(
         () =>
           directory.getBinding(threadId).pipe(
@@ -2917,7 +2977,7 @@ idleCleanup.layer("ProviderServiceLive idle cleanup", (it) => {
         20,
         "matching terminal idle cleanup persistence",
       );
-      idleCleanup.codex.stopSession.mockClear();
+      idleCleanup.claude.stopSession.mockClear();
     }),
   );
 
@@ -2930,11 +2990,11 @@ idleCleanup.layer("ProviderServiceLive idle cleanup", (it) => {
       const secondTurnId = asTurnId("turn-ambiguous-second");
 
       yield* provider.startSession(threadId, {
-        provider: "codex",
+        provider: "claudeAgent",
         threadId,
         runtimeMode: "full-access",
       });
-      idleCleanup.codex.sendTurn
+      idleCleanup.claude.sendTurn
         .mockImplementationOnce((input) =>
           Effect.succeed({ threadId: input.threadId, turnId: firstTurnId }),
         )
@@ -2948,12 +3008,12 @@ idleCleanup.layer("ProviderServiceLive idle cleanup", (it) => {
         attachments: [],
       });
 
-      idleCleanup.codex.stopSession.mockClear();
-      yield* idleCleanup.codex.waitForRuntimeSubscribers();
-      idleCleanup.codex.emit({
+      idleCleanup.claude.stopSession.mockClear();
+      yield* idleCleanup.claude.waitForRuntimeSubscribers();
+      idleCleanup.claude.emit({
         type: "turn.aborted",
         eventId: asEventId("runtime-ambiguous-terminal"),
-        provider: "codex",
+        provider: "claudeAgent",
         createdAt: "2026-02-27T00:04:00.000Z",
         threadId,
         payload: { state: "interrupted" },
@@ -2964,7 +3024,7 @@ idleCleanup.layer("ProviderServiceLive idle cleanup", (it) => {
       const payload = binding?.runtimePayload as Record<string, unknown>;
       assert.equal(binding?.status, "running");
       assert.equal(payload.activeTurnId, secondTurnId);
-      assert.equal(idleCleanup.codex.stopSession.mock.calls.length, 0);
+      assert.equal(idleCleanup.claude.stopSession.mock.calls.length, 0);
     }),
   );
 
@@ -2976,7 +3036,7 @@ idleCleanup.layer("ProviderServiceLive idle cleanup", (it) => {
         const runtimeRepository = yield* ProviderSessionRuntimeRepository;
 
         const session = yield* provider.startSession(asThreadId("thread-idle-persisted-cursor"), {
-          provider: "codex",
+          provider: "claudeAgent",
           threadId: asThreadId("thread-idle-persisted-cursor"),
           runtimeMode: "full-access",
         });
@@ -2989,26 +3049,26 @@ idleCleanup.layer("ProviderServiceLive idle cleanup", (it) => {
           assert.deepEqual(persistedBefore.value.resumeCursor, session.resumeCursor);
         }
 
-        idleCleanup.codex.updateSession(session.threadId, withoutResumeCursor);
-        yield* idleCleanup.codex.waitForRuntimeSubscribers();
-        idleCleanup.codex.emit({
+        idleCleanup.claude.updateSession(session.threadId, withoutResumeCursor);
+        yield* idleCleanup.claude.waitForRuntimeSubscribers();
+        idleCleanup.claude.emit({
           type: "turn.completed",
           eventId: asEventId("runtime-idle-persisted-cursor-complete"),
-          provider: "codex",
+          provider: "claudeAgent",
           createdAt: "2026-02-27T00:04:00.000Z",
           threadId: session.threadId,
           payload: { state: "completed" },
         });
 
         yield* waitUntil(
-          () => idleCleanup.codex.stopSession.mock.calls.length > 0,
+          () => idleCleanup.claude.stopSession.mock.calls.length > 0,
           500,
           20,
           "idle runtime stop",
         );
 
-        assert.equal(idleCleanup.codex.stopSession.mock.calls.length, 1);
-        assert.deepEqual(idleCleanup.codex.stopSession.mock.calls[0]?.[0], session.threadId);
+        assert.equal(idleCleanup.claude.stopSession.mock.calls.length, 1);
+        assert.deepEqual(idleCleanup.claude.stopSession.mock.calls[0]?.[0], session.threadId);
 
         const persistedAfter = yield* runtimeRepository.getByThreadId({
           threadId: session.threadId,
@@ -3018,6 +3078,15 @@ idleCleanup.layer("ProviderServiceLive idle cleanup", (it) => {
           assert.equal(persistedAfter.value.status, "stopped");
           assert.deepEqual(persistedAfter.value.resumeCursor, session.resumeCursor);
         }
+        yield* provider.sendTurn({
+          threadId: session.threadId,
+          input: "Continue the same Claude conversation",
+          attachments: [],
+        });
+        const restarted = idleCleanup.claude.startSession.mock.calls.at(-1)?.[0] as {
+          resumeCursor?: unknown;
+        };
+        assert.deepEqual(restarted.resumeCursor, session.resumeCursor);
       }),
   );
 
@@ -3027,18 +3096,18 @@ idleCleanup.layer("ProviderServiceLive idle cleanup", (it) => {
       const runtimeRepository = yield* ProviderSessionRuntimeRepository;
       const threadId = asThreadId("thread-idle-new-turn");
 
-      idleCleanup.codex.stopSession.mockClear();
+      idleCleanup.claude.stopSession.mockClear();
       const session = yield* provider.startSession(threadId, {
-        provider: "codex",
+        provider: "claudeAgent",
         threadId,
         runtimeMode: "full-access",
       });
-      idleCleanup.codex.updateSession(threadId, withoutResumeCursor);
-      yield* idleCleanup.codex.waitForRuntimeSubscribers();
-      idleCleanup.codex.emit({
+      idleCleanup.claude.updateSession(threadId, withoutResumeCursor);
+      yield* idleCleanup.claude.waitForRuntimeSubscribers();
+      idleCleanup.claude.emit({
         type: "turn.completed",
         eventId: asEventId("runtime-idle-before-new-turn"),
-        provider: "codex",
+        provider: "claudeAgent",
         createdAt: "2026-02-27T00:04:00.000Z",
         threadId,
         payload: { state: "completed" },
@@ -3072,7 +3141,7 @@ idleCleanup.layer("ProviderServiceLive idle cleanup", (it) => {
       });
       yield* sleep(150);
 
-      assert.equal(idleCleanup.codex.stopSession.mock.calls.length, 0);
+      assert.equal(idleCleanup.claude.stopSession.mock.calls.length, 0);
     }),
   );
 
@@ -3082,18 +3151,18 @@ idleCleanup.layer("ProviderServiceLive idle cleanup", (it) => {
       const runtimeRepository = yield* ProviderSessionRuntimeRepository;
       const threadId = asThreadId("thread-idle-runtime-turn-start");
 
-      idleCleanup.codex.stopSession.mockClear();
+      idleCleanup.claude.stopSession.mockClear();
       const session = yield* provider.startSession(threadId, {
-        provider: "codex",
+        provider: "claudeAgent",
         threadId,
         runtimeMode: "full-access",
       });
-      idleCleanup.codex.updateSession(threadId, withoutResumeCursor);
-      yield* idleCleanup.codex.waitForRuntimeSubscribers();
-      idleCleanup.codex.emit({
+      idleCleanup.claude.updateSession(threadId, withoutResumeCursor);
+      yield* idleCleanup.claude.waitForRuntimeSubscribers();
+      idleCleanup.claude.emit({
         type: "turn.completed",
         eventId: asEventId("runtime-idle-before-runtime-turn-start"),
-        provider: "codex",
+        provider: "claudeAgent",
         createdAt: "2026-02-27T00:04:00.000Z",
         threadId,
         payload: { state: "completed" },
@@ -3120,10 +3189,10 @@ idleCleanup.layer("ProviderServiceLive idle cleanup", (it) => {
         "runtime completion persistence",
       );
 
-      idleCleanup.codex.emit({
+      idleCleanup.claude.emit({
         type: "turn.started",
         eventId: asEventId("runtime-turn-start-clears-idle"),
-        provider: "codex",
+        provider: "claudeAgent",
         createdAt: "2026-02-27T00:04:01.000Z",
         threadId: session.threadId,
         turnId: asTurnId("turn-runtime-clears-idle"),
@@ -3131,7 +3200,7 @@ idleCleanup.layer("ProviderServiceLive idle cleanup", (it) => {
       });
       yield* sleep(150);
 
-      assert.equal(idleCleanup.codex.stopSession.mock.calls.length, 0);
+      assert.equal(idleCleanup.claude.stopSession.mock.calls.length, 0);
     }),
   );
 
@@ -3193,9 +3262,9 @@ idleCleanup.layer("ProviderServiceLive idle cleanup", (it) => {
       const runtimeRepository = yield* ProviderSessionRuntimeRepository;
       const threadId = asThreadId("thread-idle-superseded-generation");
 
-      idleCleanup.codex.stopSession.mockClear();
+      idleCleanup.claude.stopSession.mockClear();
       yield* provider.startSession(threadId, {
-        provider: "codex",
+        provider: "claudeAgent",
         threadId,
         runtimeMode: "full-access",
       });
@@ -3205,14 +3274,14 @@ idleCleanup.layer("ProviderServiceLive idle cleanup", (it) => {
 
       // Park the idle stop inside its lifecycle run, right where it re-checks
       // whether new work displaced it.
-      const defaultHasSession = idleCleanup.codex.hasSession.getMockImplementation();
+      const defaultHasSession = idleCleanup.claude.hasSession.getMockImplementation();
       if (!defaultHasSession) assert.fail("Expected the fake adapter hasSession implementation");
       let releaseIdleStop: () => void = () => undefined;
       const parkedIdleStop = new Promise<void>((resolve) => {
         releaseIdleStop = resolve;
       });
       let idleStopParked = false;
-      idleCleanup.codex.hasSession.mockImplementationOnce((probedThreadId) =>
+      idleCleanup.claude.hasSession.mockImplementationOnce((probedThreadId) =>
         Effect.suspend(() => {
           idleStopParked = true;
           return Effect.promise(() => parkedIdleStop).pipe(
@@ -3221,11 +3290,11 @@ idleCleanup.layer("ProviderServiceLive idle cleanup", (it) => {
         }),
       );
 
-      yield* idleCleanup.codex.waitForRuntimeSubscribers();
-      idleCleanup.codex.emit({
+      yield* idleCleanup.claude.waitForRuntimeSubscribers();
+      idleCleanup.claude.emit({
         type: "turn.completed",
         eventId: asEventId("runtime-idle-superseded-complete"),
-        provider: "codex",
+        provider: "claudeAgent",
         createdAt: "2026-07-21T09:00:00.000Z",
         threadId,
         lifecycleGeneration,
@@ -3236,10 +3305,10 @@ idleCleanup.layer("ProviderServiceLive idle cleanup", (it) => {
 
       // New runtime work displaces the idle stop while it is parked, so the
       // stop must abandon itself without touching the still-live session.
-      idleCleanup.codex.emit({
+      idleCleanup.claude.emit({
         type: "task.started",
         eventId: asEventId("runtime-idle-superseded-task"),
-        provider: "codex",
+        provider: "claudeAgent",
         createdAt: "2026-07-21T09:00:01.000Z",
         threadId,
         payload: { taskId: "task-superseding-idle-stop" },
@@ -3254,16 +3323,16 @@ idleCleanup.layer("ProviderServiceLive idle cleanup", (it) => {
 
       releaseIdleStop();
       yield* sleep(50);
-      assert.equal(idleCleanup.codex.stopSession.mock.calls.length, 0);
-      assert.equal(yield* idleCleanup.codex.hasSession(threadId), true);
+      assert.equal(idleCleanup.claude.stopSession.mock.calls.length, 0);
+      assert.equal(yield* idleCleanup.claude.hasSession(threadId), true);
 
       // The abandoned stop must leave the live runtime's generation intact:
       // otherwise every later event from that runtime is silently dropped.
       const turnId = asTurnId("turn-after-superseded-idle-stop");
-      idleCleanup.codex.emit({
+      idleCleanup.claude.emit({
         type: "turn.started",
         eventId: asEventId("runtime-idle-superseded-turn-started"),
-        provider: "codex",
+        provider: "claudeAgent",
         createdAt: "2026-07-21T09:00:02.000Z",
         threadId,
         turnId,
@@ -3352,15 +3421,15 @@ idleCleanup.layer("ProviderServiceLive idle cleanup", (it) => {
       const secondTurnId = asTurnId("turn-conflicting-start-second");
 
       yield* provider.startSession(threadId, {
-        provider: "codex",
+        provider: "claudeAgent",
         threadId,
         runtimeMode: "full-access",
       });
-      yield* idleCleanup.codex.waitForRuntimeSubscribers();
-      idleCleanup.codex.emit({
+      yield* idleCleanup.claude.waitForRuntimeSubscribers();
+      idleCleanup.claude.emit({
         type: "turn.started",
         eventId: asEventId("runtime-conflicting-start-first"),
-        provider: "codex",
+        provider: "claudeAgent",
         createdAt: "2026-02-27T00:04:01.000Z",
         threadId,
         turnId: firstTurnId,
@@ -3380,10 +3449,10 @@ idleCleanup.layer("ProviderServiceLive idle cleanup", (it) => {
         "first runtime turn start persistence",
       );
 
-      idleCleanup.codex.emit({
+      idleCleanup.claude.emit({
         type: "turn.started",
         eventId: asEventId("runtime-conflicting-start-second"),
-        provider: "codex",
+        provider: "claudeAgent",
         createdAt: "2026-02-27T00:04:02.000Z",
         threadId,
         turnId: secondTurnId,
@@ -3407,15 +3476,15 @@ idleCleanup.layer("ProviderServiceLive idle cleanup", (it) => {
       let listSessionsStarted = false;
       let releaseListSessions: ReleaseListSessions | undefined;
 
-      idleCleanup.codex.stopSession.mockClear();
+      idleCleanup.claude.stopSession.mockClear();
       const session = yield* provider.startSession(threadId, {
-        provider: "codex",
+        provider: "claudeAgent",
         threadId,
         runtimeMode: "full-access",
       });
       const { resumeCursor: _omittedResumeCursor, ...staleReadySession } = session;
 
-      idleCleanup.codex.listSessions
+      idleCleanup.claude.listSessions
         .mockImplementationOnce(() => Effect.succeed([session]))
         .mockImplementationOnce(() =>
           Effect.promise(
@@ -3427,11 +3496,11 @@ idleCleanup.layer("ProviderServiceLive idle cleanup", (it) => {
           ),
         );
 
-      yield* idleCleanup.codex.waitForRuntimeSubscribers();
-      idleCleanup.codex.emit({
+      yield* idleCleanup.claude.waitForRuntimeSubscribers();
+      idleCleanup.claude.emit({
         type: "turn.completed",
         eventId: asEventId("runtime-idle-fired-before-new-turn"),
-        provider: "codex",
+        provider: "claudeAgent",
         createdAt: "2026-02-27T00:04:00.000Z",
         threadId,
         payload: { state: "completed" },
@@ -3472,7 +3541,7 @@ idleCleanup.layer("ProviderServiceLive idle cleanup", (it) => {
       yield* Fiber.join(sendTurnFiber);
       yield* sleep(100);
 
-      assert.equal(idleCleanup.codex.stopSession.mock.calls.length, 1);
+      assert.equal(idleCleanup.claude.stopSession.mock.calls.length, 1);
       const persistedAfter = yield* runtimeRepository.getByThreadId({
         threadId,
       });
@@ -3497,18 +3566,18 @@ idleCleanup.layer("ProviderServiceLive idle cleanup", (it) => {
       const runtimeRepository = yield* ProviderSessionRuntimeRepository;
       const threadId = asThreadId("thread-idle-interrupted-dispatch");
 
-      idleCleanup.codex.stopSession.mockClear();
+      idleCleanup.claude.stopSession.mockClear();
       const session = yield* provider.startSession(threadId, {
-        provider: "codex",
+        provider: "claudeAgent",
         threadId,
         runtimeMode: "full-access",
       });
-      idleCleanup.codex.updateSession(threadId, withoutResumeCursor);
-      yield* idleCleanup.codex.waitForRuntimeSubscribers();
-      idleCleanup.codex.emit({
+      idleCleanup.claude.updateSession(threadId, withoutResumeCursor);
+      yield* idleCleanup.claude.waitForRuntimeSubscribers();
+      idleCleanup.claude.emit({
         type: "turn.completed",
         eventId: asEventId("runtime-idle-before-interrupted-dispatch"),
-        provider: "codex",
+        provider: "claudeAgent",
         createdAt: "2026-02-27T00:04:00.000Z",
         threadId,
         payload: { state: "completed" },
@@ -3535,7 +3604,7 @@ idleCleanup.layer("ProviderServiceLive idle cleanup", (it) => {
         "runtime completion persistence",
       );
 
-      idleCleanup.codex.sendTurn.mockImplementationOnce(() => Effect.interrupt);
+      idleCleanup.claude.sendTurn.mockImplementationOnce(() => Effect.interrupt);
       yield* Effect.exit(
         provider.sendTurn({
           threadId: session.threadId,
@@ -3545,12 +3614,12 @@ idleCleanup.layer("ProviderServiceLive idle cleanup", (it) => {
       );
 
       yield* waitUntil(
-        () => idleCleanup.codex.stopSession.mock.calls.length > 0,
+        () => idleCleanup.claude.stopSession.mock.calls.length > 0,
         500,
         20,
         "idle runtime stop after interrupted dispatch",
       );
-      assert.deepEqual(idleCleanup.codex.stopSession.mock.calls[0]?.[0], threadId);
+      assert.deepEqual(idleCleanup.claude.stopSession.mock.calls[0]?.[0], threadId);
     }),
   );
 
@@ -3561,16 +3630,16 @@ idleCleanup.layer("ProviderServiceLive idle cleanup", (it) => {
       const threadId = asThreadId("thread-idle-rollback-success");
 
       yield* provider.startSession(threadId, {
-        provider: "codex",
+        provider: "claudeAgent",
         threadId,
         runtimeMode: "full-access",
       });
-      idleCleanup.codex.updateSession(threadId, withoutResumeCursor);
-      yield* idleCleanup.codex.waitForRuntimeSubscribers();
-      idleCleanup.codex.emit({
+      idleCleanup.claude.updateSession(threadId, withoutResumeCursor);
+      yield* idleCleanup.claude.waitForRuntimeSubscribers();
+      idleCleanup.claude.emit({
         type: "turn.completed",
         eventId: asEventId("runtime-idle-before-rollback"),
-        provider: "codex",
+        provider: "claudeAgent",
         createdAt: "2026-02-27T00:04:00.000Z",
         threadId,
         payload: { state: "completed" },
@@ -3597,19 +3666,19 @@ idleCleanup.layer("ProviderServiceLive idle cleanup", (it) => {
         "runtime completion persistence",
       );
 
-      idleCleanup.codex.stopSession.mockClear();
+      idleCleanup.claude.stopSession.mockClear();
       yield* provider.rollbackConversation({
         threadId,
         numTurns: 1,
       });
 
       yield* waitUntil(
-        () => idleCleanup.codex.stopSession.mock.calls.length > 0,
+        () => idleCleanup.claude.stopSession.mock.calls.length > 0,
         500,
         20,
         "idle runtime stop after successful rollback",
       );
-      assert.deepEqual(idleCleanup.codex.stopSession.mock.calls[0]?.[0], threadId);
+      assert.deepEqual(idleCleanup.claude.stopSession.mock.calls[0]?.[0], threadId);
     }),
   );
 
@@ -3623,12 +3692,12 @@ idleCleanup.layer("ProviderServiceLive idle cleanup", (it) => {
       let releaseListSessions: ReleaseListSessions | undefined;
 
       const session = yield* provider.startSession(threadId, {
-        provider: "codex",
+        provider: "claudeAgent",
         threadId,
         runtimeMode: "full-access",
       });
       const { resumeCursor: _omittedResumeCursor, ...staleReadySession } = session;
-      idleCleanup.codex.listSessions
+      idleCleanup.claude.listSessions
         .mockImplementationOnce(() => Effect.succeed([session]))
         .mockImplementationOnce(() =>
           Effect.promise(
@@ -3640,11 +3709,11 @@ idleCleanup.layer("ProviderServiceLive idle cleanup", (it) => {
           ),
         );
 
-      yield* idleCleanup.codex.waitForRuntimeSubscribers();
-      idleCleanup.codex.emit({
+      yield* idleCleanup.claude.waitForRuntimeSubscribers();
+      idleCleanup.claude.emit({
         type: "turn.completed",
         eventId: asEventId("runtime-idle-before-explicit-stop"),
-        provider: "codex",
+        provider: "claudeAgent",
         createdAt: "2026-02-27T00:04:00.000Z",
         threadId,
         payload: { state: "completed" },
@@ -3690,13 +3759,13 @@ idleCleanup.layer("ProviderServiceLive idle cleanup", (it) => {
       let releaseListSessions: ReleaseListSessions | undefined;
 
       const session = yield* provider.startSession(threadId, {
-        provider: "codex",
+        provider: "claudeAgent",
         threadId,
         runtimeMode: "full-access",
       });
       const { resumeCursor: _omittedResumeCursor, ...staleReadySession } = session;
-      idleCleanup.codex.stopSession.mockClear();
-      idleCleanup.codex.listSessions
+      idleCleanup.claude.stopSession.mockClear();
+      idleCleanup.claude.listSessions
         .mockImplementationOnce(() => Effect.succeed([session]))
         .mockImplementationOnce(() =>
           Effect.promise(
@@ -3708,11 +3777,11 @@ idleCleanup.layer("ProviderServiceLive idle cleanup", (it) => {
           ),
         );
 
-      yield* idleCleanup.codex.waitForRuntimeSubscribers();
-      idleCleanup.codex.emit({
+      yield* idleCleanup.claude.waitForRuntimeSubscribers();
+      idleCleanup.claude.emit({
         type: "turn.completed",
         eventId: asEventId("runtime-idle-before-runtime-stop"),
-        provider: "codex",
+        provider: "claudeAgent",
         createdAt: "2026-02-27T00:04:00.000Z",
         threadId,
         payload: { state: "completed" },
@@ -3748,8 +3817,8 @@ idleCleanup.layer("ProviderServiceLive idle cleanup", (it) => {
       requireReleaseListSessions(release)([staleReadySession]);
       yield* Fiber.join(stopFiber);
 
-      assert.equal(idleCleanup.codex.stopSession.mock.calls.length, 1);
-      assert.deepEqual(idleCleanup.codex.stopSession.mock.calls[0]?.[0], threadId);
+      assert.equal(idleCleanup.claude.stopSession.mock.calls.length, 1);
+      assert.deepEqual(idleCleanup.claude.stopSession.mock.calls[0]?.[0], threadId);
     }),
   );
 
@@ -3760,16 +3829,16 @@ idleCleanup.layer("ProviderServiceLive idle cleanup", (it) => {
       const threadId = asThreadId("thread-idle-compact-success");
 
       yield* provider.startSession(threadId, {
-        provider: "codex",
+        provider: "claudeAgent",
         threadId,
         runtimeMode: "full-access",
       });
-      idleCleanup.codex.updateSession(threadId, withoutResumeCursor);
-      yield* idleCleanup.codex.waitForRuntimeSubscribers();
-      idleCleanup.codex.emit({
+      idleCleanup.claude.updateSession(threadId, withoutResumeCursor);
+      yield* idleCleanup.claude.waitForRuntimeSubscribers();
+      idleCleanup.claude.emit({
         type: "turn.completed",
         eventId: asEventId("runtime-idle-before-compact-success"),
-        provider: "codex",
+        provider: "claudeAgent",
         createdAt: "2026-02-27T00:04:00.000Z",
         threadId,
         payload: { state: "completed" },
@@ -3796,10 +3865,10 @@ idleCleanup.layer("ProviderServiceLive idle cleanup", (it) => {
         "runtime completion persistence",
       );
 
-      idleCleanup.codex.stopSession.mockClear();
-      idleCleanup.codex.compactThread.mockImplementationOnce((inputThreadId) =>
+      idleCleanup.claude.stopSession.mockClear();
+      idleCleanup.claude.compactThread.mockImplementationOnce((inputThreadId) =>
         Effect.sync(() => {
-          idleCleanup.codex.updateSession(inputThreadId, (existing) => ({
+          idleCleanup.claude.updateSession(inputThreadId, (existing) => ({
             ...existing,
             status: "running",
             activeTurnId: undefined,
@@ -3809,12 +3878,12 @@ idleCleanup.layer("ProviderServiceLive idle cleanup", (it) => {
       yield* provider.compactThread({ threadId });
 
       yield* waitUntil(
-        () => idleCleanup.codex.stopSession.mock.calls.length > 0,
+        () => idleCleanup.claude.stopSession.mock.calls.length > 0,
         500,
         20,
         "idle runtime stop after successful compact",
       );
-      assert.deepEqual(idleCleanup.codex.stopSession.mock.calls[0]?.[0], threadId);
+      assert.deepEqual(idleCleanup.claude.stopSession.mock.calls[0]?.[0], threadId);
     }),
   );
 
@@ -3824,28 +3893,28 @@ idleCleanup.layer("ProviderServiceLive idle cleanup", (it) => {
       const threadId = asThreadId("thread-idle-closed-state");
 
       yield* provider.startSession(threadId, {
-        provider: "codex",
+        provider: "claudeAgent",
         threadId,
         runtimeMode: "full-access",
       });
-      idleCleanup.codex.stopSession.mockClear();
-      yield* idleCleanup.codex.waitForRuntimeSubscribers();
-      idleCleanup.codex.emit({
+      idleCleanup.claude.stopSession.mockClear();
+      yield* idleCleanup.claude.waitForRuntimeSubscribers();
+      idleCleanup.claude.emit({
         type: "thread.state.changed",
         eventId: asEventId("runtime-idle-closed-state"),
-        provider: "codex",
+        provider: "claudeAgent",
         createdAt: "2026-02-27T00:04:00.000Z",
         threadId,
         payload: { state: "closed" },
       });
 
       yield* waitUntil(
-        () => idleCleanup.codex.stopSession.mock.calls.length > 0,
+        () => idleCleanup.claude.stopSession.mock.calls.length > 0,
         500,
         20,
         "idle runtime stop after closed thread state",
       );
-      assert.deepEqual(idleCleanup.codex.stopSession.mock.calls[0]?.[0], threadId);
+      assert.deepEqual(idleCleanup.claude.stopSession.mock.calls[0]?.[0], threadId);
     }),
   );
 
@@ -3855,33 +3924,33 @@ idleCleanup.layer("ProviderServiceLive idle cleanup", (it) => {
       const threadId = asThreadId("thread-idle-compact-running");
 
       yield* provider.startSession(threadId, {
-        provider: "codex",
+        provider: "claudeAgent",
         threadId,
         runtimeMode: "full-access",
       });
-      idleCleanup.codex.stopSession.mockClear();
-      idleCleanup.codex.updateSession(threadId, (existing) => ({
+      idleCleanup.claude.stopSession.mockClear();
+      idleCleanup.claude.updateSession(threadId, (existing) => ({
         ...existing,
         status: "running",
         activeTurnId: undefined,
       }));
-      yield* idleCleanup.codex.waitForRuntimeSubscribers();
-      idleCleanup.codex.emit({
+      yield* idleCleanup.claude.waitForRuntimeSubscribers();
+      idleCleanup.claude.emit({
         type: "thread.state.changed",
         eventId: asEventId("runtime-idle-compact-completed"),
-        provider: "codex",
+        provider: "claudeAgent",
         createdAt: "2026-02-27T00:04:00.000Z",
         threadId,
         payload: { state: "compacted" },
       });
 
       yield* waitUntil(
-        () => idleCleanup.codex.stopSession.mock.calls.length > 0,
+        () => idleCleanup.claude.stopSession.mock.calls.length > 0,
         500,
         20,
         "idle runtime stop after compact",
       );
-      assert.deepEqual(idleCleanup.codex.stopSession.mock.calls[0]?.[0], threadId);
+      assert.deepEqual(idleCleanup.claude.stopSession.mock.calls[0]?.[0], threadId);
     }),
   );
 
@@ -3891,22 +3960,22 @@ idleCleanup.layer("ProviderServiceLive idle cleanup", (it) => {
       const runtimeRepository = yield* ProviderSessionRuntimeRepository;
       const threadId = asThreadId("thread-idle-failed-dispatch");
       const dispatchFailure = new ProviderAdapterSessionNotFoundError({
-        provider: "codex",
+        provider: "claudeAgent",
         threadId,
       });
 
-      idleCleanup.codex.stopSession.mockClear();
+      idleCleanup.claude.stopSession.mockClear();
       const session = yield* provider.startSession(threadId, {
-        provider: "codex",
+        provider: "claudeAgent",
         threadId,
         runtimeMode: "full-access",
       });
-      idleCleanup.codex.updateSession(threadId, withoutResumeCursor);
-      yield* idleCleanup.codex.waitForRuntimeSubscribers();
-      idleCleanup.codex.emit({
+      idleCleanup.claude.updateSession(threadId, withoutResumeCursor);
+      yield* idleCleanup.claude.waitForRuntimeSubscribers();
+      idleCleanup.claude.emit({
         type: "turn.completed",
         eventId: asEventId("runtime-idle-before-failed-dispatch"),
-        provider: "codex",
+        provider: "claudeAgent",
         createdAt: "2026-02-27T00:04:00.000Z",
         threadId,
         payload: { state: "completed" },
@@ -3933,7 +4002,7 @@ idleCleanup.layer("ProviderServiceLive idle cleanup", (it) => {
         "runtime completion persistence",
       );
 
-      idleCleanup.codex.sendTurn.mockImplementationOnce(() => Effect.fail(dispatchFailure));
+      idleCleanup.claude.sendTurn.mockImplementationOnce(() => Effect.fail(dispatchFailure));
       const failedTurn = yield* Effect.result(
         provider.sendTurn({
           threadId: session.threadId,
@@ -3944,12 +4013,12 @@ idleCleanup.layer("ProviderServiceLive idle cleanup", (it) => {
       assertFailure(failedTurn, dispatchFailure);
 
       yield* waitUntil(
-        () => idleCleanup.codex.stopSession.mock.calls.length > 0,
+        () => idleCleanup.claude.stopSession.mock.calls.length > 0,
         500,
         20,
         "idle runtime stop after failed dispatch",
       );
-      assert.deepEqual(idleCleanup.codex.stopSession.mock.calls[0]?.[0], threadId);
+      assert.deepEqual(idleCleanup.claude.stopSession.mock.calls[0]?.[0], threadId);
     }),
   );
 });

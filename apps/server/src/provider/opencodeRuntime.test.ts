@@ -1,11 +1,11 @@
+import { ProviderConnectionId } from "@penkra/contracts";
 // FILE: opencodeRuntime.test.ts
 // Purpose: Covers OpenCode runtime parsing and local server startup diagnostics.
 // Layer: Provider runtime tests
 // Exports: Vitest suites for opencodeRuntime.ts
 
-import { Duration, Effect, Exit, Fiber, Layer, Scope, Sink, Stream } from "effect";
+import { Effect, Exit, Fiber, Layer, Scope, Sink, Stream } from "effect";
 import { ChildProcessSpawner } from "effect/unstable/process";
-import { TestClock } from "effect/testing";
 import type { ChatAttachment } from "@penkra/contracts";
 import { describe, expect, it } from "vitest";
 
@@ -15,7 +15,6 @@ import {
   OpenCodeRuntime,
   OpenCodeRuntimeError,
   makeOpenCodeRuntimeLive,
-  OPENCODE_LOCAL_SERVER_IDLE_TTL_MS,
   parseOpenCodeCliModelsOutput,
   parseOpenCodeCredentialProviderIDs,
   toOpenCodeFileParts,
@@ -91,33 +90,18 @@ function mockPooledOpenCodeServerSpawnerLayer(state: {
   );
 }
 
-const advanceOpenCodePoolIdleClock = Effect.gen(function* () {
-  yield* Effect.yieldNow;
-  yield* TestClock.adjust(Duration.millis(OPENCODE_LOCAL_SERVER_IDLE_TTL_MS + 1));
-  yield* Effect.yieldNow;
-});
-
-const advanceOpenCodePoolAlmostToIdle = Effect.gen(function* () {
-  yield* Effect.yieldNow;
-  yield* TestClock.adjust(Duration.millis(OPENCODE_LOCAL_SERVER_IDLE_TTL_MS - 1));
-  yield* Effect.yieldNow;
-});
-
 function openCodeRuntimePoolTestLayer(state: {
   spawnUrls: Array<string>;
   killUrls: Array<string>;
 }) {
   const processUrls = new Map<number, string>();
-  return Layer.merge(
-    makeOpenCodeRuntimeLive({
-      teardownProcessTree: async ({ rootPid }) => {
-        const url = processUrls.get(rootPid);
-        if (url) state.killUrls.push(url);
-        return { escalated: false, signalErrors: [] };
-      },
-    }).pipe(Layer.provide(mockPooledOpenCodeServerSpawnerLayer({ ...state, processUrls }))),
-    TestClock.layer(),
-  );
+  return makeOpenCodeRuntimeLive({
+    teardownProcessTree: async ({ rootPid }) => {
+      const url = processUrls.get(rootPid);
+      if (url) state.killUrls.push(url);
+      return { escalated: false, signalErrors: [] };
+    },
+  }).pipe(Layer.provide(mockPooledOpenCodeServerSpawnerLayer({ ...state, processUrls })));
 }
 
 describe("toOpenCodeFileParts", () => {
@@ -361,7 +345,7 @@ describe("OpenCodeRuntime local server pool", () => {
     );
   });
 
-  it("reuses a local server while scoped sessions are active and closes it after idling", async () => {
+  it("reuses a local server after all thread scopes close until explicit shutdown", async () => {
     const state = { spawnUrls: [] as Array<string>, killUrls: [] as Array<string> };
 
     await Effect.runPromise(
@@ -383,11 +367,11 @@ describe("OpenCodeRuntime local server pool", () => {
           expect(state.spawnUrls).toEqual(["http://127.0.0.1:59000"]);
 
           yield* Scope.close(firstScope, Exit.void);
-          yield* advanceOpenCodePoolIdleClock;
           expect(state.killUrls).toEqual([]);
 
           yield* Scope.close(secondScope, Exit.void);
-          yield* advanceOpenCodePoolIdleClock;
+          expect(state.killUrls).toEqual([]);
+          yield* runtime.stopAll();
           expect(state.killUrls).toEqual(["http://127.0.0.1:59000"]);
 
           const thirdScope = yield* Scope.make();
@@ -402,7 +386,7 @@ describe("OpenCodeRuntime local server pool", () => {
     );
   });
 
-  it("isolates same-cwd owners and closes private servers immediately on release", async () => {
+  it("isolates same-cwd accounts and stops only the removed account", async () => {
     const state = { spawnUrls: [] as Array<string>, killUrls: [] as Array<string> };
 
     await Effect.runPromise(
@@ -416,6 +400,7 @@ describe("OpenCodeRuntime local server pool", () => {
               binaryPath: "opencode",
               cwd: "/repo",
               poolIsolationKey: "penkra-thread-a",
+              connectionId: ProviderConnectionId.makeUnsafe("account-a"),
             })
             .pipe(Effect.provideService(Scope.Scope, firstScope));
           const second = yield* runtime
@@ -423,6 +408,7 @@ describe("OpenCodeRuntime local server pool", () => {
               binaryPath: "opencode",
               cwd: "/repo",
               poolIsolationKey: "penkra-thread-b",
+              connectionId: ProviderConnectionId.makeUnsafe("account-b"),
             })
             .pipe(Effect.provideService(Scope.Scope, secondScope));
 
@@ -430,8 +416,19 @@ describe("OpenCodeRuntime local server pool", () => {
           expect(state.spawnUrls).toEqual(["http://127.0.0.1:59000", "http://127.0.0.1:59001"]);
 
           yield* Scope.close(firstScope, Exit.void);
+          expect(state.killUrls).toEqual([]);
+          yield* runtime.stopAccount(ProviderConnectionId.makeUnsafe("account-a"));
           expect(state.killUrls).toEqual(["http://127.0.0.1:59000"]);
+          const sameAccount = yield* runtime.connectToOpenCodeServer({
+            binaryPath: "opencode",
+            cwd: "/repo",
+            poolIsolationKey: "penkra-thread-b",
+            connectionId: ProviderConnectionId.makeUnsafe("account-b"),
+          });
+          expect(sameAccount.url).toBe(second.url);
           yield* Scope.close(secondScope, Exit.void);
+          expect(state.killUrls).toEqual(["http://127.0.0.1:59000"]);
+          yield* runtime.stopAll();
           expect(state.killUrls).toEqual(["http://127.0.0.1:59000", "http://127.0.0.1:59001"]);
         }),
       ).pipe(Effect.provide(openCodeRuntimePoolTestLayer(state))),
@@ -462,7 +459,7 @@ describe("OpenCodeRuntime local server pool", () => {
     );
   });
 
-  it("keeps the warm server alive when a new session starts before idle expiry", async () => {
+  it("keeps the warm server alive across successive thread scopes", async () => {
     const state = { spawnUrls: [] as Array<string>, killUrls: [] as Array<string> };
 
     await Effect.runPromise(
@@ -475,7 +472,6 @@ describe("OpenCodeRuntime local server pool", () => {
             .pipe(Effect.provideService(Scope.Scope, firstScope));
 
           yield* Scope.close(firstScope, Exit.void);
-          yield* advanceOpenCodePoolAlmostToIdle;
 
           const secondScope = yield* Scope.make();
           const second = yield* runtime
@@ -485,11 +481,11 @@ describe("OpenCodeRuntime local server pool", () => {
           expect(second.url).toBe(first.url);
           expect(state.spawnUrls).toEqual(["http://127.0.0.1:59000"]);
 
-          yield* advanceOpenCodePoolIdleClock;
           expect(state.killUrls).toEqual([]);
 
           yield* Scope.close(secondScope, Exit.void);
-          yield* advanceOpenCodePoolIdleClock;
+          expect(state.killUrls).toEqual([]);
+          yield* runtime.stopAll();
           expect(state.killUrls).toEqual(["http://127.0.0.1:59000"]);
         }),
       ).pipe(Effect.provide(openCodeRuntimePoolTestLayer(state))),
