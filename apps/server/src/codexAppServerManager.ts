@@ -954,7 +954,11 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
   private readonly sessions = new Map<ThreadId, CodexSessionContext>();
   private readonly accountProcesses = new Map<
     string,
-    { readonly token: symbol; readonly process: Promise<CodexAccountProcess> }
+    {
+      readonly token: symbol;
+      readonly process: Promise<CodexAccountProcess>;
+      transport?: CodexAccountProcess;
+    }
   >();
   private readonly pluginDetailCache = new Map<string, ProviderReadPluginResult>();
   private readonly pendingModelDiscoveries = new Map<string, Promise<ProviderListModelsResult>>();
@@ -2673,7 +2677,10 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
   }): Promise<CodexAccountProcess> {
     const existing = this.accountProcesses.get(input.key);
     if (existing) {
-      const transport = await existing.process;
+      const transport =
+        existing.transport?.stopping || existing.transport?.protocolClosed
+          ? existing.transport
+          : await existing.process;
       if (transport.protocolClosed && !transport.stopping) {
         await this.terminateAccountProcess(transport);
         // attachProcessListeners installs this native-close promise before any
@@ -2689,13 +2696,28 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
       return this.getOrCreateAccountProcess(input);
     }
     const token = Symbol(input.key);
-    const starting = this.startAccountProcess(input, token);
-    const entry = { token, process: starting };
+    const entry: {
+      readonly token: symbol;
+      readonly process: Promise<CodexAccountProcess>;
+      transport?: CodexAccountProcess;
+    } = {
+      token,
+      // Register ownership before startup can publish its spawned transport.
+      process: Promise.resolve().then(() =>
+        this.startAccountProcess(input, token, (transport) => {
+          entry.transport = transport;
+        }),
+      ),
+    };
     this.accountProcesses.set(input.key, entry);
     try {
-      return await starting;
+      return await entry.process;
     } catch (cause) {
-      if (this.accountProcesses.get(input.key) === entry) this.accountProcesses.delete(input.key);
+      if (
+        this.accountProcesses.get(input.key) === entry &&
+        (!entry.transport?.child.pid || entry.transport.treeExitProven)
+      )
+        this.accountProcesses.delete(input.key);
       throw cause;
     }
   }
@@ -2709,6 +2731,7 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
       readonly connectionId: ProviderConnectionId | null;
     },
     token: symbol,
+    publishTransport: (transport: CodexAccountProcess) => void,
   ): Promise<CodexAccountProcess> {
     const child = spawnCodexAppServer(input);
     const transport: CodexAccountProcess = {
@@ -2733,6 +2756,7 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
       stderrLineFramer: new CodexStderrLineFramer(),
       stderrRecordFramer: new CodexStderrRecordFramer(),
     };
+    publishTransport(transport);
     this.attachProcessListeners(transport);
     try {
       await this.sendRequest(transport, null, "initialize", buildCodexInitializeParams());
@@ -2742,7 +2766,13 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
       transport.account = readCodexAccountSnapshot(response);
       return transport;
     } catch (cause) {
-      await this.closeAccountProcess(transport);
+      try {
+        await this.closeAccountProcess(transport);
+      } catch (stopError) {
+        // Keep the transport as a respawn barrier, while preserving startup
+        // failure as the caller's cause. Acquisition retries the tree proof.
+        log.error("Codex startup cleanup could not prove process-tree exit", { stopError });
+      }
       throw cause;
     }
   }
