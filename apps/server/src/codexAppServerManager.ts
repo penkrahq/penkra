@@ -388,6 +388,8 @@ interface CodexRuntimeDiagnostic {
   readonly fingerprint: string;
   readonly state: "active" | "resolved";
 }
+// A timestamp or stream end closes multiline records; this debounce bounds the
+// last record of a still-running process whose stderr has no explicit end marker.
 const CODEX_STDERR_RECORD_IDLE_FLUSH_MS = 50;
 
 export class CodexStderrLineFramer {
