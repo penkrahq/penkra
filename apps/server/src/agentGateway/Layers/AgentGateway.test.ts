@@ -846,7 +846,6 @@ function makeHarnessLayer(
   const providerHealthLayer = Layer.succeed(ProviderHealth, {
     getStatuses: Effect.sync(() => providerStatuses),
     refresh: Effect.sync(() => providerStatuses),
-    updateProvider: () => Effect.die("Provider updates are not used by gateway tests."),
     streamChanges: Stream.empty,
   } as unknown as (typeof ProviderHealth)["Service"]);
 

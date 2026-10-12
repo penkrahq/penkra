@@ -77,7 +77,6 @@ import { OpenInEditorInput } from "./editor";
 import {
   ServerConfigUpdatedPayload,
   ServerLifecycleStreamEvent,
-  ServerProviderUpdateInput,
   ServerUpdateSettingsInput,
   ServerUpdateSpaceNavigationStateInput,
   ServerGetProviderUsageSnapshotInput,
@@ -174,7 +173,6 @@ export const WS_METHODS = {
   serverGetSpaceNavigationState: "server.getSpaceNavigationState",
   serverUpdateSpaceNavigationState: "server.updateSpaceNavigationState",
   serverRefreshProviders: "server.refreshProviders",
-  serverUpdateProvider: "server.updateProvider",
   serverListLocalServers: "server.listLocalServers",
   serverStopLocalServer: "server.stopLocalServer",
   serverGetProviderUsageSnapshot: "server.getProviderUsageSnapshot",
@@ -328,7 +326,6 @@ const WebSocketRequestBody = Schema.Union([
     ServerUpdateSpaceNavigationStateInput,
   ),
   tagRequestBody(WS_METHODS.serverRefreshProviders, Schema.Struct({})),
-  tagRequestBody(WS_METHODS.serverUpdateProvider, ServerProviderUpdateInput),
   tagRequestBody(WS_METHODS.serverListLocalServers, Schema.Struct({})),
   tagRequestBody(WS_METHODS.serverStopLocalServer, ServerStopLocalServerInput),
   tagRequestBody(WS_METHODS.serverGetProviderUsageSnapshot, ServerGetProviderUsageSnapshotInput),

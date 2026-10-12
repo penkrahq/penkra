@@ -2,11 +2,7 @@ import * as NodeServices from "@effect/platform-node/NodeServices";
 import { Effect, FileSystem, Layer } from "effect";
 import { describe, expect, it } from "vitest";
 import { ServerConfig } from "./config";
-import {
-  migratePersistedServerSettings,
-  ServerSettingsLive,
-  ServerSettingsService,
-} from "./serverSettings";
+import { ServerSettingsLive, ServerSettingsService } from "./serverSettings";
 
 const serverConfigLayer = ServerConfig.layerTest(process.cwd(), {
   prefix: "penkra-settings-test-",
@@ -19,18 +15,6 @@ const runWithSettings = <A, E>(
 ) => Effect.runPromise(effect.pipe(Effect.provide(testLayer)) as Effect.Effect<A, E, never>);
 
 describe("ServerSettingsService", () => {
-  it("migrates the legacy update-check boolean without overriding an explicit mode", () => {
-    expect(migratePersistedServerSettings({ enableProviderUpdateChecks: false })).toEqual({
-      providerUpdateMode: "notify",
-    });
-    expect(
-      migratePersistedServerSettings({
-        enableProviderUpdateChecks: false,
-        providerUpdateMode: "automatic",
-      }),
-    ).toEqual({ providerUpdateMode: "automatic" });
-  });
-
   it("loads defaults when settings file does not exist", async () => {
     const settings = await runWithSettings(
       Effect.gen(function* () {
@@ -42,7 +26,6 @@ describe("ServerSettingsService", () => {
 
     expect(settings.providers.codex).not.toHaveProperty("binaryPath");
     expect(Object.keys(settings.providers).sort()).toEqual(["claudeAgent", "codex", "opencode"]);
-    expect(settings.providerUpdateMode).toBe("automatic");
   });
 
   it("persists updates and reloads them", async () => {
@@ -55,7 +38,6 @@ describe("ServerSettingsService", () => {
 
         const updated = yield* service.updateSettings({
           enableAssistantStreaming: true,
-          providerUpdateMode: "notify",
           providers: {
             codex: {
               customModels: ["gpt-custom"],
@@ -68,14 +50,12 @@ describe("ServerSettingsService", () => {
     );
 
     expect(result.updated.enableAssistantStreaming).toBe(true);
-    expect(result.updated.providerUpdateMode).toBe("notify");
     expect(result.updated.providers.codex.customModels).toEqual(["gpt-custom"]);
     expect(result.parsed).toMatchObject({
       revision: 1,
       migrationVersion: 2,
       settings: {
         enableAssistantStreaming: true,
-        providerUpdateMode: "notify",
         providers: {
           codex: {
             customModels: ["gpt-custom"],

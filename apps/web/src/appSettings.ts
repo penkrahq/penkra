@@ -13,7 +13,6 @@ import {
   DEFAULT_SERVER_SETTINGS_VIEW,
   TrimmedNonEmptyString,
   ProviderKind,
-  ProviderUpdateMode,
   type ProviderStartOptions,
   type ServerSettingsView,
   type ServerSettingsPatch,
@@ -145,11 +144,6 @@ export const AppSettingsSchema = Schema.Struct({
   confirmTerminalTabClose: Schema.Boolean.pipe(withDefaults(() => true)),
   diffWordWrap: Schema.Boolean.pipe(withDefaults(() => false)),
   enableAssistantStreaming: Schema.Boolean.pipe(withDefaults(() => true)),
-  providerUpdateMode: ProviderUpdateMode.pipe(
-    withDefaults(() => "automatic" as const satisfies ProviderUpdateMode),
-  ),
-  // Deprecated bridge. Normalization migrates the old boolean and omits it.
-  enableProviderUpdateChecks: Schema.optionalKey(Schema.Boolean),
   enableNativeFontSmoothing: Schema.Boolean.pipe(withDefaults(getDefaultNativeFontSmoothing)),
   enableTaskCompletionToasts: Schema.Boolean.pipe(withDefaults(() => true)),
   enableSystemTaskCompletionNotifications: Schema.Boolean.pipe(withDefaults(() => true)),
@@ -348,12 +342,8 @@ function normalizeProviderBinaryPathOverride(
 }
 
 function normalizeAppSettings(settings: AppSettings): AppSettings {
-  const { enableProviderUpdateChecks: legacyEnableProviderUpdateChecks, ...currentSettings } =
-    settings;
   return {
-    ...currentSettings,
-    providerUpdateMode:
-      legacyEnableProviderUpdateChecks === false ? "notify" : settings.providerUpdateMode,
+    ...settings,
     uiDensity: normalizeUiDensityValue(settings.uiDensity),
     chatFontSizePx: normalizeChatFontSizePx(settings.chatFontSizePx),
     terminalFontSizePx: normalizeTerminalFontSizePx(settings.terminalFontSizePx),
@@ -370,7 +360,6 @@ function normalizeAppSettings(settings: AppSettings): AppSettings {
 function serverSettingsToAppSettings(settings: ServerSettingsView): Partial<AppSettings> {
   return {
     enableAssistantStreaming: settings.enableAssistantStreaming,
-    providerUpdateMode: settings.providerUpdateMode,
     openCodeExperimentalWebSockets: settings.providers.opencode.experimentalWebSockets,
     customCodexModels: settings.providers.codex.customModels,
     customClaudeModels: settings.providers.claudeAgent.customModels,
@@ -409,9 +398,6 @@ function appSettingsPatchToServerSettingsPatch(patch: Partial<AppSettings>): Ser
 
   if (hasOwn(patch, "enableAssistantStreaming")) {
     serverPatch.enableAssistantStreaming = Boolean(patch.enableAssistantStreaming);
-  }
-  if (patch.providerUpdateMode === "automatic" || patch.providerUpdateMode === "notify") {
-    serverPatch.providerUpdateMode = patch.providerUpdateMode;
   }
   if (hasOwn(patch, "textGenerationModel") || hasOwn(patch, "textGenerationProvider")) {
     const model = patch.textGenerationModel ?? DEFAULT_TEXT_GENERATION_MODEL;
@@ -470,7 +456,6 @@ function buildInitialServerSettingsMigrationPatch(settings: AppSettings): Server
 
   for (const key of [
     "enableAssistantStreaming",
-    "providerUpdateMode",
     "openCodeExperimentalWebSockets",
     "textGenerationModel",
     "textGenerationProvider",

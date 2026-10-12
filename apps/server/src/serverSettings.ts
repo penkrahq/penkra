@@ -161,19 +161,6 @@ function omitProviderPasswords(patch: ServerSettingsPatch): ServerSettingsPatch 
   return patch;
 }
 
-export function migratePersistedServerSettings(settings: unknown): unknown {
-  if (settings === null || typeof settings !== "object") {
-    return settings;
-  }
-  const record = { ...(settings as Record<string, unknown>) };
-  if (!("providerUpdateMode" in record) && typeof record.enableProviderUpdateChecks === "boolean") {
-    record.providerUpdateMode =
-      record.enableProviderUpdateChecks === false ? "notify" : "automatic";
-  }
-  delete record.enableProviderUpdateChecks;
-  return record;
-}
-
 function decodeSettingsFromJson(settingsPath: string, raw: string) {
   try {
     const parsed = JSON.parse(raw) as unknown;
@@ -186,8 +173,7 @@ function decodeSettingsFromJson(settingsPath: string, raw: string) {
           })
         : null;
     const persistedSettings = envelope?.settings ?? parsed;
-    const migratedSettings = migratePersistedServerSettings(persistedSettings);
-    const decoded = Schema.decodeUnknownExit(ServerSettings)(migratedSettings);
+    const decoded = Schema.decodeUnknownExit(ServerSettings)(persistedSettings);
     if (decoded._tag === "Failure") {
       return { _tag: "Failure" as const, error: Cause.pretty(decoded.cause) };
     }

@@ -174,14 +174,12 @@ describe("provider update coordinator", () => {
           providerHealth: {
             getStatuses: Effect.succeed([]),
             refresh: Effect.suspend(refresh),
-            updateProvider: vi.fn(),
             streamChanges: Stream.empty,
           } as unknown as ProviderHealthShape,
           projectionSnapshotQuery: {} as ProjectionSnapshotQueryShape,
           serverSettings: {
             getSettings: Effect.succeed({
               ...DEFAULT_SERVER_SETTINGS,
-              providerUpdateMode: "notify",
             }),
           } as unknown as ServerSettingsShape,
           config: { stateDir },
@@ -225,7 +223,6 @@ describe("provider update coordinator", () => {
         providerHealth: {
           getStatuses: Effect.succeed([]),
           refresh: Effect.succeed([]),
-          updateProvider: vi.fn(),
           streamChanges: Stream.empty,
         } as unknown as ProviderHealthShape,
         projectionSnapshotQuery: {} as ProjectionSnapshotQueryShape,
@@ -271,42 +268,14 @@ describe("provider update coordinator", () => {
     expect(installManagedArtifact).not.toHaveBeenCalled();
   });
 
-  it("never updates automatically in notify mode", async () => {
-    const refresh = vi.fn(() => Effect.succeed([outdatedCodex()]));
-    const updateProvider = vi.fn();
-    await Effect.runPromise(
-      runAutomaticProviderUpdateCycle({
-        onProviderInstalled: () => Effect.void,
-        providerHealth: {
-          getStatuses: Effect.succeed([]),
-          refresh: Effect.suspend(refresh),
-          updateProvider,
-          streamChanges: Stream.empty,
-        } as unknown as ProviderHealthShape,
-        projectionSnapshotQuery: {} as ProjectionSnapshotQueryShape,
-        serverSettings: {
-          getSettings: Effect.succeed({
-            ...DEFAULT_SERVER_SETTINGS,
-            providerUpdateMode: "notify",
-          }),
-        } as unknown as ServerSettingsShape,
-        config: { stateDir: "/unused" },
-        installationRepository,
-      }).pipe(Effect.provide(NodeServices.layer)),
-    );
-    expect(refresh).not.toHaveBeenCalled();
-    expect(updateProvider).not.toHaveBeenCalled();
-  });
-
   it("defers an automatic update while that provider has an active thread", async () => {
-    const updateProvider = vi.fn();
+    const resolveManagedArtifact = vi.fn(() => Effect.fail(new Error("must not install")));
     await Effect.runPromise(
       runAutomaticProviderUpdateCycle({
         onProviderInstalled: () => Effect.void,
         providerHealth: {
           getStatuses: Effect.succeed([]),
           refresh: Effect.succeed([outdatedCodex()]),
-          updateProvider,
           streamChanges: Stream.empty,
         } as unknown as ProviderHealthShape,
         projectionSnapshotQuery: {
@@ -317,9 +286,10 @@ describe("provider update coordinator", () => {
         } as unknown as ServerSettingsShape,
         config: { stateDir: "/unused" },
         installationRepository,
+        resolveManagedArtifact,
       }).pipe(Effect.provide(NodeServices.layer)),
     );
-    expect(updateProvider).not.toHaveBeenCalled();
+    expect(resolveManagedArtifact).not.toHaveBeenCalled();
   });
 
   it("does not let legacy thread-continuation rejection block a later update attempt", async () => {
@@ -336,7 +306,6 @@ describe("provider update coordinator", () => {
           providerHealth: {
             getStatuses: Effect.succeed([]),
             refresh: Effect.succeed([outdatedCodex()]),
-            updateProvider: vi.fn(),
             streamChanges: Stream.empty,
           } as unknown as ProviderHealthShape,
           projectionSnapshotQuery: {
@@ -408,7 +377,6 @@ describe("provider update coordinator", () => {
           providerHealth: {
             getStatuses: Effect.succeed([]),
             refresh: Effect.suspend(refresh),
-            updateProvider: vi.fn(),
             streamChanges: Stream.empty,
           } as unknown as ProviderHealthShape,
           projectionSnapshotQuery: {
@@ -475,7 +443,6 @@ describe("provider update coordinator", () => {
           providerHealth: {
             getStatuses: Effect.succeed([]),
             refresh: Effect.succeed([outdatedCodex()]),
-            updateProvider: vi.fn(),
             streamChanges: Stream.empty,
           } as unknown as ProviderHealthShape,
           projectionSnapshotQuery: {
@@ -537,7 +504,6 @@ describe("provider update coordinator", () => {
           providerHealth: {
             getStatuses: Effect.succeed([]),
             refresh: Effect.succeed([outdatedOpenCode()]),
-            updateProvider: vi.fn(),
             streamChanges: Stream.empty,
           } as unknown as ProviderHealthShape,
           projectionSnapshotQuery: {

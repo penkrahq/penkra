@@ -482,10 +482,6 @@ export function createWsNativeApi(): NativeApi {
         return result;
       },
       refreshProviders: () => transport.request(WS_METHODS.serverRefreshProviders),
-      // Provider updates run up to 2 minutes server-side; callers wrap this in
-      // withProviderUpdateTimeout, which owns the client-side watchdog.
-      updateProvider: (input) =>
-        transport.request(WS_METHODS.serverUpdateProvider, input, { timeoutMs: null }),
       listLocalServers: () => transport.request(WS_METHODS.serverListLocalServers),
       stopLocalServer: (input) => transport.request(WS_METHODS.serverStopLocalServer, input),
       getProviderUsageSnapshot: (input) =>

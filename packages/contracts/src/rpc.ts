@@ -90,9 +90,6 @@ import {
   ServerGetSettingsResult,
   ServerListLocalServersResult,
   ServerListWorktreesResult,
-  ServerProviderUpdateError,
-  ServerProviderUpdateInput,
-  ServerProviderUpdateResult,
   ServerRefreshProvidersResult,
   ServerStopLocalServerInput,
   ServerStopLocalServerResult,
@@ -474,12 +471,6 @@ export const WsServerRefreshProvidersRpc = Rpc.make(WS_METHODS.serverRefreshProv
   error: WsRpcError,
 });
 
-export const WsServerUpdateProviderRpc = Rpc.make(WS_METHODS.serverUpdateProvider, {
-  payload: ServerProviderUpdateInput,
-  success: ServerProviderUpdateResult,
-  error: ServerProviderUpdateError,
-});
-
 export const WsServerListLocalServersRpc = Rpc.make(WS_METHODS.serverListLocalServers, {
   payload: Schema.Struct({}),
   success: ServerListLocalServersResult,
@@ -850,7 +841,6 @@ export const WsFeatureRpcGroup = RpcGroup.make(
   WsServerGetSpaceNavigationStateRpc,
   WsServerUpdateSpaceNavigationStateRpc,
   WsServerRefreshProvidersRpc,
-  WsServerUpdateProviderRpc,
   WsServerListLocalServersRpc,
   WsServerStopLocalServerRpc,
   WsServerGetProviderUsageSnapshotRpc,

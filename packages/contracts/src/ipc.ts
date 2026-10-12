@@ -53,8 +53,6 @@ import type {
   ServerListProviderUsageResult,
   ServerGetSettingsResult,
   ServerListLocalServersResult,
-  ServerProviderUpdateInput,
-  ServerProviderUpdateResult,
   ServerRefreshProvidersResult,
   ServerStopLocalServerInput,
   ServerStopLocalServerResult,
@@ -1047,7 +1045,6 @@ export interface NativeApi {
     revokeOtherAuthClients: () => Promise<{ revokedCount: number }>;
     logoutAuthSession: () => Promise<AuthLogoutResult>;
     refreshProviders: () => Promise<ServerRefreshProvidersResult>;
-    updateProvider: (input: ServerProviderUpdateInput) => Promise<ServerProviderUpdateResult>;
     listLocalServers: () => Promise<ServerListLocalServersResult>;
     stopLocalServer: (input: ServerStopLocalServerInput) => Promise<ServerStopLocalServerResult>;
     getProviderUsageSnapshot: (

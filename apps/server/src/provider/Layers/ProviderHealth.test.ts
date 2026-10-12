@@ -1,10 +1,6 @@
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import type { ServerProviderStatus } from "@penkra/contracts";
-import {
-  DEFAULT_SERVER_SETTINGS,
-  ServerProviderUpdateError,
-  ServerSettingsError,
-} from "@penkra/contracts";
+import { DEFAULT_SERVER_SETTINGS, ServerSettingsError } from "@penkra/contracts";
 import { describe, it, assert } from "@effect/vitest";
 import { Deferred, Duration, Effect, Fiber, FileSystem, Layer, Path, Sink, Stream } from "effect";
 import * as PlatformError from "effect/PlatformError";
@@ -242,7 +238,7 @@ it.layer(NodeServices.layer)("ProviderHealth", (it) => {
             },
           },
         ],
-        { ...DEFAULT_SERVER_SETTINGS, providerUpdateMode: "notify" },
+        DEFAULT_SERVER_SETTINGS,
         "2026-06-16T12:05:00.000Z",
       );
       const codex = statuses.find((status) => status.provider === "codex");
@@ -363,17 +359,6 @@ it.layer(NodeServices.layer)("ProviderHealth", (it) => {
           assert.strictEqual(status.versionAdvisory?.canUpdate, false);
           assert.strictEqual(status.versionAdvisory?.updateCommand, null);
         }
-      }).pipe(Effect.provide(disabledProviderHealthLayer)),
-    );
-
-    it.effect("rejects one-click updates for disabled providers", () =>
-      Effect.gen(function* () {
-        const providerHealth = yield* ProviderHealth;
-        const error = yield* Effect.flip(providerHealth.updateProvider({ provider: "opencode" }));
-
-        assert.ok(error instanceof ServerProviderUpdateError);
-        assert.strictEqual(error.provider, "opencode");
-        assert.strictEqual(error.reason, "Provider is disabled in Penkra settings.");
       }).pipe(Effect.provide(disabledProviderHealthLayer)),
     );
   });

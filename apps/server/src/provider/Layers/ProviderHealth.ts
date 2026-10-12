@@ -16,7 +16,7 @@ import type {
   ServerProviderStatus,
   ServerProviderStatusState,
 } from "@penkra/contracts";
-import { PROVIDER_DISPLAY_NAMES, ServerProviderUpdateError } from "@penkra/contracts";
+import { PROVIDER_DISPLAY_NAMES } from "@penkra/contracts";
 import { parseCodexConfigModelProvider } from "@penkra/shared/codexConfig";
 import { decodeJsonResult } from "@penkra/shared/schemaJson";
 import { prepareWindowsSafeProcess } from "@penkra/shared/windowsProcess";
@@ -1482,34 +1482,11 @@ export function makeProviderHealthLive(options?: {
         Effect.flatMap(Fiber.join),
       );
 
-      const updateProvider: ProviderHealthShape["updateProvider"] = Effect.fn(
-        "ProviderHealth.updateProvider",
-      )(function* (input) {
-        const provider = input.provider;
-        const toUpdateError = (reason: unknown) =>
-          new ServerProviderUpdateError({
-            provider,
-            reason: reason instanceof Error ? reason.message : String(reason),
-          });
-        const settings = yield* serverSettings.getSettings.pipe(Effect.mapError(toUpdateError));
-        if (!isProviderEnabledForSettings(provider, settings)) {
-          return yield* new ServerProviderUpdateError({
-            provider,
-            reason: "Provider is disabled in Penkra settings.",
-          });
-        }
-        return yield* new ServerProviderUpdateError({
-          provider,
-          reason: "Provider runtimes are updated by Penkra's managed update service.",
-        });
-      });
-
       return {
         // Mirror upstream's behavior here: reads consume the latest stable
         // snapshot, while refreshes happen explicitly or from provider streams.
         getStatuses: Ref.get(statusesRef).pipe(Effect.flatMap(projectStatusesForCurrentSettings)),
         refresh,
-        updateProvider,
         get streamChanges() {
           return Stream.fromPubSub(changesPubSub);
         },
