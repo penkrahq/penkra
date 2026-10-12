@@ -1,4 +1,5 @@
-import { ThreadPublisherLive } from "../../cleanCore/ThreadPublisher.ts";
+import { updateNavigation } from "../../cleanCore/navigation.ts";
+import { ThreadPublisher, ThreadPublisherLive } from "../../cleanCore/ThreadPublisher.ts";
 import { updateThreadFixture } from "../../cleanCore/threadFixtures.ts";
 import * as SqlClient from "effect/unstable/sql/SqlClient";
 import { createThreadFixture } from "../../cleanCore/threadFixtures.ts";
@@ -108,6 +109,7 @@ async function makeSystem(options?: {
     } as never),
   );
   const engineLayer = OrchestrationEngineLive.pipe(
+    Layer.provideMerge(ThreadPublisherLive),
     Layer.provide(OrchestrationProjectionPipelineLive),
     Layer.provide(OrchestrationProjectionSnapshotQueryLive),
     Layer.provide(OrchestrationEventStoreLive),
@@ -133,7 +135,8 @@ async function makeSystem(options?: {
   return {
     threadId,
     sql: await runtime.runPromise(Effect.service(SqlClient.SqlClient)),
-    run: <A, E>(effect: Effect.Effect<A, E>) => runtime.runPromise(effect),
+    run: <A, E>(effect: Effect.Effect<A, E, SqlClient.SqlClient | ThreadPublisher>) =>
+      runtime.runPromise(effect),
     engine: await runtime.runPromise(Effect.service(OrchestrationEngineService)),
     coordinator: await runtime.runPromise(Effect.service(ProviderThreadSwitchCoordinator)),
     queue: await runtime.runPromise(Effect.service(QueuedTurnPromotionRepository)),
@@ -169,25 +172,21 @@ async function seedThreadForAdmission(s: Awaited<ReturnType<typeof makeSystem>>)
   const folderId = FolderId.makeUnsafe("queued-switch-folder");
   const spaceId = SpaceId.makeUnsafe("queued-switch-space");
   await s.run(
-    s.engine.dispatch({
-      type: "space.create",
-      commandId: CommandId.makeUnsafe("queued-space"),
-      spaceId,
-      name: "Test",
-      icon: "home",
-      createdAt: at,
+    updateNavigation({
+      update: { action: "space.create", spaceId, name: "Test", icon: "home", createdAt: at },
     }),
   );
   await s.run(
-    s.engine.dispatch({
-      type: "folder.create",
-      commandId: CommandId.makeUnsafe("queued-folder"),
-      folderId,
-      spaceId,
-      title: "Test",
-      workspaceRoot: null,
-      defaultModelSelection: null,
-      createdAt: at,
+    updateNavigation({
+      update: {
+        action: "folder.create",
+        folderId,
+        spaceId,
+        title: "Test",
+        workspaceRoot: null,
+        defaultModelSelection: null,
+        createdAt: at,
+      },
     }),
   );
   await s.run(
@@ -260,25 +259,27 @@ describe("queued selection through real admission", () => {
       const turnId = TurnId.makeUnsafe("queued-switch-turn");
       try {
         await s.run(
-          s.engine.dispatch({
-            type: "space.create",
-            commandId: CommandId.makeUnsafe("queued-space"),
-            spaceId: SpaceId.makeUnsafe("queued-space"),
-            name: "Test",
-            icon: "home",
-            createdAt: at,
+          updateNavigation({
+            update: {
+              action: "space.create",
+              spaceId: SpaceId.makeUnsafe("queued-space"),
+              name: "Test",
+              icon: "home",
+              createdAt: at,
+            },
           }),
         );
         await s.run(
-          s.engine.dispatch({
-            type: "folder.create",
-            commandId: CommandId.makeUnsafe("queued-folder"),
-            folderId,
-            spaceId: SpaceId.makeUnsafe("queued-space"),
-            title: "Test",
-            workspaceRoot: null,
-            defaultModelSelection: null,
-            createdAt: at,
+          updateNavigation({
+            update: {
+              action: "folder.create",
+              folderId,
+              spaceId: SpaceId.makeUnsafe("queued-space"),
+              title: "Test",
+              workspaceRoot: null,
+              defaultModelSelection: null,
+              createdAt: at,
+            },
           }),
         );
         await s.run(

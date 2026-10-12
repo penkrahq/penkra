@@ -26,10 +26,10 @@ describe("orchestration command admission", () => {
           commandType: Parameters<typeof tryAdmitOrchestrationCommand<string>>[0]["commandType"],
         ) => tryAdmitOrchestrationCommand({ queues, envelope, commandType, policy });
 
-        expect(admit("normal-1", "folder.create")).toEqual({ accepted: true });
-        expect(admit("normal-2", "folder.create")).toEqual({ accepted: true });
-        expect(admit("normal-3", "folder.create")).toEqual({ accepted: true });
-        expect(admit("normal-overload", "folder.create")).toEqual({
+        expect(admit("normal-1", "thread.messages.import")).toEqual({ accepted: true });
+        expect(admit("normal-2", "thread.messages.import")).toEqual({ accepted: true });
+        expect(admit("normal-3", "thread.messages.import")).toEqual({ accepted: true });
+        expect(admit("normal-overload", "thread.messages.import")).toEqual({
           accepted: false,
           reason: "overloaded",
         });
@@ -73,7 +73,7 @@ describe("orchestration command admission", () => {
         // can never crowd out the stop that cancels them.
         expect(admit("start-1", "thread.turn.start")).toEqual({ accepted: true });
         expect(admit("start-2", "thread.turn.start")).toEqual({ accepted: true });
-        expect(admit("start-3", "folder.create")).toEqual({ accepted: true });
+        expect(admit("start-3", "thread.messages.import")).toEqual({ accepted: true });
         expect(admit("start-overload", "thread.turn.start")).toEqual({
           accepted: false,
           reason: "overloaded",
@@ -94,8 +94,8 @@ describe("orchestration command admission", () => {
           commandType: Parameters<typeof tryAdmitOrchestrationCommand<string>>[0]["commandType"],
         ) => tryAdmitOrchestrationCommand({ queues, envelope, commandType, policy });
 
-        expect(admit("normal-1", "folder.create")).toEqual({ accepted: true });
-        expect(admit("normal-2", "folder.update")).toEqual({ accepted: true });
+        expect(admit("normal-1", "thread.messages.import")).toEqual({ accepted: true });
+        expect(admit("normal-2", "thread.messages.import")).toEqual({ accepted: true });
         expect(admit("start-1", "thread.turn.start")).toEqual({ accepted: true });
         expect(admit("stop", "thread.turn.interrupt")).toEqual({ accepted: true });
 

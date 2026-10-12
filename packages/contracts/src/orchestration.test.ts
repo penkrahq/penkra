@@ -2,7 +2,11 @@ import assert from "node:assert/strict";
 import { it } from "@effect/vitest";
 import { Effect, Schema } from "effect";
 
-import { CleanCoreAnswerThreadQuestionInput } from "./cleanCore";
+import {
+  CleanCoreAnswerThreadQuestionInput,
+  CleanCoreFolderCreateUpdate,
+  CleanCoreFolderUpdate,
+} from "./cleanCore";
 import {
   ClientOrchestrationCommand,
   DEFAULT_RUNTIME_MODE,
@@ -11,20 +15,17 @@ import {
   OrchestrationEvent,
   OrchestrationLatestTurn,
   OrchestrationReadModel,
-  FolderCreatedPayload,
-  FolderUpdatedPayload,
   OrchestrationSession,
   PROVIDER_SEND_TURN_MAX_ATTACHMENTS,
   PROVIDER_SEND_TURN_MAX_INPUT_CHARS,
   ProviderStartOptions,
-  FolderCreateCommand,
   ThreadTurnStartCommand,
   ThreadTurnStartRequestedPayload,
 } from "./orchestration";
 
-const decodeFolderCreateCommand = Schema.decodeUnknownEffect(FolderCreateCommand);
-const decodeFolderCreatedPayload = Schema.decodeUnknownEffect(FolderCreatedPayload);
-const decodeFolderUpdatedPayload = Schema.decodeUnknownEffect(FolderUpdatedPayload);
+const decodeFolderCreateCommand = Schema.decodeUnknownEffect(CleanCoreFolderCreateUpdate);
+const decodeFolderCreatedPayload = Schema.decodeUnknownEffect(CleanCoreFolderCreateUpdate);
+const decodeFolderUpdatedPayload = Schema.decodeUnknownEffect(CleanCoreFolderUpdate);
 const decodeThreadTurnStartCommand = Schema.decodeUnknownEffect(ThreadTurnStartCommand);
 const decodeThreadTurnStartRequestedPayload = Schema.decodeUnknownEffect(
   ThreadTurnStartRequestedPayload,
@@ -195,8 +196,7 @@ it.effect("allows client Play recovery while keeping restart recovery server-onl
 it.effect("trims branded ids and command string fields at decode boundaries", () =>
   Effect.gen(function* () {
     const parsed = yield* decodeFolderCreateCommand({
-      type: "folder.create",
-      commandId: " cmd-1 ",
+      action: "folder.create",
       folderId: " project-1 ",
       spaceId: " space-1 ",
       title: " Project Title ",
@@ -207,7 +207,6 @@ it.effect("trims branded ids and command string fields at decode boundaries", ()
       },
       createdAt: "2026-01-01T00:00:00.000Z",
     });
-    assert.strictEqual(parsed.commandId, "cmd-1");
     assert.strictEqual(parsed.folderId, "project-1");
     assert.strictEqual(parsed.title, "Project Title");
     assert.strictEqual(parsed.workspaceRoot, "/tmp/workspace");
@@ -218,9 +217,10 @@ it.effect("trims branded ids and command string fields at decode boundaries", ()
   }),
 );
 
-it.effect("decodes folder.created payloads with a default provider", () =>
+it.effect("decodes folder creation with a default provider", () =>
   Effect.gen(function* () {
     const parsed = yield* decodeFolderCreatedPayload({
+      action: "folder.create",
       folderId: "project-1",
       spaceId: "space-1",
       title: "Project Title",
@@ -237,9 +237,10 @@ it.effect("decodes folder.created payloads with a default provider", () =>
   }),
 );
 
-it.effect("decodes folder.updated payloads with explicit default provider", () =>
+it.effect("decodes folder updates with explicit default provider", () =>
   Effect.gen(function* () {
     const parsed = yield* decodeFolderUpdatedPayload({
+      action: "folder.update",
       folderId: "project-1",
       defaultModelSelection: {
         provider: "claudeAgent",
@@ -255,6 +256,7 @@ it.effect("accepts bounded raster folder icons and rejects untrusted image data 
   Effect.gen(function* () {
     const iconDataUrl = "data:image/webp;base64,Y3VzdG9t";
     const parsed = yield* decodeFolderUpdatedPayload({
+      action: "folder.update",
       folderId: "project-1",
       iconDataUrl,
       updatedAt: "2026-01-01T00:00:00.000Z",
@@ -263,6 +265,7 @@ it.effect("accepts bounded raster folder icons and rejects untrusted image data 
 
     const svg = yield* Effect.exit(
       decodeFolderUpdatedPayload({
+        action: "folder.update",
         folderId: "project-1",
         iconDataUrl: "data:image/svg+xml;base64,PHN2Zy8+",
         updatedAt: "2026-01-01T00:00:00.000Z",
@@ -276,7 +279,7 @@ it.effect("rejects command fields that become empty after trim", () =>
   Effect.gen(function* () {
     const result = yield* Effect.exit(
       decodeFolderCreateCommand({
-        type: "folder.create",
+        action: "folder.create",
         commandId: "cmd-1",
         folderId: "project-1",
         title: "  ",

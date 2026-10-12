@@ -20,13 +20,9 @@ export function toSpaceIconName(icon: string): SpaceIconName {
 export function resolveActiveSpaceId(
   activeSpaceId: SpaceId | null,
   spaces: ReadonlyArray<Space>,
-  pendingActiveSpaceId: SpaceId | null = null,
 ): SpaceId | null {
   if (activeSpaceId === null) return null;
-  return activeSpaceId === pendingActiveSpaceId ||
-    spaces.some((space) => space.id === activeSpaceId)
-    ? activeSpaceId
-    : null;
+  return spaces.some((space) => space.id === activeSpaceId) ? activeSpaceId : null;
 }
 
 function requireSpace(spaceId: SpaceId, spaces: ReadonlyArray<Space>): Space {

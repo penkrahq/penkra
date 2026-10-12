@@ -1,6 +1,6 @@
 import { applyFolderAppTabs } from "../rightDockStore";
-import type { AppState } from "../storeState";
-import { upsertSpace, upsertProject } from "../storeProjection";
+
+import { syncServerNavigation } from "../storeProjection";
 import { applyThreadRow, subscribeThreadRowChanges } from "../threadListStore";
 import { useThreadSummary } from "../threadListStore";
 import {
@@ -44,11 +44,7 @@ import {
   serverSettingsQueryOptions,
 } from "../lib/serverReactQuery";
 import { ensureNativeApi, readNativeApi } from "../nativeApi";
-import {
-  finalizePromotedDraftThreads,
-  markPromotedDraftThreads,
-  useComposerDraftStore,
-} from "../composerDraftStore";
+import { finalizePromotedDraftThreads, markPromotedDraftThreads } from "../composerDraftStore";
 import { advanceComposerSendPreflightAppliedSequence } from "../composerSendPreflight";
 import {
   recordChatLifecycleSyncDiagnostic,
@@ -71,7 +67,7 @@ import { VoiceSessionCoordinatorProvider } from "../voiceSessionCoordinator";
 import { TaskCompletionNotifications } from "../notifications/taskCompletion";
 import { useWorkspacePathsStore } from "../workspacePathsStore";
 import { setVisibleThreadDetailIds } from "../threadDetailSubscriptionRetention";
-import { getThreadFromState, getThreadsFromState } from "../threadDerivation";
+import { getThreadFromState } from "../threadDerivation";
 import { useAppDensity } from "../hooks/useAppDensity";
 import { useAppTypography } from "../hooks/useAppTypography";
 import { usePreloadRouteChunks } from "../hooks/usePreloadRouteChunks";
@@ -425,23 +421,30 @@ function errorDetails(error: unknown): string {
 }
 
 function EventRouter() {
-  useEffect(
-    () =>
-      ensureNativeApi().cleanCore.onSidebarChange((change) => {
-        if (change.kind === "folder.appTabs") {
-          applyFolderAppTabs(change);
-          return;
-        }
-        if (change.kind !== "navigation.restored") return;
-        useStore.setState((state) => {
-          let next: AppState = state;
-          for (const space of change.spaces) next = upsertSpace(next, space);
-          for (const folder of change.folders) next = upsertProject(next, folder, "id-only");
-          return next;
-        });
-      }),
-    [],
-  );
+  useEffect(() => {
+    const api = ensureNativeApi();
+    let disposed = false;
+    let latestRead = 0;
+    const unsubscribe = api.cleanCore.onSidebarChange((change) => {
+      if (change.kind === "folder.appTabs") {
+        applyFolderAppTabs(change);
+        return;
+      }
+      if (change.kind !== "navigation") return;
+      const read = ++latestRead;
+      void api.cleanCore
+        .getNavigation()
+        .then((navigation) => {
+          if (!disposed && read === latestRead)
+            useStore.setState((state) => syncServerNavigation(state, navigation));
+        })
+        .catch((error) => toastManager.add({ type: "error", title: errorMessage(error) }));
+    });
+    return () => {
+      disposed = true;
+      unsubscribe();
+    };
+  }, []);
   useEffect(
     () =>
       subscribeThreadRowChanges(

@@ -25,6 +25,10 @@ import {
   ChatAttachment,
   ProviderStartOptions,
   AssistantDeliveryMode,
+  SpaceName,
+  SpaceIconName,
+  FolderIconDataUrl,
+  FOLDER_MOVE_MAX_COUNT,
 } from "./orchestration";
 
 /** Bounded read page size from clean-core design 2.1 and 2.8. */
@@ -254,27 +258,81 @@ export const CleanCoreUpdateFolderAppTabsInput = Schema.Struct({
 });
 export type CleanCoreUpdateFolderAppTabsInput = typeof CleanCoreUpdateFolderAppTabsInput.Type;
 
+export const CleanCoreGetNavigationResult = Schema.Struct({
+  spaces: Schema.Array(OrchestrationSpaceShell),
+  folders: Schema.Array(OrchestrationFolderShell),
+});
+export type CleanCoreGetNavigationResult = typeof CleanCoreGetNavigationResult.Type;
+export const CleanCoreFolderCreateUpdate = Schema.Struct({
+  action: Schema.Literal("folder.create"),
+  folderId: FolderId,
+  title: TrimmedNonEmptyString,
+  workspaceRoot: Schema.optional(Schema.NullOr(TrimmedNonEmptyString)).pipe(
+    Schema.withDecodingDefault(() => null),
+  ),
+  defaultModelSelection: Schema.optional(Schema.NullOr(ModelSelection)),
+  spaceId: SpaceId,
+  createdAt: IsoDateTime,
+});
+export const CleanCoreFolderUpdate = Schema.Struct({
+  action: Schema.Literal("folder.update"),
+  folderId: FolderId,
+  title: Schema.optional(TrimmedNonEmptyString),
+  workspaceRoot: Schema.optional(Schema.NullOr(TrimmedNonEmptyString)),
+  defaultModelSelection: Schema.optional(Schema.NullOr(ModelSelection)),
+  iconDataUrl: Schema.optional(Schema.NullOr(FolderIconDataUrl)),
+  archivedAt: Schema.optional(Schema.NullOr(IsoDateTime)),
+});
+export const CleanCoreNavigationUpdate = Schema.Union([
+  Schema.Struct({
+    action: Schema.Literal("space.create"),
+    spaceId: SpaceId,
+    name: SpaceName,
+    icon: SpaceIconName,
+    createdAt: IsoDateTime,
+  }),
+  Schema.Struct({
+    action: Schema.Literal("space.update"),
+    spaceId: SpaceId,
+    name: Schema.optional(SpaceName),
+    icon: Schema.optional(SpaceIconName),
+  }),
+  Schema.Struct({
+    action: Schema.Literal("space.archive"),
+    spaceId: SpaceId,
+  }),
+  Schema.Struct({
+    action: Schema.Literal("space.restore"),
+    spaceId: SpaceId,
+    name: Schema.optional(SpaceName),
+  }),
+  Schema.Struct({
+    action: Schema.Literal("space.delete"),
+    spaceId: SpaceId,
+  }),
+  CleanCoreFolderCreateUpdate,
+  CleanCoreFolderUpdate,
+  Schema.Struct({
+    action: Schema.Literal("folder.move"),
+    spaceId: SpaceId,
+    folderIds: Schema.Array(FolderId).check(
+      Schema.isMinLength(1),
+      Schema.isMaxLength(FOLDER_MOVE_MAX_COUNT),
+    ),
+  }),
+  Schema.Struct({
+    action: Schema.Literal("folder.delete"),
+    folderId: FolderId,
+  }),
+]);
+export type CleanCoreNavigationUpdate = typeof CleanCoreNavigationUpdate.Type;
+export const CleanCoreUpdateNavigationInput = Schema.Struct({ update: CleanCoreNavigationUpdate });
+export type CleanCoreUpdateNavigationInput = typeof CleanCoreUpdateNavigationInput.Type;
+
 export const CleanCoreSidebarChange = Schema.Union([
   Schema.Struct({ kind: Schema.Literal("folder.appTabs"), ...CleanCoreFolderAppTabsResult.fields }),
-  Schema.Struct({
-    kind: Schema.Literal("navigation.restored"),
-    spaces: Schema.Array(OrchestrationSpaceShell),
-    folders: Schema.Array(OrchestrationFolderShell),
-  }),
+  Schema.Struct({ kind: Schema.Literal("navigation") }),
   Schema.Struct({ kind: Schema.Literals(["thread", "thread.created"]), threadId: ThreadId }),
-  Schema.Struct({
-    kind: Schema.Literal("folder"),
-    folderId: FolderId,
-    spaceId: SpaceId,
-    sidebarSortOrder: Schema.Number,
-    updatedAt: IsoDateTime,
-  }),
-  Schema.Struct({
-    kind: Schema.Literal("space"),
-    spaceId: SpaceId,
-    sortOrder: Schema.Number,
-    updatedAt: IsoDateTime,
-  }),
 ]);
 export type CleanCoreSidebarChange = typeof CleanCoreSidebarChange.Type;
 

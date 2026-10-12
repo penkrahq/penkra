@@ -1,7 +1,6 @@
 // FILE: threadItemsStore.ts
 // Purpose: Pure state for the clean-core transcript (0.14.4 design 2.1): load a
-// page by seq, prepend older pages, and merge pushes by seq/source id. Not
-// wired into the UI yet.
+// page by seq, prepend older pages, and authoritatively replace refreshed ranges.
 // Layer: Web state (pure)
 // Exports: ThreadItemsState, EMPTY_THREAD_ITEMS_STATE, loadFirstPage,
 //   prependOlderPage, mergeItems
@@ -52,18 +51,21 @@ export const prependOlderPage = (
   loaded: true,
 });
 
-/**
- * A push (or a refreshed newest page): upsert by seq and, within a seq, by
- * source id, so an updated item replaces its prior copy and a new one is added.
- */
+/** The newest page is authoritative from its oldest seq onward. */
 export const mergeItems = (
   state: ThreadItemsState,
   incoming: ReadonlyArray<CleanCoreThreadItem>,
-): ThreadItemsState => ({
-  ...state,
-  items: mergeBySeq(state.items, incoming),
-  loaded: true,
-});
+): ThreadItemsState => {
+  const firstSeq = incoming.length === 0 ? 0 : Math.min(...incoming.map((item) => item.seq));
+  return {
+    ...state,
+    items: mergeBySeq(
+      state.items.filter((item) => item.seq < firstSeq),
+      incoming,
+    ),
+    loaded: true,
+  };
+};
 
 function mergeBySeq(
   existing: ReadonlyArray<CleanCoreThreadItem>,

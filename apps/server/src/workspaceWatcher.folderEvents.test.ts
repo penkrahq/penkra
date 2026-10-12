@@ -2,38 +2,58 @@ import { EventEmitter } from "node:events";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { ServerConfig } from "./config";
-import { DURABLE_THREAD_WORKSPACES_DIRNAME } from "./scratchWorkspaces";
 import * as NodeServices from "@effect/platform-node/NodeServices";
-import { Effect, Exit, Layer, Queue, Scope, Stream, ServiceMap } from "effect";
-import {
-  FolderId,
-  SpaceId,
-  type OrchestrationEvent,
-  type OrchestrationReadModel,
-} from "@penkra/contracts";
+import { FolderId, SpaceId } from "@penkra/contracts";
+import { Effect, Exit, Layer, Scope, ServiceMap } from "effect";
 import { expect, it, vi } from "vitest";
-import {
-  OrchestrationEngineService,
-  type OrchestrationEngineShape,
-} from "./orchestration/Services/OrchestrationEngine";
+import { ServerConfig } from "./config";
+import { ThreadPublisher } from "./cleanCore/ThreadPublisher";
+import { makeThreadPublisher } from "./cleanCore/threadStore";
+import * as NodeSqliteClient from "./persistence/NodeSqliteClient";
+import { DURABLE_THREAD_WORKSPACES_DIRNAME } from "./scratchWorkspaces";
 import { WorkspaceWatcherLive } from "./workspaceWatcher";
-
-const watch = vi.hoisted(() => vi.fn());
+const observed = vi.hoisted(() => ({
+  roots: [] as string[],
+  readComplete: undefined as (() => void) | undefined,
+  watch: vi.fn(),
+}));
 vi.mock("node:fs", async (original) => ({
   ...(await original<typeof import("node:fs")>()),
-  watch,
+  watch: observed.watch,
 }));
-
-it("watches newly created folders, moves a changed root, and retains an unchanged watch through the live event consumer", async () => {
+vi.mock("./cleanCore/navigation", async (original) => {
+  const { Effect } = await import("effect");
+  return {
+    ...(await original<typeof import("./cleanCore/navigation")>()),
+    getNavigation: Effect.sync(() => {
+      observed.readComplete?.();
+      return {
+        spaces: [],
+        folders: observed.roots.map((workspaceRoot) => ({
+          id: FolderId.makeUnsafe("watched"),
+          spaceId: SpaceId.makeUnsafe("space"),
+          title: "Watched",
+          workspaceRoot,
+          defaultModelSelection: null,
+          sidebarSortOrder: 0,
+          createdAt: "2026-10-12T00:00:00.000Z",
+          updatedAt: "2026-10-12T00:00:00.000Z",
+          archivedAt: null,
+        })),
+      };
+    }),
+  };
+});
+it("watches newly created folders, moves a changed root, and retains an unchanged watch through the bare change consumer", async () => {
   const stateDir = await mkdtemp(path.join(tmpdir(), "penkra-folder-watch-"));
-  const events = await Effect.runPromise(Queue.unbounded<OrchestrationEvent>());
   const scope = await Effect.runPromise(Scope.make("sequential"));
-  let roots: string[] = [];
-  let readComplete: (() => void) | undefined;
+  const publisher = makeThreadPublisher();
   let watchComplete: (() => void) | undefined;
   const closers: ReturnType<typeof vi.fn>[] = [];
-  watch.mockImplementation(() => {
+  observed.roots = [];
+  observed.readComplete = undefined;
+  observed.watch.mockReset();
+  observed.watch.mockImplementation(() => {
     const subscription = new EventEmitter();
     const close = vi.fn();
     Object.assign(subscription, { close });
@@ -41,56 +61,14 @@ it("watches newly created folders, moves a changed root, and retains an unchange
     watchComplete?.();
     return subscription;
   });
-  const engine = {
-    getCommandReadModel: () =>
-      Effect.sync(() => {
-        readComplete?.();
-        const at = "2026-10-11T00:00:00.000Z";
-        const spaceId = SpaceId.makeUnsafe("watch-space");
-        return {
-          snapshotSequence: 0,
-          spaces: [
-            {
-              id: spaceId,
-              name: "Watch space",
-              icon: "bag",
-              sortOrder: 0,
-              createdAt: at,
-              updatedAt: at,
-              archivedAt: null,
-              deletedAt: null,
-            },
-          ],
-          folders: roots.map((workspaceRoot) => ({
-            id: FolderId.makeUnsafe("watch-folder"),
-            title: "Watch folder",
-            workspaceRoot,
-            defaultModelSelection: null,
-            scripts: [],
-            spaceId,
-            sidebarSortOrder: 0,
-            createdAt: at,
-            updatedAt: at,
-            archivedAt: null,
-            deletedAt: null,
-          })),
-          threads: [],
-          updatedAt: at,
-        } satisfies OrchestrationReadModel;
-      }),
-    streamDomainEvents: Stream.fromQueue(events),
-  } as unknown as OrchestrationEngineShape;
   try {
     const context = await Effect.runPromise(
       Layer.buildWithScope(
         WorkspaceWatcherLive.pipe(
+          Layer.provideMerge(Layer.succeed(ThreadPublisher, publisher)),
+          Layer.provideMerge(NodeSqliteClient.layerMemory()),
           Layer.provideMerge(
-            Layer.merge(
-              Layer.succeed(OrchestrationEngineService, engine),
-              ServerConfig.layerTest(process.cwd(), stateDir).pipe(
-                Layer.provide(NodeServices.layer),
-              ),
-            ),
+            ServerConfig.layerTest(process.cwd(), stateDir).pipe(Layer.provide(NodeServices.layer)),
           ),
         ),
         scope,
@@ -100,45 +78,39 @@ it("watches newly created folders, moves a changed root, and retains an unchange
       ServiceMap.get(context, ServerConfig).stateDir,
       DURABLE_THREAD_WORKSPACES_DIRNAME,
     );
-    expect(watch).toHaveBeenCalledOnce();
-    expect(watch.mock.calls[0]?.[0]).toBe(scratchRoot);
-    const publish = (type: OrchestrationEvent["type"]) =>
-      Effect.runPromise(Queue.offer(events, { type } as OrchestrationEvent));
+    expect(observed.watch).toHaveBeenCalledOnce();
+    expect(observed.watch.mock.calls[0]?.[0]).toBe(scratchRoot);
     const nextWatch = () =>
       new Promise<void>((resolve) => {
         watchComplete = resolve;
       });
-    roots = ["/new-folder"];
+    observed.roots = ["/new-folder"];
     const created = nextWatch();
-    await publish("folder.created");
+    publisher.publishSidebar({ kind: "navigation" });
     await created;
-    expect(watch).toHaveBeenCalledTimes(2);
-    expect(watch.mock.calls[1]?.[0]).toBe("/new-folder");
-
-    roots = ["/changed-folder"];
+    expect(observed.watch).toHaveBeenCalledTimes(2);
+    expect(observed.watch.mock.calls[1]?.[0]).toBe("/new-folder");
+    observed.roots = ["/changed-folder"];
     const changed = nextWatch();
-    await publish("folder.updated");
+    publisher.publishSidebar({ kind: "navigation" });
     await changed;
     expect(closers[1]).toHaveBeenCalledTimes(1);
-    expect(watch).toHaveBeenCalledTimes(3);
-    expect(watch.mock.calls[2]?.[0]).toBe("/changed-folder");
-
-    // Sequential stream processing gives a completion barrier: the next read
-    // cannot begin until the preceding unchanged update finished reconciliation.
+    expect(observed.watch).toHaveBeenCalledTimes(3);
+    expect(observed.watch.mock.calls[2]?.[0]).toBe("/changed-folder");
     let reads = 0;
     const unchanged = new Promise<void>((resolve) => {
-      readComplete = () => {
+      observed.readComplete = () => {
         if (++reads === 2) resolve();
       };
     });
-    await publish("folder.updated");
-    await publish("folder.updated");
+    publisher.publishSidebar({ kind: "navigation" });
+    publisher.publishSidebar({ kind: "navigation" });
     await unchanged;
-    expect(watch).toHaveBeenCalledTimes(3);
+    expect(observed.watch).toHaveBeenCalledTimes(3);
     expect(closers[2]).not.toHaveBeenCalled();
   } finally {
     await Effect.runPromise(Scope.close(scope, Exit.void));
-    await Effect.runPromise(Queue.shutdown(events));
+    observed.readComplete = undefined;
     await rm(stateDir, { recursive: true, force: true });
   }
   expect(closers[0]).toHaveBeenCalledTimes(1);

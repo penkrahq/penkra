@@ -1,4 +1,4 @@
-import { CommandId, EventId, FolderId, SpaceId, ThreadId } from "@penkra/contracts";
+import { CommandId, EventId, FolderId, ThreadId } from "@penkra/contracts";
 import { assert, it } from "@effect/vitest";
 import { Effect, Layer, Schema, Stream } from "effect";
 import * as SqlClient from "effect/unstable/sql/SqlClient";
@@ -75,27 +75,16 @@ layer("OrchestrationEventStore", (it) => {
       const startSequence = yield* eventStore.getHighWaterSequence();
 
       const appended = yield* eventStore.append({
-        type: "folder.created",
+        type: "thread.session-stop-requested",
         eventId: EventId.makeUnsafe("evt-store-roundtrip"),
-        aggregateKind: "folder",
-        aggregateId: FolderId.makeUnsafe("project-roundtrip"),
+        aggregateKind: "thread",
+        aggregateId: ThreadId.makeUnsafe("thread-roundtrip"),
         occurredAt: now,
         commandId: CommandId.makeUnsafe("cmd-store-roundtrip"),
         causationEventId: null,
         correlationId: CommandId.makeUnsafe("cmd-store-roundtrip"),
-        metadata: {
-          adapterKey: "codex",
-        },
-        payload: {
-          folderId: FolderId.makeUnsafe("project-roundtrip"),
-          spaceId: SpaceId.makeUnsafe("penkra-personal"),
-          title: "Roundtrip Project",
-          workspaceRoot: "/tmp/project-roundtrip",
-          defaultModelSelection: null,
-          scripts: [],
-          createdAt: now,
-          updatedAt: now,
-        },
+        metadata: { adapterKey: "codex" },
+        payload: { threadId: ThreadId.makeUnsafe("thread-roundtrip"), createdAt: now },
       });
 
       const storedRows = yield* sql<{
@@ -117,7 +106,7 @@ layer("OrchestrationEventStore", (it) => {
         eventStore.readFromSequence(startSequence, 10),
       ).pipe(Effect.map((chunk) => Array.from(chunk)));
       assert.equal(replayed.length, 1);
-      assert.equal(replayed[0]?.type, "folder.created");
+      assert.equal(replayed[0]?.type, "thread.session-stop-requested");
       assert.equal(replayed[0]?.metadata.adapterKey, "codex");
     }),
   );
@@ -144,32 +133,6 @@ layer("OrchestrationEventStore", (it) => {
           metadata_json
         )
         VALUES
-        (
-          ${EventId.makeUnsafe("evt-import-project-created")},
-          ${"folder"},
-          ${FolderId.makeUnsafe("project-imported")},
-          ${0},
-          ${"folder.created"},
-          ${now},
-          ${CommandId.makeUnsafe("cmd-import-project-created")},
-          ${null},
-          ${null},
-          ${"server"},
-          ${JSON.stringify({
-            folderId: "project-imported",
-            spaceId: "penkra-personal",
-            title: "Imported Project",
-            workspaceRoot: "/tmp/imported",
-            defaultModelSelection: {
-              instanceId: "codex",
-              model: "imported-project-model",
-            },
-            scripts: [],
-            createdAt: now,
-            updatedAt: now,
-          })},
-          ${"{}"}
-        ),
         (
           ${EventId.makeUnsafe("evt-import-turn-start")},
           ${"thread"},
@@ -201,22 +164,10 @@ layer("OrchestrationEventStore", (it) => {
       const replayed = yield* Stream.runCollect(eventStore.readFromSequence(0, 10)).pipe(
         Effect.map((chunk) => Array.from(chunk)),
       );
-      const projectCreated = replayed.find(
-        (event) => event.eventId === EventId.makeUnsafe("evt-import-project-created"),
-      );
       const turnStartRequested = replayed.find(
         (event) => event.eventId === EventId.makeUnsafe("evt-import-turn-start"),
       );
 
-      assert.deepStrictEqual(
-        projectCreated?.type === "folder.created"
-          ? projectCreated.payload.defaultModelSelection
-          : null,
-        {
-          provider: "codex",
-          model: "imported-project-model",
-        },
-      );
       assert.deepStrictEqual(
         turnStartRequested?.type === "thread.turn-start-requested"
           ? turnStartRequested.payload.modelSelection

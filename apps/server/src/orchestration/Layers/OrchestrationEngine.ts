@@ -5,8 +5,6 @@ import type {
   ChatAttachment,
   OrchestrationEvent,
   OrchestrationReadModel,
-  FolderId,
-  SpaceId,
   ThreadId,
 } from "@penkra/contracts";
 import { OrchestrationCommand } from "@penkra/contracts";
@@ -74,10 +72,7 @@ import { decideOrchestrationCommand } from "../decider.ts";
 import { isProviderIntentEvent } from "../providerIntentClassification.ts";
 import { userStopPending } from "../userStopPending.ts";
 import { createEmptyReadModel, projectEvent } from "../projector.ts";
-import {
-  OrchestrationProjectionPipeline,
-  type ShellMetadataOrchestrationEvent,
-} from "../Services/ProjectionPipeline.ts";
+import { OrchestrationProjectionPipeline } from "../Services/ProjectionPipeline.ts";
 import { ProjectionSnapshotQuery } from "../Services/ProjectionSnapshotQuery.ts";
 import {
   OrchestrationEngineService,
@@ -156,49 +151,10 @@ const providerSessionOwnershipMatches = (
       observed.activeTurnId === (expected.activeTurnId ?? null);
 
 function commandToAggregateRef(command: OrchestrationCommand): {
-  readonly aggregateKind: "space" | "folder" | "thread";
-  readonly aggregateId: SpaceId | FolderId | ThreadId;
+  readonly aggregateKind: "thread";
+  readonly aggregateId: ThreadId;
 } {
-  switch (command.type) {
-    case "space.create":
-    case "space.update":
-    case "space.archive":
-    case "space.restore":
-    case "space.delete":
-    case "folder.move":
-      return {
-        aggregateKind: "space",
-        aggregateId: command.spaceId,
-      };
-    case "folder.create":
-    case "folder.update":
-    case "folder.delete":
-      return {
-        aggregateKind: "folder",
-        aggregateId: command.folderId,
-      };
-    default:
-      return {
-        aggregateKind: "thread",
-        aggregateId: command.threadId,
-      };
-  }
-}
-
-// Space and folder metadata events share the synchronous "shell" projection path: they
-// are cheap, sidebar-visible rows that must be queryable the moment the command commits.
-function isShellMetadataEvent(event: OrchestrationEvent): event is ShellMetadataOrchestrationEvent {
-  return (
-    event.type === "space.created" ||
-    event.type === "space.updated" ||
-    event.type === "space.archived" ||
-    event.type === "space.restored" ||
-    event.type === "space.deleted" ||
-    event.type === "folder.created" ||
-    event.type === "folder.updated" ||
-    event.type === "folder.moved" ||
-    event.type === "folder.deleted"
-  );
+  return { aggregateKind: "thread", aggregateId: command.threadId };
 }
 
 const makeOrchestrationEngine = Effect.gen(function* () {
@@ -887,11 +843,7 @@ const makeOrchestrationEngine = Effect.gen(function* () {
             yield* providerIntentOutbox.enqueueInCurrentTransaction(savedEvent);
           }
           nextCommandReadModel = yield* projectEvent(nextCommandReadModel, savedEvent);
-          if (isShellMetadataEvent(savedEvent)) {
-            yield* projectionPipeline.folderMetadataEvent(savedEvent);
-          } else {
-            yield* projectionPipeline.projectHotEventInCurrentTransaction(savedEvent);
-          }
+          yield* projectionPipeline.projectHotEventInCurrentTransaction(savedEvent);
           committedEvents.push(savedEvent);
         }
 

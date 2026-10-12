@@ -1,3 +1,4 @@
+import { updateNavigation } from "../../cleanCore/navigation.ts";
 // FILE: ProviderCommandReactor.test.ts
 // Purpose: Verifies provider intent orchestration, queueing, rollback, and native-session flows.
 // Layer: Orchestration integration tests
@@ -86,7 +87,7 @@ import { OrchestrationProjectionPipelineLive } from "./ProjectionPipeline.ts";
 import { OrchestrationProjectionSnapshotQueryLive } from "./ProjectionSnapshotQuery.ts";
 import { ProjectionSnapshotQuery } from "../Services/ProjectionSnapshotQuery.ts";
 import { ProviderRuntimeIngestionLive } from "./ProviderRuntimeIngestion.ts";
-import { ThreadPublisherLive } from "../../cleanCore/ThreadPublisher.ts";
+import { ThreadPublisher, ThreadPublisherLive } from "../../cleanCore/ThreadPublisher.ts";
 import {
   classifyProviderAttemptOutcome,
   makeProviderCommandReactorLive,
@@ -176,7 +177,11 @@ async function waitFor(
 
 describe("ProviderCommandReactor", () => {
   let runtime: ManagedRuntime.ManagedRuntime<
-    OrchestrationEngineService | ProviderCommandReactor | ProviderRuntimeIngestionService,
+    | OrchestrationEngineService
+    | ProviderCommandReactor
+    | ProviderRuntimeIngestionService
+    | SqlClient.SqlClient
+    | ThreadPublisher,
     unknown
   > | null = null;
   let scope: Scope.Closeable | null = null;
@@ -563,6 +568,7 @@ describe("ProviderCommandReactor", () => {
       }),
     );
     const orchestrationLayer = OrchestrationEngineLive.pipe(
+      Layer.provideMerge(ThreadPublisherLive),
       Layer.provide(OrchestrationProjectionPipelineLive),
       Layer.provide(OrchestrationProjectionSnapshotQueryLive),
       Layer.provide(OrchestrationEventStoreLive),
@@ -745,26 +751,28 @@ describe("ProviderCommandReactor", () => {
     };
 
     if (!input?.skipSeed) {
-      await Effect.runPromise(
-        engine.dispatch({
-          type: "space.create",
-          commandId: CommandId.makeUnsafe("cmd-space-create"),
-          spaceId: SpaceId.makeUnsafe("space-personal"),
-          name: "Personal",
-          icon: "home",
-          createdAt: now,
+      await runtime.runPromise(
+        updateNavigation({
+          update: {
+            action: "space.create",
+            spaceId: SpaceId.makeUnsafe("space-personal"),
+            name: "Personal",
+            icon: "home",
+            createdAt: now,
+          },
         }),
       );
-      await Effect.runPromise(
-        engine.dispatch({
-          type: "folder.create",
-          commandId: CommandId.makeUnsafe("cmd-project-create"),
-          folderId: asFolderId("project-1"),
-          title: "Provider Project",
-          workspaceRoot: null,
-          spaceId: SpaceId.makeUnsafe("space-personal"),
-          defaultModelSelection: modelSelection,
-          createdAt: now,
+      await runtime.runPromise(
+        updateNavigation({
+          update: {
+            action: "folder.create",
+            folderId: asFolderId("project-1"),
+            title: "Provider Project",
+            workspaceRoot: null,
+            spaceId: SpaceId.makeUnsafe("space-personal"),
+            defaultModelSelection: modelSelection,
+            createdAt: now,
+          },
         }),
       );
       await Effect.runPromise(
@@ -788,6 +796,8 @@ describe("ProviderCommandReactor", () => {
     }
 
     return {
+      run: <A, E>(effect: Effect.Effect<A, E, SqlClient.SqlClient | ThreadPublisher>) =>
+        runtime.runPromise(effect),
       seedNativeConversation: async () => {
         const nativeStateId = "fixture-thread-1";
         const sessionId = crypto.randomUUID();
@@ -1418,6 +1428,23 @@ describe("ProviderCommandReactor", () => {
     );
     expect(before.pipe(Option.getOrThrow).lastAckedSequence).toBe(0);
 
+    await Effect.runPromise(
+      harness.engine.dispatch({
+        type: "thread.activity.append",
+        commandId: CommandId.makeUnsafe("irrelevant-activity"),
+        threadId: ThreadId.makeUnsafe("thread-1"),
+        createdAt: "2026-10-12T00:00:00.000Z",
+        activity: {
+          id: EventId.makeUnsafe("irrelevant-activity"),
+          kind: "test",
+          tone: "info",
+          summary: "Irrelevant to provider commands",
+          payload: {},
+          turnId: null,
+          createdAt: "2026-10-12T00:00:00.000Z",
+        },
+      }),
+    );
     const events = await Effect.runPromise(
       Stream.runCollect(harness.engine.readEvents(0)).pipe(
         Effect.map((chunk) => Array.from(chunk)),
@@ -1431,13 +1458,13 @@ describe("ProviderCommandReactor", () => {
       harness.deliveryRepository.getConsumerState("provider-command-reactor.v1"),
     );
     expect(after.pipe(Option.getOrThrow).lastAckedSequence).toBe(lastSequence);
-    const projectDelivery = await Effect.runPromise(
+    const activityDelivery = await Effect.runPromise(
       harness.deliveryRepository.getDelivery({
         consumerName: "provider-command-reactor.v1",
         eventSequence: events[0]!.sequence,
       }),
     );
-    expect(Option.isNone(projectDelivery)).toBe(true);
+    expect(Option.isNone(activityDelivery)).toBe(true);
   });
 
   it("REL-01B gate: drain waits for an accepted external command to settle durably", async () => {
@@ -4157,19 +4184,20 @@ describe("ProviderCommandReactor", () => {
     const harness = await createHarness();
     const now = new Date().toISOString();
 
-    await Effect.runPromise(
-      harness.engine.dispatch({
-        type: "folder.create",
-        commandId: CommandId.makeUnsafe("cmd-home-project-create"),
-        folderId: asFolderId("project-home"),
-        title: "Home",
-        workspaceRoot: null,
-        spaceId: SpaceId.makeUnsafe("space-personal"),
-        defaultModelSelection: {
-          provider: "codex",
-          model: "gpt-5-codex",
+    await harness.run(
+      updateNavigation({
+        update: {
+          action: "folder.create",
+          folderId: asFolderId("project-home"),
+          title: "Home",
+          workspaceRoot: null,
+          spaceId: SpaceId.makeUnsafe("space-personal"),
+          defaultModelSelection: {
+            provider: "codex",
+            model: "gpt-5-codex",
+          },
+          createdAt: now,
         },
-        createdAt: now,
       }),
     );
 

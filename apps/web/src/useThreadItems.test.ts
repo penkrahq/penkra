@@ -88,3 +88,23 @@ it("ignores a push for another thread", async () => {
   expect(controller.getState().items.map((i) => i.seq)).toEqual([1]);
   controller.dispose();
 });
+
+it("a failure push removes the sending item on the authoritative re-read", async () => {
+  const sending = { ...item(2, "retry this"), kind: "user", status: "sending" };
+  const { api, emitPush } = makeApi({ first: { items: [sending, item(1)], nextCursor: null } });
+  const controller = createThreadItemsController(api, "thread-1", () => undefined);
+  await controller.loadFirst();
+  expect(controller.getState().items.some((row) => row.status === "sending")).toBe(true);
+  let resolveReread!: () => void;
+  const reread = new Promise<void>((resolve) => {
+    resolveReread = resolve;
+  });
+  api.listThreadItemsPage = vi.fn(async () => {
+    resolveReread();
+    return { items: [item(1)], nextCursor: null };
+  });
+  emitPush("thread-1");
+  await reread;
+  await vi.waitFor(() => expect(controller.getState().items.map((row) => row.seq)).toEqual([1]));
+  controller.dispose();
+});

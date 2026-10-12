@@ -56,3 +56,26 @@ it("empty state is not loaded", () => {
   expect(EMPTY_THREAD_ITEMS_STATE.loaded).toBe(false);
   expect(EMPTY_THREAD_ITEMS_STATE.items).toEqual([]);
 });
+
+it("removes a failed sending row from the authoritative newest range while retaining older pages", () => {
+  const before = loadFirstPage({
+    items: [
+      item(4, { kind: "user", status: "sending", text: "retry me" }),
+      item(3),
+      item(2),
+      item(1),
+    ],
+    nextCursor: null,
+  });
+  const after = mergeItems(before, [item(3), item(2)]);
+  expect(after.items.map((row) => row.seq)).toEqual([1, 2, 3]);
+  expect(after.items.some((row) => row.status === "sending")).toBe(false);
+});
+
+it("clears the transcript when the authoritative newest read is empty", () => {
+  const before = loadFirstPage({
+    items: [item(1, { kind: "user", status: "sending" })],
+    nextCursor: null,
+  });
+  expect(mergeItems(before, []).items).toEqual([]);
+});

@@ -6,13 +6,7 @@
 //   renameThread, setThreadDeleted, setThreadState, updateThreadDraft, answerQuestion,
 //   settleRunningItems
 
-import {
-  FolderId,
-  SpaceId,
-  ThreadId,
-  type CleanCoreThreadUpdate,
-  type CleanCoreSidebarChange,
-} from "@penkra/contracts";
+import { ThreadId, type CleanCoreSidebarChange } from "@penkra/contracts";
 import { normalizeEntityName } from "@penkra/shared/entityNames";
 import { Effect } from "effect";
 import * as SqlClient from "effect/unstable/sql/SqlClient";
@@ -706,40 +700,4 @@ export const moveSpace = (input: {
         return changed;
       }),
     );
-  });
-
-/** Publish committed folder and space rows; no event journal or projection replay. */
-export const publishSidebarRows = (
-  publisher: ThreadPublisher,
-  kind: "folder" | "space",
-  ids: readonly string[],
-) =>
-  Effect.gen(function* () {
-    const sql = yield* SqlClient.SqlClient;
-    for (const id of ids) {
-      if (kind === "folder") {
-        const rows = yield* sql<{
-          readonly spaceId: string;
-          readonly sidebarSortOrder: number;
-          readonly updatedAt: string;
-        }>`
-          SELECT space_id AS "spaceId", sidebar_sort_order AS "sidebarSortOrder", updated_at AS "updatedAt"
-          FROM projection_folders WHERE folder_id = ${id}`;
-        const row = rows[0];
-        if (row !== undefined)
-          publisher.publishSidebar({
-            kind,
-            folderId: FolderId.makeUnsafe(id),
-            spaceId: SpaceId.makeUnsafe(row.spaceId),
-            sidebarSortOrder: row.sidebarSortOrder,
-            updatedAt: row.updatedAt,
-          });
-      } else {
-        const rows = yield* sql<{ readonly sortOrder: number; readonly updatedAt: string }>`
-          SELECT sort_order AS "sortOrder", updated_at AS "updatedAt" FROM projection_spaces WHERE space_id = ${id}`;
-        const row = rows[0];
-        if (row !== undefined)
-          publisher.publishSidebar({ kind, spaceId: SpaceId.makeUnsafe(id), ...row });
-      }
-    }
   });

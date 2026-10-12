@@ -4,19 +4,18 @@
 
 import type { NativeApi, FolderId } from "@penkra/contracts";
 
-import { newCommandId } from "./utils";
-
 interface DeleteProjectFromClientInput {
-  api: Pick<NativeApi["orchestration"], "dispatchCommand">;
+  api: Pick<NativeApi["cleanCore"], "updateNavigation">;
   folderId: FolderId;
   removeDeletedProjectFromClientState: (folderId: FolderId) => void;
 }
 
 export async function deleteProjectFromClient(input: DeleteProjectFromClientInput): Promise<void> {
-  await input.api.dispatchCommand({
-    type: "folder.delete",
-    commandId: newCommandId(),
-    folderId: input.folderId,
+  await input.api.updateNavigation({
+    update: {
+      action: "folder.delete",
+      folderId: input.folderId,
+    },
   });
   input.removeDeletedProjectFromClientState(input.folderId);
 }

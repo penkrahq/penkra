@@ -7,7 +7,6 @@ import {
   ProviderConnectionId,
   ProviderInstallationId,
   ProviderKind,
-  ThreadId,
   type OrchestrationEvent,
   type OrchestrationThread,
 } from "@penkra/contracts";
@@ -53,7 +52,7 @@ import { makeProviderCommandReactorLive } from "../src/orchestration/Layers/Prov
 import { ProviderRuntimeIngestionLive } from "../src/orchestration/Layers/ProviderRuntimeIngestion.ts";
 import { ProviderThreadSwitchCoordinatorLive } from "../src/orchestration/Layers/ProviderThreadSwitchCoordinator.ts";
 import { ProviderNativeStateMaterializerLive } from "../src/provider/Layers/ProviderNativeStateMaterializer.ts";
-import { ThreadPublisherLive } from "../src/cleanCore/ThreadPublisher.ts";
+import { ThreadPublisher, ThreadPublisherLive } from "../src/cleanCore/ThreadPublisher.ts";
 import {
   OrchestrationEngineService,
   type OrchestrationEngineShape,
@@ -155,6 +154,7 @@ const tryRuntimePromise = <A>(operation: string, run: () => Promise<A>) =>
 
 export interface OrchestrationIntegrationHarness {
   readonly sql: SqlClient.SqlClient;
+  readonly publisher: ThreadPublisher["Service"];
   readonly rootDir: string;
   readonly workspaceDir: string;
   readonly dbPath: string;
@@ -378,6 +378,9 @@ export const makeOrchestrationIntegrationHarness = (
     const sql = yield* Effect.promise(() =>
       runtime.runPromise(Effect.service(SqlClient.SqlClient)),
     );
+    const publisher = yield* Effect.promise(() =>
+      runtime.runPromise(Effect.service(ThreadPublisher)),
+    );
     const ingestion = yield* tryRuntimePromise("load provider runtime ingestion", () =>
       runtime.runPromise(Effect.service(ProviderRuntimeIngestionService)),
     ).pipe(Effect.orDie);
@@ -457,6 +460,7 @@ export const makeOrchestrationIntegrationHarness = (
 
     return {
       sql,
+      publisher,
       rootDir,
       workspaceDir,
       dbPath,

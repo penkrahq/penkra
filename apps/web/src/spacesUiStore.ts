@@ -25,17 +25,14 @@ function recordsEqual<T extends string>(
 
 interface SpacesUiState extends PersistedSpacesUiState {
   serverHydrated: boolean;
-  pendingActiveSpace: { spaceId: SpaceId; minSequence: number } | null;
   hydrateFromServer: () => Promise<void>;
   setActiveSpaceId: (spaceId: SpaceId) => void;
-  setOptimisticActiveSpaceId: (spaceId: SpaceId, minSequence: number) => void;
   rememberThread: (spaceId: SpaceId, threadId: ThreadId) => void;
   rememberProject: (spaceId: SpaceId, folderId: FolderId) => void;
   getLastThreadId: (spaceId: SpaceId) => ThreadId | null;
   getLastFolderId: (spaceId: SpaceId) => FolderId | null;
   reconcile: (input: {
     activeSpaceIds: ReadonlySet<SpaceId>;
-    snapshotSequence: number;
     projectSpaceById: ReadonlyMap<FolderId, SpaceId>;
     threadProjectById: ReadonlyMap<ThreadId, FolderId>;
     threadSpaceById: ReadonlyMap<ThreadId, SpaceId | null>;
@@ -63,7 +60,6 @@ export const useSpacesUiStore = create<SpacesUiState>((set, get) => ({
   lastThreadIdBySpace: {},
   lastFolderIdBySpace: {},
   serverHydrated: false,
-  pendingActiveSpace: null,
   hydrateFromServer: async () => {
     if (get().serverHydrated) return;
     const api = readNativeApi();
@@ -77,11 +73,7 @@ export const useSpacesUiStore = create<SpacesUiState>((set, get) => ({
     });
   },
   setActiveSpaceId: (activeSpaceId) => {
-    set({ activeSpaceId, pendingActiveSpace: null });
-    persistDurably(get());
-  },
-  setOptimisticActiveSpaceId: (activeSpaceId, minSequence) => {
-    set({ activeSpaceId, pendingActiveSpace: { spaceId: activeSpaceId, minSequence } });
+    set({ activeSpaceId });
     persistDurably(get());
   },
   rememberThread: (spaceId, threadId) => {
@@ -108,30 +100,12 @@ export const useSpacesUiStore = create<SpacesUiState>((set, get) => ({
   },
   getLastThreadId: (spaceId) => get().lastThreadIdBySpace[spaceId] ?? null,
   getLastFolderId: (spaceId) => get().lastFolderIdBySpace[spaceId] ?? null,
-  reconcile: ({
-    activeSpaceIds,
-    snapshotSequence,
-    projectSpaceById,
-    threadProjectById,
-    threadSpaceById,
-  }) => {
+  reconcile: ({ activeSpaceIds, projectSpaceById, threadProjectById, threadSpaceById }) => {
     const current = get();
-    const pendingActiveSpace =
-      current.pendingActiveSpace !== null &&
-      (activeSpaceIds.has(current.pendingActiveSpace.spaceId) ||
-        snapshotSequence >= current.pendingActiveSpace.minSequence)
-        ? null
-        : current.pendingActiveSpace;
-    const reconciledActiveSpaceId =
-      current.activeSpaceId !== null &&
-      !activeSpaceIds.has(current.activeSpaceId) &&
-      !(
-        pendingActiveSpace?.spaceId === current.activeSpaceId &&
-        snapshotSequence < pendingActiveSpace.minSequence
-      )
+    const activeSpaceId =
+      current.activeSpaceId !== null && !activeSpaceIds.has(current.activeSpaceId)
         ? null
         : current.activeSpaceId;
-    const activeSpaceId = reconciledActiveSpaceId;
     const lastThreadIdBySpace: Record<string, ThreadId> = {};
     for (const [key, threadId] of Object.entries(current.lastThreadIdBySpace)) {
       const folderId = threadProjectById.get(threadId);
@@ -150,13 +124,12 @@ export const useSpacesUiStore = create<SpacesUiState>((set, get) => ({
     }
     if (
       activeSpaceId === current.activeSpaceId &&
-      pendingActiveSpace === current.pendingActiveSpace &&
       recordsEqual(lastThreadIdBySpace, current.lastThreadIdBySpace) &&
       recordsEqual(lastFolderIdBySpace, current.lastFolderIdBySpace)
     ) {
       return;
     }
-    set({ activeSpaceId, pendingActiveSpace, lastThreadIdBySpace, lastFolderIdBySpace });
+    set({ activeSpaceId, lastThreadIdBySpace, lastFolderIdBySpace });
     persistDurably(get());
   },
 }));

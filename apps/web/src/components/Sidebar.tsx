@@ -90,7 +90,7 @@ import { SquareImageError, compressSquareImage } from "../lib/squareImage";
 import { isOrdinarySpaceProject } from "../lib/spaces";
 import { archiveProject } from "../lib/projectArchive";
 import { dispatchThreadRename } from "../lib/threadRename";
-import { isMacPlatform, newCommandId, newFolderId, newThreadId } from "../lib/utils";
+import { isMacPlatform, newFolderId, newThreadId } from "../lib/utils";
 import { readNativeApi } from "../nativeApi";
 import { useSpacesUiStore } from "../spacesUiStore";
 import { useSidebarInlineRenameStore } from "../sidebarInlineRenameStore";
@@ -110,7 +110,6 @@ import {
   getNextVisibleSidebarThreadId,
   getSidebarThreadLifecycleMenuItems,
   getSidebarThreadIdsToPrewarm,
-  getVisibleSidebarEntriesForPreview,
   groupSidebarThreadsByFolderId,
   isFoldersSidebarSurface,
   orderSidebarSpaceItems,
@@ -118,7 +117,6 @@ import {
   resolveProjectHeaderState,
   resolveProjectStatusIndicator,
   resolveSidebarWorkStatus,
-  resolveSidebarThreadListPaging,
   resolveSidebarThreadSummaryStatus,
   resolveVisibleThreadWorkStatus,
   shouldClearThreadSelectionOnMouseDown,
@@ -318,10 +316,7 @@ export default function Sidebar() {
   const spaces = useStore((store) => store.spaces);
   // Selection state only; the handlers and sync effects live in useSpacesController.
   const storedActiveSpaceId = useSpacesUiStore((store) => store.activeSpaceId);
-  const pendingActiveSpaceId = useSpacesUiStore(
-    (store) => store.pendingActiveSpace?.spaceId ?? null,
-  );
-  const activeSpaceId = resolveActiveSpaceId(storedActiveSpaceId, spaces, pendingActiveSpaceId);
+  const activeSpaceId = resolveActiveSpaceId(storedActiveSpaceId, spaces);
   const threadsHydrated = useStore((store) => store.threadsHydrated);
   const canonicalSidebarRows = useSidebarThreadRows();
   const sidebarThreadSummaryById = useMemo(
@@ -921,22 +916,24 @@ export default function Sidebar() {
     if (!api) {
       throw new Error("Folder rename is unavailable while disconnected.");
     }
-    await api.orchestration.dispatchCommand({
-      type: "folder.update",
-      commandId: newCommandId(),
-      folderId,
-      title,
+    await api.cleanCore.updateNavigation({
+      update: {
+        action: "folder.update",
+        folderId,
+        title,
+      },
     });
   }, []);
 
   const updateFolderIcon = useCallback(async (folderId: FolderId, iconDataUrl: string | null) => {
     const api = readNativeApi();
     if (!api) throw new Error("Folder icon editing is unavailable while disconnected.");
-    await api.orchestration.dispatchCommand({
-      type: "folder.update",
-      commandId: newCommandId(),
-      folderId,
-      iconDataUrl,
+    await api.cleanCore.updateNavigation({
+      update: {
+        action: "folder.update",
+        folderId,
+        iconDataUrl,
+      },
     });
   }, []);
 
@@ -1293,22 +1290,23 @@ export default function Sidebar() {
       const defaultCodexModel = getDefaultModel("codex");
       handleSelectSpaceForIncomingProject(value.spaceId);
       try {
-        await api.orchestration.dispatchCommand({
-          type: "folder.create",
-          commandId: newCommandId(),
-          folderId,
-          title: value.name,
-          workspaceRoot: null,
-          ...(defaultCodexModel
-            ? {
-                defaultModelSelection: {
-                  provider: "codex",
-                  model: defaultCodexModel,
-                },
-              }
-            : {}),
-          spaceId: value.spaceId,
-          createdAt: new Date().toISOString(),
+        await api.cleanCore.updateNavigation({
+          update: {
+            action: "folder.create",
+            folderId,
+            title: value.name,
+            workspaceRoot: null,
+            ...(defaultCodexModel
+              ? {
+                  defaultModelSelection: {
+                    provider: "codex",
+                    model: defaultCodexModel,
+                  },
+                }
+              : {}),
+            spaceId: value.spaceId,
+            createdAt: new Date().toISOString(),
+          },
         });
         setProjectExpanded(folderId, true);
         // The accepted command is already durable. The unified synchronization
@@ -1377,11 +1375,12 @@ export default function Sidebar() {
           const workspaceRoot =
             clicked === "choose-directory" ? await api.dialogs.pickFolder() : null;
           if (clicked === "choose-directory" && workspaceRoot === null) return;
-          await api.orchestration.dispatchCommand({
-            type: "folder.update",
-            commandId: newCommandId(),
-            folderId,
-            workspaceRoot,
+          await api.cleanCore.updateNavigation({
+            update: {
+              action: "folder.update",
+              folderId,
+              workspaceRoot,
+            },
           });
         } catch (error) {
           toastManager.add({

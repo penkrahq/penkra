@@ -16,23 +16,7 @@ import { describe, expect, it } from "vitest";
 import { createEmptyReadModel as createEmptyReadModelBase, projectEvent } from "./projector.ts";
 
 function createEmptyReadModel(now: string): OrchestrationReadModel {
-  return {
-    ...createEmptyReadModelBase(now),
-    folders: [
-      {
-        id: FolderId.makeUnsafe("project-1"),
-        title: "Project 1",
-        workspaceRoot: null,
-        defaultModelSelection: null,
-        spaceId: SpaceId.makeUnsafe("space-1"),
-        sidebarSortOrder: 0,
-        createdAt: now,
-        updatedAt: now,
-        archivedAt: null,
-        deletedAt: null,
-      },
-    ],
-  };
+  return createEmptyReadModelBase(now);
 }
 
 function makeEvent(input: {

@@ -1,3 +1,5 @@
+import convertNavigation from "../../persistence/Migrations/196_RemoveNavigationEvents";
+import { getNavigation } from "../../cleanCore/navigation";
 import {
   CommandId,
   EventId,
@@ -141,7 +143,7 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
       }
 
       const shell = yield* snapshotQuery.getStartupSnapshot();
-      const full = yield* snapshotQuery.getSnapshot();
+      const full = yield* getNavigation;
       assert.equal(shell.spaces[0]?.id, SpaceId.makeUnsafe("space-snapshot"));
       assert.equal(
         shell.spaces.some((space) => space.id === "space-archived-snapshot"),
@@ -151,7 +153,7 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
       assert.equal(full.spaces[0]?.id, SpaceId.makeUnsafe("space-snapshot"));
       assert.equal(
         full.spaces.find((space) => space.id === "space-archived-snapshot")?.archivedAt,
-        "2026-07-20T00:00:02.000Z",
+        undefined,
       );
       assert.equal(full.folders[0]?.spaceId, SpaceId.makeUnsafe("space-snapshot"));
 
@@ -175,6 +177,7 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
       yield* sql`
         INSERT INTO projection_folders (
           folder_id,
+          space_id,
           title,
           workspace_root,
           default_model_selection_json,
@@ -184,6 +187,7 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
         )
         VALUES (
           'project-1',
+          'penkra-personal',
           'Project 1',
           '/tmp/project-1',
           '{"provider":"codex","model":"gpt-5-codex"}',
@@ -365,7 +369,7 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
 
       assert.equal(snapshot.snapshotSequence, 5);
       assert.equal(snapshot.updatedAt, "2026-02-24T00:00:09.000Z");
-      assert.deepEqual(snapshot.folders, [
+      assert.deepEqual((yield* getNavigation).folders, [
         {
           id: asFolderId("project-1"),
           spaceId: SpaceId.makeUnsafe("penkra-personal"),
@@ -379,13 +383,14 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
           createdAt: "2026-02-24T00:00:00.000Z",
           updatedAt: "2026-02-24T00:00:01.000Z",
           archivedAt: null,
-          deletedAt: null,
+
           sidebarSortOrder: 0,
         },
       ]);
       assert.deepEqual(snapshot.threads, [
         {
           id: ThreadId.makeUnsafe("thread-1"),
+          deletedAt: null,
           connectionId: null,
           folderId: asFolderId("project-1"),
           title: "Thread 1",
@@ -416,7 +421,7 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
           createdAt: "2026-02-24T00:00:02.000Z",
           updatedAt: "2026-02-24T00:00:03.000Z",
           archivedAt: null,
-          deletedAt: null,
+
           messages: [
             {
               id: asMessageId("message-0"),
@@ -1169,6 +1174,7 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
 
       yield* sql`INSERT INTO threads (id, space_id, folder_id, title, provider, model, model_options, runtime_mode, state, created_by, created_at, updated_at, deleted_at, sidebar_sort_order) VALUES ('thread-imported-shape', 'penkra-personal', 'project-imported-shape', 'Imported Shape Thread', json_extract('{"provider":"codex","model":"gpt-5.5","options":[{"id":"reasoningEffort","value":"medium"}]}', '$.provider'), json_extract('{"provider":"codex","model":"gpt-5.5","options":[{"id":"reasoningEffort","value":"medium"}]}', '$.model'), json_extract('{"provider":"codex","model":"gpt-5.5","options":[{"id":"reasoningEffort","value":"medium"}]}', '$.options'), 'full-access', 'idle', 'user', '2026-05-05T14:39:20.000Z', '2026-05-05T14:39:21.000Z', NULL, 0)`;
 
+      yield* sql.withTransaction(convertNavigation);
       const expectedProjectSelection = {
         provider: "codex",
         model: "imported-project-model",
@@ -1198,7 +1204,7 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
       );
 
       assert.deepStrictEqual(
-        snapshot.folders.find((project) => project.id === "project-imported-shape")
+        (yield* getNavigation).folders.find((project) => project.id === "project-imported-shape")
           ?.defaultModelSelection,
         expectedProjectSelection,
       );

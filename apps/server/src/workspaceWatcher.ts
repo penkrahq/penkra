@@ -1,3 +1,4 @@
+import * as SqlClient from "effect/unstable/sql/SqlClient";
 // FILE: workspaceWatcher.ts
 // Purpose: Watch folder roots and durable thread scratch folders; publish cwd-scoped filesystem changes.
 // Layer: Server infrastructure
@@ -7,12 +8,13 @@ import { watch, type FSWatcher } from "node:fs";
 import { mkdir } from "node:fs/promises";
 
 import type { ProjectWorkspaceChangeEvent } from "@penkra/contracts";
-import { Effect, Fiber, Layer, PubSub, ServiceMap, Stream } from "effect";
+import { Effect, Fiber, Layer, PubSub, Queue, ServiceMap, Stream } from "effect";
 
 import { ServerConfig } from "./config";
 import { DURABLE_THREAD_WORKSPACES_DIRNAME } from "./scratchWorkspaces";
 
-import { OrchestrationEngineService } from "./orchestration/Services/OrchestrationEngine";
+import { getNavigation } from "./cleanCore/navigation";
+import { ThreadPublisher } from "./cleanCore/ThreadPublisher";
 
 interface WorkspaceWatchSubscription {
   readonly close: () => void;
@@ -223,7 +225,8 @@ export class WorkspaceWatcherManager {
 export const WorkspaceWatcherLive = Layer.effect(
   WorkspaceWatcher,
   Effect.gen(function* () {
-    const engine = yield* OrchestrationEngineService;
+    const publisher = yield* ThreadPublisher;
+    const sql = yield* SqlClient.SqlClient;
     const config = yield* ServerConfig;
     const scratchRoot = path.join(config.stateDir, DURABLE_THREAD_WORKSPACES_DIRNAME);
     yield* Effect.promise(() => mkdir(scratchRoot, { recursive: true, mode: 0o700 }));
@@ -234,15 +237,10 @@ export const WorkspaceWatcherLive = Layer.effect(
     const manager = new WorkspaceWatcherManager(
       () =>
         Effect.runPromise(
-          engine
-            .getCommandReadModel()
-            .pipe(
-              Effect.map((model) =>
-                model.folders
-                  .filter((project) => project.deletedAt === null)
-                  .map((project) => project.workspaceRoot),
-              ),
-            ),
+          getNavigation.pipe(
+            Effect.map((navigation) => navigation.folders.map((folder) => folder.workspaceRoot)),
+            Effect.provideService(SqlClient.SqlClient, sql),
+          ),
         ),
       (event) => void Effect.runFork(PubSub.publish(changes, event)),
       createNodeWorkspaceWatch,
@@ -253,8 +251,17 @@ export const WorkspaceWatcherLive = Layer.effect(
       Effect.promise(() => manager.start()),
       () => Effect.promise(() => manager.close()),
     );
-    const domainEventsFiber = yield* engine.streamDomainEvents.pipe(
-      Stream.filter((event) => event.type.startsWith("folder.")),
+    const navigationChanges = yield* Effect.acquireRelease(Queue.unbounded<void>(), Queue.shutdown);
+    const unsubscribe = yield* Effect.acquireRelease(
+      Effect.sync(() =>
+        publisher.subscribeSidebar((change) => {
+          if (change.kind === "navigation")
+            void Effect.runFork(Queue.offer(navigationChanges, undefined));
+        }),
+      ),
+      (unsubscribe) => Effect.sync(unsubscribe),
+    );
+    const navigationFiber = yield* Stream.fromQueue(navigationChanges).pipe(
       Stream.runForEach(() =>
         Effect.promise(() => manager.reconcile()).pipe(
           Effect.catch((cause) =>
@@ -267,7 +274,8 @@ export const WorkspaceWatcherLive = Layer.effect(
 
     const close = yield* Effect.cached(
       Effect.uninterruptible(
-        Fiber.interrupt(domainEventsFiber).pipe(
+        Effect.sync(unsubscribe).pipe(
+          Effect.andThen(Fiber.interrupt(navigationFiber)),
           Effect.andThen(Effect.promise(() => manager.close())),
         ),
       ),

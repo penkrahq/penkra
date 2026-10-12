@@ -9,7 +9,6 @@ describe("spacesUiStore", () => {
     useSpacesUiStore.setState({
       activeSpaceId: null,
       serverHydrated: false,
-      pendingActiveSpace: null,
       lastThreadIdBySpace: {},
       lastFolderIdBySpace: {},
     });
@@ -49,7 +48,6 @@ describe("spacesUiStore", () => {
     useSpacesUiStore.setState({ activeSpaceId: removed });
     useSpacesUiStore.getState().reconcile({
       activeSpaceIds: new Set(),
-      snapshotSequence: 1,
       projectSpaceById: new Map(),
       threadProjectById: new Map(),
       threadSpaceById: new Map(),
@@ -57,24 +55,18 @@ describe("spacesUiStore", () => {
     expect(useSpacesUiStore.getState().activeSpaceId).toBeNull();
   });
 
-  it("keeps an optimistic selection only until an authoritative snapshot can judge it", () => {
+  it("keeps a selected Space while the committed navigation includes it", () => {
     const created = SpaceId.makeUnsafe("created");
-    useSpacesUiStore.getState().setOptimisticActiveSpaceId(created, 12);
-
-    const reconcile = (snapshotSequence: number, activeSpaceIds: ReadonlySet<SpaceId>) =>
-      useSpacesUiStore.getState().reconcile({
-        activeSpaceIds,
-        snapshotSequence,
+    useSpacesUiStore.getState().setActiveSpaceId(created);
+    useSpacesUiStore
+      .getState()
+      .reconcile({
+        activeSpaceIds: new Set([created]),
         projectSpaceById: new Map(),
         threadProjectById: new Map(),
         threadSpaceById: new Map(),
       });
-
-    reconcile(11, new Set());
     expect(useSpacesUiStore.getState().activeSpaceId).toBe(created);
-    reconcile(12, new Set());
-    expect(useSpacesUiStore.getState().activeSpaceId).toBeNull();
-    expect(useSpacesUiStore.getState().pendingActiveSpace).toBeNull();
   });
 
   it("keeps only the most recent folder-or-thread target per Space", () => {

@@ -2075,10 +2075,11 @@ const make = Effect.gen(function* () {
           new Error(`Queued message '${event.payload.messageId}' has no projected message.`),
         );
       }
-      const readModel = yield* orchestrationEngine.getCommandReadModel();
+      const [folder] = yield* sql<{
+        workspaceRoot: string | null;
+      }>`SELECT workspace_root AS "workspaceRoot" FROM projection_folders WHERE folder_id=${thread.folderId}`;
       const cwd =
-        readModel.folders.find((project) => project.id === thread.folderId)?.workspaceRoot ??
-        ensureDurableThreadWorkspace(thread.id, serverConfig.stateDir);
+        folder?.workspaceRoot ?? ensureDurableThreadWorkspace(thread.id, serverConfig.stateDir);
       const providerName = thread.session?.providerName ?? thread.modelSelection.provider;
       const providerThread = yield* resolveProviderSessionThread(event.payload.threadId);
       const sessionThreadId = providerThread?.id ?? event.payload.threadId;
@@ -2314,10 +2315,11 @@ const make = Effect.gen(function* () {
         );
         if (Option.isNone(canonical))
           return yield* Effect.fail(new Error(`Queued thread '${threadId}' is missing.`));
-        const readModel = yield* orchestrationEngine.getCommandReadModel();
+        const [folder] = yield* sql<{
+          workspaceRoot: string | null;
+        }>`SELECT workspace_root AS "workspaceRoot" FROM projection_folders WHERE folder_id=${currentThread.folderId}`;
         const cwd =
-          readModel.folders.find((project) => project.id === currentThread.folderId)
-            ?.workspaceRoot ?? ensureDurableThreadWorkspace(threadId, serverConfig.stateDir);
+          folder?.workspaceRoot ?? ensureDurableThreadWorkspace(threadId, serverConfig.stateDir);
         pendingQueuedDispatchBySessionThread.set(sessionThreadId, {
           queuedThreadId: threadId,
           messageId: nextQueuedTurn.messageId,

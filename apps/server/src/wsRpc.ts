@@ -1,3 +1,4 @@
+import { getNavigation, updateNavigation } from "./cleanCore/navigation";
 import { getFolderAppTabs, updateFolderAppTabs } from "./cleanCore/folderAppTabs.ts";
 import { listArchivedNavigation, listArchivedThreads, restoreThread } from "./cleanCore/archive.ts";
 import { ensureDurableThreadWorkspace } from "./scratchWorkspaces.ts";
@@ -7,7 +8,6 @@ import { ThreadSender } from "./cleanCore/ThreadSender.ts";
 
 import {
   type ProviderConnectionId,
-  CommandId,
   ORCHESTRATION_WS_METHODS,
   ThreadId,
   WS_BOOTSTRAP_METHOD,
@@ -89,7 +89,6 @@ import {
   markThreadVisited,
   moveFolder,
   moveSpace,
-  publishSidebarRows,
   moveSidebarItem,
   setThreadRuntimeMode,
 } from "./cleanCore/threadStore.ts";
@@ -172,18 +171,7 @@ const failLiveUiStreamForSnapshotResync = (report: LiveUiStreamDropReport) =>
 // before the live-UI buffer so the sliding window only holds events that can
 // actually project to a shell update.
 function isShellRelevantEvent(event: OrchestrationEvent): boolean {
-  return (
-    event.type === "space.created" ||
-    event.type === "space.updated" ||
-    event.type === "space.archived" ||
-    event.type === "space.restored" ||
-    event.type === "space.deleted" ||
-    event.type === "folder.created" ||
-    event.type === "folder.updated" ||
-    event.type === "folder.moved" ||
-    event.type === "folder.deleted" ||
-    (event.aggregateKind === "thread" && shouldPublishThreadShellForEvent(event))
-  );
+  return event.aggregateKind === "thread" && shouldPublishThreadShellForEvent(event);
 }
 
 function isThreadDetailEventFor(threadId: ThreadId, event: OrchestrationEvent): boolean {
@@ -382,70 +370,6 @@ const makeWsRpcHandlersLayer = () =>
         event: OrchestrationEvent,
       ): Effect.Effect<Option.Option<OrchestrationShellStreamEvent>, WsRpcError> => {
         switch (event.type) {
-          case "space.created":
-          case "space.restored":
-            return projectionReadModelQuery.getSpaceShellById(event.payload.spaceId).pipe(
-              Effect.map((space) =>
-                Option.map(space, (nextSpace) => ({
-                  kind: "space-upserted" as const,
-                  sequence: event.sequence,
-                  space: nextSpace,
-                })),
-              ),
-              Effect.mapError((cause) =>
-                toWsRpcError(cause, "Failed to read a Space shell update"),
-              ),
-            );
-          case "space.updated":
-            return projectionReadModelQuery.getSpaceShellById(event.payload.spaceId).pipe(
-              Effect.map((space) =>
-                Option.map(space, (nextSpace) => ({
-                  kind: "space-upserted" as const,
-                  sequence: event.sequence,
-                  space: nextSpace,
-                })),
-              ),
-              Effect.mapError((cause) =>
-                toWsRpcError(cause, "Failed to read a Space shell update"),
-              ),
-            );
-          case "space.deleted":
-          case "space.archived":
-            return Effect.succeed(
-              Option.some({
-                kind: "space-removed" as const,
-                sequence: event.sequence,
-                spaceId: event.payload.spaceId,
-                updatedAt:
-                  event.type === "space.deleted"
-                    ? event.payload.deletedAt
-                    : event.payload.archivedAt,
-                preserveAssignments: event.type === "space.archived",
-              }),
-            );
-          case "folder.created":
-          case "folder.updated":
-          case "folder.moved":
-            return projectionReadModelQuery.getFolderShellById(event.payload.folderId).pipe(
-              Effect.map((folder) =>
-                Option.map(folder, (nextFolder) => ({
-                  kind: "folder-upserted" as const,
-                  sequence: event.sequence,
-                  folder: nextFolder,
-                })),
-              ),
-              Effect.mapError((cause) =>
-                toWsRpcError(cause, "Failed to read a project shell update"),
-              ),
-            );
-          case "folder.deleted":
-            return Effect.succeed(
-              Option.some({
-                kind: "folder-removed" as const,
-                sequence: event.sequence,
-                folderId: event.payload.folderId,
-              }),
-            );
           default:
             if (event.aggregateKind !== "thread") return Effect.succeed(Option.none());
             return projectionReadModelQuery
@@ -464,33 +388,6 @@ const makeWsRpcHandlersLayer = () =>
               );
         }
       };
-
-      // Archived navigation is not retained by the web. Restore events publish their
-      // complete bounded rows once, for every connected renderer and command source.
-      const navigationEvents = yield* orchestrationEngine.subscribeDomainEvents;
-      yield* Stream.runForEach(navigationEvents, (event) =>
-        Effect.gen(function* () {
-          if (event.type === "space.restored") {
-            const space = yield* projectionReadModelQuery.getSpaceShellById(event.payload.spaceId);
-            if (Option.isSome(space))
-              threadPublisher.publishSidebar({
-                kind: "navigation.restored",
-                spaces: [space.value],
-                folders: [],
-              });
-          } else if (event.type === "folder.updated" && event.payload.archivedAt === null) {
-            const folder = yield* projectionReadModelQuery.getFolderShellById(
-              event.payload.folderId,
-            );
-            if (Option.isSome(folder))
-              threadPublisher.publishSidebar({
-                kind: "navigation.restored",
-                spaces: [],
-                folders: [folder.value],
-              });
-          }
-        }),
-      ).pipe(Effect.forkScoped);
 
       const rpcEffect = <A, E, R>(effect: Effect.Effect<A, E, R>, fallbackMessage: string) =>
         effect.pipe(Effect.mapError((cause) => toWsRpcError(cause, fallbackMessage)));
@@ -885,6 +782,10 @@ const makeWsRpcHandlersLayer = () =>
                 : toWsRpcError(error, "Failed to edit the queued message"),
             ),
           ),
+        [WS_METHODS.cleanCoreGetNavigation]: () =>
+          rpcEffect(getNavigation, "Failed to read navigation"),
+        [WS_METHODS.cleanCoreUpdateNavigation]: (input) =>
+          rpcEffect(updateNavigation(input), "Failed to update navigation"),
         [WS_METHODS.cleanCoreGetFolders]: (input) =>
           rpcEffect(
             projectionReadModelQuery.getFolderShellsByIds(input.folderIds),
@@ -959,12 +860,14 @@ const makeWsRpcHandlersLayer = () =>
                   return;
                 case "moveFolder": {
                   const changed = yield* moveFolder(update);
-                  yield* publishSidebarRows(threadPublisher, "folder", changed.folderIds);
+                  if (changed.folderIds.length > 0)
+                    threadPublisher.publishSidebar({ kind: "navigation" });
                   for (const threadId of changed.threadIds) publish(threadId);
                   return;
                 }
                 case "moveSpace": {
-                  yield* publishSidebarRows(threadPublisher, "space", yield* moveSpace(update));
+                  if ((yield* moveSpace(update)).length > 0)
+                    threadPublisher.publishSidebar({ kind: "navigation" });
                   return;
                 }
                 case "visit": {

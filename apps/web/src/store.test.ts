@@ -1,7 +1,8 @@
+import { syncServerNavigation } from "./storeProjection";
 // FILE: store.test.ts
 // Purpose: Exercises the public store facade, persistence, and simple UI actions.
 
-import { FolderId, SpaceId, ThreadId, type OrchestrationReadModel } from "@penkra/contracts";
+import { FolderId, SpaceId, ThreadId } from "@penkra/contracts";
 import { describe, expect, it, vi } from "vitest";
 
 import {
@@ -10,7 +11,6 @@ import {
   renameProjectLocally,
   reorderFolders,
   setAllFoldersExpanded,
-  syncServerReadModel,
   useStore,
 } from "./store";
 import type { AppState } from "./storeState";
@@ -263,7 +263,7 @@ describe("store facade", () => {
       sidebarThreadSummaryById: {},
       threadsHydrated: true,
     };
-    const readModel: OrchestrationReadModel = {
+    const readModel = {
       snapshotSequence: 2,
       updatedAt: "2026-02-27T00:00:00.000Z",
       spaces: [],
@@ -287,7 +287,7 @@ describe("store facade", () => {
       threads: [],
     };
 
-    const next = syncServerReadModel(initialState, readModel);
+    const next = syncServerNavigation(initialState, readModel);
 
     expect(next.folders.map((project) => project.id)).toEqual([project2, project1, project3]);
   });
@@ -319,7 +319,7 @@ describe("store facade", () => {
       threadsHydrated: true,
     };
 
-    const snapshotWithoutProject2: OrchestrationReadModel = {
+    const snapshotWithoutProject2 = {
       snapshotSequence: 2,
       updatedAt: "2026-02-27T00:00:00.000Z",
       spaces: [],
@@ -332,7 +332,7 @@ describe("store facade", () => {
       ],
       threads: [],
     };
-    const snapshotWithProject2Restored: OrchestrationReadModel = {
+    const snapshotWithProject2Restored = {
       snapshotSequence: 3,
       updatedAt: "2026-02-27T00:01:00.000Z",
       spaces: [],
@@ -351,8 +351,8 @@ describe("store facade", () => {
       threads: [],
     };
 
-    const withoutProject2 = syncServerReadModel(initialState, snapshotWithoutProject2);
-    const restored = syncServerReadModel(withoutProject2, snapshotWithProject2Restored);
+    const withoutProject2 = syncServerNavigation(initialState, snapshotWithoutProject2);
+    const restored = syncServerNavigation(withoutProject2, snapshotWithProject2Restored);
 
     expect(restored.folders.find((project) => project.id === project2)?.expanded).toBe(true);
   });
@@ -364,7 +364,7 @@ describe("store facade", () => {
       "penkra",
     );
 
-    const next = syncServerReadModel(
+    const next = syncServerNavigation(
       aliasedState,
       makeReadModel(
         makeReadModelThread({

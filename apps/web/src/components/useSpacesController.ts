@@ -1,3 +1,4 @@
+import { syncServerNavigation } from "../storeProjection";
 // FILE: useSpacesController.ts
 // Purpose: All Space selection, editing, deletion, and assignment behavior behind the sidebar.
 // Layer: Sidebar controller hook
@@ -70,10 +71,8 @@ export function useSpacesController(input: {
   const navigate = useNavigate();
   const spaces = useStore((store) => store.spaces);
   const threadsHydrated = useStore((store) => store.threadsHydrated);
-  const shellSnapshotSequence = useStore((store) => store.shellSnapshotSequence ?? 0);
   const activeSpaceId = useSpacesUiStore((store) => store.activeSpaceId);
   const setActiveSpaceId = useSpacesUiStore((store) => store.setActiveSpaceId);
-  const setOptimisticActiveSpaceId = useSpacesUiStore((store) => store.setOptimisticActiveSpaceId);
   const rememberSpaceThread = useSpacesUiStore((store) => store.rememberThread);
   const getLastSpaceThreadId = useSpacesUiStore((store) => store.getLastThreadId);
   const reconcileSpacesUi = useSpacesUiStore((store) => store.reconcile);
@@ -115,7 +114,6 @@ export function useSpacesController(input: {
     if (!threadsHydrated) return;
     reconcileSpacesUi({
       activeSpaceIds: new Set(spaces.map((space) => space.id)),
-      snapshotSequence: shellSnapshotSequence,
       projectSpaceById: new Map(
         ordinarySpaceFolders.map(
           (project) =>
@@ -136,14 +134,7 @@ export function useSpacesController(input: {
           .map((thread) => [thread.id, thread.spaceId as SpaceId] as const),
       ),
     });
-  }, [
-    ordinarySpaceFolders,
-    reconcileSpacesUi,
-    shellSnapshotSequence,
-    sidebarThreads,
-    spaces,
-    threadsHydrated,
-  ]);
+  }, [ordinarySpaceFolders, reconcileSpacesUi, sidebarThreads, spaces, threadsHydrated]);
 
   useRouteSpaceSync({
     routeFolderId: routeSpaceFolderId,
@@ -270,25 +261,12 @@ export function useSpacesController(input: {
       }
 
       const submittedIcon = toSpaceIconName(value.icon);
-      const { spaceId, sequence, createdAt } = await createSpace({
+      const { spaceId, navigation } = await createSpace({
         api,
         name: value.name,
         icon: submittedIcon,
       });
-      if (!useStore.getState().spaces.some((space) => space.id === spaceId)) {
-        useStore.getState().applyShellEvent({
-          kind: "space-upserted",
-          sequence,
-          space: {
-            id: spaceId,
-            name: value.name,
-            icon: submittedIcon,
-            sortOrder: spaces.reduce((next, space) => Math.max(next, space.sortOrder + 1), 0),
-            createdAt,
-            updatedAt: createdAt,
-          },
-        });
-      }
+      useStore.setState((state) => syncServerNavigation(state, navigation));
       const folderId = spaceEditorState.folderIdAfterCreate;
       if (folderId) {
         try {
@@ -304,22 +282,13 @@ export function useSpacesController(input: {
 
         if (activeRouteFolderId === folderId) {
           selectSpaceForNavigation(spaceId);
-          setOptimisticActiveSpaceId(spaceId, sequence);
         }
         return;
       }
 
       handleSelectSpace(spaceId);
-      setOptimisticActiveSpaceId(spaceId, sequence);
     },
-    [
-      activeRouteFolderId,
-      handleSelectSpace,
-      selectSpaceForNavigation,
-      setOptimisticActiveSpaceId,
-      spaceEditorState,
-      spaces,
-    ],
+    [activeRouteFolderId, handleSelectSpace, selectSpaceForNavigation, spaceEditorState, spaces],
   );
 
   const handleDeleteSpace = useCallback(

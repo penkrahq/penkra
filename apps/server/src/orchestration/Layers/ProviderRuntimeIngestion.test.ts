@@ -1,3 +1,4 @@
+import { updateNavigation } from "../../cleanCore/navigation.ts";
 import { ConnectionRateLimitsLive } from "../../providerUsage/ConnectionRateLimits.ts";
 import { findThread } from "../../cleanCore/threadList.ts";
 import { updateThreadFixture } from "../../cleanCore/threadFixtures.ts";
@@ -48,7 +49,7 @@ import { OrchestrationProjectionPipelineLive } from "./ProjectionPipeline.ts";
 import { OrchestrationProjectionSnapshotQueryLive } from "./ProjectionSnapshotQuery.ts";
 import { ProjectionSnapshotQuery } from "../Services/ProjectionSnapshotQuery.ts";
 import { ProviderRuntimeIngestionLive } from "./ProviderRuntimeIngestion.ts";
-import { ThreadPublisherLive } from "../../cleanCore/ThreadPublisher.ts";
+import { ThreadPublisher, ThreadPublisherLive } from "../../cleanCore/ThreadPublisher.ts";
 import { OrchestrationEngineService } from "../Services/OrchestrationEngine.ts";
 import { ProviderRuntimeIngestionService } from "../Services/ProviderRuntimeIngestion.ts";
 import { ServerConfig } from "../../config.ts";
@@ -218,7 +219,8 @@ describe("ProviderRuntimeIngestion", () => {
     | ProjectionSnapshotQuery
     | ProviderRuntimeIngestionService
     | ProviderRuntimeEventRepository
-    | SqlClient.SqlClient,
+    | SqlClient.SqlClient
+    | ThreadPublisher,
     unknown
   > | null = null;
   let scope: Scope.Closeable | null = null;
@@ -256,6 +258,7 @@ describe("ProviderRuntimeIngestion", () => {
     fs.mkdirSync(path.join(workspaceRoot, ".git"));
     const provider = createProviderServiceHarness();
     const orchestrationLayer = OrchestrationEngineLive.pipe(
+      Layer.provideMerge(ThreadPublisherLive),
       Layer.provide(OrchestrationProjectionPipelineLive),
       Layer.provide(OrchestrationProjectionSnapshotQueryLive),
       Layer.provide(OrchestrationEventStoreLive),
@@ -312,29 +315,31 @@ describe("ProviderRuntimeIngestion", () => {
 
     const createdAt = new Date().toISOString();
     const personalSpaceId = SpaceId.makeUnsafe("penkra-personal");
-    await Effect.runPromise(
-      engine.dispatch({
-        type: "space.create",
-        commandId: CommandId.makeUnsafe("cmd-provider-space-create"),
-        spaceId: personalSpaceId,
-        name: "Personal",
-        icon: "home",
-        createdAt,
+    await runtime.runPromise(
+      updateNavigation({
+        update: {
+          action: "space.create",
+          spaceId: personalSpaceId,
+          name: "Personal",
+          icon: "home",
+          createdAt,
+        },
       }),
     );
-    await Effect.runPromise(
-      engine.dispatch({
-        type: "folder.create",
-        commandId: CommandId.makeUnsafe("cmd-provider-project-create"),
-        folderId: asFolderId("project-1"),
-        title: "Provider Project",
-        workspaceRoot: null,
-        spaceId: personalSpaceId,
-        defaultModelSelection: {
-          provider: providerKind,
-          model,
+    await runtime.runPromise(
+      updateNavigation({
+        update: {
+          action: "folder.create",
+          folderId: asFolderId("project-1"),
+          title: "Provider Project",
+          workspaceRoot: null,
+          spaceId: personalSpaceId,
+          defaultModelSelection: {
+            provider: providerKind,
+            model,
+          },
+          createdAt,
         },
-        createdAt,
       }),
     );
     await Effect.runPromise(

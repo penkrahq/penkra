@@ -2,7 +2,6 @@ import {
   CommandId,
   FolderId,
   MessageId,
-  SpaceId,
   ThreadId,
   TurnId,
   type OrchestrationReadModel,
@@ -19,30 +18,6 @@ const messageId = MessageId.makeUnsafe("queued-message-before-restart");
 const shellOnlyReadModel: OrchestrationReadModel = {
   snapshotSequence: 10,
   updatedAt: NOW,
-  spaces: [
-    {
-      id: SpaceId.makeUnsafe("space-shell-only-delivery"),
-      name: "Personal",
-      icon: "home",
-      sortOrder: 0,
-      createdAt: NOW,
-      updatedAt: NOW,
-      archivedAt: null,
-      deletedAt: null,
-    },
-  ],
-  folders: [
-    {
-      id: FolderId.makeUnsafe("folder-shell-only-delivery"),
-      spaceId: SpaceId.makeUnsafe("space-shell-only-delivery"),
-      title: "Queue QA",
-      workspaceRoot: null,
-      defaultModelSelection: { provider: "codex", model: "gpt-5.4-mini" },
-      createdAt: NOW,
-      updatedAt: NOW,
-      deletedAt: null,
-    },
-  ],
   threads: [
     {
       id: threadId,

@@ -6,6 +6,7 @@ import {
   MessageId,
   ORCHESTRATION_THREAD_HYDRATION_LIMITS,
   type OrchestrationReadModel,
+  type OrchestrationFolderShell,
   type OrchestrationSpaceShell,
   type OrchestrationSessionStatus,
   type OrchestrationThreadShell,
@@ -27,7 +28,6 @@ import type {
   ChatMessage,
   Project,
   Space,
-  SidebarThreadSummary,
   Thread,
   ThreadSession,
   ThreadShell,
@@ -35,13 +35,13 @@ import type {
 } from "./types";
 import { recordTranscriptOrderingRepair } from "./transcriptOrderingDiagnostics";
 
-type ReadModelProject = OrchestrationReadModel["folders"][number];
-type ReadModelSpace = OrchestrationReadModel["spaces"][number];
+type NavigationFolder = OrchestrationFolderShell;
+type NavigationSpace = OrchestrationSpaceShell;
 type ReadModelThread = OrchestrationReadModel["threads"][number];
 type ReadModelMessage = ReadModelThread["messages"][number];
 type ShellSnapshotThread = OrchestrationThreadShell;
 export type ProjectNormalizationInput = Pick<
-  ReadModelProject,
+  NavigationFolder,
   | "id"
   | "title"
   | "workspaceRoot"
@@ -365,7 +365,7 @@ export function normalizeProject(
 }
 
 export function normalizeSpace(
-  incoming: ReadModelSpace | OrchestrationSpaceShell,
+  incoming: NavigationSpace | OrchestrationSpaceShell,
   previous: Space | undefined,
 ): Space {
   if (
@@ -390,7 +390,7 @@ export function normalizeSpace(
 }
 
 export function mapSpaces(
-  incoming: ReadonlyArray<ReadModelSpace | OrchestrationSpaceShell>,
+  incoming: ReadonlyArray<NavigationSpace | OrchestrationSpaceShell>,
   previous: Space[],
 ): Space[] {
   const previousById = new Map(previous.map((space) => [space.id, space] as const));

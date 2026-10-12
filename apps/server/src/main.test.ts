@@ -787,16 +787,12 @@ it.layer(testLayer)("server CLI command", (it) => {
           getSnapshot: () =>
             Effect.succeed({
               snapshotSequence: 0,
-              spaces: [],
-              folders: [] as OrchestrationReadModel["folders"],
               threads: [] as OrchestrationReadModel["threads"],
               updatedAt: new Date(0).toISOString(),
             }),
           getCommandReadModel: () =>
             Effect.succeed({
               snapshotSequence: 0,
-              spaces: [],
-              folders: [] as OrchestrationReadModel["folders"],
               threads: [] as OrchestrationReadModel["threads"],
               updatedAt: new Date(0).toISOString(),
             }),

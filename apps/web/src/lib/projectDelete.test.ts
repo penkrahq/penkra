@@ -10,24 +10,22 @@ describe("deleteProjectFromClient", () => {
   it("reconciles local state after the delete command succeeds", async () => {
     const folderId = FolderId.makeUnsafe("project-delete");
     const order: string[] = [];
-    const dispatchCommand = vi.fn(async () => {
+    const updateNavigation = vi.fn(async () => {
       order.push("dispatch");
-      return { sequence: 12 };
+      return { spaces: [], folders: [] };
     });
     const removeDeletedProjectFromClientState = vi.fn(() => {
       order.push("remove");
     });
 
     await deleteProjectFromClient({
-      api: { dispatchCommand },
+      api: { updateNavigation },
       folderId,
       removeDeletedProjectFromClientState,
     });
 
-    expect(dispatchCommand).toHaveBeenCalledWith({
-      type: "folder.delete",
-      commandId: expect.any(String),
-      folderId,
+    expect(updateNavigation).toHaveBeenCalledWith({
+      update: { action: "folder.delete", folderId },
     });
     expect(removeDeletedProjectFromClientState).toHaveBeenCalledWith(folderId);
     expect(order).toEqual(["dispatch", "remove"]);
@@ -35,14 +33,14 @@ describe("deleteProjectFromClient", () => {
 
   it("keeps local state when the delete command fails", async () => {
     const folderId = FolderId.makeUnsafe("project-delete-failed");
-    const dispatchCommand = vi.fn(async () => {
+    const updateNavigation = vi.fn(async () => {
       throw new Error("delete rejected");
     });
     const removeDeletedProjectFromClientState = vi.fn();
 
     await expect(
       deleteProjectFromClient({
-        api: { dispatchCommand },
+        api: { updateNavigation },
         folderId,
         removeDeletedProjectFromClientState,
       }),

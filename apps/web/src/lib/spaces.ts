@@ -7,6 +7,7 @@ import { THREADS_PAGE_SIZE } from "@penkra/contracts";
 import {
   FOLDER_MOVE_MAX_COUNT,
   type NativeApi,
+  type CleanCoreGetNavigationResult,
   type FolderId,
   type SpaceIconName,
   type SpaceId,
@@ -14,7 +15,7 @@ import {
 
 import type { Project } from "~/types";
 import type { ServerWorkspacePaths } from "~/lib/serverWorkspacePaths";
-import { newCommandId, newSpaceId } from "~/lib/utils";
+import { newSpaceId } from "~/lib/utils";
 
 /**
  * Spaces organize ordinary folders only: managed chat containers are reachable
@@ -34,18 +35,19 @@ export async function createSpace(input: {
   api: NativeApi;
   name: string;
   icon: SpaceIconName;
-}): Promise<{ spaceId: SpaceId; sequence: number; createdAt: string }> {
+}): Promise<{ spaceId: SpaceId; createdAt: string; navigation: CleanCoreGetNavigationResult }> {
   const spaceId = newSpaceId();
   const createdAt = new Date().toISOString();
-  const receipt = await input.api.orchestration.dispatchCommand({
-    type: "space.create",
-    commandId: newCommandId(),
-    spaceId,
-    name: input.name,
-    icon: input.icon,
-    createdAt,
+  const navigation = await input.api.cleanCore.updateNavigation({
+    update: {
+      action: "space.create",
+      spaceId,
+      name: input.name,
+      icon: input.icon,
+      createdAt,
+    },
   });
-  return { spaceId, sequence: receipt.sequence, createdAt };
+  return { spaceId, createdAt, navigation };
 }
 
 /**
@@ -58,28 +60,31 @@ export async function updateSpace(input: {
   name?: string | undefined;
   icon?: SpaceIconName | undefined;
 }): Promise<void> {
-  await input.api.orchestration.dispatchCommand({
-    type: "space.update",
-    commandId: newCommandId(),
-    spaceId: input.spaceId,
-    ...(input.name !== undefined ? { name: input.name } : {}),
-    ...(input.icon !== undefined ? { icon: input.icon } : {}),
+  await input.api.cleanCore.updateNavigation({
+    update: {
+      action: "space.update",
+      spaceId: input.spaceId,
+      ...(input.name !== undefined ? { name: input.name } : {}),
+      ...(input.icon !== undefined ? { icon: input.icon } : {}),
+    },
   });
 }
 
 export async function deleteSpace(input: { api: NativeApi; spaceId: SpaceId }): Promise<void> {
-  await input.api.orchestration.dispatchCommand({
-    type: "space.delete",
-    commandId: newCommandId(),
-    spaceId: input.spaceId,
+  await input.api.cleanCore.updateNavigation({
+    update: {
+      action: "space.delete",
+      spaceId: input.spaceId,
+    },
   });
 }
 
 export async function archiveSpace(input: { api: NativeApi; spaceId: SpaceId }): Promise<void> {
-  await input.api.orchestration.dispatchCommand({
-    type: "space.archive",
-    commandId: newCommandId(),
-    spaceId: input.spaceId,
+  await input.api.cleanCore.updateNavigation({
+    update: {
+      action: "space.archive",
+      spaceId: input.spaceId,
+    },
   });
 }
 
@@ -88,11 +93,12 @@ export async function restoreSpace(input: {
   spaceId: SpaceId;
   name?: string | undefined;
 }): Promise<void> {
-  await input.api.orchestration.dispatchCommand({
-    type: "space.restore",
-    commandId: newCommandId(),
-    spaceId: input.spaceId,
-    ...(input.name !== undefined ? { name: input.name } : {}),
+  await input.api.cleanCore.updateNavigation({
+    update: {
+      action: "space.restore",
+      spaceId: input.spaceId,
+      ...(input.name !== undefined ? { name: input.name } : {}),
+    },
   });
 }
 
@@ -119,11 +125,12 @@ export async function moveProjectToSpace(input: {
   folderId: FolderId;
   spaceId: SpaceId;
 }): Promise<void> {
-  await input.api.orchestration.dispatchCommand({
-    type: "folder.move",
-    commandId: newCommandId(),
-    folderIds: [input.folderId],
-    spaceId: input.spaceId,
+  await input.api.cleanCore.updateNavigation({
+    update: {
+      action: "folder.move",
+      folderIds: [input.folderId],
+      spaceId: input.spaceId,
+    },
   });
 }
 
@@ -143,11 +150,12 @@ export async function moveFoldersToSpace(input: {
   for (let offset = 0; offset < input.folderIds.length; offset += FOLDER_MOVE_MAX_COUNT) {
     const chunk = input.folderIds.slice(offset, offset + FOLDER_MOVE_MAX_COUNT);
     try {
-      await input.api.orchestration.dispatchCommand({
-        type: "folder.move",
-        commandId: newCommandId(),
-        spaceId: input.spaceId,
-        folderIds: chunk,
+      await input.api.cleanCore.updateNavigation({
+        update: {
+          action: "folder.move",
+          spaceId: input.spaceId,
+          folderIds: chunk,
+        },
       });
     } catch {
       const remainingFolderIds = input.folderIds.slice(offset);
