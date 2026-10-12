@@ -235,9 +235,6 @@ export interface OpenCodeAdapterLiveOptions {
   readonly prematureIdleCompletionGraceMs?: number;
   readonly beforeSessionInstall?: Effect.Effect<void>;
   readonly loadSharedMcpConfig?: (homeDir: string) => Promise<string>;
-  readonly resolveServerPassword?: (
-    provider: OpenCodeCompatibleProvider,
-  ) => Effect.Effect<string | undefined, ProviderAdapterValidationError>;
 }
 
 function nowIso(): string {
@@ -3337,18 +3334,16 @@ export function makeOpenCodeAdapterLive(options?: OpenCodeAdapterLiveOptions) {
 
       const startSession: OpenCodeAdapterShape["startSession"] = Effect.fn("startSession")(
         function* (input) {
-          const providerOptions = input.providerOptions?.[adapterConfig.providerOptionsKey];
-          const binaryPath =
-            input.managedLaunch?.binaryPath ??
-            providerOptions?.binaryPath?.trim() ??
-            adapterConfig.defaultBinaryPath;
-          // A managed Connection always owns its process and isolated state.
-          // A remembered external server URL must never bypass that launch.
-          const serverUrl = input.managedLaunch ? undefined : providerOptions?.serverUrl?.trim();
-          const serverPassword =
-            !input.managedLaunch && options?.resolveServerPassword
-              ? yield* options.resolveServerPassword(provider)
-              : undefined;
+          const launch = input.managedLaunch;
+          if (!launch)
+            return yield* Effect.fail(
+              new ProviderAdapterValidationError({
+                provider,
+                operation: "startSession",
+                issue: "OpenCode session start requires a resolved managed launch.",
+              }),
+            );
+          const binaryPath = launch.binaryPath;
           const experimentalWebSockets =
             adapterConfig.providerOptionsKey === "opencode"
               ? input.providerOptions?.opencode?.experimentalWebSockets
@@ -3377,14 +3372,12 @@ export function makeOpenCodeAdapterLive(options?: OpenCodeAdapterLiveOptions) {
           // OpenCode's MCP registry is process/directory scoped, not session
           // scoped. A gateway token is therefore issued only for a managed
           // server that this runtime isolates to the exact Penkra thread.
-          const agentGatewaySessionLease = serverUrl
-            ? undefined
-            : acquireAgentGatewaySessionLease(
-                agentGatewayCredentials,
-                input.threadId,
-                provider,
-                input.lifecycleGeneration,
-              );
+          const agentGatewaySessionLease = acquireAgentGatewaySessionLease(
+            agentGatewayCredentials,
+            input.threadId,
+            provider,
+            input.lifecycleGeneration,
+          );
           if (!agentGatewaySessionLease) {
             return yield* Effect.fail(
               toAdapterProcessError(
@@ -3397,16 +3390,14 @@ export function makeOpenCodeAdapterLive(options?: OpenCodeAdapterLiveOptions) {
             );
           }
           const agentGatewayConnection = agentGatewaySessionLease.connection;
-          const poolIsolationKey = input.managedLaunch?.isolationKey ?? randomUUID();
-          const managedProcessEnv = input.managedLaunch?.childEnvironment(process.env);
-          if (managedProcessEnv) {
-            const sharedMcpConfig = yield* Effect.tryPromise({
-              try: () =>
-                (options?.loadSharedMcpConfig ?? loadOpenCodeConfigContent)(serverConfig.homeDir),
-              catch: (cause) => toAdapterProcessError(input.threadId, cause),
-            });
-            managedProcessEnv.OPENCODE_CONFIG_CONTENT = sharedMcpConfig;
-          }
+          const poolIsolationKey = launch.isolationKey;
+          const managedProcessEnv = launch.childEnvironment(process.env);
+          const sharedMcpConfig = yield* Effect.tryPromise({
+            try: () =>
+              (options?.loadSharedMcpConfig ?? loadOpenCodeConfigContent)(serverConfig.homeDir),
+            catch: (cause) => toAdapterProcessError(input.threadId, cause),
+          });
+          managedProcessEnv.OPENCODE_CONFIG_CONTENT = sharedMcpConfig;
 
           let sessionScopeTransferred = false;
           const installed = yield* Effect.acquireUseRelease(
@@ -3419,21 +3410,17 @@ export function makeOpenCodeAdapterLive(options?: OpenCodeAdapterLiveOptions) {
                       binaryPath,
                       cliSpec: adapterConfig.cliSpec,
                       cwd: directory,
-                      ...(serverUrl ? { serverUrl } : {}),
                       ...(provider === "opencode" && experimentalWebSockets
                         ? { experimentalWebSockets: true }
                         : {}),
-                      ...(poolIsolationKey ? { poolIsolationKey } : {}),
-                      ...(input.managedLaunch?.connectionId
-                        ? { connectionId: input.managedLaunch.connectionId }
-                        : {}),
-                      ...(managedProcessEnv ? { processEnv: managedProcessEnv } : {}),
+                      poolIsolationKey,
+                      ...(launch.connectionId ? { connectionId: launch.connectionId } : {}),
+                      processEnv: managedProcessEnv,
                     });
                     const client = openCodeRuntime.createOpenCodeSdkClient({
                       baseUrl: server.url,
                       directory,
                       cliSpec: adapterConfig.cliSpec,
-                      ...(server.external && serverPassword ? { serverPassword } : {}),
                     });
                     // OpenCode retains its normal provider capabilities.
                     // Only a copied entry occupying Penkra's reserved gateway
@@ -3583,7 +3570,7 @@ export function makeOpenCodeAdapterLive(options?: OpenCodeAdapterLiveOptions) {
                 };
 
                 const context: OpenCodeSessionContext = {
-                  connectionId: input.managedLaunch?.connectionId ?? null,
+                  connectionId: launch.connectionId ?? null,
                   session,
                   gatewaySessionLease: agentGatewaySessionLease,
                   ...(input.lifecycleGeneration !== undefined
@@ -4041,20 +4028,6 @@ export function makeOpenCodeAdapterLive(options?: OpenCodeAdapterLiveOptions) {
           return yield* Effect.scoped(
             Effect.gen(function* () {
               const serverUrl = input.serverUrl?.trim();
-              const serverPassword =
-                !input.managedLaunch && options?.resolveServerPassword
-                  ? yield* options.resolveServerPassword(provider).pipe(
-                      Effect.mapError(
-                        (cause) =>
-                          new ProviderAdapterRequestError({
-                            provider,
-                            method: cause.operation,
-                            detail: cause.issue,
-                            cause,
-                          }),
-                      ),
-                    )
-                  : undefined;
               const server = yield* openCodeRuntime
                 .connectToOpenCodeServer({
                   binaryPath:
@@ -4082,7 +4055,6 @@ export function makeOpenCodeAdapterLive(options?: OpenCodeAdapterLiveOptions) {
                 baseUrl: server.url,
                 directory: input.cwd?.trim() || serverConfig.cwd,
                 cliSpec: adapterConfig.cliSpec,
-                ...(server.external && serverPassword ? { serverPassword } : {}),
               });
               return yield* fn({ client });
             }),

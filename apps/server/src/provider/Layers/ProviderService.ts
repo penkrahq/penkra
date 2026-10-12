@@ -2616,6 +2616,7 @@ export function makeManagedDurableProviderServiceLive(options?: ProviderServiceL
             });
             return {
               binaryPath: launch.binaryPath,
+              connectionId: launch.connectionId,
               isolationKey: launch.isolationKey,
               profileRoot: launch.profileRoot,
               nativeStateRoot: launch.nativeStateRoot,

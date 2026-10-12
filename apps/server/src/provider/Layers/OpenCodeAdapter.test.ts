@@ -296,6 +296,17 @@ function createMockOpenCodeRuntime(options?: {
   };
 }
 
+function managedLaunchForTest(threadId: ThreadId) {
+  return {
+    binaryPath: "/managed/opencode",
+    profileRoot: "/isolated/profile",
+    nativeStateRoot: "/isolated/native/" + threadId,
+    isolationKey: "test-installation:" + threadId,
+    connectionId: null,
+    childEnvironment: () => ({}),
+  };
+}
+
 function makeGatewayCredentials() {
   let nextToken = 0;
   const revoked: string[] = [];
@@ -904,6 +915,7 @@ describe("OpenCodeAdapter runtime lifecycle", () => {
         }
 
         yield* adapter.startSession({
+          managedLaunch: managedLaunchForTest(asThreadId("thread-active")),
           provider: "opencode",
           threadId: asThreadId("thread-active"),
           runtimeMode: "full-access",
@@ -1003,6 +1015,7 @@ describe("OpenCodeAdapter runtime lifecycle", () => {
       Effect.gen(function* () {
         const adapter = yield* OpenCodeAdapter;
         yield* adapter.startSession({
+          managedLaunch: managedLaunchForTest(asThreadId("thread-managed-cwd")),
           provider: "opencode",
           threadId: asThreadId("thread-managed-cwd"),
           runtimeMode: "full-access",
@@ -1045,6 +1058,7 @@ describe("OpenCodeAdapter runtime lifecycle", () => {
         const adapter = yield* OpenCodeAdapter;
         for (const threadId of [firstThread, secondThread]) {
           yield* adapter.startSession({
+            managedLaunch: managedLaunchForTest(threadId),
             provider: "opencode",
             threadId,
             runtimeMode: "full-access",
@@ -1113,6 +1127,7 @@ describe("OpenCodeAdapter runtime lifecycle", () => {
         const adapter = yield* OpenCodeAdapter;
         yield* adapter.stopSession(threadId);
         yield* adapter.startSession({
+          managedLaunch: managedLaunchForTest(threadId),
           provider: "opencode",
           threadId,
           runtimeMode: "full-access",
@@ -1137,42 +1152,42 @@ describe("OpenCodeAdapter runtime lifecycle", () => {
     expect(runtime.abortCalls).toHaveLength(1);
   });
 
-  it("rejects shared external OpenCode servers that cannot host a thread-scoped gateway", async () => {
+  it("rejects unmanaged session starts before acquiring a program or gateway", async () => {
     const runtime = createMockOpenCodeRuntime();
     const gateway = makeGatewayCredentials();
-
-    const exit = await Effect.runPromiseExit(
-      Effect.gen(function* () {
-        const adapter = yield* OpenCodeAdapter;
-        const threadId = asThreadId("thread-external-gateway-disabled");
-        yield* adapter.startSession({
-          provider: "opencode",
-          threadId,
-          runtimeMode: "full-access",
-          providerOptions: {
-            opencode: { serverUrl: "http://127.0.0.1:9999" },
-          },
-        });
-      }).pipe(
-        Effect.provide(
-          makeOpenCodeAdapterLive({ runtime: runtime.runtime }).pipe(
-            Layer.provide(Layer.succeed(AgentGatewayCredentials, gateway.credentials)),
-            Layer.provideMerge(
-              ServerConfig.layerTest(process.cwd(), {
-                prefix: "opencode-adapter-test-",
+    await Effect.runPromise(
+      Effect.scoped(
+        Effect.gen(function* () {
+          const adapter = yield* OpenCodeAdapter;
+          for (const id of ["unmanaged-a", "unmanaged-b"]) {
+            const result = yield* Effect.exit(
+              adapter.startSession({
+                provider: "opencode",
+                threadId: asThreadId(id),
+                runtimeMode: "full-access",
               }),
+            );
+            expect(Exit.isFailure(result)).toBe(true);
+          }
+          expect(runtime.connectCalls).toEqual([]);
+          expect(runtime.mcpAddCalls).toEqual([]);
+          expect(gateway.ownerByToken.size).toBe(0);
+          expect(runtime.promptCalls).toEqual([]);
+          yield* adapter.stopAll();
+          expect(runtime.stoppedAll).toBe(1);
+        }).pipe(
+          Effect.provide(
+            makeOpenCodeAdapterLive({ runtime: runtime.runtime }).pipe(
+              Layer.provide(Layer.succeed(AgentGatewayCredentials, gateway.credentials)),
+              Layer.provideMerge(
+                ServerConfig.layerTest(process.cwd(), { prefix: "opencode-unmanaged-rejected-" }),
+              ),
+              Layer.provideMerge(NodeServices.layer),
             ),
-            Layer.provideMerge(NodeServices.layer),
           ),
         ),
       ),
     );
-
-    expect(Exit.isFailure(exit)).toBe(true);
-    expect(runtime.connectCalls).toEqual([]);
-    expect(runtime.mcpAddCalls).toEqual([]);
-    expect(gateway.ownerByToken.size).toBe(0);
-    expect(runtime.promptCalls).toEqual([]);
   });
 
   it("ignores a remembered external server when an exact managed launch is supplied", async () => {
@@ -1239,6 +1254,7 @@ describe("OpenCodeAdapter runtime lifecycle", () => {
         const adapter = yield* OpenCodeAdapter;
         const threadId = asThreadId("thread-gateway-setup-failed");
         yield* adapter.startSession({
+          managedLaunch: managedLaunchForTest(threadId),
           provider: "opencode",
           threadId,
           runtimeMode: "full-access",
@@ -1276,6 +1292,7 @@ describe("OpenCodeAdapter runtime lifecycle", () => {
       Effect.gen(function* () {
         const adapter = yield* OpenCodeAdapter;
         yield* adapter.startSession({
+          managedLaunch: managedLaunchForTest(threadId),
           provider: "opencode",
           threadId,
           runtimeMode: "full-access",
@@ -1317,6 +1334,7 @@ describe("OpenCodeAdapter runtime lifecycle", () => {
         const adapter = yield* OpenCodeAdapter;
         return yield* Effect.exit(
           adapter.startSession({
+            managedLaunch: managedLaunchForTest(asThreadId("thread-gateway-failed-start")),
             provider: "opencode",
             threadId: asThreadId("thread-gateway-failed-start"),
             runtimeMode: "full-access",
@@ -1358,6 +1376,7 @@ describe("OpenCodeAdapter runtime lifecycle", () => {
         const adapter = yield* OpenCodeAdapter;
         const startFiber = yield* adapter
           .startSession({
+            managedLaunch: managedLaunchForTest(asThreadId("thread-gateway-interrupted-start")),
             provider: "opencode",
             threadId: asThreadId("thread-gateway-interrupted-start"),
             runtimeMode: "full-access",
@@ -1403,6 +1422,7 @@ describe("OpenCodeAdapter runtime lifecycle", () => {
         const adapter = yield* OpenCodeAdapter;
         const startFiber = yield* adapter
           .startSession({
+            managedLaunch: managedLaunchForTest(threadId),
             provider: "opencode",
             threadId,
             runtimeMode: "full-access",
@@ -1447,6 +1467,7 @@ describe("OpenCodeAdapter runtime lifecycle", () => {
       Effect.gen(function* () {
         const adapter = yield* OpenCodeAdapter;
         return yield* adapter.startSession({
+          managedLaunch: managedLaunchForTest(asThreadId("thread-resume-cwd")),
           provider: "opencode",
           threadId: asThreadId("thread-resume-cwd"),
           runtimeMode: "full-access",
@@ -1511,6 +1532,7 @@ describe("OpenCodeAdapter runtime lifecycle", () => {
         );
         const threadId = asThreadId("thread-resume-history-idempotence");
         yield* adapter.startSession({
+          managedLaunch: managedLaunchForTest(threadId),
           provider: "opencode",
           threadId,
           runtimeMode: "full-access",
@@ -1617,6 +1639,7 @@ describe("OpenCodeAdapter runtime lifecycle", () => {
 
         const threadId = asThreadId("thread-context-compaction-progress");
         yield* adapter.startSession({
+          managedLaunch: managedLaunchForTest(threadId),
           provider: "opencode",
           threadId,
           runtimeMode: "full-access",
@@ -1688,6 +1711,7 @@ describe("OpenCodeAdapter runtime lifecycle", () => {
         const adapter = yield* OpenCodeAdapter;
         const threadId = asThreadId("thread-resume-permissions");
         yield* adapter.startSession({
+          managedLaunch: managedLaunchForTest(threadId),
           provider: "opencode",
           threadId,
           runtimeMode: "full-access",
@@ -1740,6 +1764,7 @@ describe("OpenCodeAdapter runtime lifecycle", () => {
         }
 
         yield* adapter.startSession({
+          managedLaunch: managedLaunchForTest(threadId),
           provider: "opencode",
           threadId,
           runtimeMode: "full-access",
@@ -1814,6 +1839,7 @@ describe("OpenCodeAdapter runtime lifecycle", () => {
       Effect.gen(function* () {
         const adapter = yield* OpenCodeAdapter;
         yield* adapter.startSession({
+          managedLaunch: managedLaunchForTest(asThreadId("thread-model-pin")),
           provider: "opencode",
           threadId: asThreadId("thread-model-pin"),
           runtimeMode: "full-access",
@@ -1905,6 +1931,7 @@ describe("OpenCodeAdapter runtime lifecycle", () => {
         );
 
         yield* adapter.startSession({
+          managedLaunch: managedLaunchForTest(asThreadId("thread-1")),
           provider: "opencode",
           threadId: asThreadId("thread-1"),
           lifecycleGeneration: "generation-opencode-a",
@@ -2025,6 +2052,7 @@ describe("OpenCodeAdapter runtime lifecycle", () => {
         );
 
         yield* adapter.startSession({
+          managedLaunch: managedLaunchForTest(asThreadId("thread-ordered-events")),
           provider: "opencode",
           threadId: asThreadId("thread-ordered-events"),
           runtimeMode: "full-access",
@@ -2200,6 +2228,7 @@ describe("OpenCodeAdapter runtime lifecycle", () => {
         );
 
         yield* adapter.startSession({
+          managedLaunch: managedLaunchForTest(asThreadId("thread-late-assistant-role")),
           provider: "opencode",
           threadId: asThreadId("thread-late-assistant-role"),
           runtimeMode: "full-access",
@@ -2324,6 +2353,7 @@ describe("OpenCodeAdapter runtime lifecycle", () => {
         );
 
         yield* adapter.startSession({
+          managedLaunch: managedLaunchForTest(asThreadId("thread-synthetic-opencode-parts")),
           provider: "opencode",
           threadId: asThreadId("thread-synthetic-opencode-parts"),
           runtimeMode: "full-access",
@@ -2451,6 +2481,7 @@ describe("OpenCodeAdapter runtime lifecycle", () => {
         const adapter = yield* OpenCodeAdapter;
 
         yield* adapter.startSession({
+          managedLaunch: managedLaunchForTest(asThreadId("thread-default-build-agent")),
           provider: "opencode",
           threadId: asThreadId("thread-default-build-agent"),
           runtimeMode: "full-access",
@@ -2491,6 +2522,7 @@ describe("OpenCodeAdapter runtime lifecycle", () => {
       Effect.gen(function* () {
         const adapter = yield* OpenCodeAdapter;
         yield* adapter.startSession({
+          managedLaunch: managedLaunchForTest(asThreadId("thread-docx-attachment")),
           provider: "opencode",
           threadId: asThreadId("thread-docx-attachment"),
           runtimeMode: "full-access",
@@ -2548,6 +2580,7 @@ describe("OpenCodeAdapter runtime lifecycle", () => {
         const adapter = yield* OpenCodeAdapter;
 
         yield* adapter.startSession({
+          managedLaunch: managedLaunchForTest(asThreadId("thread-stale-plan-agent")),
           provider: "opencode",
           threadId: asThreadId("thread-stale-plan-agent"),
           runtimeMode: "full-access",
@@ -2592,6 +2625,7 @@ describe("OpenCodeAdapter runtime lifecycle", () => {
         const adapter = yield* OpenCodeAdapter;
 
         yield* adapter.startSession({
+          managedLaunch: managedLaunchForTest(asThreadId("thread-explicit-agent")),
           provider: "opencode",
           threadId: asThreadId("thread-explicit-agent"),
           runtimeMode: "full-access",
@@ -2649,6 +2683,7 @@ describe("OpenCodeAdapter runtime lifecycle", () => {
         );
 
         yield* adapter.startSession({
+          managedLaunch: managedLaunchForTest(asThreadId("thread-default-tagged-plan")),
           provider: "opencode",
           threadId: asThreadId("thread-default-tagged-plan"),
           runtimeMode: "full-access",
@@ -2747,6 +2782,7 @@ describe("OpenCodeAdapter runtime lifecycle", () => {
         );
 
         yield* adapter.startSession({
+          managedLaunch: managedLaunchForTest(asThreadId("thread-usage-events")),
           provider: "opencode",
           threadId: asThreadId("thread-usage-events"),
           runtimeMode: "full-access",
@@ -2830,6 +2866,7 @@ describe("OpenCodeAdapter runtime lifecycle", () => {
         );
 
         yield* adapter.startSession({
+          managedLaunch: managedLaunchForTest(asThreadId("thread-usage-dedup")),
           provider: "opencode",
           threadId: asThreadId("thread-usage-dedup"),
           runtimeMode: "full-access",
@@ -2889,6 +2926,7 @@ describe("OpenCodeAdapter runtime lifecycle", () => {
         );
 
         yield* adapter.startSession({
+          managedLaunch: managedLaunchForTest(asThreadId("thread-usage-unknown-limit")),
           provider: "opencode",
           threadId: asThreadId("thread-usage-unknown-limit"),
           runtimeMode: "full-access",
@@ -2959,6 +2997,7 @@ describe("OpenCodeAdapter runtime lifecycle", () => {
         );
 
         yield* adapter.startSession({
+          managedLaunch: managedLaunchForTest(asThreadId("thread-usage-zero")),
           provider: "opencode",
           threadId: asThreadId("thread-usage-zero"),
           runtimeMode: "full-access",
@@ -3046,6 +3085,7 @@ describe("OpenCodeAdapter runtime lifecycle", () => {
         );
 
         yield* adapter.startSession({
+          managedLaunch: managedLaunchForTest(asThreadId("thread-todo-updated")),
           provider: "opencode",
           threadId: asThreadId("thread-todo-updated"),
           runtimeMode: "full-access",
@@ -3130,6 +3170,7 @@ describe("OpenCodeAdapter runtime lifecycle", () => {
         );
 
         yield* adapter.startSession({
+          managedLaunch: managedLaunchForTest(asThreadId("thread-next-events")),
           provider: "opencode",
           threadId: asThreadId("thread-next-events"),
           runtimeMode: "full-access",
@@ -3244,6 +3285,7 @@ describe("OpenCodeAdapter runtime lifecycle", () => {
         const adapter = yield* OpenCodeAdapter;
         const threadId = asThreadId("thread-child-permission");
         yield* adapter.startSession({
+          managedLaunch: managedLaunchForTest(threadId),
           provider: "opencode",
           threadId,
           runtimeMode: "full-access",
@@ -3308,6 +3350,7 @@ describe("OpenCodeAdapter runtime lifecycle", () => {
       Effect.gen(function* () {
         const adapter = yield* OpenCodeAdapter;
         yield* adapter.startSession({
+          managedLaunch: managedLaunchForTest(asThreadId("thread-resumed-child-permission")),
           provider: "opencode",
           threadId: asThreadId("thread-resumed-child-permission"),
           runtimeMode: "full-access",
@@ -3363,6 +3406,7 @@ describe("OpenCodeAdapter runtime lifecycle", () => {
       Effect.gen(function* () {
         const adapter = yield* OpenCodeAdapter;
         yield* adapter.startSession({
+          managedLaunch: managedLaunchForTest(asThreadId("thread-partial-reconciliation")),
           provider: "opencode",
           threadId: asThreadId("thread-partial-reconciliation"),
           runtimeMode: "full-access",
@@ -3408,6 +3452,7 @@ describe("OpenCodeAdapter runtime lifecycle", () => {
       Effect.gen(function* () {
         const adapter = yield* OpenCodeAdapter;
         yield* adapter.startSession({
+          managedLaunch: managedLaunchForTest(asThreadId("thread-event-reconnect")),
           provider: "opencode",
           threadId: asThreadId("thread-event-reconnect"),
           runtimeMode: "full-access",
@@ -3454,6 +3499,7 @@ describe("OpenCodeAdapter runtime lifecycle", () => {
         );
         const threadId = asThreadId("thread-full-access-reply-failure");
         yield* adapter.startSession({
+          managedLaunch: managedLaunchForTest(threadId),
           provider: "opencode",
           threadId,
           runtimeMode: "full-access",
@@ -3518,6 +3564,7 @@ describe("OpenCodeAdapter runtime lifecycle", () => {
         const adapter = yield* OpenCodeAdapter;
         const threadId = asThreadId("thread-restricted-permission");
         const session = yield* adapter.startSession({
+          managedLaunch: managedLaunchForTest(threadId),
           provider: "opencode",
           threadId,
           runtimeMode: "approval-required",
@@ -3573,6 +3620,7 @@ describe("OpenCodeAdapter runtime lifecycle", () => {
         const adapter = yield* OpenCodeAdapter;
         const threadId = asThreadId("thread-stale-permission");
         const session = yield* adapter.startSession({
+          managedLaunch: managedLaunchForTest(threadId),
           provider: "opencode",
           threadId,
           runtimeMode: "full-access",
@@ -3628,6 +3676,7 @@ describe("OpenCodeAdapter runtime lifecycle", () => {
         );
 
         yield* adapter.startSession({
+          managedLaunch: managedLaunchForTest(asThreadId("thread-full-access-permission")),
           provider: "opencode",
           threadId: asThreadId("thread-full-access-permission"),
           runtimeMode: "full-access",
@@ -3751,6 +3800,7 @@ describe("OpenCodeAdapter runtime lifecycle", () => {
         );
 
         yield* adapter.startSession({
+          managedLaunch: managedLaunchForTest(asThreadId("thread-late-permission-echo")),
           provider: "opencode",
           threadId: asThreadId("thread-late-permission-echo"),
           runtimeMode: "full-access",
@@ -3911,6 +3961,7 @@ describe("OpenCodeAdapter runtime lifecycle", () => {
         );
 
         yield* adapter.startSession({
+          managedLaunch: managedLaunchForTest(asThreadId("thread-next-tool-call")),
           provider: "opencode",
           threadId: asThreadId("thread-next-tool-call"),
           runtimeMode: "full-access",
@@ -4016,6 +4067,7 @@ describe("OpenCodeAdapter runtime lifecycle", () => {
         );
 
         yield* adapter.startSession({
+          managedLaunch: managedLaunchForTest(asThreadId("thread-child-session-tools")),
           provider: "opencode",
           threadId: asThreadId("thread-child-session-tools"),
           runtimeMode: "full-access",
@@ -4148,6 +4200,7 @@ describe("OpenCodeAdapter runtime lifecycle", () => {
         );
 
         yield* adapter.startSession({
+          managedLaunch: managedLaunchForTest(asThreadId("thread-next-shell")),
           provider: "opencode",
           threadId: asThreadId("thread-next-shell"),
           runtimeMode: "full-access",
@@ -4245,6 +4298,7 @@ describe("OpenCodeAdapter runtime lifecycle", () => {
         );
 
         yield* adapter.startSession({
+          managedLaunch: managedLaunchForTest(asThreadId("thread-stalled-prompt-async")),
           provider: "opencode",
           threadId: asThreadId("thread-stalled-prompt-async"),
           runtimeMode: "full-access",
@@ -4331,6 +4385,7 @@ describe("OpenCodeAdapter runtime lifecycle", () => {
         const adapter = yield* OpenCodeAdapter;
         const threadId = asThreadId("thread-immediate-opencode-tool");
         yield* adapter.startSession({
+          managedLaunch: managedLaunchForTest(threadId),
           provider: "opencode",
           threadId,
           runtimeMode: "full-access",
@@ -4431,6 +4486,7 @@ describe("OpenCodeAdapter runtime lifecycle", () => {
         );
 
         yield* adapter.startSession({
+          managedLaunch: managedLaunchForTest(asThreadId("thread-exact-parent-watchdog")),
           provider: "opencode",
           threadId: asThreadId("thread-exact-parent-watchdog"),
           runtimeMode: "full-access",
@@ -4494,6 +4550,7 @@ describe("OpenCodeAdapter runtime lifecycle", () => {
         );
 
         yield* adapter.startSession({
+          managedLaunch: managedLaunchForTest(asThreadId("thread-rejected-prompt-async")),
           provider: "opencode",
           threadId: asThreadId("thread-rejected-prompt-async"),
           runtimeMode: "full-access",
@@ -4566,6 +4623,7 @@ describe("OpenCodeAdapter runtime lifecycle", () => {
         );
 
         yield* adapter.startSession({
+          managedLaunch: managedLaunchForTest(asThreadId("thread-session-idle")),
           provider: "opencode",
           threadId: asThreadId("thread-session-idle"),
           runtimeMode: "full-access",
@@ -4672,6 +4730,7 @@ describe("OpenCodeAdapter runtime lifecycle", () => {
         const threadId = asThreadId("thread-early-idle-final-assistant");
 
         yield* adapter.startSession({
+          managedLaunch: managedLaunchForTest(threadId),
           provider: "opencode",
           threadId,
           runtimeMode: "full-access",
@@ -4809,6 +4868,7 @@ describe("OpenCodeAdapter runtime lifecycle", () => {
         const threadId = asThreadId("thread-final-before-parts");
 
         yield* adapter.startSession({
+          managedLaunch: managedLaunchForTest(threadId),
           provider: "opencode",
           threadId,
           runtimeMode: "full-access",
@@ -4909,6 +4969,7 @@ describe("OpenCodeAdapter runtime lifecycle", () => {
         const threadId = asThreadId("thread-late-multipart-plan");
 
         yield* adapter.startSession({
+          managedLaunch: managedLaunchForTest(threadId),
           provider: "opencode",
           threadId,
           runtimeMode: "full-access",
@@ -5036,6 +5097,7 @@ describe("OpenCodeAdapter runtime lifecycle", () => {
         const threadId = asThreadId("thread-mixed-final-snapshot");
 
         yield* adapter.startSession({
+          managedLaunch: managedLaunchForTest(threadId),
           provider: "opencode",
           threadId,
           runtimeMode: "full-access",
@@ -5178,6 +5240,7 @@ describe("OpenCodeAdapter runtime lifecycle", () => {
         const threadId = asThreadId("thread-stale-recovery");
 
         yield* adapter.startSession({
+          managedLaunch: managedLaunchForTest(threadId),
           provider: "opencode",
           threadId,
           runtimeMode: "full-access",

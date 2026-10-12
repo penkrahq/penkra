@@ -10,13 +10,16 @@ import { join } from "node:path";
 import {
   DEFAULT_SERVER_SETTINGS,
   FolderId,
+  ProviderInstallationId,
   ProviderConnectionId,
   ThreadId,
   type OrchestrationThreadShell,
   type ServerProviderStatus,
 } from "@penkra/contracts";
 import * as NodeServices from "@effect/platform-node/NodeServices";
-import { Deferred, Effect, Option, Stream } from "effect";
+import { Deferred, Effect, Layer, Option, Sink, Stream } from "effect";
+import { ChildProcessSpawner } from "effect/unstable/process";
+import type { OpencodeClient } from "@opencode-ai/sdk/v2";
 import * as SqlClient from "effect/unstable/sql/SqlClient";
 import { expect, it } from "vitest";
 import { prepareManagedCodexProfileConfig } from "./codexProcessEnv";
@@ -29,10 +32,24 @@ import type { ProjectionSnapshotQueryShape } from "./orchestration/Services/Proj
 import { ServerConfig } from "./config";
 import { makeCodexAdapterLive } from "./provider/Layers/CodexAdapter";
 import { CodexAdapter } from "./provider/Services/CodexAdapter";
+import { makeOpenCodeAdapterLive } from "./provider/Layers/OpenCodeAdapter";
+import { OpenCodeAdapter } from "./provider/Services/OpenCodeAdapter";
+import { makeOpenCodeRuntimeLive, OpenCodeRuntime } from "./provider/opencodeRuntime";
+import { ProviderAdapterRegistry } from "./provider/Services/ProviderAdapterRegistry";
+import { makeManagedDurableProviderServiceLive } from "./provider/Layers/ProviderService";
+import { ProviderLaunchResolverLive } from "./provider/Layers/ProviderLaunchResolver";
+import { ProviderConnectionRepository } from "./persistence/Services/ProviderConnections";
+import { ProviderInstallationRepository } from "./persistence/Services/ProviderInstallations";
+import { ProviderCredentialBroker } from "./provider/providerCredentialBroker";
+import { ProviderSessionDirectoryLive } from "./provider/Layers/ProviderSessionDirectory";
+import { ProviderSessionRuntimeRepositoryLive } from "./persistence/Layers/ProviderSessionRuntime";
+import { ProviderRuntimeEventRepositoryLive } from "./persistence/Layers/ProviderRuntimeEvents";
+import { AnalyticsService } from "./telemetry/Services/AnalyticsService";
 import { runAutomaticProviderUpdateCycle } from "./provider/providerUpdateCoordinator";
 import type { ProviderHealthShape } from "./provider/Services/ProviderHealth";
 import type { ServerSettingsShape } from "./serverSettings";
 import * as NodeSqliteClient from "./persistence/NodeSqliteClient";
+import { SqlitePersistenceMemory } from "./persistence/Layers/Sqlite";
 import { runMigrations } from "./persistence/Migrations";
 import { createThreadFixture } from "./cleanCore/threadFixtures";
 import { makeThreadPublisher } from "./cleanCore/threadStore";
@@ -124,7 +141,7 @@ async function createPool() {
 const fs=require('node:fs'),rl=require('node:readline');
 const configs=new Map(),tools=new Map(),turns=new Map(); let next=0;
 const out=message=>process.stdout.write(JSON.stringify(message)+'\\n');
-fs.appendFileSync(${JSON.stringify(trace)},JSON.stringify({pid:process.pid,event:'spawn',config:fs.readFileSync(process.env.CODEX_HOME+'/config.toml','utf8')})+'\\n');
+fs.appendFileSync(${JSON.stringify(trace)},JSON.stringify({pid:process.pid,event:'spawn',unloadImmediate:fs.readFileSync(process.env.CODEX_HOME+'/config.toml','utf8').includes('thread_unload_delay_secs = 0')})+'\\n');
 rl.createInterface({input:process.stdin}).on('line',async line=>{
   const request=JSON.parse(line); if(request.id===undefined)return;
   if(request.method===undefined){tools.get(request.id)?.(request.result);tools.delete(request.id);return;}
@@ -240,7 +257,7 @@ rl.createInterface({input:process.stdin}).on('line',async line=>{
         .split("\n")
         .map((line) => JSON.parse(line)),
     );
-  return { root, manager, server, input, launch, command, events };
+  return { root, manager, server, credentials, input, launch, command, events, binaryPath };
 }
 
 it("coalesces concurrent starts and discovery per account and attributes interleaved MCP calls", () =>
@@ -279,7 +296,7 @@ it("coalesces concurrent starts and discovery per account and attributes interle
     ).toEqual(["a", "b"]);
     expect((await f.events()).filter((event) => event.event === "spawn")).toHaveLength(1);
     expect((await f.events()).filter((event) => event.event === "initialize")).toHaveLength(1);
-    expect((await f.events())[0].config).toContain("thread_unload_delay_secs = 0");
+    expect((await f.events())[0].unloadImmediate).toBe(true);
     await f.manager.startSession(await f.input("c", "account-b"));
     expect((await f.events()).filter((event) => event.event === "spawn")).toHaveLength(2);
     await f.manager.stopAccount(ProviderConnectionId.makeUnsafe("account-a"));
@@ -567,3 +584,261 @@ it("a turn started after the update admission check receives a persisted cut-off
       ),
     );
   }));
+
+it.each(["codex", "opencode"] as const)(
+  "the production %s resolver carries the account into program shutdown",
+  (provider) =>
+    withPool(async (f) => {
+      const spawnUrls: string[] = [];
+      const stoppedUrls: string[] = [];
+      const urlsByPid = new Map<number, string>();
+      const spawner = Layer.succeed(
+        ChildProcessSpawner.ChildProcessSpawner,
+        ChildProcessSpawner.make(() => {
+          const pid = 71000 + spawnUrls.length;
+          const url = `http://127.0.0.1:${pid}`;
+          spawnUrls.push(url);
+          urlsByPid.set(pid, url);
+          return Effect.succeed(
+            ChildProcessSpawner.makeHandle({
+              pid: ChildProcessSpawner.ProcessId(pid),
+              exitCode: Effect.never,
+              isRunning: Effect.succeed(true),
+              kill: () => Effect.void,
+              stdin: Sink.drain,
+              stdout: Stream.make(
+                new TextEncoder().encode(`opencode server listening on ${url}\n`),
+              ),
+              stderr: Stream.empty,
+              all: Stream.empty,
+              getInputFd: () => Sink.drain,
+              getOutputFd: () => Stream.empty,
+            }),
+          );
+        }),
+      );
+      const runtimeLayer = makeOpenCodeRuntimeLive({
+        teardownProcessTree: async ({ rootPid }) => {
+          const url = urlsByPid.get(rootPid);
+          if (url !== undefined) stoppedUrls.push(url);
+          return { escalated: false, signalErrors: [] };
+        },
+      }).pipe(Layer.provide(spawner));
+      let sessionId = 0;
+      const client = {
+        mcp: {
+          status: async () => ({ data: {} }),
+          add: async () => ({ data: { penkra: { status: "connected" } } }),
+        },
+        session: {
+          create: async () => ({ data: { id: "opencode-native-" + ++sessionId } }),
+          abort: async () => ({ data: null }),
+          children: async () => ({ data: [] }),
+        },
+        permission: { list: async () => ({ data: [] }) },
+        question: { list: async () => ({ data: [] }) },
+        event: {
+          subscribe: async (_input: unknown, options: { signal: AbortSignal }) => ({
+            stream: {
+              [Symbol.asyncIterator]() {
+                let waiting: ((value: IteratorResult<never>) => void) | undefined;
+                const close = () => {
+                  waiting?.({ done: true, value: undefined });
+                  waiting = undefined;
+                };
+                options.signal.addEventListener("abort", close, { once: true });
+                return {
+                  next: () =>
+                    new Promise<IteratorResult<never>>((resolve) => {
+                      if (options.signal.aborted) resolve({ done: true, value: undefined });
+                      else waiting = resolve;
+                    }),
+                  return: () => {
+                    close();
+                    options.signal.removeEventListener("abort", close);
+                    return Promise.resolve({ done: true as const, value: undefined });
+                  },
+                };
+              },
+            },
+          }),
+        },
+      } as unknown as OpencodeClient;
+      const opencodeLayer = Layer.unwrap(
+        Effect.gen(function* () {
+          const runtime = yield* OpenCodeRuntime;
+          return makeOpenCodeAdapterLive({
+            agentGatewayCredentials: f.credentials,
+            loadSharedMcpConfig: async () => "{}",
+            runtime: {
+              ...runtime,
+              createOpenCodeSdkClient: () => client,
+              loadOpenCodeInventory: () =>
+                Effect.succeed({
+                  providerList: { connected: [], all: [], default: {} },
+                  agents: [],
+                  consoleState: null,
+                }),
+            },
+          });
+        }),
+      ).pipe(Layer.provide(runtimeLayer));
+      const registryLayer = Layer.effect(
+        ProviderAdapterRegistry,
+        Effect.gen(function* () {
+          const codex = yield* CodexAdapter;
+          const opencode = yield* OpenCodeAdapter;
+          return {
+            getByProvider: (kind) =>
+              kind === "codex" ? Effect.succeed(codex) : Effect.succeed(opencode),
+            listProviders: () => Effect.succeed(["codex", "opencode"] as const),
+          };
+        }),
+      ).pipe(
+        Layer.provideMerge(makeCodexAdapterLive({ manager: f.manager })),
+        Layer.provideMerge(opencodeLayer),
+      );
+      const installs = Layer.succeed(ProviderInstallationRepository, {
+        getActiveRecord: (harness: string) =>
+          Effect.succeed(
+            Option.some({ id: ProviderInstallationId.makeUnsafe("install-" + harness) }),
+          ),
+        getRecord: (id: string) =>
+          Effect.succeed(
+            Option.some({
+              id,
+              harness: id.endsWith("codex") ? "codex" : "opencode",
+              version: "0.157.1",
+              platform: "darwin",
+              architecture: "arm64",
+              executablePath: f.binaryPath,
+              artifactSource: "github-release",
+              artifactUrl: "https://example.invalid/provider",
+              artifactSha256: "a".repeat(64),
+              adapterVersion: "1",
+              protocolVersion: "v1",
+              lifecycle: "active",
+              healthReason: null,
+              installedAt: at,
+              activatedAt: at,
+              retiredAt: null,
+            }),
+          ),
+      } as never);
+      const connections = Layer.succeed(ProviderConnectionRepository, {
+        getRecord: (id: string) =>
+          Effect.succeed(
+            Option.some({
+              id,
+              harness: provider,
+              authenticationTargetId: provider === "codex" ? "openai-first-party" : "opencode-go",
+              authenticationMethodId: provider === "codex" ? "chatgpt" : "api-key",
+              label: id,
+              credentialRef: provider === "codex" ? null : "provider-secret:" + id,
+              profileRef: provider === "codex" ? "provider-profile:" + id : null,
+              providerIdentityId: null,
+              health: "ready",
+              healthReason: null,
+              lastCheckedAt: at,
+              lifecycle: "active",
+              terminationReason: null,
+              terminatedAt: null,
+              createdAt: at,
+              updatedAt: at,
+            }),
+          ),
+      } as never);
+      const resolverLayer = ProviderLaunchResolverLive.pipe(
+        Layer.provide(installs),
+        Layer.provide(connections),
+        Layer.provide(
+          Layer.succeed(ProviderCredentialBroker, {
+            available: true,
+            readOnce: () => Effect.succeed("fixture-account-key"),
+          } as never),
+        ),
+      );
+      const serviceLayer = makeManagedDurableProviderServiceLive().pipe(
+        Layer.provideMerge(registryLayer),
+        Layer.provide(
+          ProviderSessionDirectoryLive.pipe(Layer.provide(ProviderSessionRuntimeRepositoryLive)),
+        ),
+        Layer.provide(ProviderRuntimeEventRepositoryLive),
+        Layer.provide(resolverLayer),
+        Layer.provide(AnalyticsService.layerTest),
+        Layer.provide(Layer.succeed(ThreadPublisher, makeThreadPublisher())),
+      );
+      await Effect.runPromise(
+        Effect.gen(function* () {
+          const sql = yield* SqlClient.SqlClient;
+          yield* sql`INSERT INTO projection_folders (folder_id,space_id,title,workspace_root,default_model_selection_json,scripts_json,created_at,updated_at) VALUES ('owner-folder','penkra-personal','Owner',NULL,NULL,'[]',${at},${at})`;
+          const service = yield* ProviderService;
+          const registry = yield* ProviderAdapterRegistry;
+          const ids = [
+            ThreadId.makeUnsafe(provider + "-owner-a"),
+            ThreadId.makeUnsafe(provider + "-owner-b"),
+          ];
+          const accounts = [
+            ProviderConnectionId.makeUnsafe("account-a"),
+            ProviderConnectionId.makeUnsafe("account-b"),
+          ];
+          for (let index = 0; index < ids.length; index++) {
+            const threadId = ids[index]!;
+            const account = accounts[index]!;
+            const modelSelection =
+              provider === "codex"
+                ? { provider, model: "gpt-5.5" }
+                : { provider, model: "opencode-go/deepseek-v4.1-flash" };
+            yield* createThreadFixture(sql, {
+              threadId,
+              folderId: FolderId.makeUnsafe("owner-folder"),
+              title: "Owner",
+              modelSelection,
+              runtimeMode: "full-access",
+              connection: { kind: "selected", connectionId: account },
+              creator: { kind: "user" },
+              createdAt: at,
+            });
+            yield* sql`UPDATE threads SET native_state_id=${"native-" + threadId} WHERE id=${threadId}`;
+            // No managedLaunch is supplied: this is the production resolver callback.
+            yield* service.startSession(threadId, {
+              provider,
+              threadId,
+              runtimeMode: "full-access",
+              modelSelection,
+              cwd: f.root,
+            });
+          }
+          const adapter = yield* registry.getByProvider(provider);
+          if (!adapter.stopAccount) throw new Error("Expected account shutdown");
+          yield* adapter.stopAccount(accounts[0]!);
+          expect(yield* adapter.hasSession(ids[0]!)).toBe(false);
+          expect(yield* adapter.hasSession(ids[1]!)).toBe(true);
+          if (provider === "codex") {
+            const calls = yield* Effect.promise(() => f.events());
+            expect(calls.filter((event) => event.event === "spawn")).toHaveLength(2);
+            yield* Effect.tryPromise(() =>
+              f.manager.sendTurn({ threadId: ids[1]!, input: "Other account still works" }),
+            );
+          } else {
+            expect(spawnUrls).toHaveLength(2);
+            expect(stoppedUrls).toEqual([spawnUrls[0]]);
+          }
+          yield* service.closeRuntimeEvents;
+          expect(yield* adapter.hasSession(ids[1]!)).toBe(false);
+          if (provider === "opencode") expect(stoppedUrls).toEqual(spawnUrls);
+        }).pipe(
+          Effect.provide(serviceLayer),
+          Effect.provideService(ServerConfig, {
+            stateDir: f.root,
+            baseDir: f.root,
+            cwd: f.root,
+            homeDir: f.root,
+          } as typeof ServerConfig.Service),
+          Effect.provide(NodeServices.layer),
+          Effect.provide(SqlitePersistenceMemory),
+          Effect.scoped,
+        ),
+      );
+    }),
+);
