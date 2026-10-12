@@ -4,22 +4,11 @@
 // Exports: TimelineWorkEntryRow, EditedFileRowContent, prefersCompactWorkEntryRow
 
 import { ThreadId } from "@penkra/contracts";
-import {
-  createElement,
-  memo,
-  useCallback,
-  useEffect,
-  useMemo,
-  useRef,
-  useState,
-  type ReactElement,
-  type ReactNode,
-} from "react";
+import { createElement, memo, useMemo, useState, type ReactElement, type ReactNode } from "react";
 
 import { basenameOfPath } from "~/file-icons";
 import { useAppInstallationSnapshot } from "~/appInstallationStore";
 import { resolveInstalledAppCommandPresentation } from "~/lib/appCommandPresentation";
-import { DISCLOSURE_TRANSITION_MS } from "~/lib/disclosureMotion";
 import {
   ArrowUpCircleIcon,
   BackgroundTrayIcon,
@@ -1143,48 +1132,6 @@ function ToolDetailsDisclosure(props: {
       "cursor-pointer focus-visible:outline-none",
     );
   const [open, setOpen] = useState(false);
-  const [renderDetails, setRenderDetails] = useState(false);
-  const [motionOpen, setMotionOpen] = useState(false);
-  const openFrameRef = useRef<number | null>(null);
-  const cleanupTimeoutRef = useRef<number | null>(null);
-
-  const clearMotionTimers = useCallback(() => {
-    if (openFrameRef.current !== null) {
-      window.cancelAnimationFrame(openFrameRef.current);
-      openFrameRef.current = null;
-    }
-    if (cleanupTimeoutRef.current !== null) {
-      window.clearTimeout(cleanupTimeoutRef.current);
-      cleanupTimeoutRef.current = null;
-    }
-  }, []);
-
-  const setDetailsOpen = useCallback(
-    (nextOpen: boolean) => {
-      clearMotionTimers();
-      setOpen(nextOpen);
-
-      if (nextOpen) {
-        setRenderDetails(true);
-        setMotionOpen(false);
-        openFrameRef.current = window.requestAnimationFrame(() => {
-          openFrameRef.current = null;
-          setMotionOpen(true);
-        });
-        return;
-      }
-
-      setMotionOpen(false);
-      cleanupTimeoutRef.current = window.setTimeout(() => {
-        cleanupTimeoutRef.current = null;
-        setRenderDetails(false);
-      }, DISCLOSURE_TRANSITION_MS);
-    },
-    [clearMotionTimers],
-  );
-
-  useEffect(() => () => clearMotionTimers(), [clearMotionTimers]);
-
   const summaryButton = (
     <button
       type="button"
@@ -1193,7 +1140,7 @@ function ToolDetailsDisclosure(props: {
       data-file-change-row={props.dataFileChangeRow ? "true" : undefined}
       data-tool-detail-trigger="true"
       onClick={() => {
-        setDetailsOpen(!open);
+        setOpen(!open);
       }}
     >
       {props.children}
@@ -1207,11 +1154,11 @@ function ToolDetailsDisclosure(props: {
   return (
     <div className="group/tool-details min-w-0">
       <ToolRowTooltip content={props.tooltip}>{summaryButton}</ToolRowTooltip>
-      {renderDetails ? (
-        <DisclosureRegion
-          open={motionOpen}
-          contentClassName={cn("min-w-0 pt-2", props.compact ? "ml-5" : "ml-7")}
-        >
+      <DisclosureRegion
+        open={open}
+        contentClassName={cn("min-w-0 pt-2", props.compact ? "ml-5" : "ml-7")}
+      >
+        {open ? (
           <div data-tool-details-inline="true">
             <ToolCallDetailsContent
               details={props.details}
@@ -1219,8 +1166,8 @@ function ToolDetailsDisclosure(props: {
               timestampFormat={props.timestampFormat}
             />
           </div>
-        </DisclosureRegion>
-      ) : null}
+        ) : null}
+      </DisclosureRegion>
     </div>
   );
 }

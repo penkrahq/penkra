@@ -8,15 +8,13 @@
 import { cn } from "~/lib/utils";
 import type { CSSProperties } from "react";
 
-// Carbon's productive small-expansion token and standard productive curve. The duration is a
-// design-system token; it never varies based on content count or a guessed pixel distance.
-export const DISCLOSURE_TRANSITION_MS = 150;
-
 export const DISCLOSURE_INTRINSIC_SIZE_STYLE = {
   interpolateSize: "allow-keywords",
 } as CSSProperties;
 
 /** Shell animates its real intrinsic block size. Electron's Chromium runtime supports this. */
+// Carbon's productive small-expansion token and standard productive curve. The duration is a
+// design-system token; it never varies based on content count or a guessed pixel distance.
 export const DISCLOSURE_SHELL_MOTION_CLASS =
   "overflow-clip transition-[height] duration-150 [transition-timing-function:ease] motion-reduce:transition-none";
 

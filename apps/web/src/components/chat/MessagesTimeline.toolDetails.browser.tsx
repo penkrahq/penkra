@@ -100,85 +100,123 @@ async function settleLayout(): Promise<void> {
 
 describe("MessagesTimeline tool details", () => {
   afterEach(() => {
+    vi.restoreAllMocks();
     document.body.innerHTML = "";
   });
 
   it("opens and closes command details with the shared disclosure motion", async () => {
     const host = createTimelineHost();
     const screen = await render(<ToolDetailsTimeline />, { container: host });
-    const originalRequestAnimationFrame = window.requestAnimationFrame;
-    const originalCancelAnimationFrame = window.cancelAnimationFrame;
-    const pendingFrames: Array<FrameRequestCallback | null> = [];
-
     try {
       const trigger = document.querySelector<HTMLButtonElement>(
         '[data-tool-detail-trigger="true"]',
-      );
-      expect(trigger).not.toBeNull();
-      expect(trigger?.getAttribute("aria-expanded")).toBe("false");
+      )!;
+      const region = document.querySelector<HTMLElement>('[data-slot="disclosure-region"]')!;
+      expect(trigger.getAttribute("aria-expanded")).toBe("false");
       expect(document.querySelector("[data-tool-details-inline='true']")).toBeNull();
-
-      window.requestAnimationFrame = (callback: FrameRequestCallback) => {
-        pendingFrames.push(callback);
-        return pendingFrames.length;
-      };
-      window.cancelAnimationFrame = (handle: number) => {
-        pendingFrames[handle - 1] = null;
-      };
-
-      trigger?.click();
-
-      await expect.poll(() => trigger?.getAttribute("aria-expanded")).toBe("true");
+      trigger.click();
+      await expect.poll(() => trigger.getAttribute("aria-expanded")).toBe("true");
+      const details = document.querySelector<HTMLElement>('[data-tool-details-inline="true"]')!;
+      expect(details).not.toBeNull();
+      expect(region).not.toHaveAttribute("aria-hidden");
+      expect(region).not.toHaveAttribute("inert");
       await expect
-        .poll(() => document.querySelector("[data-tool-details-inline='true']") !== null)
-        .toBe(true);
-      const openingHiddenRegion = document
-        .querySelector("[data-tool-details-inline='true']")
-        ?.closest("[aria-hidden='true']");
-      expect(openingHiddenRegion).not.toBeNull();
-      expect(openingHiddenRegion?.hasAttribute("inert")).toBe(true);
-
-      const framesToFlush = pendingFrames.splice(0);
-      expect(framesToFlush.some((frame) => frame !== null)).toBe(true);
-      for (const frame of framesToFlush) {
-        frame?.(performance.now());
-      }
-      window.requestAnimationFrame = originalRequestAnimationFrame;
-      window.cancelAnimationFrame = originalCancelAnimationFrame;
-
-      await expect
-        .poll(
-          () =>
-            document
-              .querySelector("[data-tool-details-inline='true']")
-              ?.closest("[aria-hidden='true']") ?? null,
-        )
-        .toBeNull();
-      expect(document.body.textContent ?? "").toContain(`rg -n "toolDetails" apps/web/src`);
-
-      trigger?.click();
-
-      await expect.poll(() => trigger?.getAttribute("aria-expanded")).toBe("false");
-      expect(document.querySelector("[data-tool-details-inline='true']")).not.toBeNull();
-      const closingHiddenRegion = document
-        .querySelector("[data-tool-details-inline='true']")
-        ?.closest("[aria-hidden='true']");
-      expect(closingHiddenRegion).not.toBeNull();
-      expect(closingHiddenRegion?.hasAttribute("inert")).toBe(true);
-
-      await new Promise<void>((resolve) => {
-        window.setTimeout(() => resolve(), 320);
-      });
-      await expect
-        .poll(() => document.querySelector("[data-tool-details-inline='true']"))
-        .toBeNull();
-      await settleLayout();
+        .element(screen.getByText("apps/web/src/session-logic.ts:55: toolDetails"))
+        .toBeVisible();
+      trigger.click();
+      await expect.poll(() => trigger.getAttribute("aria-expanded")).toBe("false");
+      expect(region).toHaveAttribute("inert");
+      expect(details.isConnected).toBe(true);
+      details.dispatchEvent(
+        new TransitionEvent("transitionend", { bubbles: true, propertyName: "height" }),
+      );
+      expect(details.isConnected).toBe(true);
+      region.dispatchEvent(
+        new TransitionEvent("transitionend", { bubbles: true, propertyName: "opacity" }),
+      );
+      expect(details.isConnected).toBe(true);
+      region.dispatchEvent(
+        new TransitionEvent("transitionend", { bubbles: true, propertyName: "height" }),
+      );
+      await expect.poll(() => details.isConnected).toBe(false);
     } finally {
-      window.requestAnimationFrame = originalRequestAnimationFrame;
-      window.cancelAnimationFrame = originalCancelAnimationFrame;
       await screen.unmount();
       host.remove();
-      await settleLayout();
+    }
+  });
+
+  it("releases closing details immediately when reduced motion removes the transition", async () => {
+    const nativeMatchMedia = window.matchMedia.bind(window);
+    vi.spyOn(window, "matchMedia").mockImplementation((query) =>
+      query === "(prefers-reduced-motion: reduce)"
+        ? { ...nativeMatchMedia(query), matches: true }
+        : nativeMatchMedia(query),
+    );
+    const host = createTimelineHost();
+    const screen = await render(<ToolDetailsTimeline />, { container: host });
+    try {
+      const trigger = document.querySelector<HTMLButtonElement>(
+        '[data-tool-detail-trigger="true"]',
+      )!;
+      const region = document.querySelector<HTMLElement>('[data-slot="disclosure-region"]')!;
+      region.style.transitionProperty = "none";
+      trigger.click();
+      await expect.poll(() => trigger.getAttribute("aria-expanded")).toBe("true");
+      expect(document.querySelector("[data-tool-details-inline='true']")).not.toBeNull();
+      trigger.click();
+      await expect.poll(() => trigger.getAttribute("aria-expanded")).toBe("false");
+      expect(document.querySelector("[data-tool-details-inline='true']")).toBeNull();
+    } finally {
+      await screen.unmount();
+      host.remove();
+    }
+  });
+
+  it("keeps the same details mounted when reopened during close", async () => {
+    const host = createTimelineHost();
+    const screen = await render(<ToolDetailsTimeline />, { container: host });
+    try {
+      const trigger = document.querySelector<HTMLButtonElement>(
+        '[data-tool-detail-trigger="true"]',
+      )!;
+      const region = document.querySelector<HTMLElement>('[data-slot="disclosure-region"]')!;
+      trigger.click();
+      await expect.poll(() => trigger.getAttribute("aria-expanded")).toBe("true");
+      const details = document.querySelector<HTMLElement>('[data-tool-details-inline="true"]')!;
+      trigger.click();
+      await expect.poll(() => trigger.getAttribute("aria-expanded")).toBe("false");
+      expect(details.isConnected).toBe(true);
+      trigger.click();
+      await expect.poll(() => trigger.getAttribute("aria-expanded")).toBe("true");
+      expect(document.querySelector("[data-tool-details-inline='true']")).toBe(details);
+      expect(region).not.toHaveAttribute("inert");
+      region.dispatchEvent(
+        new TransitionEvent("transitionend", { bubbles: true, propertyName: "height" }),
+      );
+      expect(details.isConnected).toBe(true);
+    } finally {
+      await screen.unmount();
+      host.remove();
+    }
+  });
+
+  it("the empty disclosure adds no row height or spacing before first open", async () => {
+    const host = createTimelineHost();
+    const screen = await render(<ToolDetailsTimeline />, { container: host });
+    try {
+      const trigger = document.querySelector<HTMLButtonElement>(
+        '[data-tool-detail-trigger="true"]',
+      )!;
+      const region = document.querySelector<HTMLElement>('[data-slot="disclosure-region"]')!;
+      expect(region.getBoundingClientRect().height).toBe(0);
+      expect(region.parentElement!.getBoundingClientRect().height).toBe(
+        trigger.getBoundingClientRect().height,
+      );
+      expect(region).toHaveAttribute("inert");
+      expect(document.querySelector("[data-tool-details-inline='true']")).toBeNull();
+    } finally {
+      await screen.unmount();
+      host.remove();
     }
   });
 
