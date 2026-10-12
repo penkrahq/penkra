@@ -6,6 +6,7 @@ import type {
   ProjectDiscoverScriptsResult,
   ProjectSearchEntriesResult,
   ProjectSearchLocalEntriesResult,
+  ProjectWorkspaceChangeEvent,
 } from "@penkra/contracts";
 import { isLocalAbsolutePath } from "@penkra/shared/path";
 import { queryOptions, type QueryClient } from "@tanstack/react-query";
@@ -31,7 +32,7 @@ export const projectQueryKeys = {
 };
 
 // Scope live file-change invalidations to one workspace so unrelated
-// project/worktree caches stay warm (mirrors invalidateGitQueriesForCwds).
+// project/worktree caches stay warm.
 export function invalidateProjectFileQueriesForCwds(
   queryClient: QueryClient,
   cwds: Iterable<string>,
@@ -42,18 +43,26 @@ export function invalidateProjectFileQueriesForCwds(
       queryClient.invalidateQueries({ queryKey: ["folders", "list-directories", cwd] as const }),
       queryClient.invalidateQueries({ queryKey: ["folders", "read-file", cwd] as const }),
       queryClient.invalidateQueries({ queryKey: ["folders", "search-entries", cwd] as const }),
+      queryClient.invalidateQueries({ queryKey: ["folders", "discover-scripts", cwd] as const }),
     ]),
   );
 }
 
+export async function invalidateProjectQueriesForWorkspaceChange(
+  queryClient: QueryClient,
+  event: ProjectWorkspaceChangeEvent,
+): Promise<void> {
+  if (event.lostSync) {
+    await queryClient.invalidateQueries({ queryKey: projectQueryKeys.all });
+  } else if (event.filesChanged) {
+    await invalidateProjectFileQueriesForCwds(queryClient, [event.cwd]);
+  }
+}
+
 const DEFAULT_SEARCH_ENTRIES_LIMIT = 80;
-const DEFAULT_LIST_DIRECTORIES_STALE_TIME = 15_000;
-const DEFAULT_SEARCH_ENTRIES_STALE_TIME = 15_000;
 const DEFAULT_DISCOVER_SCRIPTS_DEPTH = 2;
-const DEFAULT_DISCOVER_SCRIPTS_STALE_TIME = 30_000;
 const DEFAULT_SEARCH_LOCAL_ENTRIES_LIMIT = 50;
 const DEFAULT_SEARCH_LOCAL_ENTRIES_STALE_TIME = 10_000;
-const DEFAULT_READ_FILE_STALE_TIME = 5_000;
 const LOCAL_PREVIEW_GRANT_REFRESH_SAFETY_MS = 15_000;
 const LOCAL_PREVIEW_GRANT_MIN_REFETCH_INTERVAL_MS = 1_000;
 export const LOCAL_PREVIEW_GRANT_MAX_REFETCH_INTERVAL_MS = 30_000;
@@ -106,7 +115,6 @@ export function projectListDirectoriesQueryOptions(input: {
   relativePath?: string | null;
   includeFiles?: boolean;
   enabled?: boolean;
-  staleTime?: number;
 }) {
   const relativePath = input.relativePath?.trim() || null;
   const includeFiles = input.includeFiles ?? true;
@@ -124,7 +132,8 @@ export function projectListDirectoriesQueryOptions(input: {
       });
     },
     enabled: (input.enabled ?? true) && input.cwd !== null,
-    staleTime: input.staleTime ?? DEFAULT_LIST_DIRECTORIES_STALE_TIME,
+    staleTime: Infinity,
+    refetchOnWindowFocus: "always",
     placeholderData: (previous) => previous ?? { entries: [] },
   });
 }
@@ -134,7 +143,6 @@ export function projectReadFileQueryOptions(input: {
   relativePath: string | null;
   previewGrant?: string | null | undefined;
   enabled?: boolean;
-  staleTime?: number;
 }) {
   const effectiveCwd =
     input.cwd ??
@@ -155,7 +163,8 @@ export function projectReadFileQueryOptions(input: {
       });
     },
     enabled: (input.enabled ?? true) && effectiveCwd !== null && input.relativePath !== null,
-    staleTime: input.staleTime ?? DEFAULT_READ_FILE_STALE_TIME,
+    staleTime: Infinity,
+    refetchOnWindowFocus: "always",
   });
 }
 
@@ -183,7 +192,6 @@ export function projectDiscoverScriptsQueryOptions(input: {
   cwd: string | null;
   enabled?: boolean;
   depth?: number;
-  staleTime?: number;
 }) {
   const depth = input.depth ?? DEFAULT_DISCOVER_SCRIPTS_DEPTH;
   return queryOptions({
@@ -199,7 +207,8 @@ export function projectDiscoverScriptsQueryOptions(input: {
       });
     },
     enabled: (input.enabled ?? true) && input.cwd !== null,
-    staleTime: input.staleTime ?? DEFAULT_DISCOVER_SCRIPTS_STALE_TIME,
+    staleTime: Infinity,
+    refetchOnWindowFocus: "always",
     placeholderData: (previous) => previous ?? EMPTY_DISCOVER_SCRIPTS_RESULT,
   });
 }
@@ -210,7 +219,6 @@ export function projectSearchEntriesQueryOptions(input: {
   enabled?: boolean;
   kind?: ProjectEntry["kind"];
   limit?: number;
-  staleTime?: number;
 }) {
   const limit = input.limit ?? DEFAULT_SEARCH_ENTRIES_LIMIT;
   return queryOptions({
@@ -228,7 +236,8 @@ export function projectSearchEntriesQueryOptions(input: {
       });
     },
     enabled: (input.enabled ?? true) && input.cwd !== null && input.query.length > 0,
-    staleTime: input.staleTime ?? DEFAULT_SEARCH_ENTRIES_STALE_TIME,
+    staleTime: Infinity,
+    refetchOnWindowFocus: "always",
     placeholderData: (previous) => previous ?? EMPTY_SEARCH_ENTRIES_RESULT,
   });
 }

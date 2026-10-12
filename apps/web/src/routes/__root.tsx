@@ -74,7 +74,7 @@ import {
   addWsTransportStateListener,
   readLatestWsCompatibilityIssue,
 } from "../wsTransportEvents";
-import { invalidateProjectFileQueriesForCwds, projectQueryKeys } from "../lib/projectReactQuery";
+import { invalidateProjectQueriesForWorkspaceChange } from "../lib/projectReactQuery";
 import { useProjectRunStore } from "../projectRunStore";
 import { VoiceSessionCoordinatorProvider } from "../voiceSessionCoordinator";
 import { TaskCompletionNotifications } from "../notifications/taskCompletion";
@@ -1122,13 +1122,7 @@ function EventRouter() {
       invalidateLocalServers();
     });
     const unsubWorkspaceChange = api.folders.onWorkspaceChange((event) => {
-      if (event.lostSync) {
-        void queryClient.invalidateQueries({ queryKey: projectQueryKeys.all });
-        return;
-      }
-      if (event.filesChanged) {
-        void invalidateProjectFileQueriesForCwds(queryClient, new Set([event.cwd]));
-      }
+      void invalidateProjectQueriesForWorkspaceChange(queryClient, event);
     });
     void api.folders
       .listDevServers()
