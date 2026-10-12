@@ -328,26 +328,6 @@ export type ServerConfigStreamEvent = typeof ServerConfigStreamEvent.Type;
 export const ServerRefreshProvidersResult = ServerProviderStatusesUpdatedPayload;
 export type ServerRefreshProvidersResult = typeof ServerRefreshProvidersResult.Type;
 
-export const ServerProviderUpdateInput = Schema.Struct({
-  provider: ProviderKind,
-});
-export type ServerProviderUpdateInput = typeof ServerProviderUpdateInput.Type;
-
-export class ServerProviderUpdateError extends Schema.TaggedErrorClass<ServerProviderUpdateError>()(
-  "ServerProviderUpdateError",
-  {
-    provider: ProviderKind,
-    reason: TrimmedNonEmptyString,
-  },
-) {
-  override get message(): string {
-    return `Provider update failed for ${this.provider}: ${this.reason}`;
-  }
-}
-
-export const ServerProviderUpdateResult = ServerProviderStatusesUpdatedPayload;
-export type ServerProviderUpdateResult = typeof ServerProviderUpdateResult.Type;
-
 export const ServerGetSettingsResult = ServerSettingsView;
 export type ServerGetSettingsResult = typeof ServerGetSettingsResult.Type;
 

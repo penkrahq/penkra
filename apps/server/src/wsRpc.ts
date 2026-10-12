@@ -31,7 +31,6 @@ import {
   type OrchestrationThreadStreamItem,
   type ServerConfigStreamEvent,
   type ServerLifecycleStreamEvent,
-  ServerProviderUpdateError,
 } from "@penkra/contracts";
 import { Effect, FileSystem, Layer, Option, Path, Queue, Schema, Scope, Stream } from "effect";
 import { Headers, HttpRouter, HttpServerRequest, HttpServerResponse } from "effect/unstable/http";
@@ -1181,27 +1180,6 @@ const makeWsRpcHandlersLayer = () =>
           rpcEffect(
             providerHealth.refresh.pipe(Effect.map((providers) => ({ providers }))),
             "Failed to refresh providers",
-          ),
-        [WS_METHODS.serverUpdateProvider]: (input) =>
-          projectionReadModelQuery.hasActiveProviderThread(input.provider).pipe(
-            Effect.flatMap((active) =>
-              active
-                ? Effect.fail(
-                    new ServerProviderUpdateError({
-                      provider: input.provider,
-                      reason: "Wait for active provider sessions to finish before updating.",
-                    }),
-                  )
-                : providerHealth.updateProvider(input),
-            ),
-            Effect.mapError((cause) =>
-              cause instanceof ServerProviderUpdateError
-                ? cause
-                : new ServerProviderUpdateError({
-                    provider: input.provider,
-                    reason: "Could not verify whether this provider has an active session.",
-                  }),
-            ),
           ),
         [WS_METHODS.providerGetConnections]: (input) =>
           rpcEffect(

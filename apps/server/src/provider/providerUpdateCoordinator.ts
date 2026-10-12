@@ -314,11 +314,6 @@ export function runManagedProviderBootstrapCycle(input: ManagedProviderCoordinat
 
 export function runAutomaticProviderUpdateCycle(input: ManagedProviderCoordinatorInput) {
   return Effect.gen(function* () {
-    const settings = yield* input.serverSettings.getSettings;
-    if (settings.providerUpdateMode !== "automatic") {
-      return;
-    }
-
     const statuses = yield* input.providerHealth.refresh;
     for (const candidate of statuses.filter(isAutomaticUpdateCandidate)) {
       if (!isManagedProviderKind(candidate.provider)) {

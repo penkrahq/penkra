@@ -1,14 +1,7 @@
-import {
-  IconBell,
-  IconBrandGithub,
-  IconBrandX,
-  IconBrandYoutube,
-  IconRefresh,
-} from "@tabler/icons-react";
+import { IconBrandGithub, IconBrandX, IconBrandYoutube } from "@tabler/icons-react";
 import { useEffect, useState } from "react";
 import type { DesktopAppOpenIntent, DesktopAppOpenWithPreferences } from "@penkra/contracts";
 
-import { useAppSettings } from "~/appSettings";
 import { useAppInstallationSnapshot } from "~/appInstallationStore";
 import { useSpacesUiStore } from "~/spacesUiStore";
 import { APP_VERSION } from "~/branding";
@@ -17,13 +10,7 @@ import { SettingRowShared } from "~/components/settings/setting-row-shared/Setti
 import { SettingsSectionShared } from "~/components/settings/settings-section-shared/SettingsSectionShared";
 import { collectFileHandlerRows, fileTypeLabel } from "~/lib/appOpenWith";
 
-const PROVIDER_UPDATE_OPTIONS = [
-  { id: "automatic", icon: <IconRefresh />, label: "Automatic" },
-  { id: "notify", icon: <IconBell />, label: "Notify me" },
-];
-
 export function SettingsGeneralPage() {
-  const { settings, updateSettings } = useAppSettings();
   const installations = useAppInstallationSnapshot();
   const activeSpaceId = useSpacesUiStore((state) => state.activeSpaceId);
   const isEnabled = (appId: string) =>
@@ -106,20 +93,6 @@ export function SettingsGeneralPage() {
               : {})}
           />
         ))}
-      </SettingsSectionShared>
-
-      <SettingsSectionShared title="Notifications">
-        <OpenWithRowShared
-          description="Update automatically or notify you first."
-          onValueChange={(providerUpdateMode) => {
-            if (providerUpdateMode === "automatic" || providerUpdateMode === "notify") {
-              updateSettings({ providerUpdateMode });
-            }
-          }}
-          options={PROVIDER_UPDATE_OPTIONS}
-          title="Provider updates"
-          value={settings.providerUpdateMode}
-        />
       </SettingsSectionShared>
 
       <SettingsSectionShared title="About">

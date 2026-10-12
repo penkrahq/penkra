@@ -304,7 +304,6 @@ describe("wsNativeApi", () => {
     const payload = {
       settings: {
         enableAssistantStreaming: true,
-        providerUpdateMode: "automatic",
         addProjectBaseDirectory: "",
         textGenerationModelSelection: { provider: "codex", model: "gpt-5.4-mini" },
         providers: {

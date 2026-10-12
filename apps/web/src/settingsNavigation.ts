@@ -24,15 +24,6 @@ export const SETTINGS_SECTION_IDS = [
 export type SettingsSectionId = (typeof SETTINGS_SECTION_IDS)[number];
 export type SettingsNavGroupId = "app" | "penkra";
 
-/**
- * Deep-link scroll targets inside settings panels. Each id is shared by its DOM owner and callers
- * that navigate with `?target=…`; the settings route resolves every target after the active panel
- * mounts.
- */
-export const SETTINGS_TARGETS = {
-  providerUpdates: "provider-updates",
-} as const;
-
 export type SettingsNavItem = {
   id: SettingsSectionId;
   group: SettingsNavGroupId;
