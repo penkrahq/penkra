@@ -63,7 +63,6 @@ interface TranscriptVirtualListProps<TItem> extends Omit<
 const END_THRESHOLD_PX = 80;
 const START_PAGINATION_THRESHOLD_PX = 320;
 const OVERSCAN_ROWS = 6;
-const INITIAL_END_CORRECTION_DELAY_MS = 16;
 const GEOMETRY_EPSILON_PX = 0.5;
 
 function alignFromViewPosition(viewPosition: number | undefined): "start" | "center" | "end" {
@@ -154,8 +153,6 @@ function TranscriptVirtualListInner<TItem>(
   const virtualizerAnchorTo = hasLeadingPrepend ? "end" : "start";
   const initialEndFollowEligibleRef = useRef(initialViewportSnapshotRef.current?.isAtEnd !== false);
   const initialEndFollowRef = useRef(false);
-  const initialEndTimerRef = useRef<number | null>(null);
-  const initialEndFrameCountRef = useRef(0);
   const initialEndFollowOwnedKeysRef = useRef<ReadonlySet<string>>(new Set());
   const initialEndFollowTailKeyRef = useRef<string | null>(null);
   const measuredSizeByKeyRef = useRef(new Map<string, number>());
@@ -166,12 +163,26 @@ function TranscriptVirtualListInner<TItem>(
   const initialAnchorRestoreActiveRef = useRef(
     initialViewportSnapshotRef.current?.isAtEnd === false,
   );
-  const initialAnchorRestoreTimerRef = useRef<number | null>(null);
-  const initialAnchorRestoreAttemptRef = useRef(0);
-  const initialAnchorRestoreStableTicksRef = useRef(0);
-  const initialAnchorRestoreLastTargetOffsetRef = useRef<number | null>(null);
   const scheduleInitialAnchorRestoreRef = useRef<(() => void) | null>(null);
+  const placementGenerationRef = useRef(0);
+  const placementPendingRef = useRef(false);
+  const correctPlacementRef = useRef<((source: string) => void) | null>(null);
+  const schedulePlacement = useCallback((source: string) => {
+    if (placementPendingRef.current) return;
+    placementPendingRef.current = true;
+    const generation = placementGenerationRef.current;
+    // Measurement notifications precede Core's synchronous spacer/row writes.
+    // Correct after those writes, coalescing notifications from the same commit.
+    window.queueMicrotask(() => {
+      if (generation !== placementGenerationRef.current) return;
+      placementPendingRef.current = false;
+      correctPlacementRef.current?.(source);
+    });
+  }, []);
   const virtualizer = useVirtualizer({
+    onChange: () => {
+      if (!initialPlacementResolvedRef.current) schedulePlacement("virtualizer-change");
+    },
     count: data.length,
     getScrollElement: () => scrollElementRef.current,
     estimateSize: () => estimatedItemSize,
@@ -281,8 +292,6 @@ function TranscriptVirtualListInner<TItem>(
         Math.abs(previousMeasuredSize - size) > GEOMETRY_EPSILON_PX;
       measuredSizeByKeyRef.current.set(measuredKey, size);
       if (initialAnchorRestoreActiveRef.current) {
-        initialAnchorRestoreStableTicksRef.current = 0;
-        initialAnchorRestoreLastTargetOffsetRef.current = null;
         scheduleInitialAnchorRestoreRef.current?.();
       }
       if (initialEndFollowRef.current) {
@@ -550,12 +559,7 @@ function TranscriptVirtualListInner<TItem>(
       });
       if (!isTailVisible) return;
 
-      if (initialEndTimerRef.current !== null) {
-        window.clearTimeout(initialEndTimerRef.current);
-        initialEndTimerRef.current = null;
-      }
       recordDiagnostic("initial-end-follow:tail-visible", {
-        frames: initialEndFrameCountRef.current,
         source,
       });
       resolveInitialPlacement("initial-end-follow-tail-visible");
@@ -574,7 +578,7 @@ function TranscriptVirtualListInner<TItem>(
   const captureViewport = useCallback(() => {
     if (!viewportMemoryKey) return;
     // React Strict Mode probes layout-effect cleanup before the initial
-    // placement timers have restored their anchor. Persisting that transient
+    // placement has restored its anchor. Persisting that transient
     // estimated viewport would overwrite the valid snapshot we are currently
     // trying to restore.
     if (!initialPlacementResolvedRef.current) {
@@ -620,18 +624,13 @@ function TranscriptVirtualListInner<TItem>(
     // and the virtualizer's measured range are both still available.
     return () => captureViewportRef.current();
   }, []);
-  useEffect(() => {
-    return () => {
-      if (initialEndTimerRef.current !== null) {
-        window.clearTimeout(initialEndTimerRef.current);
-        initialEndTimerRef.current = null;
-      }
-      if (initialAnchorRestoreTimerRef.current !== null) {
-        window.clearTimeout(initialAnchorRestoreTimerRef.current);
-        initialAnchorRestoreTimerRef.current = null;
-      }
-    };
-  }, []);
+  useLayoutEffect(
+    () => () => {
+      placementGenerationRef.current += 1;
+      placementPendingRef.current = false;
+    },
+    [],
+  );
 
   useLayoutEffect(() => {
     previousAnchorRevisionRef.current = anchorRevision;
@@ -648,10 +647,6 @@ function TranscriptVirtualListInner<TItem>(
         wasAtEndRef.current = true;
         if (initialAnchorRestoreActiveRef.current) {
           initialAnchorRestoreActiveRef.current = false;
-          if (initialAnchorRestoreTimerRef.current !== null) {
-            window.clearTimeout(initialAnchorRestoreTimerRef.current);
-            initialAnchorRestoreTimerRef.current = null;
-          }
           initialEndFollowEligibleRef.current = true;
           initialEndFollowRef.current = true;
         }
@@ -742,120 +737,103 @@ function TranscriptVirtualListInner<TItem>(
       initialEndFollowEligibleRef.current = false;
       initialEndFollowRef.current = false;
       initialAnchorRestoreActiveRef.current = false;
-      if (initialEndTimerRef.current !== null) {
-        window.clearTimeout(initialEndTimerRef.current);
-        initialEndTimerRef.current = null;
-      }
-      if (initialAnchorRestoreTimerRef.current !== null) {
-        window.clearTimeout(initialAnchorRestoreTimerRef.current);
-        initialAnchorRestoreTimerRef.current = null;
-      }
       recordDiagnostic("initial-placement:cancelled", { source });
       resolveInitialPlacement(`cancelled:${source}`);
     },
     [recordDiagnostic, resolveInitialPlacement],
   );
-  const scheduleInitialEndCorrection = useCallback(
+  const correctInitialEnd = useCallback(
     (source: string) => {
-      if (!initialEndFollowRef.current || initialEndTimerRef.current !== null) return;
-      // requestAnimationFrame can be suspended while Electron transitions an
-      // occluded/background renderer. End placement is correctness state, not
-      // animation, so keep its cancellable convergence clock independent.
-      initialEndTimerRef.current = window.setTimeout(() => {
-        initialEndTimerRef.current = null;
-        if (!initialEndFollowRef.current) return;
+      if (!initialEndFollowRef.current) return;
+      const element = scrollElementRef.current;
+      if (!element) {
+        cancelInitialPlacement("scroll-element-missing");
+        return;
+      }
 
-        const element = scrollElementRef.current;
-        if (!element) {
-          cancelInitialPlacement("scroll-element-missing");
-          return;
-        }
+      const beforeTop = element.scrollTop;
+      const tailTarget = readMeasuredTailTarget(
+        element,
+        initialEndFollowTailKeyRef.current,
+        paddingEnd,
+      );
+      let requestedTop = element.scrollHeight;
+      if (tailTarget) {
+        // Use the same causal-tail target as ResizeObserver corrections.
+        // `scrollHeight` also contains virtual padding and provisional
+        // estimates; alternating between those two targets made the live
+        // tail move by one row gap on successive paints.
+        requestedTop = tailTarget.targetTop;
+        element.scrollTop = requestedTop;
+      } else {
+        // The first estimated range may not contain the tail yet. Move to
+        // the provisional end once so the virtualizer mounts it; the next
+        // correction aligns the real tail rectangle before reveal.
+        element.scrollTop = element.scrollHeight;
+      }
+      markChatScrollWrite(element, {
+        owner: "list:initial-end-correction",
+        requestedTop,
+        beforeTop,
+        afterTop: element.scrollTop,
+      });
+      if (
+        virtualizer.scrollOffset !== null &&
+        Math.abs(virtualizer.scrollOffset - element.scrollTop) > GEOMETRY_EPSILON_PX
+      ) {
+        // When another owner already placed the DOM at this exact offset,
+        // Chromium emits no native scroll event for the same-value write.
+        // Notify the virtualizer's registered observer so it ingests the
+        // real offset and renders the corresponding range. Avoiding
+        // virtualizer.scrollToEnd here is deliberate: that API starts its
+        // own reconcile loop, which can outlive our reader-input cancel.
+        element.dispatchEvent(new Event("scroll"));
+      }
 
-        initialEndFrameCountRef.current += 1;
-        const beforeTop = element.scrollTop;
-        const tailTarget = readMeasuredTailTarget(
-          element,
-          initialEndFollowTailKeyRef.current,
-          paddingEnd,
-        );
-        let requestedTop = element.scrollHeight;
-        if (tailTarget) {
-          // Use the same causal-tail target as ResizeObserver corrections.
-          // `scrollHeight` also contains virtual padding and provisional
-          // estimates; alternating between those two targets made the live
-          // tail move by one row gap on successive paints.
-          requestedTop = tailTarget.targetTop;
-          element.scrollTop = requestedTop;
+      const renderedTailIndex = virtualizer.getVirtualItems().at(-1)?.index ?? null;
+      const distanceFromEnd = Math.max(
+        0,
+        element.scrollHeight - element.clientHeight - element.scrollTop,
+      );
+      const isTailVisible = isAtRenderedTail(Math.max(1, paddingEnd));
+
+      recordDiagnostic("initial-end-follow:correction", {
+        source,
+        isTailVisible,
+        renderedTailIndex,
+        distanceFromEnd,
+        requestedTop,
+      });
+
+      if (isTailVisible) {
+        // Visibility and follow ownership are separate. Reveal only after
+        // the real final row is painted in the viewport, then retain
+        // event-driven ownership so late row measurements keep a reader who
+        // has not interacted pinned to that same causal tail.
+        if (!initialPlacementResolvedRef.current) {
+          recordDiagnostic("initial-end-follow:tail-visible", { source });
+          resolveInitialPlacement("initial-end-follow-tail-visible");
+          scheduleFrameDiagnosticCheckpoint("initial-end-follow-tail-visible");
         } else {
-          // The first estimated range may not contain the tail yet. Move to
-          // the provisional end once so the virtualizer mounts it; the next
-          // correction aligns the real tail rectangle before reveal.
-          element.scrollTop = element.scrollHeight;
+          recordDiagnostic("initial-end-follow:tail-maintained");
         }
-        markChatScrollWrite(element, {
-          owner: "list:initial-end-correction",
-          requestedTop,
-          beforeTop,
-          afterTop: element.scrollTop,
-        });
-        if (
-          virtualizer.scrollOffset !== null &&
-          Math.abs(virtualizer.scrollOffset - element.scrollTop) > GEOMETRY_EPSILON_PX
-        ) {
-          // When another owner already placed the DOM at this exact offset,
-          // Chromium emits no native scroll event for the same-value write.
-          // Notify the virtualizer's registered observer so it ingests the
-          // real offset and renders the corresponding range. Avoiding
-          // virtualizer.scrollToEnd here is deliberate: that API starts its
-          // own reconcile loop, which can outlive our reader-input cancel.
-          element.dispatchEvent(new Event("scroll"));
-        }
-
-        const renderedTailIndex = virtualizer.getVirtualItems().at(-1)?.index ?? null;
-        const distanceFromEnd = Math.max(
-          0,
-          element.scrollHeight - element.clientHeight - element.scrollTop,
-        );
-        const isTailVisible = isAtRenderedTail(Math.max(1, paddingEnd));
-
-        recordDiagnostic("initial-end-follow:correction", {
-          source,
-          frame: initialEndFrameCountRef.current,
-          isTailVisible,
-          renderedTailIndex,
-          distanceFromEnd,
-          requestedTop,
-        });
-
-        if (isTailVisible) {
-          // Visibility and follow ownership are separate. Reveal only after
-          // the real final row is painted in the viewport, then retain
-          // event-driven ownership so late row measurements keep a reader who
-          // has not interacted pinned to that same causal tail.
-          if (!initialPlacementResolvedRef.current) {
-            recordDiagnostic("initial-end-follow:tail-visible", {
-              frames: initialEndFrameCountRef.current,
-            });
-            resolveInitialPlacement("initial-end-follow-tail-visible");
-            scheduleFrameDiagnosticCheckpoint("initial-end-follow-tail-visible");
-          } else {
-            recordDiagnostic("initial-end-follow:tail-maintained");
-          }
-          return;
-        }
-
-        // This is a safety valve, not the readiness strategy. Ordinary static
-        // transcripts reveal as soon as the actual final row is visible.
-        if (initialEndFrameCountRef.current >= 240) {
-          cancelInitialPlacement("frame-limit");
-          return;
-        }
-        scheduleInitialEndCorrectionRef.current?.("converging");
-      }, INITIAL_END_CORRECTION_DELAY_MS);
+        return;
+      }
+      // A fully measured, unchanged DOM range cannot produce another placement
+      // event. Release hidden content rather than waiting for a nonexistent scroll.
+      if (
+        beforeTop === element.scrollTop &&
+        virtualizer.scrollOffset === element.scrollTop &&
+        tailTarget !== null &&
+        virtualizer
+          .getVirtualItems()
+          .every((item) => measuredSizeByKeyRef.current.has(String(item.key)))
+      ) {
+        cancelInitialPlacement("measured-geometry-unchanged");
+      }
     },
     [
       cancelInitialPlacement,
-      data.length,
       isAtRenderedTail,
       paddingEnd,
       recordDiagnostic,
@@ -864,114 +842,106 @@ function TranscriptVirtualListInner<TItem>(
       virtualizer,
     ],
   );
+  const scheduleInitialEndCorrection = useCallback(
+    (source: string) => {
+      if (initialEndFollowRef.current) schedulePlacement(source);
+    },
+    [schedulePlacement],
+  );
   scheduleInitialEndCorrectionRef.current = scheduleInitialEndCorrection;
 
-  const scheduleInitialAnchorRestore = useCallback(() => {
-    if (!initialAnchorRestoreActiveRef.current || initialAnchorRestoreTimerRef.current !== null) {
+  const correctInitialAnchor = useCallback(() => {
+    if (!initialAnchorRestoreActiveRef.current) return;
+    const snapshot = initialViewportSnapshotRef.current;
+    const element = scrollElementRef.current;
+    if (!snapshot || !element) {
+      cancelInitialPlacement("restore-target-missing");
       return;
     }
-    initialAnchorRestoreTimerRef.current = window.setTimeout(() => {
-      initialAnchorRestoreTimerRef.current = null;
-      if (!initialAnchorRestoreActiveRef.current) return;
+    const targetIndex = data.findIndex((item) => keyExtractor(item) === snapshot.anchorKey);
+    if (targetIndex < 0) {
+      // Preserve the existing deleted-anchor behaviour: open at the tail.
+      initialAnchorRestoreActiveRef.current = false;
+      initialEndFollowEligibleRef.current = true;
+      initialEndFollowRef.current = true;
+      scheduleInitialEndCorrectionRef.current?.("restore-anchor-unavailable");
+      recordDiagnostic("viewport-memory:anchor-unavailable", { anchorKey: snapshot.anchorKey });
+      return;
+    }
+    const anchorElement = element.querySelector<HTMLElement>(`[data-index="${targetIndex}"]`);
+    const offset = virtualizer.getOffsetForIndex(targetIndex, "start");
+    // A mounted row already has a ResizeObserver delivery pending. Let Core
+    // measure it before applying an offset inside it, which could unmount it.
+    if (anchorElement && !measuredSizeByKeyRef.current.has(snapshot.anchorKey)) return;
 
-      const snapshot = initialViewportSnapshotRef.current;
-      const element = scrollElementRef.current;
-      if (!snapshot || !element) {
-        cancelInitialPlacement("restore-target-missing");
-        return;
-      }
-      const targetIndex = data.findIndex((item) => keyExtractor(item) === snapshot.anchorKey);
-      if (targetIndex < 0) {
-        // A deleted/rolled-back anchor falls back to normal initial-tail placement.
-        initialAnchorRestoreActiveRef.current = false;
-        initialEndFollowEligibleRef.current = true;
-        initialEndFollowRef.current = true;
-        scheduleInitialEndCorrectionRef.current?.("restore-anchor-unavailable");
-        recordDiagnostic("viewport-memory:anchor-unavailable", {
-          anchorKey: snapshot.anchorKey,
-        });
-        return;
-      }
-
-      initialAnchorRestoreAttemptRef.current += 1;
-      const virtualItem = virtualizer.getVirtualItems().find((item) => item.index === targetIndex);
-      if (!virtualItem) {
-        markChatScrollWrite(element, {
-          owner: "list:anchor-restore-index",
-          requestedTop: null,
-          beforeTop: element.scrollTop,
-          afterTop: element.scrollTop,
-        });
-        virtualizer.scrollToIndex(targetIndex, {
-          align: "start",
-          behavior: "auto",
-        });
-        initialAnchorRestoreStableTicksRef.current = 0;
-        initialAnchorRestoreLastTargetOffsetRef.current = null;
-      } else {
-        const anchorElement = element.querySelector<HTMLElement>(`[data-index="${targetIndex}"]`);
-        const currentAnchorOffset = anchorElement
-          ? anchorElement.getBoundingClientRect().top - element.getBoundingClientRect().top
-          : virtualItem.start - element.scrollTop;
-        const targetOffset = Math.max(
+    // Mount a missing anchor at its estimated start first. Applying the saved
+    // offset before measuring a giant row could skip right past that row.
+    const targetOffset = anchorElement
+      ? Math.max(
           0,
-          element.scrollTop + currentAnchorOffset - snapshot.anchorOffset,
-        );
-        const beforeTop = element.scrollTop;
-        element.scrollTop = targetOffset;
-        markChatScrollWrite(element, {
-          owner: "list:anchor-restore-offset",
-          requestedTop: targetOffset,
-          beforeTop,
-          afterTop: element.scrollTop,
-        });
-        if (
-          virtualizer.scrollOffset !== null &&
-          Math.abs(virtualizer.scrollOffset - element.scrollTop) > GEOMETRY_EPSILON_PX
-        ) {
-          element.dispatchEvent(new Event("scroll"));
-        }
-        const previousTargetOffset = initialAnchorRestoreLastTargetOffsetRef.current;
-        const settled =
-          Math.abs(element.scrollTop - targetOffset) <= GEOMETRY_EPSILON_PX &&
-          previousTargetOffset !== null &&
-          Math.abs(previousTargetOffset - targetOffset) <= GEOMETRY_EPSILON_PX;
-        initialAnchorRestoreLastTargetOffsetRef.current = targetOffset;
-        initialAnchorRestoreStableTicksRef.current = settled
-          ? initialAnchorRestoreStableTicksRef.current + 1
-          : 0;
-        recordDiagnostic("viewport-memory:restore-correction", {
-          anchorKey: snapshot.anchorKey,
-          targetIndex,
-          targetOffset,
-          attempt: initialAnchorRestoreAttemptRef.current,
-          stableTicks: initialAnchorRestoreStableTicksRef.current,
-        });
-        if (initialAnchorRestoreStableTicksRef.current >= 2) {
-          initialAnchorRestoreActiveRef.current = false;
-          recordDiagnostic("viewport-memory:restored", {
-            anchorKey: snapshot.anchorKey,
-            targetIndex,
-          });
-          resolveInitialPlacement("viewport-memory-restored");
-          return;
-        }
+          element.scrollTop +
+            anchorElement.getBoundingClientRect().top -
+            element.getBoundingClientRect().top -
+            snapshot.anchorOffset,
+        )
+      : offset
+        ? offset[0]
+        : targetIndex * estimatedItemSize;
+    const beforeTop = element.scrollTop;
+    element.scrollTop = targetOffset;
+    markChatScrollWrite(element, {
+      owner: "list:anchor-restore-offset",
+      requestedTop: targetOffset,
+      beforeTop,
+      afterTop: element.scrollTop,
+    });
+    if (
+      virtualizer.scrollOffset !== null &&
+      Math.abs(virtualizer.scrollOffset - element.scrollTop) > GEOMETRY_EPSILON_PX
+    ) {
+      element.dispatchEvent(new Event("scroll"));
+    }
+    recordDiagnostic("viewport-memory:restore-correction", {
+      anchorKey: snapshot.anchorKey,
+      targetIndex,
+      targetOffset,
+    });
+    // Only a mounted, measured row can confirm the remembered DOM-relative
+    // anchor. A new range or measurement drives the next correction otherwise.
+    if (!anchorElement || !measuredSizeByKeyRef.current.has(snapshot.anchorKey)) return;
+    const restoredOffset =
+      anchorElement.getBoundingClientRect().top - element.getBoundingClientRect().top;
+    if (Math.abs(restoredOffset - snapshot.anchorOffset) > GEOMETRY_EPSILON_PX) {
+      if (
+        beforeTop === element.scrollTop &&
+        virtualizer.scrollOffset === element.scrollTop &&
+        virtualizer
+          .getVirtualItems()
+          .every((item) => measuredSizeByKeyRef.current.has(String(item.key)))
+      ) {
+        cancelInitialPlacement("restore-geometry-unchanged");
       }
-
-      if (initialAnchorRestoreAttemptRef.current >= 120) {
-        cancelInitialPlacement("restore-attempt-limit");
-        return;
-      }
-      scheduleInitialAnchorRestoreRef.current?.();
-    }, INITIAL_END_CORRECTION_DELAY_MS);
+      return;
+    }
+    initialAnchorRestoreActiveRef.current = false;
+    recordDiagnostic("viewport-memory:restored", { anchorKey: snapshot.anchorKey, targetIndex });
+    resolveInitialPlacement("viewport-memory-restored");
   }, [
     cancelInitialPlacement,
     data,
+    estimatedItemSize,
     keyExtractor,
     recordDiagnostic,
     resolveInitialPlacement,
     virtualizer,
   ]);
+  const scheduleInitialAnchorRestore = useCallback(() => {
+    if (initialAnchorRestoreActiveRef.current) schedulePlacement("anchor-measured");
+  }, [schedulePlacement]);
+  correctPlacementRef.current = (source) => {
+    if (initialAnchorRestoreActiveRef.current) correctInitialAnchor();
+    else correctInitialEnd(source);
+  };
   scheduleInitialAnchorRestoreRef.current = scheduleInitialAnchorRestore;
 
   useLayoutEffect(() => {
@@ -1028,13 +998,16 @@ function TranscriptVirtualListInner<TItem>(
     const source = didInitialScrollRef.current ? "transcript-revision" : "initial-layout";
     didInitialScrollRef.current = true;
     initialEndFollowRef.current = true;
-    initialEndFrameCountRef.current = 0;
     const ownedKeys = data.map((item) => keyExtractor(item));
     initialEndFollowOwnedKeysRef.current = new Set(ownedKeys);
     initialEndFollowTailKeyRef.current = ownedKeys.at(-1) ?? null;
     recordDiagnostic("initial-end-follow:started", { source });
     scheduleInitialEndCorrection(source);
   }, [anchorRevision, data, hasData, keyExtractor, recordDiagnostic, scheduleInitialEndCorrection]);
+
+  useLayoutEffect(() => {
+    if (!initialPlacementResolvedRef.current) schedulePlacement("layout-committed");
+  });
 
   const virtualItems = virtualizer.getVirtualItems();
 
@@ -1120,14 +1093,15 @@ function TranscriptVirtualListInner<TItem>(
         });
         const index = Number(visibleAnchor?.dataset.index);
         const estimatedAnchorIndex = virtualizer.getVirtualItemForOffset(element.scrollTop)?.index;
-        const visibleKey = visibleAnchor?.dataset.rowKey;
-        const previousMeasuredSize = visibleKey
-          ? measuredSizeByKeyRef.current.get(visibleKey)
+        const virtualAnchor = Number.isInteger(index)
+          ? virtualizer.getVirtualItems().find((item) => item.index === index)
           : undefined;
+        // Core defers first measurements during user scrolling. Preserve the
+        // semantic anchor while a mounted row still differs from Core's size.
         const hasUncommittedResize =
           visibleAnchor !== undefined &&
-          previousMeasuredSize !== undefined &&
-          Math.abs(visibleAnchor.getBoundingClientRect().height - previousMeasuredSize) >
+          virtualAnchor !== undefined &&
+          Math.abs(visibleAnchor.getBoundingClientRect().height - virtualAnchor.size) >
             GEOMETRY_EPSILON_PX;
         readerAnchorIndexRef.current =
           Number.isInteger(index) && !hasUncommittedResize ? index : (estimatedAnchorIndex ?? null);

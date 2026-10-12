@@ -14,6 +14,7 @@ import { TranscriptVirtualList, type TranscriptVirtualListRef } from "./Transcri
 import {
   readTranscriptViewportSnapshot,
   resetTranscriptViewportMemory,
+  saveTranscriptViewportSnapshot,
 } from "./transcriptViewportMemory";
 
 interface TestRow {
@@ -725,6 +726,140 @@ describe("TranscriptVirtualList", () => {
       expect(scrollElement.firstElementChild).toHaveStyle({
         visibility: "visible",
       });
+    } finally {
+      await screen.unmount();
+    }
+  });
+
+  it("mounts a remembered giant anchor outside the initial estimated range", async () => {
+    enableChatScrollDiagnostics();
+    saveTranscriptViewportSnapshot("distant-anchor", {
+      anchorKey: "distant-80",
+      anchorOffset: -1_000,
+      isAtEnd: false,
+    });
+    const rows = Array.from({ length: 100 }, (_, index) => ({
+      id: `distant-${index}`,
+      height: index === 80 ? 2_000 : 32,
+    }));
+    const screen = await render(
+      <TranscriptVirtualList
+        data={rows}
+        anchorRevision="distant"
+        estimatedItemSize={32}
+        keyExtractor={(row) => row.id}
+        renderItem={(row) => <div style={{ height: row.height }}>{row.id}</div>}
+        paddingEnd={16}
+        viewportMemoryKey="distant-anchor"
+        data-testid="distant-scroll"
+        style={{ height: 300, overflowY: "auto" }}
+      />,
+    );
+    try {
+      const element = screen.container.querySelector<HTMLElement>(
+        '[data-testid="distant-scroll"]',
+      )!;
+      await vi.waitFor(() => {
+        expect(element).toHaveAttribute("data-initial-placement", "resolved");
+        const anchor = element.querySelector<HTMLElement>('[data-row-key="distant-80"]');
+        expect(anchor).not.toBeNull();
+        expect(
+          anchor!.getBoundingClientRect().top - element.getBoundingClientRect().top,
+        ).toBeCloseTo(-1_000, 0);
+      });
+      expect(
+        getChatScrollDiagnosticSamples().some(
+          (sample) =>
+            sample.event === "viewport-memory:restore-correction" &&
+            sample.detail.targetOffset === 2_560,
+        ),
+      ).toBe(true);
+    } finally {
+      await screen.unmount();
+    }
+  });
+
+  it("reveals an already visible tail without changing the scroll offset", async () => {
+    enableChatScrollDiagnostics();
+    const rows = [{ id: "visible-tail", height: 32 }];
+    const screen = await render(
+      <TranscriptVirtualList
+        data={rows}
+        anchorRevision="visible"
+        estimatedItemSize={32}
+        keyExtractor={(row) => row.id}
+        renderItem={(row) => <div style={{ height: row.height }}>{row.id}</div>}
+        paddingEnd={16}
+        data-testid="visible-scroll"
+        style={{ height: 300, overflowY: "auto" }}
+      />,
+    );
+    try {
+      const element = screen.container.querySelector<HTMLElement>(
+        '[data-testid="visible-scroll"]',
+      )!;
+      await vi.waitFor(() => expect(element).toHaveAttribute("data-initial-placement", "resolved"));
+      expect(element.scrollTop).toBe(0);
+      expect(element.firstElementChild).toHaveStyle({ visibility: "visible" });
+      expect(
+        getChatScrollDiagnosticSamples().some(
+          (sample) => sample.event === "initial-end-follow:tail-visible",
+        ),
+      ).toBe(true);
+    } finally {
+      await screen.unmount();
+    }
+  });
+
+  it("preserves the semantic anchor while a giant row awaits its first measurement", async () => {
+    enableChatScrollDiagnostics();
+    const rows = Array.from({ length: 120 }, (_, index) => ({
+      id: `pending-${index}`,
+      height: index === 48 ? 304 : 48,
+    }));
+    const screen = await render(
+      <TranscriptVirtualList
+        data={rows}
+        anchorRevision="pending"
+        estimatedItemSize={48}
+        keyExtractor={(row) => row.id}
+        renderItem={(row) => <div style={{ height: row.height }}>{row.id}</div>}
+        paddingEnd={16}
+        data-testid="pending-scroll"
+        style={{ height: 300, overflowY: "auto" }}
+      />,
+    );
+    try {
+      const element = screen.container.querySelector<HTMLElement>(
+        '[data-testid="pending-scroll"]',
+      )!;
+      await vi.waitFor(() => expect(element).toHaveAttribute("data-initial-placement", "resolved"));
+      element.dispatchEvent(new WheelEvent("wheel", { bubbles: true, deltaY: -800 }));
+      element.scrollTop = 2_520;
+      element.dispatchEvent(new Event("scroll", { bubbles: true }));
+      await vi.waitFor(() => {
+        const anchor = element.querySelector<HTMLElement>('[data-row-key="pending-52"]');
+        expect(anchor).not.toBeNull();
+        expect(
+          anchor!.getBoundingClientRect().top - element.getBoundingClientRect().top,
+        ).toBeCloseTo(-24, 0);
+        expect(
+          getChatScrollDiagnosticSamples().some(
+            (sample) =>
+              sample.event === "row-measured" &&
+              sample.detail.key === "pending-48" &&
+              sample.detail.size === 304,
+          ),
+        ).toBe(true);
+      });
+      expect(
+        getChatScrollDiagnosticSamples().some(
+          (sample) =>
+            sample.event === "reader-anchor-captured" &&
+            sample.detail.hasUncommittedResize === true &&
+            sample.detail.chosenAnchorIndex === 52,
+        ),
+      ).toBe(true);
     } finally {
       await screen.unmount();
     }
