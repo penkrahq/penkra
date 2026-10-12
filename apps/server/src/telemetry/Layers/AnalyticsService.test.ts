@@ -1,7 +1,7 @@
 import * as NodeHttpServer from "@effect/platform-node/NodeHttpServer";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { assert, it } from "@effect/vitest";
-import { ConfigProvider, Effect, Layer } from "effect";
+import { ConfigProvider, Deferred, Effect, Exit, Layer, Scope, ServiceMap } from "effect";
 import * as HttpServer from "effect/unstable/http/HttpServer";
 import * as HttpServerRequest from "effect/unstable/http/HttpServerRequest";
 import * as HttpServerResponse from "effect/unstable/http/HttpServerResponse";
@@ -35,6 +35,51 @@ interface RecordedBatchBody {
 }
 
 it.layer(NodeServices.layer)("AnalyticsService test", (it) => {
+  it.effect("twenty records flush immediately and shutdown sends the partial remainder", () =>
+    Effect.gen(function* () {
+      const requests: RecordedBatchBody[] = [];
+      const fullBatch = yield* Deferred.make<void>();
+      const serve = HttpServer.serve(
+        Effect.gen(function* () {
+          const request = yield* HttpServerRequest.HttpServerRequest;
+          const payload = (yield* request.json) as RecordedBatchBody;
+          requests.push(payload);
+          if (payload.batch.length === 20) yield* Deferred.succeed(fullBatch, undefined);
+          return HttpServerResponse.jsonUnsafe({});
+        }),
+      );
+      const dependencies = Layer.mergeAll(
+        ServerConfig.layerTest(process.cwd(), { prefix: "penkra-telemetry-events-" }),
+        ConfigProvider.layer(
+          ConfigProvider.fromUnknown({
+            PENKRA_TELEMETRY_ENABLED: true,
+            PENKRA_POSTHOG_KEY: "phc_test_key",
+            PENKRA_POSTHOG_HOST: "http://localhost",
+            PENKRA_TELEMETRY_FLUSH_BATCH_SIZE: 20,
+          }),
+        ),
+        NodeHttpServer.layerTest,
+      );
+      yield* Effect.gen(function* () {
+        yield* Layer.launch(serve).pipe(Effect.forkScoped);
+        // Keep the test server alive while closing the independent analytics scope.
+        const scope = yield* Scope.make("sequential");
+        yield* Effect.addFinalizer(() => Scope.close(scope, Exit.void));
+        const services = yield* Layer.buildWithScope(AnalyticsServiceLayerLive, scope);
+        const analytics = ServiceMap.get(services, AnalyticsService);
+        for (let index = 0; index < 20; index++) yield* analytics.record("threshold", { index });
+        yield* Deferred.await(fullBatch);
+        assert.equal(requests.length, 1);
+        assert.equal(requests[0]?.batch.length, 20);
+        for (let index = 20; index < 23; index++) yield* analytics.record("remainder", { index });
+        assert.equal(requests.length, 1);
+        yield* Scope.close(scope, Exit.void);
+        assert.equal(requests.length, 2);
+        assert.equal(requests[1]?.batch.length, 3);
+      }).pipe(Effect.provide(dependencies));
+    }),
+  );
+
   it.effect("flush drains all buffered events across multiple batches", () =>
     Effect.gen(function* () {
       const capturedRequests: Array<RecordedBatchRequest> = [];
