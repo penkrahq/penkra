@@ -1,4 +1,4 @@
-import { seedThreadFolderFixture } from "../../cleanCore/threadFixtures.ts";
+import { seedHistoricalFolderFixture } from "./historicalFolderFixture.ts";
 import { assert, it } from "@effect/vitest";
 import { Effect, Exit } from "effect";
 import * as SqlClient from "effect/unstable/sql/SqlClient";
@@ -203,7 +203,7 @@ it.effect("unwraps an OpenCode <task_result> into plain result text", () =>
     Effect.gen(function* () {
       const sql = yield* SqlClient.SqlClient;
       yield* runMigrations({ toMigrationInclusive: 175 });
-      yield* seedThreadFolderFixture("folder-x", "penkra-personal");
+      yield* seedHistoricalFolderFixture({ folderId: "folder-x", spaceId: "penkra-personal" });
       const now = "2026-10-09T00:00:00.000Z";
       yield* sql`
         INSERT INTO projection_threads (
@@ -236,7 +236,7 @@ it.effect("groups tool activities by the web's tool-call identity, beside operat
     Effect.gen(function* () {
       const sql = yield* SqlClient.SqlClient;
       yield* runMigrations({ toMigrationInclusive: 175 });
-      yield* seedThreadFolderFixture("folder-x", "penkra-personal");
+      yield* seedHistoricalFolderFixture({ folderId: "folder-x", spaceId: "penkra-personal" });
       const now = "2026-10-09T00:00:00.000Z";
       yield* sql`
         INSERT INTO projection_threads (
@@ -294,7 +294,7 @@ it.effect("collapses a call present in both sources to one item", () =>
     Effect.gen(function* () {
       const sql = yield* SqlClient.SqlClient;
       yield* runMigrations({ toMigrationInclusive: 175 });
-      yield* seedThreadFolderFixture("folder-x", "penkra-personal");
+      yield* seedHistoricalFolderFixture({ folderId: "folder-x", spaceId: "penkra-personal" });
       const now = "2026-10-09T00:00:00.000Z";
       yield* sql`
         INSERT INTO projection_threads (

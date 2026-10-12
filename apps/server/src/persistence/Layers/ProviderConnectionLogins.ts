@@ -71,7 +71,7 @@ export const makeProviderConnectionLogins = Effect.gen(function* () {
         Effect.tap((record) =>
           Option.match(record, {
             onNone: () => Effect.void,
-            onSome: (next) => PubSub.publish(changes, next),
+            onSome: (next) => PubSub.publish(changes, next).pipe(Effect.asVoid),
           }),
         ),
       ),

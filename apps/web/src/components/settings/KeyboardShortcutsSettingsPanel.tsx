@@ -31,11 +31,7 @@ const EMPTY_KEYBINDINGS: ResolvedKeybindingsConfig = [];
 // The settings reference is intentionally context-free: it lists the chat/sidebar bindings
 // as "available now" plus the workspace-mode set, independent of the live terminal state, so
 // the page reads the same no matter which thread is focused.
-const SETTINGS_SHORTCUT_CONTEXT: ShortcutSheetContext = {
-  terminalFocus: false,
-  terminalOpen: false,
-  terminalWorkspaceOpen: false,
-};
+const SETTINGS_SHORTCUT_CONTEXT: ShortcutSheetContext = {};
 
 export function KeyboardShortcutsSettingsPanel() {
   const [query, setQuery] = useState("");
@@ -45,9 +41,6 @@ export function KeyboardShortcutsSettingsPanel() {
 
   const sections = buildShortcutSheetSections({
     keybindings,
-    // Project scripts are per-project and live only in the chat context; the settings
-    // reference stays project-agnostic, so the contextual Mod+/ sheet still owns them.
-    projectScripts: [],
     platform,
     context: SETTINGS_SHORTCUT_CONTEXT,
   });

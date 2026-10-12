@@ -9,7 +9,6 @@ const harness = vi.hoisted(() => ({
   events: [] as string[],
   updateThread: vi.fn(),
   confirm: vi.fn(),
-  disposeThread: vi.fn(),
   reconcile: vi.fn(),
   removeDeletedThreadFromClientState: vi.fn(),
   orphanedWorktreePath: null as string | null,
@@ -56,10 +55,6 @@ vi.mock("../worktreeCleanup", () => ({
   getOrphanedWorktreePathForThread: harness.orphanResolver,
 }));
 
-vi.mock("../components/terminal/terminalRuntimeRegistry", () => ({
-  terminalRuntimeRegistry: { disposeThread: harness.disposeThread },
-}));
-
 vi.mock("./deletedThreadClientReconciliation", () => ({
   reconcileDeletedThreadFromClient: harness.reconcile,
 }));
@@ -81,9 +76,6 @@ beforeEach(() => {
     .mockImplementation(async ({ update }: { update: { action: string } }) => {
       harness.events.push(update.action);
     });
-  harness.disposeThread.mockReset().mockImplementation(() => {
-    harness.events.push("terminal.dispose");
-  });
   harness.reconcile.mockReset().mockImplementation(() => {
     harness.events.push("reconcile");
   });
@@ -91,7 +83,7 @@ beforeEach(() => {
 });
 
 describe("deleteActiveThreadFromClient", () => {
-  it("lets the server own runtime cleanup and disposes the renderer after delete acceptance", async () => {
+  it("lets the server own runtime cleanup after delete acceptance", async () => {
     const onDeleted = vi.fn(() => {
       harness.events.push("onDeleted");
     });
@@ -105,13 +97,7 @@ describe("deleteActiveThreadFromClient", () => {
       onDeleted,
     });
 
-    expect(harness.events).toEqual([
-      "prepare",
-      "delete",
-      "terminal.dispose",
-      "reconcile",
-      "onDeleted",
-    ]);
+    expect(harness.events).toEqual(["prepare", "delete", "reconcile", "onDeleted"]);
     expect(onDeleted).toHaveBeenCalledWith({ thread: THREAD, prepared: "prepared" });
   });
 

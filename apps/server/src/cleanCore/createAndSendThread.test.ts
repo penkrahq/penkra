@@ -33,8 +33,8 @@ it.effect("first send creates one thread and one message, including on retry", (
     yield* runMigrations();
     const sql = yield* SqlClient.SqlClient;
     const at = "2026-10-10T00:00:00.000Z";
-    yield* sql`INSERT INTO projection_folders (folder_id, space_id, title, workspace_root, scripts_json, created_at, updated_at)
-      VALUES ('sender-folder', 'penkra-personal', 'Folder', NULL, '[]', ${at}, ${at})`;
+    yield* sql`INSERT INTO projection_folders (folder_id, space_id, title, workspace_root, created_at, updated_at)
+      VALUES ('sender-folder', 'penkra-personal', 'Folder', NULL, ${at}, ${at})`;
     const publisher = makeThreadPublisher();
     let dispatchCount = 0;
     const expectedCwd = ensureDurableThreadWorkspace(

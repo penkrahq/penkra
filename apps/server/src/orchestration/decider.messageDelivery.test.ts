@@ -38,7 +38,6 @@ const shellOnlyReadModel: OrchestrationReadModel = {
       title: "Queue QA",
       workspaceRoot: null,
       defaultModelSelection: { provider: "codex", model: "gpt-5.4-mini" },
-      scripts: [],
       createdAt: NOW,
       updatedAt: NOW,
       deletedAt: null,

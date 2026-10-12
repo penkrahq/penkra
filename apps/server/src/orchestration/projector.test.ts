@@ -24,7 +24,6 @@ function createEmptyReadModel(now: string): OrchestrationReadModel {
         title: "Project 1",
         workspaceRoot: null,
         defaultModelSelection: null,
-        scripts: [],
         spaceId: SpaceId.makeUnsafe("space-1"),
         sidebarSortOrder: 0,
         createdAt: now,

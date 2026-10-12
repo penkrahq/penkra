@@ -28,13 +28,11 @@ import {
   type OrchestrationShellStreamItem,
   type OrchestrationSyncStreamItem,
   type OrchestrationThreadStreamItem,
-  type ProjectDevServerEvent,
   type ProjectWorkspaceChangeEvent,
   type ServerConfigStreamEvent,
   type ServerLifecycleStreamEvent,
   type ServerProviderStatusesUpdatedPayload,
   type ServerSettingsUpdatedPayload,
-  type TerminalEvent,
   type WsPush,
   type WsPushChannel,
   type WsPushMessage,
@@ -1085,22 +1083,6 @@ export class WsTransport {
               this.emit(WS_CHANNELS.serverSettingsUpdated, payload),
             restartChannel,
           );
-        } else if (channel === WS_CHANNELS.terminalEvent) {
-          this.startStream(
-            client,
-            "terminal.events",
-            client[WS_METHODS.subscribeTerminalEvents]({}),
-            (event: TerminalEvent) => this.emit(WS_CHANNELS.terminalEvent, event),
-            restartChannel,
-          );
-        } else if (channel === WS_CHANNELS.projectDevServerEvent) {
-          this.startStream(
-            client,
-            "project.devServers",
-            client[WS_METHODS.subscribeProjectDevServerEvents]({}),
-            (event: ProjectDevServerEvent) => this.emit(WS_CHANNELS.projectDevServerEvent, event),
-            restartChannel,
-          );
         } else if (channel === WS_CHANNELS.projectWorkspaceChange) {
           this.startStream(
             client,
@@ -1160,8 +1142,6 @@ export class WsTransport {
     else if (channel === WS_CHANNELS.serverProviderStatusesUpdated)
       this.stopStream("server.providers");
     else if (channel === WS_CHANNELS.serverSettingsUpdated) this.stopStream("server.settings");
-    else if (channel === WS_CHANNELS.terminalEvent) this.stopStream("terminal.events");
-    else if (channel === WS_CHANNELS.projectDevServerEvent) this.stopStream("project.devServers");
     else if (channel === WS_CHANNELS.projectWorkspaceChange)
       this.stopStream("project.workspaceChanges");
     else if (channel === ORCHESTRATION_WS_CHANNELS.syncEvent) this.stopStream("orchestration.sync");

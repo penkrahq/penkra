@@ -2,7 +2,7 @@ import { assert, it } from "@effect/vitest";
 import { Effect } from "effect";
 import * as SqlClient from "effect/unstable/sql/SqlClient";
 
-import { seedThreadFolderFixture } from "../../cleanCore/threadFixtures.ts";
+import { seedHistoricalFolderFixture } from "./historicalFolderFixture.ts";
 import { createThread, upsertThreadItem } from "../../cleanCore/threadStore.ts";
 import { runMigrations } from "../Migrations.ts";
 import * as NodeSqliteClient from "../NodeSqliteClient.ts";
@@ -12,7 +12,7 @@ const seed = Effect.gen(function* () {
   const sql = yield* SqlClient.SqlClient;
   yield* runMigrations({ toMigrationInclusive: 193 });
   const at = "2026-10-11T00:00:00.000Z";
-  yield* seedThreadFolderFixture("folder", "space");
+  yield* seedHistoricalFolderFixture({ folderId: "folder", spaceId: "space" });
   yield* createThread({
     id: "thread",
     folderId: "folder",
@@ -53,7 +53,10 @@ it.effect("drops the obsolete decision column and preserves interactions, thread
     const interactions = yield* interactionRows;
     const threads = yield* sql`SELECT * FROM threads`;
     const items = yield* sql`SELECT * FROM thread_items`;
-    assert.deepStrictEqual(yield* runMigrations(), [[194, "RemoveApprovalDecisionColumn"]]);
+    assert.deepStrictEqual(yield* runMigrations(), [
+      [194, "RemoveApprovalDecisionColumn"],
+      [195, "RemoveFolderScripts"],
+    ]);
     assert.deepStrictEqual(yield* interactionRows, interactions);
     assert.deepStrictEqual(yield* sql`SELECT * FROM threads`, threads);
     assert.deepStrictEqual(yield* sql`SELECT * FROM thread_items`, items);

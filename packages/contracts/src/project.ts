@@ -13,7 +13,6 @@ const PROJECT_FILE_PATH_MAX_LENGTH = 512;
 const PROJECT_READ_FILE_PATH_MAX_LENGTH = 2048;
 const PROJECT_READ_FILE_MAX_BYTES = 1_000_000;
 const PROJECT_DIRECTORY_LIST_MAX_DEPTH = 32;
-const PROJECT_SCRIPT_DISCOVERY_MAX_DEPTH = 3;
 const ProjectEntryKind = Schema.Literals(["file", "directory"]);
 
 export const ProjectSearchEntriesInput = Schema.Struct({
@@ -62,34 +61,6 @@ export const ProjectListDirectoriesResult = Schema.Struct({
   entries: Schema.Array(ProjectFileSystemEntry),
 });
 export type ProjectListDirectoriesResult = typeof ProjectListDirectoriesResult.Type;
-
-export const ProjectDiscoverScriptsInput = Schema.Struct({
-  cwd: TrimmedNonEmptyString,
-  depth: Schema.optional(
-    NonNegativeInt.check(Schema.isLessThanOrEqualTo(PROJECT_SCRIPT_DISCOVERY_MAX_DEPTH)),
-  ),
-});
-export type ProjectDiscoverScriptsInput = typeof ProjectDiscoverScriptsInput.Type;
-
-export const ProjectDiscoveredScript = Schema.Struct({
-  name: TrimmedNonEmptyString,
-  command: TrimmedNonEmptyString,
-});
-export type ProjectDiscoveredScript = typeof ProjectDiscoveredScript.Type;
-
-export const ProjectDiscoveredScriptTarget = Schema.Struct({
-  cwd: TrimmedNonEmptyString,
-  relativePath: Schema.String,
-  packageJsonPath: TrimmedNonEmptyString,
-  packageName: Schema.optional(TrimmedNonEmptyString),
-  scripts: Schema.Array(ProjectDiscoveredScript),
-});
-export type ProjectDiscoveredScriptTarget = typeof ProjectDiscoveredScriptTarget.Type;
-
-export const ProjectDiscoverScriptsResult = Schema.Struct({
-  targets: Schema.Array(ProjectDiscoveredScriptTarget),
-});
-export type ProjectDiscoverScriptsResult = typeof ProjectDiscoverScriptsResult.Type;
 
 export const ProjectSearchEntriesResult = Schema.Struct({
   entries: Schema.Array(ProjectEntry),
@@ -173,70 +144,3 @@ export const ProjectWorkspaceChangeEvent = Schema.Struct({
   lostSync: Schema.Boolean,
 });
 export type ProjectWorkspaceChangeEvent = typeof ProjectWorkspaceChangeEvent.Type;
-// ── Dev Server Process Manager ───────────────────────────────────────
-//
-// Dev servers are first-class background processes owned by the server and
-// keyed by project id, fully decoupled from chat threads. The server tracks
-// their lifecycle and broadcasts changes over the `project.devServerEvent`
-// push channel so every client stays in sync across reconnects.
-
-export const ProjectDevServerStatus = Schema.Literals(["starting", "running"]);
-export type ProjectDevServerStatus = typeof ProjectDevServerStatus.Type;
-
-export const ProjectDevServer = Schema.Struct({
-  folderId: FolderId,
-  command: TrimmedNonEmptyString,
-  cwd: TrimmedNonEmptyString,
-  pid: Schema.NullOr(PositiveInt),
-  startedAt: TrimmedNonEmptyString,
-  status: ProjectDevServerStatus,
-});
-export type ProjectDevServer = typeof ProjectDevServer.Type;
-
-export const ProjectRunDevServerInput = Schema.Struct({
-  folderId: FolderId,
-  command: TrimmedNonEmptyString,
-  cwd: TrimmedNonEmptyString,
-  env: Schema.optional(ProcessEnvRecord),
-});
-export type ProjectRunDevServerInput = typeof ProjectRunDevServerInput.Type;
-
-export const ProjectRunDevServerResult = Schema.Struct({
-  server: ProjectDevServer,
-});
-export type ProjectRunDevServerResult = typeof ProjectRunDevServerResult.Type;
-
-export const ProjectStopDevServerInput = Schema.Struct({
-  folderId: FolderId,
-});
-export type ProjectStopDevServerInput = typeof ProjectStopDevServerInput.Type;
-
-export const ProjectStopDevServerResult = Schema.Struct({
-  stopped: Schema.Boolean,
-});
-export type ProjectStopDevServerResult = typeof ProjectStopDevServerResult.Type;
-
-export const ProjectListDevServersResult = Schema.Struct({
-  servers: Schema.Array(ProjectDevServer),
-});
-export type ProjectListDevServersResult = typeof ProjectListDevServersResult.Type;
-
-export const ProjectDevServerRemovedReason = Schema.Literals(["stopped", "exited"]);
-export type ProjectDevServerRemovedReason = typeof ProjectDevServerRemovedReason.Type;
-
-export const ProjectDevServerEvent = Schema.Union([
-  Schema.Struct({
-    type: Schema.Literal("snapshot"),
-    servers: Schema.Array(ProjectDevServer),
-  }),
-  Schema.Struct({
-    type: Schema.Literal("upserted"),
-    server: ProjectDevServer,
-  }),
-  Schema.Struct({
-    type: Schema.Literal("removed"),
-    folderId: FolderId,
-    reason: ProjectDevServerRemovedReason,
-  }),
-]);
-export type ProjectDevServerEvent = typeof ProjectDevServerEvent.Type;

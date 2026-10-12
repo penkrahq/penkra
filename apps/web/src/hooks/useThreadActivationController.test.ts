@@ -15,16 +15,12 @@ function makeControllerInput(
 ): ThreadActivationControllerInput & {
   navigate: ReturnType<typeof vi.fn>;
   clearSelection: ReturnType<typeof vi.fn>;
-  openChatThreadPage: ReturnType<typeof vi.fn>;
-  openTerminalThreadPage: ReturnType<typeof vi.fn>;
   rememberLastThreadRouteNow: ReturnType<typeof vi.fn>;
   setSelectionAnchor: ReturnType<typeof vi.fn>;
 } {
   return {
     clearSelection: vi.fn(),
     navigate: vi.fn(),
-    openChatThreadPage: vi.fn(),
-    openTerminalThreadPage: vi.fn(),
     rememberLastThreadRouteNow: vi.fn(),
     routeThreadId: THREAD_A,
     selectedThreadCount: 0,
@@ -33,13 +29,10 @@ function makeControllerInput(
       [THREAD_A]: { id: THREAD_A, folderId: PROJECT_ID },
       [THREAD_B]: { id: THREAD_B, folderId: PROJECT_ID },
     },
-    terminalStateByThreadId: {},
     ...overrides,
   } as unknown as ThreadActivationControllerInput & {
     navigate: ReturnType<typeof vi.fn>;
     clearSelection: ReturnType<typeof vi.fn>;
-    openChatThreadPage: ReturnType<typeof vi.fn>;
-    openTerminalThreadPage: ReturnType<typeof vi.fn>;
     rememberLastThreadRouteNow: ReturnType<typeof vi.fn>;
     setSelectionAnchor: ReturnType<typeof vi.fn>;
   };
@@ -50,7 +43,6 @@ describe("activateThreadFromSidebarIntent", () => {
     const input = makeControllerInput({ selectedThreadCount: 1 });
     activateThreadFromSidebarIntent(input, THREAD_B);
     expect(input.clearSelection).toHaveBeenCalledOnce();
-    expect(input.openChatThreadPage).toHaveBeenCalledWith(THREAD_B);
     expect(input.rememberLastThreadRouteNow).toHaveBeenCalledWith({ threadId: THREAD_B });
     expect(input.navigate).toHaveBeenCalledOnce();
   });

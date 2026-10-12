@@ -1907,7 +1907,6 @@ describe("store event reducer", () => {
               provider: "codex",
               model: "gpt-5-codex",
             },
-            scripts: [],
             createdAt: "2026-02-27T00:00:00.000Z",
             updatedAt: "2026-02-27T00:00:00.000Z",
           },
@@ -1947,7 +1946,6 @@ describe("store event reducer", () => {
             title: "Ideas",
             workspaceRoot: null,
             defaultModelSelection: null,
-            scripts: [],
             createdAt: "2026-08-02T00:00:00.000Z",
             updatedAt: "2026-08-02T00:00:00.000Z",
           },
@@ -1992,14 +1990,6 @@ describe("store event reducer", () => {
           title: "Renamed Remotely",
           workspaceRoot: "/tmp/renamed-project",
           defaultModelSelection: null,
-          scripts: [
-            {
-              id: "lint",
-              name: "Lint",
-              command: "bun lint",
-              icon: "lint",
-            },
-          ],
           updatedAt: "2026-02-27T00:05:00.000Z",
         },
         { aggregateKind: "folder" },
@@ -2015,14 +2005,6 @@ describe("store event reducer", () => {
       cwd: "/tmp/renamed-project",
       defaultModelSelection: null,
       updatedAt: "2026-02-27T00:05:00.000Z",
-      scripts: [
-        {
-          id: "lint",
-          name: "Lint",
-          command: "bun lint",
-          icon: "lint",
-        },
-      ],
     });
   });
 

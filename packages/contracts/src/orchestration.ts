@@ -273,24 +273,6 @@ const TurnMessageContentCheck = Schema.makeFilter(
   { identifier: "TurnMessageContent" },
 );
 
-export const ProjectScriptIcon = Schema.Literals([
-  "play",
-  "test",
-  "lint",
-  "configure",
-  "build",
-  "debug",
-]);
-export type ProjectScriptIcon = typeof ProjectScriptIcon.Type;
-
-export const ProjectScript = Schema.Struct({
-  id: TrimmedNonEmptyString,
-  name: TrimmedNonEmptyString,
-  command: TrimmedNonEmptyString,
-  icon: ProjectScriptIcon,
-});
-export type ProjectScript = typeof ProjectScript.Type;
-
 export const SPACE_NAME_MAX_LENGTH = 32;
 export const SPACES_MAX_COUNT = 50;
 /** Per-command cap for bulk assignment; clients chunk larger selections. */
@@ -355,7 +337,6 @@ export const OrchestrationFolder = Schema.Struct({
   title: TrimmedNonEmptyString,
   workspaceRoot: Schema.NullOr(TrimmedNonEmptyString),
   defaultModelSelection: Schema.NullOr(ModelSelection),
-  scripts: Schema.Array(ProjectScript),
   iconDataUrl: Schema.optional(Schema.NullOr(FolderIconDataUrl)),
   spaceId: SpaceId,
   sidebarSortOrder: Schema.optional(NonNegativeInt).pipe(Schema.withDecodingDefault(() => 0)),
@@ -373,7 +354,6 @@ export const OrchestrationFolderShell = Schema.Struct({
   title: TrimmedNonEmptyString,
   workspaceRoot: Schema.NullOr(TrimmedNonEmptyString),
   defaultModelSelection: Schema.NullOr(ModelSelection),
-  scripts: Schema.Array(ProjectScript),
   iconDataUrl: Schema.optional(Schema.NullOr(FolderIconDataUrl)),
   spaceId: SpaceId,
   sidebarSortOrder: Schema.optional(NonNegativeInt).pipe(Schema.withDecodingDefault(() => 0)),
@@ -744,7 +724,6 @@ const FolderUpdateCommand = Schema.Struct({
   title: Schema.optional(TrimmedNonEmptyString),
   workspaceRoot: Schema.optional(Schema.NullOr(TrimmedNonEmptyString)),
   defaultModelSelection: Schema.optional(Schema.NullOr(ModelSelection)),
-  scripts: Schema.optional(Schema.Array(ProjectScript)),
   iconDataUrl: Schema.optional(Schema.NullOr(FolderIconDataUrl)),
   archivedAt: Schema.optional(Schema.NullOr(IsoDateTime)),
 });
@@ -1154,7 +1133,6 @@ export const FolderCreatedPayload = Schema.Struct({
   title: TrimmedNonEmptyString,
   workspaceRoot: Schema.NullOr(TrimmedNonEmptyString),
   defaultModelSelection: Schema.NullOr(ModelSelection),
-  scripts: Schema.Array(ProjectScript),
   iconDataUrl: Schema.optional(Schema.NullOr(FolderIconDataUrl)),
   spaceId: SpaceId,
   sidebarSortOrder: Schema.optional(NonNegativeInt).pipe(Schema.withDecodingDefault(() => 0)),
@@ -1167,7 +1145,6 @@ export const FolderUpdatedPayload = Schema.Struct({
   title: Schema.optional(TrimmedNonEmptyString),
   workspaceRoot: Schema.optional(Schema.NullOr(TrimmedNonEmptyString)),
   defaultModelSelection: Schema.optional(Schema.NullOr(ModelSelection)),
-  scripts: Schema.optional(Schema.Array(ProjectScript)),
   iconDataUrl: Schema.optional(Schema.NullOr(FolderIconDataUrl)),
   sidebarSortOrder: Schema.optional(NonNegativeInt),
   archivedAt: Schema.optional(Schema.NullOr(IsoDateTime)),

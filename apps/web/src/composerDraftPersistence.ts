@@ -24,10 +24,7 @@ import {
 import {
   hydratePastedTextsFromPersisted,
   normalizeAssistantSelections,
-  normalizeDraftThreadEntryPoint,
   normalizeFileComments,
-  projectDraftThreadEntryPointFromKey,
-  folderIdFromDraftThreadMappingKey,
   PersistedComposerImageAttachment,
   type ComposerPromptHistorySavedDraft,
   type ComposerThreadDraftState,
@@ -47,8 +44,6 @@ import { normalizePastedTextContent } from "./lib/composerPastedText";
 import { normalizeFileCommentSelection } from "./lib/fileComments";
 import { ensureInlineTerminalContextPlaceholders } from "./lib/terminalContext";
 import { DEFAULT_RUNTIME_MODE } from "./types";
-
-const DraftThreadEntryPointSchema = Schema.Literals(["chat", "terminal"]);
 
 const PersistedTerminalContextDraft = Schema.Struct({
   id: Schema.String,
@@ -191,7 +186,6 @@ const PersistedDraftThreadState = Schema.Struct({
   spaceId: Schema.optionalKey(Schema.NullOr(SpaceId)),
   createdAt: Schema.String,
   runtimeMode: RuntimeMode,
-  entryPoint: DraftThreadEntryPointSchema.pipe(Schema.withDecodingDefault(() => "chat")),
   promotedTo: Schema.optionalKey(ThreadId),
 });
 
@@ -451,7 +445,6 @@ function normalizePersistedDraftThreads(
           candidateDraftThread.runtimeMode === "full-access"
             ? candidateDraftThread.runtimeMode
             : DEFAULT_RUNTIME_MODE,
-        entryPoint: normalizeDraftThreadEntryPoint(candidateDraftThread.entryPoint),
         ...(promotedTo ? { promotedTo } : {}),
       };
     }
@@ -462,8 +455,7 @@ function normalizePersistedDraftThreads(
     for (const [mappingKey, threadId] of Object.entries(
       rawProjectDraftThreadIdByFolderId as Record<string, unknown>,
     )) {
-      const folderId = folderIdFromDraftThreadMappingKey(mappingKey);
-      const entryPoint = projectDraftThreadEntryPointFromKey(mappingKey);
+      const folderId = mappingKey;
       if (
         typeof folderId === "string" &&
         folderId.length > 0 &&
@@ -477,17 +469,11 @@ function normalizePersistedDraftThreads(
             spaceId: null,
             createdAt: new Date().toISOString(),
             runtimeMode: DEFAULT_RUNTIME_MODE,
-            entryPoint,
           };
         } else if (draftThreadsByThreadId[threadId as ThreadId]?.folderId !== folderId) {
           draftThreadsByThreadId[threadId as ThreadId] = {
             ...draftThreadsByThreadId[threadId as ThreadId]!,
             folderId: folderId as FolderId,
-          };
-        } else if (draftThreadsByThreadId[threadId as ThreadId]?.entryPoint !== entryPoint) {
-          draftThreadsByThreadId[threadId as ThreadId] = {
-            ...draftThreadsByThreadId[threadId as ThreadId]!,
-            entryPoint,
           };
         }
       }

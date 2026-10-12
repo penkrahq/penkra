@@ -164,8 +164,8 @@ const fixture = Effect.fn(function* (
   const folderId = FolderId.makeUnsafe(randomUUID());
   const nativeStateId = options.native === false ? null : randomUUID();
   const providerSessionId = options.session === false ? null : "native-session";
-  yield* sql`INSERT INTO projection_folders (folder_id,space_id,title,workspace_root,default_model_selection_json,scripts_json,created_at,updated_at)
-    VALUES (${folderId},'penkra-personal','Switch',NULL,NULL,'[]',${timestamp},${timestamp})`;
+  yield* sql`INSERT INTO projection_folders (folder_id,space_id,title,workspace_root,default_model_selection_json,created_at,updated_at)
+    VALUES (${folderId},'penkra-personal','Switch',NULL,NULL,${timestamp},${timestamp})`;
   yield* createThreadFixture(sql, {
     threadId,
     folderId,

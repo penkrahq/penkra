@@ -12,7 +12,6 @@ import {
   OrchestrationGetThreadTurnsPageResult,
   OrchestrationGetPendingStartOutcomeResult,
   OrchestrationThreadDetailSnapshot,
-  ProjectScript,
   FolderId,
   SpaceId,
   ThreadId,
@@ -85,7 +84,6 @@ const ProjectionThreadMessageCountRow = Schema.Struct({ count: NonNegativeInt })
 const ProjectionFolderDbRowSchema = ProjectionFolder.mapFields(
   Struct.assign({
     defaultModelSelection: Schema.NullOr(ModelSelectionJsonUnknown),
-    scripts: Schema.fromJsonString(Schema.Array(ProjectScript)),
   }),
 );
 const ProjectionThreadDbRowSchema = ProjectionThread.mapFields(
@@ -354,7 +352,6 @@ function toProjectedProject(row: ProjectionFolderDbRow): OrchestrationFolder {
     title: row.title,
     workspaceRoot: row.workspaceRoot,
     defaultModelSelection: row.defaultModelSelection,
-    scripts: row.scripts,
     iconDataUrl: row.iconDataUrl ?? null,
     spaceId: row.spaceId,
     sidebarSortOrder: row.sidebarSortOrder,
@@ -490,7 +487,6 @@ function toProjectedProjectShell(row: ProjectionFolderDbRow): OrchestrationFolde
     title: row.title,
     workspaceRoot: row.workspaceRoot,
     defaultModelSelection: row.defaultModelSelection,
-    scripts: row.scripts,
     iconDataUrl: row.iconDataUrl ?? null,
     spaceId: row.spaceId,
     sidebarSortOrder: row.sidebarSortOrder,
@@ -633,7 +629,7 @@ function computeSnapshotSequence(
 }
 
 export const STARTUP_SPACES_SQL = `SELECT space_id AS "spaceId", name, icon, sort_order AS "sortOrder", created_at AS "createdAt", updated_at AS "updatedAt", archived_at AS "archivedAt", deleted_at AS "deletedAt" FROM projection_spaces WHERE deleted_at IS NULL AND archived_at IS NULL ORDER BY sort_order, space_id`;
-export const STARTUP_FOLDERS_SQL = `SELECT folder_id AS "folderId", space_id AS "spaceId", title, workspace_root AS "workspaceRoot", default_model_selection_json AS "defaultModelSelection", scripts_json AS "scripts", icon_data_url AS "iconDataUrl", sidebar_sort_order AS "sidebarSortOrder", created_at AS "createdAt", updated_at AS "updatedAt", archived_at AS "archivedAt", deleted_at AS "deletedAt" FROM projection_folders WHERE deleted_at IS NULL AND archived_at IS NULL ORDER BY created_at, folder_id`;
+export const STARTUP_FOLDERS_SQL = `SELECT folder_id AS "folderId", space_id AS "spaceId", title, workspace_root AS "workspaceRoot", default_model_selection_json AS "defaultModelSelection", icon_data_url AS "iconDataUrl", sidebar_sort_order AS "sidebarSortOrder", created_at AS "createdAt", updated_at AS "updatedAt", archived_at AS "archivedAt", deleted_at AS "deletedAt" FROM projection_folders WHERE deleted_at IS NULL AND archived_at IS NULL ORDER BY created_at, folder_id`;
 
 const THREAD_SHELL_COLUMNS = `
           t.id AS "threadId",
@@ -686,7 +682,7 @@ const THREAD_AGENT_STATUS = `CASE
   WHEN lt.state = 'interrupted' THEN 'interrupted'
   ELSE 'idle' END`;
 const FOLDER_SHELL_COLUMNS = `f.folder_id AS "folderId", f.title, f.workspace_root AS "workspaceRoot",
-      f.default_model_selection_json AS "defaultModelSelection", f.scripts_json AS scripts,
+      f.default_model_selection_json AS "defaultModelSelection",
       f.icon_data_url AS "iconDataUrl", f.space_id AS "spaceId", f.sidebar_sort_order AS "sidebarSortOrder",
       f.created_at AS "createdAt", f.updated_at AS "updatedAt", f.archived_at AS "archivedAt", f.deleted_at AS "deletedAt"`;
 export function buildFolderShellPageQuery(after: ProjectionFolderPageCursor | null) {
@@ -960,7 +956,6 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
           title,
           workspace_root AS "workspaceRoot",
           default_model_selection_json AS "defaultModelSelection",
-          scripts_json AS "scripts",
           icon_data_url AS "iconDataUrl",
           sidebar_sort_order AS "sidebarSortOrder",
           created_at AS "createdAt",
@@ -1269,7 +1264,6 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
           title,
           workspace_root AS "workspaceRoot",
           default_model_selection_json AS "defaultModelSelection",
-          scripts_json AS "scripts",
           icon_data_url AS "iconDataUrl",
           sidebar_sort_order AS "sidebarSortOrder",
           COALESCE(space_id, 'penkra-personal') AS "spaceId",
@@ -1331,7 +1325,6 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
           title,
           workspace_root AS "workspaceRoot",
           default_model_selection_json AS "defaultModelSelection",
-          scripts_json AS "scripts",
           icon_data_url AS "iconDataUrl",
           sidebar_sort_order AS "sidebarSortOrder",
           COALESCE(space_id, 'penkra-personal') AS "spaceId",
@@ -2392,7 +2385,6 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
               title: row.title,
               workspaceRoot: row.workspaceRoot,
               defaultModelSelection: row.defaultModelSelection,
-              scripts: row.scripts,
               iconDataUrl: row.iconDataUrl ?? null,
               spaceId: row.spaceId,
               sidebarSortOrder: row.sidebarSortOrder,

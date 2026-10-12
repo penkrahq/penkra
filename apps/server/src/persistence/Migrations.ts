@@ -203,6 +203,7 @@ import Migration0191 from "./Migrations/191_DropNativeSwitchJournals.ts";
 import Migration0192 from "./Migrations/192_DropProviderDeliveryRepairs.ts";
 import Migration0193 from "./Migrations/193_DropRuntimeGlobalConsumerLedger.ts";
 import Migration0194 from "./Migrations/194_RemoveApprovalDecisionColumn.ts";
+import Migration0195 from "./Migrations/195_RemoveFolderScripts.ts";
 import Migration0177 from "./Migrations/177_ThreadHarnessCanonicalForeignKey.ts";
 
 /**
@@ -403,6 +404,7 @@ export const migrationEntries = [
   [192, "DropProviderDeliveryRepairs", Migration0192],
   [193, "DropRuntimeGlobalConsumerLedger", Migration0193],
   [194, "RemoveApprovalDecisionColumn", Migration0194],
+  [195, "RemoveFolderScripts", Migration0195],
 ] as const;
 
 export const makeMigrationLoader = (throughId?: number) =>

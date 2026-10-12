@@ -77,77 +77,47 @@ const CHAT_SEARCH_DEFAULT_KEYBINDINGS = [
 ] as const satisfies ReadonlyArray<KeybindingRule>;
 
 export const DEFAULT_KEYBINDINGS: ReadonlyArray<KeybindingRule> = [
-  { key: "mod+b", command: "sidebar.toggle", when: "!terminalFocus" },
+  { key: "mod+b", command: "sidebar.toggle" },
   ...SIDEBAR_SEARCH_DEFAULT_KEYBINDINGS,
   ...CHAT_SEARCH_DEFAULT_KEYBINDINGS,
-  { key: "mod+shift+o", command: "sidebar.addProject", when: "!terminalFocus" },
-  { key: "mod+i", command: "sidebar.importThread", when: "!terminalFocus" },
-  { key: "mod+alt+arrowleft", command: "space.previous", when: "!terminalFocus" },
-  { key: "mod+alt+arrowright", command: "space.next", when: "!terminalFocus" },
-  // Numbered Space jumps address persisted Spaces in their visual order. The same
-  // `|| isMac` escape hatch as the new-surface chords below means Cmd
-  // chords never reach the PTY on macOS, while Ctrl+Alt+digit is AltGr territory on
-  // Linux/Windows layouts and must keep yielding to focused terminals there.
-  { key: "mod+alt+1", command: "space.jump.1", when: "!terminalFocus || isMac" },
-  { key: "mod+alt+2", command: "space.jump.2", when: "!terminalFocus || isMac" },
-  { key: "mod+alt+3", command: "space.jump.3", when: "!terminalFocus || isMac" },
-  { key: "mod+alt+4", command: "space.jump.4", when: "!terminalFocus || isMac" },
-  { key: "mod+alt+5", command: "space.jump.5", when: "!terminalFocus || isMac" },
-  { key: "mod+alt+6", command: "space.jump.6", when: "!terminalFocus || isMac" },
-  { key: "mod+alt+7", command: "space.jump.7", when: "!terminalFocus || isMac" },
-  { key: "mod+alt+8", command: "space.jump.8", when: "!terminalFocus || isMac" },
-  { key: "mod+alt+9", command: "space.jump.9", when: "!terminalFocus || isMac" },
-  { key: "mod+j", command: "terminal.toggle" },
-  { key: "mod+d", command: "terminal.split", when: "terminalFocus" },
-  { key: "mod+shift+arrowright", command: "terminal.splitRight", when: "terminalFocus" },
-  { key: "mod+shift+arrowleft", command: "terminal.splitLeft", when: "terminalFocus" },
-  { key: "mod+shift+arrowdown", command: "terminal.splitDown", when: "terminalFocus" },
-  { key: "mod+shift+arrowup", command: "terminal.splitUp", when: "terminalFocus" },
-  // Reserve Cmd/Ctrl+T for the terminal workspace's "new tab" action while focused.
-  { key: "mod+t", command: "terminal.new", when: "terminalFocus" },
-  { key: "mod+w", command: "terminal.close", when: "terminalFocus" },
-  { key: "mod+shift+j", command: "terminal.workspace.newFullWidth" },
-  { key: "mod+w", command: "terminal.workspace.closeActive", when: "terminalWorkspaceOpen" },
-  { key: "mod+1", command: "terminal.workspace.terminal", when: "terminalWorkspaceOpen" },
-  { key: "mod+2", command: "terminal.workspace.chat", when: "terminalWorkspaceOpen" },
-  // Cmd-only instead of mod so Ctrl+L remains available to shells on non-macOS.
-  { key: "cmd+l", command: "composer.focus.toggle", when: "!terminalFocus" },
-  { key: "mod+shift+m", command: "modelPicker.toggle", when: "!terminalFocus" },
+  { key: "mod+shift+o", command: "sidebar.addProject" },
+  { key: "mod+i", command: "sidebar.importThread" },
+  { key: "mod+alt+arrowleft", command: "space.previous" },
+  { key: "mod+alt+arrowright", command: "space.next" },
+  { key: "mod+alt+1", command: "space.jump.1" },
+  { key: "mod+alt+2", command: "space.jump.2" },
+  { key: "mod+alt+3", command: "space.jump.3" },
+  { key: "mod+alt+4", command: "space.jump.4" },
+  { key: "mod+alt+5", command: "space.jump.5" },
+  { key: "mod+alt+6", command: "space.jump.6" },
+  { key: "mod+alt+7", command: "space.jump.7" },
+  { key: "mod+alt+8", command: "space.jump.8" },
+  { key: "mod+alt+9", command: "space.jump.9" },
+  { key: "cmd+l", command: "composer.focus.toggle" },
+  { key: "mod+shift+m", command: "modelPicker.toggle" },
   // Cycle models within the active provider (favorites first, then remaining list).
-  { key: "alt+]", command: "model.next", when: "!terminalFocus" },
-  { key: "alt+[", command: "model.previous", when: "!terminalFocus" },
-  { key: "mod+shift+e", command: "traitsPicker.toggle", when: "!terminalFocus" },
-  { key: "mod+shift+u", command: "settings.usage", when: "!terminalFocus" },
-  // New thread (chat.new) is the primary create action; it falls back to the most
-  // recent project when no project is active.
-  //
-  // These new-surface chords use `!terminalFocus || isMac`: on macOS `mod` is Cmd and
-  // xterm never forwards a Cmd-chord to the PTY, so the bare `!terminalFocus` guard just
-  // dropped the chord while the terminal had focus (you couldn't open a new chat/terminal
-  // from the terminal). The `|| isMac` escape hatch fires them on macOS regardless of
-  // focus, while Linux/Windows keep `!terminalFocus` so Ctrl-chords still reach the shell.
-  { key: "mod+n", command: "chat.new", when: "!terminalFocus || isMac" },
-  { key: "mod+alt+n", command: "chat.newChat", when: "!terminalFocus || isMac" },
-  { key: "mod+shift+t", command: "chat.newTerminal", when: "!terminalFocus || isMac" },
-  { key: "mod+alt+c", command: "chat.newClaude", when: "!terminalFocus || isMac" },
-  { key: "mod+alt+x", command: "chat.newCodex", when: "!terminalFocus || isMac" },
-  { key: "mod+alt+r", command: "chat.newOpenCode", when: "!terminalFocus || isMac" },
-  // Recent-view switcher (Ctrl+Tab) is an installed-app feature only: Electron and
-  // standalone PWA windows have no tab strip, so the chord reaches the page. It remains
-  // app-level even with terminal focus; the web route captures it before xterm input.
+  { key: "alt+]", command: "model.next" },
+  { key: "alt+[", command: "model.previous" },
+  { key: "mod+shift+e", command: "traitsPicker.toggle" },
+  { key: "mod+shift+u", command: "settings.usage" },
+  { key: "mod+n", command: "chat.new" },
+  { key: "mod+alt+n", command: "chat.newChat" },
+  { key: "mod+alt+c", command: "chat.newClaude" },
+  { key: "mod+alt+x", command: "chat.newCodex" },
+  { key: "mod+alt+r", command: "chat.newOpenCode" },
   { key: "ctrl+tab", command: "view.recent.next" },
   { key: "ctrl+shift+tab", command: "view.recent.previous" },
-  { key: "mod+1", command: "thread.jump.1", when: "!terminalFocus && !terminalWorkspaceOpen" },
-  { key: "mod+2", command: "thread.jump.2", when: "!terminalFocus && !terminalWorkspaceOpen" },
-  { key: "mod+3", command: "thread.jump.3", when: "!terminalFocus && !terminalWorkspaceOpen" },
-  { key: "mod+4", command: "thread.jump.4", when: "!terminalFocus && !terminalWorkspaceOpen" },
-  { key: "mod+5", command: "thread.jump.5", when: "!terminalFocus && !terminalWorkspaceOpen" },
-  { key: "mod+6", command: "thread.jump.6", when: "!terminalFocus && !terminalWorkspaceOpen" },
-  { key: "mod+7", command: "thread.jump.7", when: "!terminalFocus && !terminalWorkspaceOpen" },
-  { key: "mod+8", command: "thread.jump.8", when: "!terminalFocus && !terminalWorkspaceOpen" },
-  { key: "mod+9", command: "thread.jump.9", when: "!terminalFocus && !terminalWorkspaceOpen" },
-  { key: "mod+shift+]", command: "chat.visible.next", when: "!terminalFocus" },
-  { key: "mod+shift+[", command: "chat.visible.previous", when: "!terminalFocus" },
+  { key: "mod+1", command: "thread.jump.1" },
+  { key: "mod+2", command: "thread.jump.2" },
+  { key: "mod+3", command: "thread.jump.3" },
+  { key: "mod+4", command: "thread.jump.4" },
+  { key: "mod+5", command: "thread.jump.5" },
+  { key: "mod+6", command: "thread.jump.6" },
+  { key: "mod+7", command: "thread.jump.7" },
+  { key: "mod+8", command: "thread.jump.8" },
+  { key: "mod+9", command: "thread.jump.9" },
+  { key: "mod+shift+]", command: "chat.visible.next" },
+  { key: "mod+shift+[", command: "chat.visible.previous" },
   { key: "mod+o", command: "editor.openFavorite" },
 ];
 
@@ -597,47 +567,7 @@ const LEGACY_KEYBINDING_COMMAND_ALIASES = {
 // persisted configs from older releases do not produce validation warnings.
 const RETIRED_LEGACY_KEYBINDING_COMMANDS = new Set(["chat.newGemini", "chat.split"]);
 const RETIRED_LEGACY_KEYBINDING_COMMAND_PATTERN = /^(?:composer\.)?modelPicker\.jump\.[1-9]$/;
-const OUTDATED_RECENT_VIEW_TERMINAL_GUARD = "!terminalFocus";
 const OUTDATED_SIDEBAR_SEARCH_SHORTCUT = "mod+k";
-const RECENT_VIEW_SHORTCUT_BY_COMMAND: Partial<Record<KeybindingRule["command"], string>> = {
-  "view.recent.next": "ctrl+tab",
-  "view.recent.previous": "ctrl+shift+tab",
-};
-
-// New-surface creation commands shipped guarded by a bare `!terminalFocus`. On macOS
-// `mod` is Cmd and xterm never forwards a Cmd-chord to the PTY, so that guard silently
-// dropped "new chat/terminal" chords whenever the terminal had focus. The relaxed guard
-// adds an `|| isMac` escape hatch (see DEFAULT_KEYBINDINGS) so the chord fires on macOS
-// regardless of focus while Linux/Windows keep yielding Ctrl-chords to the shell.
-const OUTDATED_CREATION_TERMINAL_GUARD = "!terminalFocus";
-const RELAXED_CREATION_TERMINAL_GUARD = "!terminalFocus || isMac";
-
-/** Remove only the two complete rules that Penkra shipped for this retired chord. */
-export function removeRetiredNewWindowDefault(rules: readonly KeybindingRule[]): {
-  readonly rules: KeybindingRule[];
-  readonly migratedCount: number;
-} {
-  const next = rules.filter(
-    (rule) =>
-      !(
-        rule.key === "mod+shift+n" &&
-        rule.command === "chat.newLatestProject" &&
-        (rule.when === RELAXED_CREATION_TERMINAL_GUARD ||
-          rule.when === OUTDATED_CREATION_TERMINAL_GUARD)
-      ),
-  );
-  return { rules: next, migratedCount: rules.length - next.length };
-}
-const CREATION_COMMANDS_WITH_TERMINAL_ESCAPE = new Set<KeybindingRule["command"]>([
-  "chat.new",
-  "chat.newLatestProject",
-  "chat.newChat",
-  "chat.newLocal",
-  "chat.newTerminal",
-  "chat.newClaude",
-  "chat.newCodex",
-  "chat.newOpenCode",
-]);
 
 function readKeybindingEntryCommand(entry: unknown): string | null {
   if (typeof entry !== "object" || entry === null || Array.isArray(entry)) {
@@ -680,31 +610,6 @@ function normalizeLegacyKeybindingEntry(entry: unknown): {
   };
 }
 
-// Update exact old recent-view defaults so existing configs gain terminal-focus support
-// (drop the `!terminalFocus` guard). Per-rule because it never changes the key, so it
-// cannot collide with a sibling entry.
-function migrateOutdatedDefaultKeybindingRule(rule: KeybindingRule): {
-  readonly rule: KeybindingRule;
-  readonly migrated: boolean;
-} {
-  const recentViewShortcut = RECENT_VIEW_SHORTCUT_BY_COMMAND[rule.command];
-  if (
-    recentViewShortcut === undefined ||
-    rule.key !== recentViewShortcut ||
-    rule.when !== OUTDATED_RECENT_VIEW_TERMINAL_GUARD
-  ) {
-    return { rule, migrated: false };
-  }
-
-  return {
-    rule: {
-      key: rule.key,
-      command: rule.command,
-    },
-    migrated: true,
-  };
-}
-
 // The original sidebar search default used `mod+k`, which resolves to Ctrl+K on
 // Windows/Linux but also captures the native kill-to-end-of-line chord on macOS.
 // Expand only that exact shipped default so other user-defined search chords remain intact.
@@ -724,30 +629,6 @@ function migrateOutdatedSidebarSearchDefault(rules: readonly KeybindingRule[]): 
 
     migratedCount += 1;
     return SIDEBAR_SEARCH_DEFAULT_KEYBINDINGS.map((binding) => ({ ...binding }));
-  });
-  return { rules: next, migratedCount };
-}
-
-// Add the `|| isMac` escape hatch to new-surface creation commands still pinned to the
-// bare `!terminalFocus` guard, so existing configs gain the macOS terminal-focus fix the
-// shipped defaults already carry. Matched on command + exact old guard (not key) so it
-// also reaches a creation command the user rebound to a different chord — the guard, not
-// the key, is what was too aggressive. Idempotent: once relaxed the guard no longer
-// matches the old one.
-function relaxCreationCommandTerminalGuards(rules: readonly KeybindingRule[]): {
-  readonly rules: KeybindingRule[];
-  readonly migratedCount: number;
-} {
-  let migratedCount = 0;
-  const next = rules.map((rule) => {
-    if (
-      rule.when !== OUTDATED_CREATION_TERMINAL_GUARD ||
-      !CREATION_COMMANDS_WITH_TERMINAL_ESCAPE.has(rule.command)
-    ) {
-      return rule;
-    }
-    migratedCount += 1;
-    return { ...rule, when: RELAXED_CREATION_TERMINAL_GUARD };
   });
   return { rules: next, migratedCount };
 }
@@ -991,22 +872,14 @@ const makeKeybindings = Effect.gen(function* () {
         });
         continue;
       }
-      const migratedDefaultRule = migrateOutdatedDefaultKeybindingRule(decodedRule.value);
-      if (migratedDefaultRule.migrated) {
-        migratedDefaultRuleCount += 1;
-      }
-      keybindings.push(migratedDefaultRule.rule);
+      keybindings.push(decodedRule.value);
     }
 
     const sidebarSearchMigration = migrateOutdatedSidebarSearchDefault(keybindings);
     migratedDefaultRuleCount += sidebarSearchMigration.migratedCount;
-    const retiredNewWindowDefault = removeRetiredNewWindowDefault(sidebarSearchMigration.rules);
-    migratedDefaultRuleCount += retiredNewWindowDefault.migratedCount;
-    const relaxed = relaxCreationCommandTerminalGuards(retiredNewWindowDefault.rules);
-    migratedDefaultRuleCount += relaxed.migratedCount;
 
     return {
-      keybindings: relaxed.rules,
+      keybindings: sidebarSearchMigration.rules,
       issues,
       migratedLegacyCommandCount,
       migratedDefaultRuleCount,

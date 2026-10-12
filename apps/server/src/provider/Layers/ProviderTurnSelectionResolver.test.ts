@@ -300,7 +300,7 @@ const fixtureResolver = () =>
       ...resolver,
       resolveExisting: (input: Parameters<typeof resolver.resolveExisting>[0]) =>
         Effect.gen(function* () {
-          yield* sql`INSERT OR IGNORE INTO projection_folders (folder_id,space_id,title,workspace_root,default_model_selection_json,scripts_json,created_at,updated_at) VALUES ('selection-folder','penkra-personal','Selection',NULL,NULL,'[]',${timestamp},${timestamp})`;
+          yield* sql`INSERT OR IGNORE INTO projection_folders (folder_id,space_id,title,workspace_root,default_model_selection_json,created_at,updated_at) VALUES ('selection-folder','penkra-personal','Selection',NULL,NULL,${timestamp},${timestamp})`;
           yield* sql`DELETE FROM threads WHERE id=${input.threadId}`;
           if (threadExists)
             yield* sql`INSERT INTO threads (id,space_id,folder_id,title,provider,connection_id,model,state,runtime_mode,native_state_id,provider_session_id,created_by,created_at,updated_at) VALUES (${input.threadId},'penkra-personal','selection-folder','Selection',${threadHarness},${threadHarness === "claudeAgent" ? claudeBoundConnectionId : connectionId},${threadHarness === "claudeAgent" ? "claude-sonnet-5" : "opencode-go/kimi-k2.5"},'idle','full-access','selection-native',${hasSession ? "native-session" : null},'user',${timestamp},${timestamp})`;

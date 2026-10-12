@@ -16,8 +16,8 @@ layer("155_ThreadSidebarPreviewIndex", (it) => {
       yield* sql`
         INSERT INTO projection_folders (
           folder_id, kind, title, workspace_root, default_model_selection_json,
-          scripts_json, created_at, updated_at
-        ) VALUES ('project-1', 'folder', 'Project', '/workspace', NULL, '[]', ${timestamp}, ${timestamp})
+           created_at, updated_at
+        ) VALUES ('project-1', 'folder', 'Project', '/workspace', NULL,  ${timestamp}, ${timestamp})
       `;
       yield* sql`
         INSERT INTO projection_threads (

@@ -707,8 +707,8 @@ layer("ProviderConnectionLoginCoordinator", (it) => {
       });
       yield* sql`INSERT INTO projection_spaces (space_id, name, icon, sort_order, created_at, updated_at)
         VALUES ('legacy-space', 'Personal', '', 0, ${timestamp}, ${timestamp})`;
-      yield* sql`INSERT INTO projection_folders (folder_id, kind, title, workspace_root, scripts_json, created_at, updated_at, space_id)
-        VALUES ('legacy-folder', 'project', 'Folder', NULL, '[]', ${timestamp}, ${timestamp}, 'legacy-space')`;
+      yield* sql`INSERT INTO projection_folders (folder_id, kind, title, workspace_root, created_at, updated_at, space_id)
+        VALUES ('legacy-folder', 'project', 'Folder', NULL, ${timestamp}, ${timestamp}, 'legacy-space')`;
       yield* createThreadFixture(sql, {
         threadId,
         folderId: FolderId.makeUnsafe("legacy-folder"),

@@ -6,13 +6,9 @@
 import type { KeybindingCommand, ResolvedKeybindingsConfig } from "@penkra/contracts";
 import { isMacPlatform } from "./lib/utils";
 import { shortcutLabelForCommand } from "./keybindings";
-import { commandForProjectScript } from "./projectScripts";
-import type { ProjectScript } from "./types";
+import type {} from "./types";
 
 export interface ShortcutSheetContext {
-  terminalFocus: boolean;
-  terminalOpen: boolean;
-  terminalWorkspaceOpen: boolean;
   [key: string]: boolean;
 }
 
@@ -33,7 +29,6 @@ export interface ShortcutSheetSection {
 
 interface BuildShortcutSheetSectionsOptions {
   keybindings: ResolvedKeybindingsConfig;
-  projectScripts: ReadonlyArray<ProjectScript>;
   platform: string;
   context: ShortcutSheetContext;
 }
@@ -226,9 +221,6 @@ export function buildShortcutSheetSections(
   const sections: ShortcutSheetSection[] = [];
   const sheetContext: ShortcutSheetContext = {
     ...options.context,
-    terminalFocus: false,
-    terminalOpen: false,
-    terminalWorkspaceOpen: false,
   };
 
   const currentEntries: ShortcutSheetEntry[] = [
@@ -273,32 +265,6 @@ export function buildShortcutSheetSections(
     description: "These reflect the current chat and sidebar context.",
     entries: [...currentEntries, ...currentNavigationEntries],
   });
-
-  const projectScriptEntries = options.projectScripts
-    .map((script) => {
-      const shortcutLabel = shortcutLabelForCommand(
-        options.keybindings,
-        commandForProjectScript(script.id),
-        options.platform,
-      );
-      if (!shortcutLabel) return null;
-      return {
-        id: script.id,
-        label: script.name,
-        description: "Run this folder script without opening the scripts menu.",
-        shortcutLabel,
-      } satisfies ShortcutSheetEntry;
-    })
-    .filter((entry): entry is ShortcutSheetEntry => entry !== null);
-
-  if (projectScriptEntries.length > 0) {
-    sections.push({
-      id: "project-scripts",
-      title: "Folder scripts",
-      description: "Custom shortcuts defined for the active folder's scripts.",
-      entries: projectScriptEntries,
-    });
-  }
 
   return sections;
 }

@@ -30,7 +30,6 @@ export const applyFolderMetadataProjection = (input: {
           title: input.event.payload.title,
           workspaceRoot: input.event.payload.workspaceRoot,
           defaultModelSelection: input.event.payload.defaultModelSelection,
-          scripts: input.event.payload.scripts,
           iconDataUrl: input.event.payload.iconDataUrl ?? null,
           spaceId: input.event.payload.spaceId,
           sidebarSortOrder: input.event.payload.sidebarSortOrder ?? 0,
@@ -56,9 +55,6 @@ export const applyFolderMetadataProjection = (input: {
               : {}),
             ...(input.event.payload.defaultModelSelection !== undefined
               ? { defaultModelSelection: input.event.payload.defaultModelSelection }
-              : {}),
-            ...(input.event.payload.scripts !== undefined
-              ? { scripts: input.event.payload.scripts }
               : {}),
             ...(input.event.payload.iconDataUrl !== undefined
               ? { iconDataUrl: input.event.payload.iconDataUrl }

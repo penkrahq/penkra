@@ -38,8 +38,8 @@ const seedSpace = Effect.gen(function* () {
 const folder = (id: string, scope = spaceId) =>
   Effect.gen(function* () {
     const sql = yield* SqlClient.SqlClient;
-    yield* sql`INSERT INTO projection_folders(folder_id, space_id, title, workspace_root, scripts_json, created_at, updated_at)
-    VALUES (${id}, ${scope}, ${id}, '/repo', '[]', ${now}, ${now})`;
+    yield* sql`INSERT INTO projection_folders(folder_id, space_id, title, workspace_root, created_at, updated_at)
+    VALUES (${id}, ${scope}, ${id}, '/repo', ${now}, ${now})`;
   });
 const thread = (id: string, folderId = "folder") =>
   createThread({

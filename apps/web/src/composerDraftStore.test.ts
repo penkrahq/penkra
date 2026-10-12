@@ -178,14 +178,12 @@ describe("composerDraftStore project draft thread mapping", () => {
 
       folderId,
       spaceId: null,
-      entryPoint: "chat",
       runtimeMode: "full-access",
       createdAt: "2026-01-01T00:00:00.000Z",
     });
     expect(useComposerDraftStore.getState().getDraftThread(threadId)).toEqual({
       folderId,
       spaceId: null,
-      entryPoint: "chat",
       runtimeMode: "full-access",
       createdAt: "2026-01-01T00:00:00.000Z",
     });
@@ -202,29 +200,10 @@ describe("composerDraftStore project draft thread mapping", () => {
     expect(useComposerDraftStore.getState().draftsByThreadId[threadId]).toBe(threadADraft);
   });
 
-  it("registers a mapping-less terminal draft for staged navigation", () => {
-    const store = useComposerDraftStore.getState();
-
-    store.registerDraftThread(threadId, {
-      folderId,
-      entryPoint: "terminal",
-      createdAt: "2026-01-01T00:00:00.000Z",
-    });
-
-    expect(useComposerDraftStore.getState().getDraftThread(threadId)).toMatchObject({
-      folderId,
-      entryPoint: "terminal",
-      createdAt: "2026-01-01T00:00:00.000Z",
-    });
-    expect(useComposerDraftStore.getState().getDraftThreadByFolderId(folderId, "terminal")).toBe(
-      null,
-    );
-  });
-
   it("keeps multiple local folder drafts independent when the primary slot changes", () => {
     const store = useComposerDraftStore.getState();
-    store.registerDraftThread(threadId, { folderId, entryPoint: "chat" });
-    store.registerDraftThread(otherThreadId, { folderId, entryPoint: "chat" });
+    store.registerDraftThread(threadId, { folderId });
+    store.registerDraftThread(otherThreadId, { folderId });
     store.setProjectDraftThreadId(folderId, threadId);
     store.setProjectDraftThreadId(folderId, otherThreadId);
     expect(useComposerDraftStore.getState().getDraftThread(threadId)).toMatchObject({ folderId });
@@ -233,31 +212,6 @@ describe("composerDraftStore project draft thread mapping", () => {
     });
     expect(useComposerDraftStore.getState().getDraftThreadByFolderId(folderId)?.threadId).toBe(
       otherThreadId,
-    );
-  });
-
-  it("tracks chat and terminal draft threads independently for the same project", () => {
-    const store = useComposerDraftStore.getState();
-    store.setProjectDraftThreadId(folderId, threadId, { entryPoint: "chat" });
-    store.setProjectDraftThreadId(folderId, otherThreadId, { entryPoint: "terminal" });
-
-    expect(
-      useComposerDraftStore.getState().getDraftThreadByFolderId(folderId, "chat"),
-    ).toMatchObject({
-      threadId,
-      folderId,
-      entryPoint: "chat",
-    });
-    expect(
-      useComposerDraftStore.getState().getDraftThreadByFolderId(folderId, "terminal"),
-    ).toMatchObject({
-      threadId: otherThreadId,
-      folderId,
-      entryPoint: "terminal",
-    });
-    expect(useComposerDraftStore.getState().getDraftThread(threadId)?.entryPoint).toBe("chat");
-    expect(useComposerDraftStore.getState().getDraftThread(otherThreadId)?.entryPoint).toBe(
-      "terminal",
     );
   });
 

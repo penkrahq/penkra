@@ -46,7 +46,6 @@ export type ProjectNormalizationInput = Pick<
   | "title"
   | "workspaceRoot"
   | "defaultModelSelection"
-  | "scripts"
   | "iconDataUrl"
   | "spaceId"
   | "sidebarSortOrder"
@@ -303,17 +302,6 @@ export function normalizeModelSelection<T extends { provider: ProviderKind; mode
   return previous && deepEqualJson(previous, next) ? previous : next;
 }
 
-function normalizeProjectScripts(
-  incoming: ReadModelProject["scripts"],
-  previous: Project["scripts"] | undefined,
-): Project["scripts"] {
-  const nextScripts = incoming.map((script, index) => {
-    const existing = previous?.[index];
-    return existing && deepEqualJson(existing, script) ? existing : script;
-  });
-  return arraysShallowEqual(previous, nextScripts) ? previous : nextScripts;
-}
-
 export function normalizeProject(
   incoming: ProjectNormalizationInput,
   previous: Project | undefined,
@@ -332,7 +320,6 @@ export function normalizeProject(
     incoming.defaultModelSelection === null
       ? null
       : normalizeModelSelection(incoming.defaultModelSelection, previous?.defaultModelSelection);
-  const scripts = normalizeProjectScripts(incoming.scripts, previous?.scripts);
   const expanded =
     previous?.expanded ??
     (rememberedUiState.expandedProjectCount > 0
@@ -354,8 +341,7 @@ export function normalizeProject(
     (previous.sidebarSortOrder ?? 0) === (incoming.sidebarSortOrder ?? 0) &&
     previous.createdAt === incoming.createdAt &&
     previous.updatedAt === incoming.updatedAt &&
-    (previous.archivedAt ?? null) === (incoming.archivedAt ?? null) &&
-    previous.scripts === scripts
+    (previous.archivedAt ?? null) === (incoming.archivedAt ?? null)
   ) {
     return previous;
   }
@@ -375,7 +361,6 @@ export function normalizeProject(
     createdAt: incoming.createdAt,
     updatedAt: incoming.updatedAt,
     archivedAt: incoming.archivedAt ?? null,
-    scripts,
   } satisfies Project;
 }
 

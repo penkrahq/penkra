@@ -3,10 +3,13 @@
 Status: DRAFT, 2026-10-11. Nothing here is built until the operator approves it (TODO 4.3).
 
 ## Decided (operator)
+
 Native iPhone app only. Tailscale is embedded in both the Mac and the phone; there is no separate install. We run our own Headscale and relay on the Penkra backend server (`connect.penkra.com`, `relay.penkra.com`). Sign-in uses Penkra accounts (`api.penkra.com/auth`). Push notifications ship in v1.
 
 ## Screens (`readme-assets/mobile-v1-screens.png`, source `mobile-mocks/`)
+
 Same look as the desktop app: dark theme, Penkra mark, provider icons, the sidebar's status marks (spinner working, amber ? needs you, blue check done).
+
 1. **Sign in:** Penkra account by email. "Sign in with Apple" is shown but not functional in v1 (operator).
 2. **Choose your Mac:** Macs on the account; first time, approve on the Mac.
 3. **Spaces, folders, threads:** the desktop sidebar on the phone. Space headers (collapsible), folders, threads with provider icon and status, Show more, search, new thread. Tabs: Threads, Needs you, Settings.
@@ -21,9 +24,11 @@ Same look as the desktop app: dark theme, Penkra mark, provider icons, the sideb
 Goal: TestFlight with all of the above working (operator, 2026-10-11).
 
 ## Not in v1
+
 Right-panel Apps, the diff viewer, terminals, settings beyond sign-out and choosing a Mac, iPad, Android, and attachments other than photos.
 
 ## Architecture (the operator approves before implementation)
+
 - **Mac side:**
   - Penkra joins the account's tailnet using embedded `tsnet`.
   - The server listens on its tailnet address only.
@@ -41,4 +46,5 @@ Right-panel Apps, the diff viewer, terminals, settings beyond sign-out and choos
   - Headscale's users map to Penkra accounts.
 
 ## Open for the operator
+
 None. Distribution: TestFlight first (operator).

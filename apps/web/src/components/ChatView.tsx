@@ -12,7 +12,6 @@ import {
   MessageId,
   type ModelSelection,
   type NativeApi,
-  type ProjectScript,
   type ModelSlug,
   type ProviderKind,
   type ProviderConnectionId,
@@ -140,7 +139,6 @@ import {
   resolveActiveThreadTitle,
   resolveCommittedProviderModel,
   resolveCycledModelSlug,
-  resolveProjectScriptTerminalTarget,
   resolvePromptHistoryNavigation,
   resolveThreadDetailHydration,
   shouldShowComposerContinue,
@@ -198,12 +196,7 @@ import { selectRightDockState, useRightDockStore } from "../rightDockStore";
 import { useStore } from "../store";
 import { getThreadFromState } from "../threadDerivation";
 import { useWorkspacePathsStore } from "../workspacePathsStore";
-import {
-  DEFAULT_RUNTIME_MODE,
-  DEFAULT_THREAD_TERMINAL_ID,
-  type ChatMessage,
-  type Thread,
-} from "../types";
+import { DEFAULT_RUNTIME_MODE, type ChatMessage, type Thread } from "../types";
 import { useTheme } from "../hooks/useTheme";
 import {
   buildSearchableModelOptions,
@@ -219,19 +212,8 @@ import {
 } from "../keybindings";
 import { ComposerQueuedHeader } from "./chat/ComposerQueuedHeader";
 import { Button } from "./ui/button";
-import { randomTerminalId } from "./terminal/terminalSession";
 import { cn, isMacPlatform, randomUUID } from "~/lib/utils";
 import { toastManager } from "./ui/toast";
-import { decodeProjectScriptKeybindingRule } from "~/lib/projectScriptKeybindings";
-import { type NewProjectScriptInput } from "./ProjectScriptsControl";
-import {
-  commandForProjectScript,
-  nextProjectScriptId,
-  projectScriptIdFromCommand,
-  type ProjectScriptRunOptions,
-  type ProjectScriptRunResult,
-} from "~/projectScripts";
-import { runProjectCommandInTerminal } from "~/projectTerminalRunner";
 import { newCommandId, newMessageId, newFolderId, newThreadId } from "~/lib/utils";
 import { readNativeApi, ensureNativeApi } from "~/nativeApi";
 import { applyThreadCreationResponse } from "~/lib/threadCreatePromotion";
@@ -244,7 +226,6 @@ import {
   resolveAssistantDeliveryMode,
   useAppSettings,
 } from "../appSettings";
-import { isTerminalFocused } from "../lib/terminalFocus";
 import { toAttachmentPreviewUrl } from "../lib/wsHttpUrl";
 import { isEditableEventTarget } from "../lib/editableEventTarget";
 import { useComposerDraftSync } from "../composerDraftSync";
@@ -319,7 +300,6 @@ import {
   resolveNextComposerFooterTier,
   shouldUseCompactComposerFooter,
 } from "./composerFooterLayout";
-import { selectThreadTerminalState, useTerminalStateStore } from "../terminalStateStore";
 import { ComposerPromptEditor, type ComposerPromptEditorHandle } from "./ComposerPromptEditor";
 import {
   CHAT_SURFACE_HEADER_DIVIDER_CLASS_NAME,
@@ -371,7 +351,6 @@ import { ComposerReferenceAttachments } from "./chat/ComposerReferenceAttachment
 import { ComposerSlashStatusDialog } from "./chat/ComposerSlashStatusDialog";
 import { ExpandedImageOverlay } from "./chat/ExpandedImageOverlay";
 import { TranscriptSelectionActionLayer } from "./chat/TranscriptSelectionActionLayer";
-import { useChatTerminalController } from "./chat/useChatTerminalController";
 import { WorkflowRunCard } from "./chat/WorkflowRunCard";
 import {
   buildWorkflowResumePrompt,
@@ -411,9 +390,7 @@ import {
   hasServerAcknowledgedLocalDispatch,
   resolveNextLocalDispatchSnapshot,
   LAST_INVOKED_SCRIPT_BY_PROJECT_KEY,
-  LastInvokedScriptByProjectSchema,
   type LocalDispatchSnapshot,
-  shouldRenderProviderHealthBanner,
   revokeBlobPreviewUrl,
   revokeUserMessagePreviewUrls,
 } from "./ChatView.logic";
@@ -1082,11 +1059,6 @@ function ChatViewContent({
     },
     [setComposerDraftMentions, threadId],
   );
-  const [lastInvokedScriptByFolderId, setLastInvokedScriptByFolderId] = useLocalStorage(
-    LAST_INVOKED_SCRIPT_BY_PROJECT_KEY,
-    EMPTY_LAST_INVOKED_SCRIPT_BY_PROJECT,
-    LastInvokedScriptByProjectSchema,
-  );
   const [dismissedProviderHealthBannerKeys, setDismissedProviderHealthBannerKeys] = useLocalStorage(
     DISMISSED_PROVIDER_HEALTH_BANNERS_KEY,
     EMPTY_DISMISSED_PROVIDER_HEALTH_BANNERS,
@@ -1147,7 +1119,6 @@ function ChatViewContent({
   const localDirectoryMenuRef = useRef<ComposerLocalDirectoryMenuHandle | null>(null);
   const sendInFlightRef = useRef(false);
   const dragDepthRef = useRef(0);
-  const terminalOpenByThreadRef = useRef<Record<string, boolean>>({});
   const activatedThreadIdRef = useRef<ThreadId | null>(null);
   useEffect(() => {
     promptHistoryNavigationRef.current = null;
@@ -1597,83 +1568,6 @@ function ChatViewContent({
   const activeProject = useStore(
     useMemo(() => createProjectSelector(activeFolderId), [activeFolderId]),
   );
-  const deletePlaceholderTerminalThread = useCallback(
-    async (terminalThreadId: ThreadId) => {
-      const api = readNativeApi();
-      if (!api) return;
-      const deleteEmptyTerminalThread = async () => {
-        await api.cleanCore.updateThread({
-          update: {
-            action: "delete",
-            threadId: terminalThreadId,
-            deletedAt: new Date().toISOString(),
-            updatedAt: new Date().toISOString(),
-          },
-        });
-        void reconcileDeletedThreadFromClient({
-          threadId: terminalThreadId,
-          removeDeletedThreadFromClientState:
-            useStore.getState().removeDeletedThreadFromClientState,
-        });
-        useComposerDraftStore.getState().clearDraftThread(terminalThreadId);
-        useTerminalStateStore.getState().clearTerminalState(terminalThreadId);
-        await handleNewChat();
-      };
-
-      try {
-        await deleteEmptyTerminalThread();
-      } catch (error) {
-        console.error("Failed to delete empty terminal thread after closing its last terminal", {
-          threadId: terminalThreadId,
-          error,
-        });
-      }
-    },
-    [handleNewChat],
-  );
-  const {
-    terminalState,
-    terminalFocusRequestId,
-    requestTerminalFocus,
-    terminalWorkspaceOpen,
-    terminalWorkspaceTerminalTabActive,
-    terminalWorkspaceChatTabActive,
-    setTerminalOpen,
-    setTerminalPresentationMode,
-    setTerminalWorkspaceLayout,
-    setTerminalWorkspaceTab,
-    setTerminalHeight,
-    setTerminalMetadataInStore: storeSetTerminalMetadata,
-    setTerminalActivityInStore: storeSetTerminalActivity,
-    openTerminalThreadPageInStore: storeOpenTerminalThreadPage,
-    newTerminalInStore: storeNewTerminal,
-    setActiveTerminalInStore: storeSetActiveTerminal,
-    closeTerminalGroupInStore: storeCloseTerminalGroup,
-    resizeTerminalSplitInStore: storeResizeTerminalSplit,
-    toggleTerminalVisibility,
-    expandTerminalWorkspace,
-    collapseTerminalWorkspace,
-    splitTerminalLeft,
-    splitTerminalRight,
-    splitTerminalDown,
-    splitTerminalUp,
-    createNewTerminal,
-    createNewTerminalTab,
-    createTerminalFromShortcut,
-    moveTerminalToNewGroup,
-    openNewFullWidthTerminal,
-    activateTerminal,
-    closeTerminal,
-    closeActiveWorkspaceView,
-  } = useChatTerminalController({
-    threadId,
-    activeThreadId,
-    activeThread,
-    activeProjectPresent: activeProject !== undefined,
-    isServerThread,
-    confirmTerminalClose: settings.confirmTerminalTabClose,
-    onDeletePlaceholderThread: deletePlaceholderTerminalThread,
-  });
   const chatWorkspaceRoot = useWorkspacePathsStore((state) => state.chatWorkspaceRoot);
   const selectedSpaceId = useSpacesUiStore((state) => state.activeSpaceId);
   const emptyLandingSpaceId =
@@ -2990,10 +2884,6 @@ function ChatViewContent({
     [keybindings],
   );
 
-  const shouldShowProviderHealthBanner = shouldRenderProviderHealthBanner({
-    threadEntryPoint: terminalState.entryPoint,
-    terminalWorkspaceTerminalTabActive: false,
-  });
   const shouldRenderChatPaneContent = true;
   const secondaryChromeThreadId = activeThread?.id ?? threadId;
   // The composer is interactive application chrome and must remain available whenever
@@ -3347,213 +3237,6 @@ function ChatViewContent({
       ]);
     },
     [activeThread, addComposerDraftPastedTexts, discardPromptHistoryNavigationForComposerMutation],
-  );
-  const runProjectScript = useCallback(
-    async (
-      script: ProjectScript,
-      options?: ProjectScriptRunOptions,
-    ): Promise<ProjectScriptRunResult | null> => {
-      const api = readNativeApi();
-      if (!api || !activeThreadId || !activeProject || !activeThread) return null;
-      if (options?.rememberAsLastInvoked !== false) {
-        setLastInvokedScriptByFolderId((current) => {
-          if (current[activeProject.id] === script.id) return current;
-          return { ...current, [activeProject.id]: script.id };
-        });
-      }
-      const targetCwd = options?.cwd ?? workspaceCwd ?? activeProject.cwd;
-      const baseTerminalId =
-        terminalState.activeTerminalId ||
-        terminalState.terminalIds[0] ||
-        DEFAULT_THREAD_TERMINAL_ID;
-      const { shouldCreateNewTerminal, terminalId: targetTerminalId } =
-        resolveProjectScriptTerminalTarget({
-          baseTerminalId,
-          createTerminalId: randomTerminalId,
-          hasRunningTerminal: terminalState.runningTerminalIds.length > 0,
-          preferNewTerminal: options?.preferNewTerminal,
-          terminalOpen: terminalState.terminalOpen,
-        });
-
-      setTerminalOpen(true);
-      if (shouldCreateNewTerminal) {
-        storeNewTerminal(activeThreadId, targetTerminalId);
-      } else {
-        storeSetActiveTerminal(activeThreadId, targetTerminalId);
-      }
-      requestTerminalFocus();
-
-      // Keep value blocks out of the try body so React Compiler can transform
-      // this callback without bailing out of ChatView.
-      const runScriptInTargetTerminal = async () =>
-        runProjectCommandInTerminal({
-          api,
-          threadId: activeThreadId,
-          terminalId: targetTerminalId,
-          project: {
-            cwd: targetCwd,
-          },
-          cwd: targetCwd,
-          command: script.command,
-          ...(options?.env ? { env: options.env } : {}),
-        });
-
-      try {
-        const { metadata } = await runScriptInTargetTerminal();
-        if (metadata) {
-          storeSetTerminalMetadata(activeThreadId, targetTerminalId, {
-            cliKind: metadata.cliKind,
-            label: metadata.label,
-          });
-        }
-        return { terminalId: targetTerminalId };
-      } catch (error) {
-        setThreadError(
-          activeThreadId,
-          error instanceof Error ? error.message : `Failed to run script "${script.name}".`,
-        );
-        if (options?.throwOnError) {
-          throw error instanceof Error
-            ? error
-            : new Error(`Failed to run script "${script.name}".`);
-        }
-        return null;
-      }
-    },
-    [
-      activeProject,
-      activeThread,
-      activeThreadId,
-      workspaceCwd,
-      requestTerminalFocus,
-      setTerminalOpen,
-      setThreadError,
-      storeNewTerminal,
-      storeSetActiveTerminal,
-      storeSetTerminalMetadata,
-      setLastInvokedScriptByFolderId,
-      terminalState.activeTerminalId,
-      terminalState.terminalOpen,
-      terminalState.runningTerminalIds,
-      terminalState.terminalIds,
-    ],
-  );
-  const persistProjectScripts = useCallback(
-    async (input: {
-      folderId: FolderId;
-      projectCwd: string;
-      previousScripts: ProjectScript[];
-      nextScripts: ProjectScript[];
-      keybinding?: string | null;
-      keybindingCommand: KeybindingCommand;
-    }) => {
-      const api = readNativeApi();
-      if (!api) return;
-
-      await api.orchestration.dispatchCommand({
-        type: "folder.update",
-        commandId: newCommandId(),
-        folderId: input.folderId,
-        scripts: input.nextScripts,
-      });
-
-      const keybindingRule = decodeProjectScriptKeybindingRule({
-        keybinding: input.keybinding,
-        command: input.keybindingCommand,
-      });
-
-      if (isElectron && keybindingRule) {
-        await api.server.upsertKeybinding(keybindingRule);
-        await queryClient.invalidateQueries({ queryKey: serverQueryKeys.all });
-      }
-    },
-    [queryClient],
-  );
-  const saveProjectScript = useCallback(
-    async (input: NewProjectScriptInput) => {
-      if (!activeProject) return;
-      const nextId = nextProjectScriptId(
-        input.name,
-        activeProject.scripts.map((script) => script.id),
-      );
-      const nextScript: ProjectScript = {
-        id: nextId,
-        name: input.name,
-        command: input.command,
-        icon: input.icon,
-      };
-      const nextScripts = [...activeProject.scripts, nextScript];
-
-      await persistProjectScripts({
-        folderId: activeProject.id,
-        projectCwd: activeProject.cwd,
-        previousScripts: activeProject.scripts,
-        nextScripts,
-        keybinding: input.keybinding,
-        keybindingCommand: commandForProjectScript(nextId),
-      });
-    },
-    [activeProject, persistProjectScripts],
-  );
-  const updateProjectScript = useCallback(
-    async (scriptId: string, input: NewProjectScriptInput) => {
-      if (!activeProject) return;
-      const existingScript = activeProject.scripts.find((script) => script.id === scriptId);
-      if (!existingScript) {
-        throw new Error("Script not found.");
-      }
-
-      const updatedScript: ProjectScript = {
-        ...existingScript,
-        name: input.name,
-        command: input.command,
-        icon: input.icon,
-      };
-      const nextScripts = activeProject.scripts.map((script) =>
-        script.id === scriptId ? updatedScript : script,
-      );
-
-      await persistProjectScripts({
-        folderId: activeProject.id,
-        projectCwd: activeProject.cwd,
-        previousScripts: activeProject.scripts,
-        nextScripts,
-        keybinding: input.keybinding,
-        keybindingCommand: commandForProjectScript(scriptId),
-      });
-    },
-    [activeProject, persistProjectScripts],
-  );
-  const deleteProjectScript = useCallback(
-    async (scriptId: string) => {
-      if (!activeProject) return;
-      const nextScripts = activeProject.scripts.filter((script) => script.id !== scriptId);
-
-      const deletedName = activeProject.scripts.find((s) => s.id === scriptId)?.name;
-      const deletedScriptToastTitle = `Deleted action "${deletedName ?? "Unknown"}"`;
-
-      try {
-        await persistProjectScripts({
-          folderId: activeProject.id,
-          projectCwd: activeProject.cwd,
-          previousScripts: activeProject.scripts,
-          nextScripts,
-          keybinding: null,
-          keybindingCommand: commandForProjectScript(scriptId),
-        });
-        toastManager.add({
-          type: "success",
-          title: deletedScriptToastTitle,
-        });
-      } catch (error) {
-        toastManager.add({
-          type: "error",
-          title: "Could not delete action",
-          description: error instanceof Error ? error.message : "An unexpected error occurred.",
-        });
-      }
-    },
-    [activeProject, persistProjectScripts],
   );
 
   const persistThreadSettingsForNextTurn = useCallback(
@@ -3979,14 +3662,14 @@ function ChatViewContent({
   }, [composerMenuItems, composerMenuOpen]);
 
   useEffect(() => {
-    if (!activeThread?.id || terminalState.terminalOpen) return;
+    if (!activeThread?.id) return;
     const frame = window.requestAnimationFrame(() => {
       focusComposer();
     });
     return () => {
       window.cancelAnimationFrame(frame);
     };
-  }, [activeThread?.id, focusComposer, terminalState.terminalOpen]);
+  }, [activeThread?.id, focusComposer]);
 
   useEffect(() => {
     composerImagesRef.current = composerImages;
@@ -4331,66 +4014,6 @@ function ChatViewContent({
     threadId,
   ]);
 
-  useEffect(() => {
-    if (!activeThreadId) return;
-    const previous = terminalOpenByThreadRef.current[activeThreadId] ?? false;
-    const current = Boolean(terminalState.terminalOpen);
-
-    if (!previous && current) {
-      terminalOpenByThreadRef.current[activeThreadId] = current;
-      requestTerminalFocus();
-      return;
-    } else if (previous && !current) {
-      terminalOpenByThreadRef.current[activeThreadId] = current;
-      const frame = window.requestAnimationFrame(() => {
-        focusComposer();
-      });
-      return () => {
-        window.cancelAnimationFrame(frame);
-      };
-    }
-
-    terminalOpenByThreadRef.current[activeThreadId] = current;
-  }, [activeThreadId, focusComposer, requestTerminalFocus, terminalState.terminalOpen]);
-
-  useEffect(() => {
-    if (!activeThreadId) {
-      activatedThreadIdRef.current = null;
-      return;
-    }
-    if (activatedThreadIdRef.current === activeThreadId) {
-      return;
-    }
-    activatedThreadIdRef.current = activeThreadId;
-    if (terminalState.entryPoint !== "terminal") {
-      return;
-    }
-    storeOpenTerminalThreadPage(activeThreadId);
-  }, [activeThreadId, storeOpenTerminalThreadPage, terminalState.entryPoint]);
-
-  useEffect(() => {
-    if (!terminalWorkspaceOpen) {
-      return;
-    }
-
-    if (terminalState.workspaceActiveTab === "terminal") {
-      requestTerminalFocus();
-      return;
-    }
-
-    const frame = window.requestAnimationFrame(() => {
-      focusComposer();
-    });
-    return () => {
-      window.cancelAnimationFrame(frame);
-    };
-  }, [
-    focusComposer,
-    requestTerminalFocus,
-    terminalState.workspaceActiveTab,
-    terminalWorkspaceOpen,
-  ]);
-
   const { stopping, stop: stopProviderTurn } = useThreadStop(
     isServerThread ? activeThreadId : null,
     (error) => {
@@ -4495,18 +4118,10 @@ function ChatViewContent({
         return;
       }
       const composerPickerShortcutActive =
-        !isTerminalFocused() &&
         !isVoiceRecording &&
         !isVoiceTranscribing &&
         canHandleComposerPickerShortcut(event, composerFormRef.current);
-      const shortcutContext = {
-        terminalFocus: false,
-        terminalOpen: false,
-        terminalWorkspaceOpen: false,
-        terminalWorkspaceTerminalOnly: false,
-        terminalWorkspaceTerminalTabActive: false,
-        terminalWorkspaceChatTabActive: false,
-      };
+      const shortcutContext = {};
 
       const command = resolveShortcutCommand(event, keybindings, {
         context: shortcutContext,
@@ -4555,21 +4170,12 @@ function ChatViewContent({
         scheduleComposerFocus();
         return;
       }
-
-      const scriptId = projectScriptIdFromCommand(command);
-      if (!scriptId || !activeProject) return;
-      const script = activeProject.scripts.find((entry) => entry.id === scriptId);
-      if (!script) return;
-      event.preventDefault();
-      event.stopPropagation();
-      void runProjectScript(script);
     };
     window.addEventListener("keydown", handler, { capture: true });
     return () => window.removeEventListener("keydown", handler, { capture: true });
   }, [
     activeProject,
     activeThreadId,
-    runProjectScript,
     keybindings,
     onInterrupt,
     hasControllableTurn,
@@ -6467,7 +6073,7 @@ function ChatViewContent({
         });
         return;
       }
-      await handleNewThread(activeProject.id, { entryPoint: "chat" });
+      await handleNewThread(activeProject.id, {});
     },
     openReviewTargetPicker: () => {
       setComposerCommandPicker("review-target");
@@ -7307,7 +6913,7 @@ function ChatViewContent({
       />
       {/* Error banner */}
       <ProviderHealthBanner
-        status={shouldShowProviderHealthBanner ? visibleActiveProviderStatus : null}
+        status={visibleActiveProviderStatus}
         onDismiss={dismissActiveProviderHealthBanner}
       />
       <ThreadErrorBanner

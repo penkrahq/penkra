@@ -21,7 +21,13 @@ it.effect(
       const sql = yield* SqlClient.SqlClient;
       yield* seed;
       const before = yield* sql`SELECT * FROM threads ORDER BY id`;
-      assert.deepStrictEqual(yield* runMigrations(), [[191, "DropNativeSwitchJournals"]]);
+      assert.deepStrictEqual(yield* runMigrations(), [
+        [191, "DropNativeSwitchJournals"],
+        [192, "DropProviderDeliveryRepairs"],
+        [193, "DropRuntimeGlobalConsumerLedger"],
+        [194, "RemoveApprovalDecisionColumn"],
+        [195, "RemoveFolderScripts"],
+      ]);
       assert.deepStrictEqual(yield* sql`SELECT * FROM threads ORDER BY id`, before);
       assert.deepStrictEqual(
         yield* sql`SELECT name FROM sqlite_master WHERE sql LIKE '%provider_thread_switch_operations%' OR sql LIKE '%provider_native_state_deletions%'`,

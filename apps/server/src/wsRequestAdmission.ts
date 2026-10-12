@@ -11,14 +11,7 @@ export const WS_REQUEST_CLASS_LIMITS: Readonly<Record<WsRequestClass, number>> =
   "expensive-read": 2,
 };
 
-const CONTROL_METHODS = new Set<string>([
-  ORCHESTRATION_WS_METHODS.dispatchCommand,
-  WS_METHODS.terminalWrite,
-  WS_METHODS.terminalAckOutput,
-  WS_METHODS.terminalResize,
-  WS_METHODS.terminalClose,
-  WS_METHODS.serverStopLocalServer,
-]);
+const CONTROL_METHODS = new Set<string>([ORCHESTRATION_WS_METHODS.dispatchCommand]);
 
 const EXPENSIVE_READ_METHODS = new Set<string>([
   ORCHESTRATION_WS_METHODS.getSnapshot,

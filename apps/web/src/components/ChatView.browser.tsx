@@ -73,7 +73,6 @@ import {
   sendEffectRpcExit,
 } from "../test/effectRpcWebSocketMock";
 import { createBrowserTestServerConfig, createFullscreenTestHost } from "../test/browserHarness";
-import { useTerminalStateStore } from "../terminalStateStore";
 import { resetRetainedThreadDetailSubscriptionsForTests } from "../threadDetailSubscriptionRetention";
 import { useWorkspacePathsStore } from "../workspacePathsStore";
 import { resetWsNativeApiForTest } from "../wsNativeApi";
@@ -367,7 +366,6 @@ function createSnapshotForTargetUser(options: {
           provider: "codex",
           model: "gpt-5",
         },
-        scripts: [],
         createdAt: NOW_ISO,
         updatedAt: NOW_ISO,
         deletedAt: null,
@@ -877,7 +875,6 @@ function withInboxFolder(snapshot: OrchestrationReadModel): OrchestrationReadMod
           provider: "codex",
           model: "gpt-5",
         },
-        scripts: [],
         createdAt: NOW_ISO,
         updatedAt: NOW_ISO,
         deletedAt: null,
@@ -892,18 +889,6 @@ function withActiveInboxThread(snapshot: OrchestrationReadModel): OrchestrationR
     ...snapshotWithInboxFolder,
     threads: snapshotWithInboxFolder.threads.map((thread) =>
       thread.id === THREAD_ID ? { ...thread, folderId: INBOX_FOLDER_ID } : thread,
-    ),
-  };
-}
-
-function withProjectScripts(
-  snapshot: OrchestrationReadModel,
-  scripts: OrchestrationReadModel["folders"][number]["scripts"],
-): OrchestrationReadModel {
-  return {
-    ...snapshot,
-    folders: snapshot.folders.map((project) =>
-      project.id === PROJECT_ID ? { ...project, scripts: Array.from(scripts) } : project,
     ),
   };
 }
@@ -1379,7 +1364,6 @@ function recordFolderCreateCommand(command: unknown): boolean {
           title: String(command.title),
           workspaceRoot: command.workspaceRoot === null ? null : String(command.workspaceRoot),
           defaultModelSelection: submittedDefaultModelSelection,
-          scripts: [],
           createdAt:
             "createdAt" in command && typeof command.createdAt === "string"
               ? command.createdAt
@@ -1944,29 +1928,13 @@ function resolveWsRpc(body: WsRequestEnvelope["body"]): unknown {
       cached: false,
     };
   }
-  if (tag === WS_METHODS.projectsListDevServers) {
-    return { servers: [] };
-  }
   if (tag === WS_METHODS.projectsSearchEntries) {
     return {
       entries: [],
       truncated: false,
     };
   }
-  if (tag === WS_METHODS.terminalOpen) {
-    return {
-      threadId: typeof body.threadId === "string" ? body.threadId : THREAD_ID,
-      terminalId: typeof body.terminalId === "string" ? body.terminalId : "default",
-      cwd: typeof body.cwd === "string" ? body.cwd : "/repo/project",
-      status: "running",
-      pid: 123,
-      history: "",
-      exitCode: null,
-      exitSignal: null,
-      updatedAt: NOW_ISO,
-    };
-  }
-  if (tag === WS_METHODS.shellOpenInEditor || tag === WS_METHODS.terminalWrite) {
+  if (tag === WS_METHODS.shellOpenInEditor) {
     return null;
   }
   return {};
@@ -1993,23 +1961,6 @@ function installDeterministicSendNativeApi(options?: {
     configurable: true,
     value: {
       ...wsNativeApi,
-      terminal: {
-        ...wsNativeApi.terminal,
-        open: async (input: Parameters<typeof wsNativeApi.terminal.open>[0]) => {
-          const request: WsRequestEnvelope["body"] = {
-            _tag: WS_METHODS.terminalOpen,
-            ...input,
-          };
-          wsRequests.push(request);
-          return resolveWsRpc(request) as Awaited<ReturnType<typeof wsNativeApi.terminal.open>>;
-        },
-        write: async (input: Parameters<typeof wsNativeApi.terminal.write>[0]) => {
-          wsRequests.push({
-            _tag: WS_METHODS.terminalWrite,
-            ...input,
-          });
-        },
-      },
       cleanCore: {
         ...wsNativeApi.cleanCore,
         createAndSendThread: async (
@@ -2180,9 +2131,7 @@ const worker = setupWorker(
       if (
         method === WS_METHODS.subscribeServerProviderStatuses ||
         method === WS_METHODS.subscribeServerSettings ||
-        method === WS_METHODS.subscribeTerminalEvents ||
         method === WS_METHODS.subscribeOrchestrationDomainEvents ||
-        method === WS_METHODS.subscribeProjectDevServerEvents ||
         method === WS_METHODS.subscribeProjectWorkspaceChanges
       ) {
         if (method === WS_METHODS.subscribeOrchestrationDomainEvents) {
@@ -3536,9 +3485,6 @@ describe("ChatView timeline estimator parity (full app)", () => {
       stickyActiveProvider: null,
     });
     useStore.setState({ ...initialState });
-    useTerminalStateStore.setState({
-      terminalStateByThreadId: {},
-    });
     useWorkspacePathsStore.setState({
       homeDir: null,
       chatWorkspaceRoot: null,
@@ -3892,24 +3838,14 @@ describe("ChatView timeline estimator parity (full app)", () => {
         targetText: "header overflow",
       });
 
-      return withProjectScripts(
-        markThreadsAsHavingCompletedTurns(
-          {
-            ...snapshot,
-            threads: snapshot.threads.map((thread) =>
-              thread.id === THREAD_ID ? Object.assign({}, thread, { title: longTitle }) : thread,
-            ),
-          },
-          [THREAD_ID],
-        ),
-        [
-          {
-            id: "dev-server",
-            name: "Dev",
-            command: "bun run dev",
-            icon: "play",
-          },
-        ],
+      return markThreadsAsHavingCompletedTurns(
+        {
+          ...snapshot,
+          threads: snapshot.threads.map((thread) =>
+            thread.id === THREAD_ID ? Object.assign({}, thread, { title: longTitle }) : thread,
+          ),
+        },
+        [THREAD_ID],
       );
     })();
     const mounted = await mountChatView({
@@ -4776,7 +4712,6 @@ describe("ChatView timeline estimator parity (full app)", () => {
           folderId: PROJECT_ID,
           createdAt: NOW_ISO,
           runtimeMode: "full-access",
-          entryPoint: "chat",
         },
       },
       projectDraftThreadIdByFolderId: {
@@ -4809,7 +4744,6 @@ describe("ChatView timeline estimator parity (full app)", () => {
           folderId: PROJECT_ID,
           createdAt: NOW_ISO,
           runtimeMode: "full-access",
-          entryPoint: "chat",
         },
       },
       projectDraftThreadIdByFolderId: {
@@ -4850,7 +4784,6 @@ describe("ChatView timeline estimator parity (full app)", () => {
           folderId: PROJECT_ID,
           createdAt: NOW_ISO,
           runtimeMode: "full-access",
-          entryPoint: "chat",
         },
       },
       projectDraftThreadIdByFolderId: {
@@ -5002,95 +4935,6 @@ describe("ChatView timeline estimator parity (full app)", () => {
       providerConnectionsResponseGate = null;
       await mounted.cleanup();
       restoreNativeApi();
-    }
-  });
-
-  it("runs project scripts from local draft threads at the project cwd", async () => {
-    useComposerDraftStore.setState({
-      draftThreadsByThreadId: {
-        [THREAD_ID]: {
-          folderId: PROJECT_ID,
-          createdAt: NOW_ISO,
-          runtimeMode: "full-access",
-          entryPoint: "chat",
-        },
-      },
-      projectDraftThreadIdByFolderId: {
-        [PROJECT_ID]: THREAD_ID,
-      },
-    });
-
-    const mounted = await mountChatView({
-      viewport: { ...DEFAULT_VIEWPORT, width: 1_400 },
-      snapshot: withProjectScripts(createDraftOnlySnapshot(), [
-        {
-          id: "lint",
-          name: "Lint",
-          command: "bun run lint",
-          icon: "lint",
-        },
-      ]),
-      configureFixture: (nextFixture) => {
-        nextFixture.serverConfig = {
-          ...nextFixture.serverConfig,
-          keybindings: [
-            {
-              command: "script.lint.run",
-              shortcut: {
-                key: "l",
-                metaKey: false,
-                ctrlKey: false,
-                shiftKey: false,
-                altKey: true,
-                modKey: false,
-              },
-            },
-          ],
-        };
-      },
-    });
-
-    try {
-      await waitForServerConfigToApply();
-      dispatchConfiguredShortcut(window, {
-        key: "l",
-        altKey: true,
-        modKey: false,
-      });
-
-      await vi.waitFor(
-        () => {
-          const openRequest = wsRequests.find(
-            (request) =>
-              request._tag === WS_METHODS.terminalOpen && request.cwd === "/repo/project",
-          );
-          expect(openRequest).toMatchObject({
-            _tag: WS_METHODS.terminalOpen,
-            threadId: THREAD_ID,
-            cwd: "/repo/project",
-            env: {
-              PENKRA_PROJECT_ROOT: "/repo/project",
-            },
-          });
-        },
-        { timeout: 8_000, interval: 16 },
-      );
-
-      await vi.waitFor(
-        () => {
-          const writeRequest = wsRequests.find(
-            (request) => request._tag === WS_METHODS.terminalWrite,
-          );
-          expect(writeRequest).toMatchObject({
-            _tag: WS_METHODS.terminalWrite,
-            threadId: THREAD_ID,
-            data: "bun run lint\r",
-          });
-        },
-        { timeout: 8_000, interval: 16 },
-      );
-    } finally {
-      await mounted.cleanup();
     }
   });
 
@@ -5667,7 +5511,6 @@ describe("ChatView timeline estimator parity (full app)", () => {
           folderId: PROJECT_ID,
           createdAt: NOW_ISO,
           runtimeMode: "full-access",
-          entryPoint: "chat",
         },
       },
       projectDraftThreadIdByFolderId: { [PROJECT_ID]: THREAD_ID },
@@ -5712,7 +5555,6 @@ describe("ChatView timeline estimator parity (full app)", () => {
           folderId: PROJECT_ID,
           createdAt: NOW_ISO,
           runtimeMode: "full-access",
-          entryPoint: "chat",
         },
       },
       projectDraftThreadIdByFolderId: {
@@ -7490,7 +7332,6 @@ describe("ChatView timeline estimator parity (full app)", () => {
                       title: createdFolder.title,
                       workspaceRoot: createdFolder.workspaceRoot,
                       defaultModelSelection: createdFolder.defaultModelSelection,
-                      scripts: createdFolder.scripts,
                       iconDataUrl: createdFolder.iconDataUrl ?? null,
                       spaceId: createdFolder.spaceId,
                       sidebarSortOrder: createdFolder.sidebarSortOrder ?? 0,
@@ -7845,10 +7686,6 @@ describe("ChatView timeline estimator parity (full app)", () => {
                 altKey: false,
                 modKey: true,
               },
-              whenAst: {
-                type: "not",
-                node: { type: "identifier", name: "terminalFocus" },
-              },
             },
           ],
         };
@@ -7868,83 +7705,6 @@ describe("ChatView timeline estimator parity (full app)", () => {
       );
     } finally {
       await mounted.cleanup();
-    }
-  });
-
-  it("promotes terminal-first shortcut threads so they render as terminal rows", async () => {
-    const restoreNativeApi = installDeterministicSendNativeApi();
-    const mounted = await mountChatView({
-      viewport: DEFAULT_VIEWPORT,
-      snapshot: createSnapshotForTargetUser({
-        targetMessageId: "msg-user-terminal-shortcut-test" as MessageId,
-        targetText: "terminal shortcut test",
-      }),
-      configureFixture: (nextFixture) => {
-        nextFixture.serverConfig = {
-          ...nextFixture.serverConfig,
-          keybindings: [
-            {
-              command: "chat.newTerminal",
-              shortcut: {
-                key: "t",
-                metaKey: false,
-                ctrlKey: false,
-                shiftKey: true,
-                altKey: false,
-                modKey: true,
-              },
-              whenAst: {
-                type: "not",
-                node: { type: "identifier", name: "terminalFocus" },
-              },
-            },
-          ],
-        };
-      },
-    });
-
-    try {
-      await waitForServerConfigToApply();
-      const composerEditor = await waitForComposerEditor();
-      composerEditor.focus();
-      await waitForLayout();
-      const newThreadPath = await triggerTerminalThreadShortcutUntilPath(
-        mounted.router,
-        (path) => UUID_ROUTE_RE.test(path),
-        "Route should have changed to a new terminal-first draft thread UUID from the shortcut.",
-      );
-      const newThreadId = newThreadPath.slice(1) as ThreadId;
-
-      await vi.waitFor(
-        () => {
-          expect(
-            wsRequests.some(
-              (request) =>
-                request._tag === WS_METHODS.cleanCoreCreateThread &&
-                request.threadId === newThreadId,
-            ),
-          ).toBe(true);
-        },
-        { timeout: 8_000, interval: 16 },
-      );
-
-      expect(fixture.snapshot.threads.filter((thread) => thread.id === newThreadId)).toHaveLength(
-        1,
-      );
-
-      await vi.waitFor(
-        () => {
-          const terminalThreadRow = Array.from(
-            document.querySelectorAll<HTMLElement>("[data-thread-level]"),
-          ).find((row) => row.textContent?.includes("New terminal"));
-          expect(terminalThreadRow).not.toBeNull();
-          expect(terminalThreadRow?.textContent).toContain("New terminal");
-        },
-        { timeout: 8_000, interval: 16 },
-      );
-    } finally {
-      await mounted.cleanup();
-      restoreNativeApi();
     }
   });
 
@@ -7990,10 +7750,6 @@ describe("ChatView timeline estimator parity (full app)", () => {
                 shiftKey: false,
                 altKey: false,
                 modKey: true,
-              },
-              whenAst: {
-                type: "not",
-                node: { type: "identifier", name: "terminalFocus" },
               },
             },
           ],

@@ -1,4 +1,4 @@
-import { resolvePathLinkTarget } from "./terminal-links";
+import { resolvePathLinkTarget } from "./pathLinks";
 
 const WINDOWS_DRIVE_PATH_PATTERN = /^[A-Za-z]:[\\/]/;
 const WINDOWS_UNC_PATH_PATTERN = /^\\\\/;

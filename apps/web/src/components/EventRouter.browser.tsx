@@ -159,7 +159,6 @@ function createSnapshot(): OrchestrationReadModel {
         title: "Project",
         workspaceRoot: "/repo/project",
         defaultModelSelection: { provider: "codex", model: "gpt-5" },
-        scripts: [],
         createdAt: NOW_ISO,
         updatedAt: NOW_ISO,
         deletedAt: null,
@@ -408,7 +407,6 @@ function resolveUnaryRequest(method: string, body: Record<string, unknown>): unk
   if (method === WS_METHODS.cleanCoreGetThreadRuntime)
     return { state: "idle", activeTurnId: null, lastError: null };
   if (method === WS_METHODS.serverGetConfig) return fixture.serverConfig;
-  if (method === WS_METHODS.projectsListDevServers) return { servers: [] };
   if (method === WS_METHODS.projectsSearchEntries) return { entries: [], truncated: false };
   return {};
 }
@@ -466,8 +464,6 @@ const worker = setupWorker(
         method === WS_METHODS.cleanCoreSubscribeSidebar ||
         method === WS_METHODS.subscribeServerProviderStatuses ||
         method === WS_METHODS.subscribeServerSettings ||
-        method === WS_METHODS.subscribeTerminalEvents ||
-        method === WS_METHODS.subscribeProjectDevServerEvents ||
         method === WS_METHODS.subscribeProjectWorkspaceChanges
       ) {
         return;

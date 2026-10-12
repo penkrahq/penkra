@@ -38,9 +38,9 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
       yield* sql`DELETE FROM projection_folders`;
       yield* sql`
         INSERT INTO projection_folders (
-          folder_id, title, workspace_root, default_model_selection_json, scripts_json,
+          folder_id, title, workspace_root, default_model_selection_json,
           created_at, updated_at, deleted_at
-        ) VALUES ('project-outcome', 'Outcome', '/tmp/outcome', NULL, '[]',
+        ) VALUES ('project-outcome', 'Outcome', '/tmp/outcome', NULL,
           '2026-09-07T00:00:00.000Z', '2026-09-07T00:00:00.000Z', NULL)
       `;
       yield* sql`INSERT INTO threads (id, space_id, folder_id, title, provider, model, model_options, runtime_mode, state, created_by, created_at, updated_at, deleted_at, sidebar_sort_order) VALUES ('thread-outcome', 'penkra-personal', 'project-outcome', 'Outcome', json_extract('{"provider":"codex","model":"gpt-5-codex"}', '$.provider'), json_extract('{"provider":"codex","model":"gpt-5-codex"}', '$.model'), json_extract('{"provider":"codex","model":"gpt-5-codex"}', '$.options'), 'full-access', 'idle', 'user', '2026-09-07T00:00:00.000Z', '2026-09-07T00:00:00.000Z', NULL, 0)`;
@@ -127,11 +127,9 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
       `;
       yield* sql`
         INSERT INTO projection_folders (
-          folder_id, title, workspace_root, default_model_selection_json,
-          scripts_json, space_id, created_at, updated_at, deleted_at
+          folder_id, title, workspace_root, default_model_selection_json, space_id, created_at, updated_at, deleted_at
         ) VALUES (
-          'project-space-snapshot', 'Space project', '/tmp/space-project', NULL,
-          '[]', 'space-snapshot', '2026-07-20T00:00:00.000Z',
+          'project-space-snapshot', 'Space project', '/tmp/space-project', NULL, 'space-snapshot', '2026-07-20T00:00:00.000Z',
           '2026-07-20T00:00:01.000Z', NULL
         )
       `;
@@ -180,7 +178,6 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
           title,
           workspace_root,
           default_model_selection_json,
-          scripts_json,
           created_at,
           updated_at,
           deleted_at
@@ -190,7 +187,6 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
           'Project 1',
           '/tmp/project-1',
           '{"provider":"codex","model":"gpt-5-codex"}',
-          '[{"id":"script-1","name":"Build","command":"bun run build","icon":"build"}]',
           '2026-02-24T00:00:00.000Z',
           '2026-02-24T00:00:01.000Z',
           NULL
@@ -379,14 +375,6 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
             provider: "codex",
             model: "gpt-5-codex",
           },
-          scripts: [
-            {
-              id: "script-1",
-              name: "Build",
-              command: "bun run build",
-              icon: "build",
-            },
-          ],
           iconDataUrl: null,
           createdAt: "2026-02-24T00:00:00.000Z",
           updatedAt: "2026-02-24T00:00:01.000Z",
@@ -520,7 +508,6 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
           title,
           workspace_root,
           default_model_selection_json,
-          scripts_json,
           created_at,
           updated_at,
           deleted_at
@@ -530,7 +517,6 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
           'Project Activity Cap',
           '/tmp/project-activity-cap',
           '{"provider":"codex","model":"gpt-5-codex"}',
-          '[]',
           '2026-02-24T00:00:00.000Z',
           '2026-02-24T00:00:00.000Z',
           NULL
@@ -767,11 +753,10 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
       yield* sql`DELETE FROM projection_folders`;
       yield* sql`
         INSERT INTO projection_folders (
-          folder_id, title, workspace_root, default_model_selection_json,
-          scripts_json, created_at, updated_at, deleted_at
+          folder_id, title, workspace_root, default_model_selection_json, created_at, updated_at, deleted_at
         ) VALUES (
           'project-canonical-window', 'Canonical window', '/tmp/canonical-window',
-          '{"provider":"codex","model":"gpt-5-codex"}', '[]',
+          '{"provider":"codex","model":"gpt-5-codex"}',
           '2026-08-19T00:00:00.000Z', '2026-08-19T00:00:00.000Z', NULL
         )
       `;
@@ -832,11 +817,10 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
       yield* sql`DELETE FROM projection_folders`;
       yield* sql`
         INSERT INTO projection_folders (
-          folder_id, title, workspace_root, default_model_selection_json,
-          scripts_json, created_at, updated_at, deleted_at
+          folder_id, title, workspace_root, default_model_selection_json, created_at, updated_at, deleted_at
         ) VALUES (
           'project-turn-window', 'Turn window', '/tmp/turn-window',
-          '{"provider":"codex","model":"gpt-5-codex"}', '[]',
+          '{"provider":"codex","model":"gpt-5-codex"}',
           '2026-02-24T00:00:00.000Z', '2026-02-24T00:00:00.000Z', NULL
         )
       `;
@@ -926,11 +910,10 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
       yield* sql`DELETE FROM projection_folders`;
       yield* sql`
         INSERT INTO projection_folders (
-          folder_id, title, workspace_root, default_model_selection_json,
-          scripts_json, created_at, updated_at, deleted_at
+          folder_id, title, workspace_root, default_model_selection_json, created_at, updated_at, deleted_at
         ) VALUES (
           'project-oversized-turn', 'Oversized turn', '/tmp/oversized-turn',
-          '{"provider":"codex","model":"gpt-5-codex"}', '[]',
+          '{"provider":"codex","model":"gpt-5-codex"}',
           '2026-02-24T00:00:00.000Z', '2026-02-24T00:00:00.000Z', NULL
         )
       `;
@@ -1004,7 +987,6 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
           title,
           workspace_root,
           default_model_selection_json,
-          scripts_json,
           created_at,
           updated_at,
           deleted_at
@@ -1014,7 +996,6 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
           'Project Export Message Cap',
           '/tmp/project-export-message-cap',
           '{"provider":"codex","model":"gpt-5-codex"}',
-          '[]',
           '2026-02-24T00:00:00.000Z',
           '2026-02-24T00:00:00.000Z',
           NULL
@@ -1076,12 +1057,11 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
       yield* sql`DELETE FROM projection_folders`;
       yield* sql`
         INSERT INTO projection_folders (
-          folder_id, title, workspace_root, default_model_selection_json,
-          scripts_json, created_at, updated_at, deleted_at
+          folder_id, title, workspace_root, default_model_selection_json, created_at, updated_at, deleted_at
         ) VALUES (
           'project-causal-message-snapshot', 'Causal Message Snapshot',
           '/tmp/project-causal-message-snapshot',
-          '{"provider":"codex","model":"gpt-5-codex"}', '[]',
+          '{"provider":"codex","model":"gpt-5-codex"}',
           '2026-07-14T12:00:00.000Z', '2026-07-14T12:00:00.000Z', NULL
         )
       `;
@@ -1172,7 +1152,6 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
           title,
           workspace_root,
           default_model_selection_json,
-          scripts_json,
           created_at,
           updated_at,
           deleted_at
@@ -1182,7 +1161,6 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
           'Imported Shape Project',
           '/tmp/imported-shape',
           '{"instanceId":"codex","model":"imported-project-model","options":[{"id":"reasoningEffort","value":"medium"}]}',
-          '[]',
           '2026-05-05T14:39:18.000Z',
           '2026-05-05T14:39:19.000Z',
           NULL
@@ -1278,7 +1256,6 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
           title,
           workspace_root,
           default_model_selection_json,
-          scripts_json,
           created_at,
           updated_at,
           deleted_at
@@ -1289,7 +1266,6 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
             'Active Project',
             '/tmp/workspace',
             NULL,
-            '[]',
             '2026-03-01T00:00:00.000Z',
             '2026-03-01T00:00:01.000Z',
             NULL
@@ -1299,7 +1275,6 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
             'Deleted Project',
             '/tmp/deleted',
             NULL,
-            '[]',
             '2026-03-01T00:00:02.000Z',
             '2026-03-01T00:00:03.000Z',
             '2026-03-01T00:00:04.000Z'
@@ -1354,7 +1329,6 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
           title,
           workspace_root,
           default_model_selection_json,
-          scripts_json,
           created_at,
           updated_at,
           deleted_at
@@ -1364,7 +1338,6 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
           'Shell Project',
           '/tmp/project-shell',
           '{"provider":"codex","model":"gpt-5-codex"}',
-          '[]',
           '2026-03-03T00:00:00.000Z',
           '2026-03-03T00:00:01.000Z',
           NULL
@@ -1506,11 +1479,10 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
 
       yield* sql`
         INSERT INTO projection_folders (
-          folder_id, space_id, title, workspace_root, default_model_selection_json,
-          scripts_json, created_at, updated_at, deleted_at
+          folder_id, space_id, title, workspace_root, default_model_selection_json, created_at, updated_at, deleted_at
         ) VALUES (
           'project-active-turn', 'penkra-personal', 'Active Turn Project', NULL,
-          '{"provider":"codex","model":"gpt-5-codex"}', '[]',
+          '{"provider":"codex","model":"gpt-5-codex"}',
           '2026-08-29T06:14:00.000Z', '2026-08-29T06:14:00.000Z', NULL
         )
       `;
@@ -1568,11 +1540,10 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
       yield* sql`DELETE FROM projection_folders`;
       yield* sql`
         INSERT INTO projection_folders (
-          folder_id, title, workspace_root, default_model_selection_json,
-          scripts_json, created_at, updated_at, deleted_at
+          folder_id, title, workspace_root, default_model_selection_json, created_at, updated_at, deleted_at
         ) VALUES (
           'project-soft-delete', 'Soft delete', '/tmp/soft-delete',
-          '{"provider":"codex","model":"gpt-5-codex"}', '[]',
+          '{"provider":"codex","model":"gpt-5-codex"}',
           '2026-07-24T00:00:00.000Z', '2026-07-24T00:00:00.000Z', NULL
         )
       `;
@@ -1848,8 +1819,8 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
       const snapshotQuery = yield* ProjectionSnapshotQuery;
       const sql = yield* SqlClient.SqlClient;
       const threadId = asThreadId("thread-transcript-search");
-      yield* sql`INSERT OR IGNORE INTO projection_folders(folder_id, title, workspace_root, scripts_json, space_id, created_at, updated_at)
-        VALUES ('folder-transcript-search', 'Search', '/repo', '[]', 'penkra-personal', '2026-09-01T00:00:00.000Z', '2026-09-01T00:00:00.000Z')`;
+      yield* sql`INSERT OR IGNORE INTO projection_folders(folder_id, title, workspace_root, space_id, created_at, updated_at)
+        VALUES ('folder-transcript-search', 'Search', '/repo', 'penkra-personal', '2026-09-01T00:00:00.000Z', '2026-09-01T00:00:00.000Z')`;
       yield* sql`INSERT OR IGNORE INTO threads(id, space_id, folder_id, title, provider, model, runtime_mode, state, created_by, created_at, updated_at)
         VALUES (${threadId}, 'penkra-personal', 'folder-transcript-search', 'Search', 'codex', 'gpt-5.5', 'full-access', 'idle', 'user', '2026-09-01T00:00:00.000Z', '2026-09-01T00:00:00.000Z')`;
 

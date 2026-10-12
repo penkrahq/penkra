@@ -111,7 +111,7 @@ export const seedThreadFolderFixture = (folderId: string, spaceId: string) =>
   Effect.gen(function* () {
     const sql = yield* SqlClient.SqlClient;
     yield* sql`INSERT INTO projection_folders
-      (folder_id, title, space_id, workspace_root, scripts_json, created_at, updated_at)
-      VALUES (${folderId}, 'Fixture folder', ${spaceId}, NULL, '[]',
+      (folder_id, title, space_id, workspace_root, created_at, updated_at)
+      VALUES (${folderId}, 'Fixture folder', ${spaceId}, NULL,
         '2026-10-09T00:00:00.000Z', '2026-10-09T00:00:00.000Z')`;
   });

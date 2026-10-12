@@ -47,7 +47,7 @@ function ChatIndexRouteView() {
   // its stale id is no longer valid.
   const draftFolderIdByThreadId = new Map<string, FolderId>();
   for (const [threadId, draft] of Object.entries(draftThreadsByThreadId)) {
-    if (draft.entryPoint === "chat" && draft.promotedTo === undefined) {
+    if (draft.promotedTo === undefined) {
       draftFolderIdByThreadId.set(threadId, draft.folderId);
     }
   }

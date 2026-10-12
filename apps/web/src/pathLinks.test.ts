@@ -8,7 +8,7 @@ import {
   resolveWrappedTerminalLinkRange,
   wrappedTerminalLinkRangeIntersectsBufferLine,
   type TerminalBufferLineLike,
-} from "./terminal-links";
+} from "./pathLinks";
 
 function createBufferLine(text: string, isWrapped = false): TerminalBufferLineLike {
   return {

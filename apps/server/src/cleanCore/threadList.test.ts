@@ -95,7 +95,7 @@ it.effect("pages folder members in sidebar order and excludes archived and delet
       yield* runMigrations();
       const sql = yield* SqlClient.SqlClient;
       const folderId = FolderId.makeUnsafe("folder-list");
-      yield* sql`INSERT INTO projection_folders (folder_id, kind, space_id, title, workspace_root, scripts_json, created_at, updated_at) VALUES (${folderId}, 'project', 'space', 'Folder', NULL, '[]', '2026-10-10T00:00:00.000Z', '2026-10-10T00:00:00.000Z')`;
+      yield* sql`INSERT INTO projection_folders (folder_id, kind, space_id, title, workspace_root, created_at, updated_at) VALUES (${folderId}, 'project', 'space', 'Folder', NULL, '2026-10-10T00:00:00.000Z', '2026-10-10T00:00:00.000Z')`;
       for (let i = 0; i < 53; i++) {
         yield* createThread({
           id: "folder-thread-" + i.toString().padStart(2, "0"),

@@ -407,7 +407,7 @@ function CanonicalFolderTabs(props: FolderTabsProps & { folderId: FolderId }) {
             tooltip="New thread"
             tooltipSide="bottom"
             className="ml-1 !size-7 shrink-0 rounded-lg"
-            onClick={() => void handleNewThread(folderId, { entryPoint: "chat" })}
+            onClick={() => void handleNewThread(folderId, {})}
           >
             <PlusIcon className="size-3.5" />
           </IconButton>

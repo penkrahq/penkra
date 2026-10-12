@@ -43,39 +43,9 @@ it.effect("parses keybinding rules", () =>
 
     const parsedTerminalToggle = yield* decode(KeybindingRule, {
       key: "mod+j",
-      command: "terminal.toggle",
+      command: "composer.focus.toggle",
     });
-    assert.strictEqual(parsedTerminalToggle.command, "terminal.toggle");
-
-    const parsedClose = yield* decode(KeybindingRule, {
-      key: "mod+w",
-      command: "terminal.close",
-    });
-    assert.strictEqual(parsedClose.command, "terminal.close");
-
-    const parsedWorkspaceNew = yield* decode(KeybindingRule, {
-      key: "mod+shift+j",
-      command: "terminal.workspace.newFullWidth",
-    });
-    assert.strictEqual(parsedWorkspaceNew.command, "terminal.workspace.newFullWidth");
-
-    const parsedWorkspaceClose = yield* decode(KeybindingRule, {
-      key: "mod+w",
-      command: "terminal.workspace.closeActive",
-    });
-    assert.strictEqual(parsedWorkspaceClose.command, "terminal.workspace.closeActive");
-
-    const parsedWorkspaceTerminal = yield* decode(KeybindingRule, {
-      key: "mod+1",
-      command: "terminal.workspace.terminal",
-    });
-    assert.strictEqual(parsedWorkspaceTerminal.command, "terminal.workspace.terminal");
-
-    const parsedWorkspaceChat = yield* decode(KeybindingRule, {
-      key: "mod+2",
-      command: "terminal.workspace.chat",
-    });
-    assert.strictEqual(parsedWorkspaceChat.command, "terminal.workspace.chat");
+    assert.strictEqual(parsedTerminalToggle.command, "composer.focus.toggle");
 
     const parsedModelPickerToggle = yield* decode(KeybindingRule, {
       key: "mod+shift+m",
@@ -127,9 +97,9 @@ it.effect("parses keybinding rules", () =>
 
     const parsedTerminal = yield* decode(KeybindingRule, {
       key: "mod+shift+t",
-      command: "chat.newTerminal",
+      command: "chat.newChat",
     });
-    assert.strictEqual(parsedTerminal.command, "chat.newTerminal");
+    assert.strictEqual(parsedTerminal.command, "chat.newChat");
 
     const parsedOpenCode = yield* decode(KeybindingRule, {
       key: "mod+alt+r",
@@ -187,21 +157,11 @@ it.effect("rejects invalid command values", () =>
   }),
 );
 
-it.effect("accepts dynamic script run commands", () =>
-  Effect.gen(function* () {
-    const parsed = yield* decode(KeybindingRule, {
-      key: "mod+r",
-      command: "script.setup.run",
-    });
-    assert.strictEqual(parsed.command, "script.setup.run");
-  }),
-);
-
 it.effect("parses keybindings array payload", () =>
   Effect.gen(function* () {
     const parsed = yield* decode(KeybindingsConfig, [
-      { key: "mod+j", command: "terminal.toggle" },
-      { key: "mod+d", command: "terminal.split", when: "terminalFocus" },
+      { key: "mod+j", command: "composer.focus.toggle" },
+      { key: "mod+d", command: "modelPicker.toggle", when: "modelPickerOpen" },
     ]);
     assert.lengthOf(parsed, 2);
   }),
@@ -210,7 +170,7 @@ it.effect("parses keybindings array payload", () =>
 it.effect("parses resolved keybinding rules", () =>
   Effect.gen(function* () {
     const parsed = yield* decode(ResolvedKeybindingRule, {
-      command: "terminal.split",
+      command: "modelPicker.toggle",
       shortcut: {
         key: "d",
         metaKey: false,
@@ -224,7 +184,7 @@ it.effect("parses resolved keybinding rules", () =>
         left: { type: "identifier", name: "terminalOpen" },
         right: {
           type: "not",
-          node: { type: "identifier", name: "terminalFocus" },
+          node: { type: "identifier", name: "modelPickerOpen" },
         },
       },
     });
@@ -236,7 +196,7 @@ it.effect("parses resolved keybindings arrays", () =>
   Effect.gen(function* () {
     const parsed = yield* decode(ResolvedKeybindingsConfig, [
       {
-        command: "terminal.toggle",
+        command: "composer.focus.toggle",
         shortcut: {
           key: "j",
           metaKey: false,
@@ -253,7 +213,7 @@ it.effect("parses resolved keybindings arrays", () =>
 
 it.effect("drops unknown fields in resolved keybinding rules", () =>
   decodeResolvedRule({
-    command: "terminal.toggle",
+    command: "composer.focus.toggle",
     shortcut: {
       key: "j",
       metaKey: false,
@@ -267,7 +227,7 @@ it.effect("drops unknown fields in resolved keybinding rules", () =>
     Effect.map((parsed) => {
       const view = parsed as Record<string, unknown>;
       assert.strictEqual("key" in view, false);
-      assert.strictEqual(view.command, "terminal.toggle");
+      assert.strictEqual(view.command, "composer.focus.toggle");
     }),
   ),
 );

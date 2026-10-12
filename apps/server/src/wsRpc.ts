@@ -9,7 +9,6 @@ import { ThreadSender } from "./cleanCore/ThreadSender.ts";
 import {
   type ProviderConnectionId,
   CommandId,
-  DEFAULT_TERMINAL_ID,
   ORCHESTRATION_WS_METHODS,
   ThreadId,
   WS_BOOTSTRAP_METHOD,
@@ -22,7 +21,6 @@ import {
   QueuedEditDraftNotEmptyError,
   type OrchestrationCommand,
   type OrchestrationEvent,
-  type ProjectDevServerEvent,
   type OrchestrationShellStreamEvent,
   type OrchestrationShellStreamItem,
   type OrchestrationStartupSnapshot,
@@ -49,10 +47,8 @@ import { SessionCredentialService } from "./auth/Services/SessionCredentialServi
 import { ServerConfig, type ServerConfigShape } from "./config";
 import { getSpaceNavigationState, updateSpaceNavigationState } from "./spaceNavigationState";
 import { realpathNearestExisting } from "./realpathNearestExisting";
-import { DevServerManager, findProjectDevServerForLocalServer } from "./devServerManager";
 import { Keybindings } from "./keybindings";
 import { createLocalPreviewGrant } from "./localImageFiles";
-import { listLocalServers, stopLocalServer } from "./localServerMonitor";
 import {
   attachmentPrincipalForSession,
   CurrentManagedAttachmentPrincipal,
@@ -85,8 +81,6 @@ import { ServerLifecycleEvents } from "./serverLifecycleEvents";
 import { ServerRuntimeStartup } from "./serverRuntimeStartup";
 import { ServerSettingsService } from "./serverSettings";
 import { isLoopbackHost } from "./startupAccess";
-import { TerminalManager } from "./terminal/Services/Manager";
-import { TerminalThreadTitleTracker } from "./terminal/terminalThreadTitleTracker";
 import { WorkspaceEntries } from "./workspace/Services/WorkspaceEntries";
 import { WorkspaceFileSystem } from "./workspace/Services/WorkspaceFileSystem";
 import { makeWsStreamAdmission } from "./wsStreamAdmission";
@@ -210,7 +204,6 @@ const makeWsRpcHandlersLayer = () =>
   AdmittedWsFeatureRpcGroup.toLayer(
     Effect.gen(function* () {
       const config = yield* ServerConfig;
-      const devServerManager = yield* DevServerManager;
       const fileSystem = yield* FileSystem.FileSystem;
       const keybindings = yield* Keybindings;
       const open = yield* Open;
@@ -234,7 +227,6 @@ const makeWsRpcHandlersLayer = () =>
       const serverSettings = yield* ServerSettingsService;
       const sql = yield* SqlClient.SqlClient;
       const threadPublisher = yield* ThreadPublisher;
-      const terminalManager = yield* TerminalManager;
       const workspaceEntries = yield* WorkspaceEntries;
       const workspaceFileSystem = yield* WorkspaceFileSystem;
       const workspaceWatcher = yield* WorkspaceWatcher;
@@ -367,61 +359,6 @@ const makeWsRpcHandlersLayer = () =>
             orchestrationEngine.dispatch(command, { attachmentPrincipal }),
           );
         });
-
-      // Terminal-first threads are created with the generic "New terminal" placeholder.
-      // The tracker buffers per-terminal input and, once a meaningful command is submitted,
-      // surfaces a safe title used to auto-rename the thread on its first command.
-      const terminalTitleTracker = new TerminalThreadTitleTracker();
-      const resetTerminalTitleBuffer = (threadId: string, terminalId: string | null) =>
-        Effect.sync(() => terminalTitleTracker.reset(threadId, terminalId));
-      // Terminal auto-titles are best-effort metadata and must never block or fail terminal writes.
-      const maybeAutoRenameTerminalThread = Effect.fnUntraced(function* (input: {
-        threadId: string;
-        terminalId: string;
-        data: string;
-      }) {
-        const thread = yield* findThread(ThreadId.makeUnsafe(input.threadId)).pipe(
-          Effect.provideService(SqlClient.SqlClient, sql),
-        );
-        if (!thread) {
-          return;
-        }
-        const nextTitle = terminalTitleTracker.consumeWrite({
-          currentTitle: thread.title,
-          data: input.data,
-          terminalId: input.terminalId,
-          threadId: input.threadId,
-        });
-        if (!nextTitle) {
-          return;
-        }
-        if (yield* renameThread(input.threadId, nextTitle, new Date().toISOString()))
-          threadPublisher.publish({ threadId: input.threadId });
-      });
-
-      const stopLocalServerAndTrackedProjectRun = Effect.fnUntraced(function* (input: {
-        pid: number;
-        port: number;
-      }) {
-        const localServer =
-          (yield* Effect.promise(() => listLocalServers())).servers.find(
-            (server) => server.pid === input.pid && server.ports.includes(input.port),
-          ) ?? null;
-        const result = yield* Effect.promise(() => stopLocalServer(input, localServer));
-        if (localServer?.isStoppable) {
-          const devServers = yield* devServerManager.list;
-          const trackedServer = findProjectDevServerForLocalServer({
-            localServer,
-            devServers: devServers.servers,
-          });
-          if (trackedServer) {
-            yield* devServerManager
-              .stop({ folderId: trackedServer.folderId })
-              .pipe(Effect.catch(() => Effect.void));
-          }
-        }
-        return result;
-      });
 
       const loadServerConfig = Effect.gen(function* () {
         const keybindingsConfig = yield* keybindings.loadConfigState;
@@ -885,8 +822,6 @@ const makeWsRpcHandlersLayer = () =>
           ),
         [WS_METHODS.projectsSearchEntries]: (input) =>
           rpcEffect(workspaceEntries.search(input), "Failed to search workspace entries"),
-        [WS_METHODS.projectsDiscoverScripts]: (input) =>
-          rpcEffect(workspaceEntries.discoverScripts(input), "Failed to discover project scripts"),
         [WS_METHODS.projectsSearchLocalEntries]: (input) =>
           rpcEffect(workspaceEntries.searchLocal(input), "Failed to search local entries"),
         [WS_METHODS.projectsReadFile]: (input) =>
@@ -898,33 +833,6 @@ const makeWsRpcHandlersLayer = () =>
           ),
         [WS_METHODS.projectsWriteFile]: (input) =>
           rpcEffect(workspaceFileSystem.writeFile(input), "Failed to write workspace file"),
-        [WS_METHODS.projectsRunDevServer]: (input) =>
-          rpcEffect(devServerManager.run(input), "Failed to start dev server"),
-        [WS_METHODS.projectsStopDevServer]: (input) =>
-          rpcEffect(devServerManager.stop(input), "Failed to stop dev server"),
-        [WS_METHODS.projectsListDevServers]: () =>
-          rpcEffect(devServerManager.list, "Failed to list dev servers"),
-        [WS_METHODS.subscribeProjectDevServerEvents]: (_, { clientId }) =>
-          streamAdmission.guard(
-            clientId,
-            { key: "folders.dev-servers" },
-            Stream.concat(
-              Stream.fromEffect(
-                devServerManager.list.pipe(
-                  Effect.map(
-                    (result): ProjectDevServerEvent => ({
-                      type: "snapshot",
-                      servers: result.servers,
-                    }),
-                  ),
-                ),
-              ),
-              bufferLiveUiStream(devServerManager.stream, {
-                label: "folders.dev-servers",
-                onDroppedEvents: failLiveUiStreamForSnapshotResync,
-              }),
-            ),
-          ),
         [WS_METHODS.subscribeProjectWorkspaceChanges]: (_, { clientId }) =>
           streamAdmission.guard(
             clientId,
@@ -937,62 +845,6 @@ const makeWsRpcHandlersLayer = () =>
           rpcEffect(workspaceEntries.browse(input), "Failed to browse filesystem"),
         [WS_METHODS.shellOpenInEditor]: (input) =>
           rpcEffect(open.openInEditor(input), "Failed to open editor"),
-
-        [WS_METHODS.terminalOpen]: (input) =>
-          rpcEffect(
-            resetTerminalTitleBuffer(input.threadId, input.terminalId ?? DEFAULT_TERMINAL_ID).pipe(
-              Effect.andThen(terminalManager.open(input)),
-            ),
-            "Failed to open terminal",
-          ),
-        [WS_METHODS.terminalWrite]: (input) =>
-          rpcEffect(
-            terminalManager.write(input).pipe(
-              Effect.tap(() =>
-                maybeAutoRenameTerminalThread({
-                  threadId: input.threadId,
-                  terminalId: input.terminalId ?? DEFAULT_TERMINAL_ID,
-                  data: input.data,
-                }).pipe(Effect.catch(() => Effect.void)),
-              ),
-            ),
-            "Failed to write terminal",
-          ),
-        [WS_METHODS.terminalAckOutput]: (input) =>
-          rpcEffect(terminalManager.ackOutput(input), "Failed to acknowledge terminal output"),
-        [WS_METHODS.terminalResize]: (input) =>
-          rpcEffect(terminalManager.resize(input), "Failed to resize terminal"),
-        [WS_METHODS.terminalClear]: (input) =>
-          rpcEffect(terminalManager.clear(input), "Failed to clear terminal"),
-        [WS_METHODS.terminalRestart]: (input) =>
-          rpcEffect(
-            resetTerminalTitleBuffer(input.threadId, input.terminalId ?? DEFAULT_TERMINAL_ID).pipe(
-              Effect.andThen(terminalManager.restart(input)),
-            ),
-            "Failed to restart terminal",
-          ),
-        [WS_METHODS.terminalClose]: (input) =>
-          rpcEffect(
-            resetTerminalTitleBuffer(input.threadId, input.terminalId ?? null).pipe(
-              Effect.andThen(terminalManager.close(input)),
-            ),
-            "Failed to close terminal",
-          ),
-        [WS_METHODS.subscribeTerminalEvents]: (_, { clientId }) =>
-          // Terminal output is an ordered byte stream with renderer ACK accounting.
-          // Keep this lossless: dropping chunks would create holes until reattach.
-          streamAdmission.guard(
-            clientId,
-            { key: "terminal.events" },
-            Stream.callback((queue) =>
-              Effect.gen(function* () {
-                const unsubscribe = yield* terminalManager.subscribe((event) => {
-                  Effect.runFork(Queue.offer(queue, event).pipe(Effect.asVoid));
-                });
-                yield* Effect.addFinalizer(() => Effect.sync(unsubscribe));
-              }),
-            ),
-          ),
 
         [WS_METHODS.serverGetConfig]: () =>
           rpcEffect(loadServerConfig, "Failed to load server config"),
@@ -1291,13 +1143,6 @@ const makeWsRpcHandlersLayer = () =>
             ),
             "Failed to disconnect the Connection",
           ),
-        [WS_METHODS.serverListLocalServers]: () =>
-          rpcEffect(
-            Effect.promise(() => listLocalServers()),
-            "Failed to list local servers",
-          ),
-        [WS_METHODS.serverStopLocalServer]: (input) =>
-          rpcEffect(stopLocalServerAndTrackedProjectRun(input), "Failed to stop local server"),
         [WS_METHODS.serverGetProviderUsageSnapshot]: (input) =>
           rpcEffect(getProviderUsageSnapshot(input), "Failed to load provider usage"),
         [WS_METHODS.serverListProviderUsage]: (input) =>

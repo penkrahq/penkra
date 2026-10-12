@@ -5,14 +5,11 @@
 
 const inFlightDraftNavigationBySlot = new Map<string, Promise<unknown>>();
 
-export function draftNavigationSlotKey(
-  container: { kind: "folder"; id: string },
-  entryPoint: string,
-): string {
-  return `${container.kind}\u0000${container.id}\u0000${entryPoint}`;
+export function draftNavigationSlotKey(container: { kind: "folder"; id: string }): string {
+  return `${container.kind}\u0000${container.id}`;
 }
 
-/** Coalesces repeated clicks/shortcuts that target the same container + entry-point slot. */
+/** Coalesces repeated clicks/shortcuts that target the same folder slot. */
 export function runDraftNavigationOnce<T>(slotKey: string, run: () => Promise<T>): Promise<T> {
   const existing = inFlightDraftNavigationBySlot.get(slotKey) as Promise<T> | undefined;
   if (existing) {

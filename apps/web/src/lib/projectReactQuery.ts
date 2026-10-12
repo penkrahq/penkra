@@ -3,7 +3,6 @@ import type {
   ProjectEntry,
   ProjectListDirectoriesResult,
   ProjectReadFileResult,
-  ProjectDiscoverScriptsResult,
   ProjectSearchEntriesResult,
   ProjectSearchLocalEntriesResult,
   ProjectWorkspaceChangeEvent,
@@ -19,8 +18,6 @@ export const projectQueryKeys = {
   readFile: (cwd: string | null, relativePath: string | null) =>
     ["folders", "read-file", cwd, relativePath] as const,
   localPreviewGrant: (path: string | null) => ["folders", "local-preview-grant", path] as const,
-  discoverScripts: (cwd: string | null, depth: number) =>
-    ["folders", "discover-scripts", cwd, depth] as const,
   searchEntries: (
     cwd: string | null,
     query: string,
@@ -43,7 +40,6 @@ export function invalidateProjectFileQueriesForCwds(
       queryClient.invalidateQueries({ queryKey: ["folders", "list-directories", cwd] as const }),
       queryClient.invalidateQueries({ queryKey: ["folders", "read-file", cwd] as const }),
       queryClient.invalidateQueries({ queryKey: ["folders", "search-entries", cwd] as const }),
-      queryClient.invalidateQueries({ queryKey: ["folders", "discover-scripts", cwd] as const }),
     ]),
   );
 }
@@ -60,7 +56,6 @@ export async function invalidateProjectQueriesForWorkspaceChange(
 }
 
 const DEFAULT_SEARCH_ENTRIES_LIMIT = 80;
-const DEFAULT_DISCOVER_SCRIPTS_DEPTH = 2;
 const DEFAULT_SEARCH_LOCAL_ENTRIES_LIMIT = 50;
 const LOCAL_PREVIEW_GRANT_REFRESH_SAFETY_MS = 15_000;
 const LOCAL_PREVIEW_GRANT_MIN_REFETCH_INTERVAL_MS = 1_000;
@@ -68,9 +63,6 @@ export const LOCAL_PREVIEW_GRANT_MAX_REFETCH_INTERVAL_MS = 30_000;
 const EMPTY_SEARCH_ENTRIES_RESULT: ProjectSearchEntriesResult = {
   entries: [],
   truncated: false,
-};
-const EMPTY_DISCOVER_SCRIPTS_RESULT: ProjectDiscoverScriptsResult = {
-  targets: [],
 };
 const EMPTY_SEARCH_LOCAL_ENTRIES_RESULT: ProjectSearchLocalEntriesResult = {
   entries: [],
@@ -184,31 +176,6 @@ export function projectLocalPreviewGrantQueryOptions(input: {
     enabled: (input.enabled ?? true) && input.path !== null,
     staleTime: input.staleTime ?? 60_000,
     refetchInterval: (query) => localPreviewGrantRefetchIntervalMs(query.state.data),
-  });
-}
-
-export function projectDiscoverScriptsQueryOptions(input: {
-  cwd: string | null;
-  enabled?: boolean;
-  depth?: number;
-}) {
-  const depth = input.depth ?? DEFAULT_DISCOVER_SCRIPTS_DEPTH;
-  return queryOptions({
-    queryKey: projectQueryKeys.discoverScripts(input.cwd, depth),
-    queryFn: async () => {
-      const api = ensureNativeApi();
-      if (!input.cwd) {
-        throw new Error("Project script discovery is unavailable.");
-      }
-      return api.folders.discoverScripts({
-        cwd: input.cwd,
-        depth,
-      });
-    },
-    enabled: (input.enabled ?? true) && input.cwd !== null,
-    staleTime: Infinity,
-    refetchOnWindowFocus: "always",
-    placeholderData: (previous) => previous ?? EMPTY_DISCOVER_SCRIPTS_RESULT,
   });
 }
 

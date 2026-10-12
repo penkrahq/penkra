@@ -60,7 +60,6 @@ import { ThreadPublisher } from "./cleanCore/ThreadPublisher";
 import { ThreadSender } from "./cleanCore/ThreadSender";
 import { ProviderService } from "./provider/Services/ProviderService";
 import { ProviderTurnSelectionResolver } from "./provider/Services/ProviderTurnSelectionResolver";
-import { TerminalManager } from "./terminal/Services/Manager";
 import { providerNativeStateRoot } from "./provider/providerNativeStatePaths";
 
 const quote = (value: string) => `'${value.replaceAll("'", "'\\''")}'`;
@@ -369,7 +368,7 @@ const at = "2026-10-11T00:00:00.000Z";
 function seedCanonicalThread(id: ThreadId) {
   return Effect.gen(function* () {
     const sql = yield* SqlClient.SqlClient;
-    yield* sql`INSERT OR IGNORE INTO projection_folders (folder_id, space_id, title, workspace_root, default_model_selection_json, scripts_json, created_at, updated_at) VALUES ('pool-folder', 'penkra-personal', 'Pool', NULL, NULL, '[]', ${at}, ${at})`;
+    yield* sql`INSERT OR IGNORE INTO projection_folders (folder_id, space_id, title, workspace_root, default_model_selection_json, created_at, updated_at) VALUES ('pool-folder', 'penkra-personal', 'Pool', NULL, NULL, ${at}, ${at})`;
     yield* createThreadFixture(sql, {
       threadId: id,
       folderId: FolderId.makeUnsafe("pool-folder"),
@@ -418,9 +417,6 @@ it("ThreadLifecycle removes native files only after thread/closed", () =>
                 return f.manager.stopSession(a.threadId);
               }),
           } as unknown as typeof ProviderService.Service),
-          Effect.provideService(TerminalManager, {
-            close: () => Effect.void,
-          } as unknown as typeof TerminalManager.Service),
           Effect.provideService(ServerConfig, { stateDir: f.root } as typeof ServerConfig.Service),
         );
         yield* Effect.tryPromise(async () => {
@@ -771,7 +767,7 @@ it.each(["codex", "opencode"] as const)(
       await Effect.runPromise(
         Effect.gen(function* () {
           const sql = yield* SqlClient.SqlClient;
-          yield* sql`INSERT INTO projection_folders (folder_id,space_id,title,workspace_root,default_model_selection_json,scripts_json,created_at,updated_at) VALUES ('owner-folder','penkra-personal','Owner',NULL,NULL,'[]',${at},${at})`;
+          yield* sql`INSERT INTO projection_folders (folder_id,space_id,title,workspace_root,default_model_selection_json,created_at,updated_at) VALUES ('owner-folder','penkra-personal','Owner',NULL,NULL,${at},${at})`;
           const service = yield* ProviderService;
           const registry = yield* ProviderAdapterRegistry;
           const ids = [

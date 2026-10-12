@@ -197,8 +197,8 @@ it.effect("moveSidebarItem renumbers its folder siblings in one transaction", ()
     Effect.gen(function* () {
       const sql = yield* SqlClient.SqlClient;
       yield* runMigrations();
-      yield* sql`INSERT INTO projection_folders (folder_id, title, scripts_json, space_id, created_at, updated_at)
-        VALUES ('folder-1', 'Folder', '[]', 'space-1', ${baseThread.createdAt}, ${baseThread.createdAt})`;
+      yield* sql`INSERT INTO projection_folders (folder_id, title, space_id, created_at, updated_at)
+        VALUES ('folder-1', 'Folder', 'space-1', ${baseThread.createdAt}, ${baseThread.createdAt})`;
       for (const [id, createdAt] of [
         ["a", "2026-10-09T00:00:03.000Z"],
         ["b", "2026-10-09T00:00:02.000Z"],
@@ -340,8 +340,8 @@ it.effect(
           ["b", "destination", 0],
           ["c", "destination", 1],
         ] as const) {
-          yield* sql`INSERT INTO projection_folders (folder_id, title, workspace_root, scripts_json, space_id,
-        sidebar_sort_order, created_at, updated_at) VALUES (${id}, ${id}, NULL, '[]', ${spaceId},
+          yield* sql`INSERT INTO projection_folders (folder_id, title, workspace_root, space_id,
+        sidebar_sort_order, created_at, updated_at) VALUES (${id}, ${id}, NULL, ${spaceId},
         ${order}, ${baseThread.createdAt}, ${baseThread.createdAt})`;
         }
         const publisher = makeThreadPublisher();

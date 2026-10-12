@@ -89,7 +89,6 @@ const harness = vi.hoisted(() => ({
   reconcileDeletedThreads: vi.fn(),
   clearDraftThread: vi.fn(),
   clearProjectDraftThreadById: vi.fn(),
-  clearTerminalState: vi.fn(),
   handleNewChat: vi.fn(),
   removeDeletedThreadFromClientState: vi.fn(),
 }));
@@ -167,7 +166,6 @@ const PROJECT = {
   cwd: "/repo",
   defaultModelSelection: null,
   expanded: true,
-  scripts: [],
 } satisfies Project;
 
 function makeThread(id: ThreadId, overrides: Partial<SidebarThreadRow> = {}) {
@@ -200,7 +198,6 @@ function render(
       confirmThreadDelete: false,
       sidebarThreadSortOrder: "updated_at",
     },
-    clearTerminalState: harness.clearTerminalState,
     handleNewChat: harness.handleNewChat,
     projectById: new Map([[PROJECT_ID, PROJECT]]),
     routeThreadId: overrides.routeThreadId ?? null,
@@ -228,7 +225,6 @@ beforeEach(() => {
     harness.reconcileDeletedThreads,
     harness.clearDraftThread,
     harness.clearProjectDraftThreadById,
-    harness.clearTerminalState,
     harness.handleNewChat,
   ]) {
     mock.mockReset();

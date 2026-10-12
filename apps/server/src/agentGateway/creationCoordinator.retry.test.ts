@@ -49,7 +49,6 @@ const FOLDER: OrchestrationFolderShell = {
   title: "Synthetic folder",
   workspaceRoot: "/synthetic/retry",
   defaultModelSelection: null,
-  scripts: [],
   createdAt: NOW,
   updatedAt: NOW,
 };

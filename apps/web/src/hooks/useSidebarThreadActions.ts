@@ -45,7 +45,6 @@ interface DeleteProjectThreadsOptions {
 
 export function useSidebarThreadActions(input: {
   readonly appSettings: Pick<AppSettings, "confirmThreadDelete" | "sidebarThreadSortOrder">;
-  readonly clearTerminalState: (threadId: ThreadId) => void;
   readonly handleNewChat: () => Promise<unknown>;
   readonly projectById: ReadonlyMap<FolderId, Project>;
   readonly routeThreadId: ThreadId | null;
@@ -56,7 +55,6 @@ export function useSidebarThreadActions(input: {
 }) {
   const {
     appSettings,
-    clearTerminalState,
     handleNewChat,
     projectById,
     routeThreadId,
@@ -103,7 +101,6 @@ export function useSidebarThreadActions(input: {
         onDeleted: ({ thread, prepared }) => {
           clearComposerDraftForThread(threadId);
           clearProjectDraftThreadById(thread.folderId, thread.id);
-          clearTerminalState(threadId);
 
           if (prepared?.shouldNavigateToFallback) {
             if (prepared.fallbackThreadId) {
@@ -123,7 +120,6 @@ export function useSidebarThreadActions(input: {
       appSettings.sidebarThreadSortOrder,
       clearComposerDraftForThread,
       clearProjectDraftThreadById,
-      clearTerminalState,
       handleNewChat,
       navigate,
       routeThreadId,

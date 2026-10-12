@@ -1,13 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { Effect, Layer } from "effect";
 
-import {
-  WsBootstrapRpcGroup,
-  WsFeatureRpcGroup,
-  WsFoldersDiscoverScriptsRpc,
-  WsRpcError,
-  WsRpcGroup,
-} from "./rpc";
+import { WsBootstrapRpcGroup, WsFeatureRpcGroup, WsRpcError, WsRpcGroup } from "./rpc";
 import { ORCHESTRATION_WS_METHODS, OrchestrationRpcSchemas } from "./orchestration";
 import { WS_METHODS } from "./ws";
 
@@ -43,9 +37,5 @@ describe("WS RPC contracts", () => {
 
   it("uses a schema-backed transport error", () => {
     expect(new WsRpcError({ message: "failed" }).message).toBe("failed");
-  });
-
-  it("exports the project script discovery RPC", () => {
-    expect(WsFoldersDiscoverScriptsRpc).toBeDefined();
   });
 });

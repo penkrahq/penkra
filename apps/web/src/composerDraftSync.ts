@@ -63,7 +63,9 @@ function defaultSerialize(_threadId: ThreadId, draft: ComposerThreadDraftState):
   return persisted === null ? null : JSON.stringify(persisted);
 }
 
-async function defaultReadAssetSize(attachment: ComposerDraftServerAttachment): Promise<number | null> {
+async function defaultReadAssetSize(
+  attachment: ComposerDraftServerAttachment,
+): Promise<number | null> {
   const file = await readComposerAsset({
     assetKey: attachment.id,
     name: attachment.name,
@@ -117,7 +119,8 @@ export function createComposerDraftSync(input: {
   const readAssetSize = input.readAssetSize ?? defaultReadAssetSize;
   const serialize = input.serialize ?? defaultSerialize;
   const deserialize =
-    input.deserialize ?? ((threadId, payload) => defaultDeserialize(threadId, payload, readAssetSize));
+    input.deserialize ??
+    ((threadId, payload) => defaultDeserialize(threadId, payload, readAssetSize));
 
   let disposed = false;
   let appliedUpdatedAt: string | null = null;

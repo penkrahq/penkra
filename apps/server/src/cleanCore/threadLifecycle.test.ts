@@ -4,7 +4,6 @@ import { chmodSync, existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } 
 import { dirname, join } from "node:path";
 import { tmpdir } from "node:os";
 import { ServerConfig } from "../config.ts";
-import { TerminalManager } from "../terminal/Services/Manager.ts";
 import { providerNativeStateRoot } from "../provider/providerNativeStatePaths.ts";
 import { createThreadFixture } from "./threadFixtures.ts";
 import { ProviderTurnSelectionResolver } from "../provider/Services/ProviderTurnSelectionResolver.ts";
@@ -36,7 +35,7 @@ it.effect("web creation is idempotent and a send on its running thread is queued
     const sidebarChanges: import("@penkra/contracts").CleanCoreSidebarChange[] = [];
     publisher.subscribeSidebar((change) => sidebarChanges.push(change));
     const at = "2026-10-10T00:00:00.000Z";
-    yield* sql`INSERT INTO projection_folders (folder_id, space_id, title, workspace_root, default_model_selection_json, scripts_json, created_at, updated_at) VALUES ('folder', 'penkra-personal', 'Folder', NULL, NULL, '[]', ${at}, ${at})`;
+    yield* sql`INSERT INTO projection_folders (folder_id, space_id, title, workspace_root, default_model_selection_json, created_at, updated_at) VALUES ('folder', 'penkra-personal', 'Folder', NULL, NULL, ${at}, ${at})`;
     const input = {
       threadId: ThreadId.makeUnsafe("web-thread"),
       folderId: FolderId.makeUnsafe("folder"),
@@ -124,7 +123,7 @@ it.effect(
       writeFileSync(join(nativePath, "state"), "native state");
       try {
         const at = "2026-10-10T00:00:00.000Z";
-        yield* sql`INSERT INTO projection_folders (folder_id, space_id, title, workspace_root, default_model_selection_json, scripts_json, created_at, updated_at) VALUES ('delete-folder', 'penkra-personal', 'Folder', NULL, NULL, '[]', ${at}, ${at})`;
+        yield* sql`INSERT INTO projection_folders (folder_id, space_id, title, workspace_root, default_model_selection_json, created_at, updated_at) VALUES ('delete-folder', 'penkra-personal', 'Folder', NULL, NULL, ${at}, ${at})`;
         const threadId = ThreadId.makeUnsafe("delete-failure-thread");
         yield* createThreadFixture(sql, {
           threadId,
@@ -159,12 +158,6 @@ it.effect(
                 cleanup.push("stop");
               }),
           } as unknown as typeof ProviderService.Service),
-          Effect.provideService(TerminalManager, {
-            close: () =>
-              Effect.sync(() => {
-                cleanup.push("close");
-              }),
-          } as unknown as typeof TerminalManager.Service),
           Effect.provideService(ServerConfig, { stateDir } as typeof ServerConfig.Service),
         );
         chmodSync(parent, 0o500);
@@ -181,7 +174,7 @@ it.effect(
         assert.equal((yield* getThread(threadId)).deletedAt, null);
         assert.equal((yield* getThread(threadId)).updatedAt, at);
         assert.deepStrictEqual(changes, []);
-        assert.deepStrictEqual(cleanup, ["stop", "close"]);
+        assert.deepStrictEqual(cleanup, ["stop"]);
         chmodSync(parent, 0o700);
         yield* lifecycle.update(update);
         assert.equal((yield* getThread(threadId)).deletedAt, update.deletedAt);

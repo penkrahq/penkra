@@ -8,11 +8,8 @@ import { AgentGatewayCredentialsWithSecretsLive } from "./agentGateway/Layers/Ag
 import { ProviderCommandReactorLive } from "./orchestration/Layers/ProviderCommandReactor";
 import { ProviderRuntimeIngestionLive } from "./orchestration/Layers/ProviderRuntimeIngestion";
 import { OrchestrationLayerLive } from "./orchestration/runtimeLayer";
-
-import { DevServerManagerLive } from "./devServerManager";
 import { KeybindingsLive } from "./keybindings";
 import { TextGenerationLayerLive } from "./textGeneration/runtimeLayer";
-import { TerminalLayerLive } from "./terminal/runtimeLayer";
 import { AuthControlPlaneLive } from "./auth/Layers/AuthControlPlane";
 import { BootstrapCredentialServiceLive } from "./auth/Layers/BootstrapCredentialService";
 import { ServerAuthLive } from "./auth/Layers/ServerAuth";
@@ -111,8 +108,6 @@ export function makeServerRuntimeServicesLayer(
     Layer.provideMerge(providerTurnSelectionResolverLayer),
     Layer.provideMerge(providerThreadSwitchCoordinatorLayer),
   );
-  // Shares the single memoized TerminalManager with the top-level TerminalLayerLive.
-  const devServerManagerLayer = DevServerManagerLive.pipe(Layer.provide(TerminalLayerLive));
   const sessionCredentialLayer = SessionCredentialServiceLive.pipe(
     Layer.provide(ServerSecretStoreLive),
   );
@@ -140,7 +135,6 @@ export function makeServerRuntimeServicesLayer(
   );
   const threadLifecycleLayer = ThreadLifecycleLive.pipe(
     Layer.provideMerge(threadSenderLayer),
-    Layer.provideMerge(TerminalLayerLive),
     Layer.provideMerge(providerThreadSwitchCoordinatorLayer),
   );
   const agentGatewayLayer = AgentGatewayLive.pipe(
@@ -175,9 +169,7 @@ export function makeServerRuntimeServicesLayer(
     providerHealthLayer,
     runtimeIngestionLayer,
     providerCommandReactorLayer,
-    devServerManagerLayer,
     TextGenerationLayerLive,
-    TerminalLayerLive,
     KeybindingsLive,
     ServerSettingsLive,
     ServerEnvironmentLive,

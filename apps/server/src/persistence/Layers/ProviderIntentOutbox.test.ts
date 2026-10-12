@@ -99,7 +99,7 @@ layer("ProviderIntentOutbox", (it) => {
       const cutover = yield* outbox.getLegacyCutover();
       assert.equal(cutover.drainedAt, null);
 
-      yield* sql`INSERT INTO projection_folders (folder_id, space_id, title, workspace_root, default_model_selection_json, scripts_json, created_at, updated_at) VALUES ('test-folder', 'penkra-personal', 'Test folder', NULL, NULL, '[]', ${now}, ${now}) ON CONFLICT(folder_id) DO NOTHING`;
+      yield* sql`INSERT INTO projection_folders (folder_id, space_id, title, workspace_root, default_model_selection_json, created_at, updated_at) VALUES ('test-folder', 'penkra-personal', 'Test folder', NULL, NULL, ${now}, ${now}) ON CONFLICT(folder_id) DO NOTHING`;
       for (const id of ["lane-parent", "lane-child", "lane-fork"]) {
         const threadId = ThreadId.makeUnsafe(id);
         yield* createThreadFixture(sql, {

@@ -24,8 +24,6 @@ export interface ShortcutEventLike {
 }
 
 export interface ShortcutMatchContext {
-  terminalFocus: boolean;
-  terminalOpen: boolean;
   [key: string]: boolean;
 }
 
@@ -69,66 +67,35 @@ function whenOr(left: KeybindingWhenNode, right: KeybindingWhenNode): Keybinding
   return { type: "or", left, right };
 }
 
-const whenNotTerminalFocus = whenNot(whenIdentifier("terminalFocus"));
-const whenThreadJumpAvailable = whenAnd(
-  whenNotTerminalFocus,
-  whenNot(whenIdentifier("terminalWorkspaceOpen")),
-);
-// New-surface creation chords (new chat/terminal/provider chat) bind to `mod`,
-// which is Cmd on macOS. xterm never forwards a Cmd-chord to the PTY, so a bare
-// `!terminalFocus` guard silently dropped these chords whenever the terminal had focus
-// — the chord did nothing instead of creating anything. `|| isMac` lets them fire from
-// the terminal on macOS while still yielding the chord to the shell on Linux/Windows,
-// where `mod` is Ctrl and keys like Ctrl+N are real shell input that must pass through.
-const whenCreationAllowed = whenOr(whenNotTerminalFocus, whenIdentifier("isMac"));
-
 export const DEFAULT_SHORTCUT_FALLBACKS: ResolvedKeybindingsConfig = [
   {
     command: "sidebar.addProject",
     shortcut: commandShortcut("o", { shiftKey: true }),
-    whenAst: whenNotTerminalFocus,
   },
   {
     command: "chat.new",
     shortcut: commandShortcut("n"),
-    whenAst: whenCreationAllowed,
   },
   {
     command: "chat.newLatestProject",
     shortcut: commandShortcut("n", { shiftKey: true }),
-    whenAst: whenCreationAllowed,
   },
   {
     command: "chat.newClaude",
     shortcut: commandShortcut("c", { altKey: true }),
-    whenAst: whenCreationAllowed,
   },
   {
     command: "chat.newChat",
     shortcut: commandShortcut("n", { altKey: true }),
-    whenAst: whenCreationAllowed,
-  },
-  {
-    command: "chat.newTerminal",
-    shortcut: commandShortcut("t", { shiftKey: true }),
-    whenAst: whenCreationAllowed,
   },
   {
     command: "chat.newCodex",
     shortcut: commandShortcut("x", { altKey: true }),
-    whenAst: whenCreationAllowed,
   },
   {
     command: "chat.newOpenCode",
     shortcut: commandShortcut("r", { altKey: true }),
-    whenAst: whenCreationAllowed,
   },
-  // Installed-app only (Electron / standalone PWA). Browsers reserve Ctrl+Tab and
-  // Ctrl+Shift+Tab for tab switching and won't deliver them to the page, so the
-  // recent-view switcher does not open in a normal browser tab. Uses literal Ctrl
-  // (not mod) on purpose so it stays Ctrl+Tab on macOS too, matching Arc/Helium.
-  // This intentionally ignores terminal focus; the chat route captures the chord
-  // before xterm can pass it through to the shell.
   {
     command: "view.recent.next",
     shortcut: commandShortcut("tab", { ctrlKey: true, modKey: false }),
@@ -140,112 +107,68 @@ export const DEFAULT_SHORTCUT_FALLBACKS: ResolvedKeybindingsConfig = [
   {
     command: "modelPicker.toggle",
     shortcut: commandShortcut("m", { shiftKey: true }),
-    whenAst: whenNotTerminalFocus,
   },
   {
     command: "model.next",
     shortcut: commandShortcut("]", { altKey: true, modKey: false }),
-    whenAst: whenNotTerminalFocus,
   },
   {
     command: "model.previous",
     shortcut: commandShortcut("[", { altKey: true, modKey: false }),
-    whenAst: whenNotTerminalFocus,
   },
   {
     command: "traitsPicker.toggle",
     shortcut: commandShortcut("e", { shiftKey: true }),
-    whenAst: whenNotTerminalFocus,
   },
-  // Cmd-only instead of mod so Ctrl+L remains available to shells on non-macOS.
   {
     command: "composer.focus.toggle",
     shortcut: commandShortcut("l", { metaKey: true, modKey: false }),
-    whenAst: whenNotTerminalFocus,
   },
   {
     command: "settings.usage",
     shortcut: commandShortcut("u", { shiftKey: true }),
-    whenAst: whenNotTerminalFocus,
   },
-  // Numbered Space jumps target persisted Spaces in visual order.
-  // Same guard as the creation chords: Cmd+Alt never reaches the PTY on macOS, while
-  // Ctrl+Alt+digit doubles as AltGr input on Linux/Windows and must yield to terminals.
   ...SPACE_JUMP_KEYBINDING_COMMANDS.map((command, index) => ({
     command,
     shortcut: commandShortcut(String(index + 1), { altKey: true }),
-    whenAst: whenCreationAllowed,
   })),
   {
     command: "thread.jump.1",
     shortcut: commandShortcut("1"),
-    whenAst: whenThreadJumpAvailable,
   },
   {
     command: "thread.jump.2",
     shortcut: commandShortcut("2"),
-    whenAst: whenThreadJumpAvailable,
   },
   {
     command: "thread.jump.3",
     shortcut: commandShortcut("3"),
-    whenAst: whenThreadJumpAvailable,
   },
   {
     command: "thread.jump.4",
     shortcut: commandShortcut("4"),
-    whenAst: whenThreadJumpAvailable,
   },
   {
     command: "thread.jump.5",
     shortcut: commandShortcut("5"),
-    whenAst: whenThreadJumpAvailable,
   },
   {
     command: "thread.jump.6",
     shortcut: commandShortcut("6"),
-    whenAst: whenThreadJumpAvailable,
   },
   {
     command: "thread.jump.7",
     shortcut: commandShortcut("7"),
-    whenAst: whenThreadJumpAvailable,
   },
   {
     command: "thread.jump.8",
     shortcut: commandShortcut("8"),
-    whenAst: whenThreadJumpAvailable,
   },
   {
     command: "thread.jump.9",
     shortcut: commandShortcut("9"),
-    whenAst: whenThreadJumpAvailable,
-  },
-  {
-    command: "terminal.workspace.newFullWidth",
-    shortcut: commandShortcut("j", { shiftKey: true }),
-  },
-  {
-    command: "terminal.workspace.closeActive",
-    shortcut: commandShortcut("w"),
-    whenAst: whenIdentifier("terminalWorkspaceOpen"),
-  },
-  {
-    command: "terminal.workspace.terminal",
-    shortcut: commandShortcut("1"),
-    whenAst: whenIdentifier("terminalWorkspaceOpen"),
-  },
-  {
-    command: "terminal.workspace.chat",
-    shortcut: commandShortcut("2"),
-    whenAst: whenIdentifier("terminalWorkspaceOpen"),
   },
 ];
-
-const TERMINAL_WORD_BACKWARD = "\u001bb";
-const TERMINAL_WORD_FORWARD = "\u001bf";
-const TERMINAL_LINE_START = "\u0001";
-const TERMINAL_LINE_END = "\u0005";
 const EVENT_CODE_KEY_ALIASES: Readonly<Record<string, readonly string[]>> = {
   BracketLeft: ["["],
   BracketRight: ["]"],
@@ -340,8 +263,6 @@ function resolveContext(options: ShortcutMatchOptions | undefined): ShortcutMatc
   // (e.g. `whenCreationAllowed`) without every dispatch site having to thread the flag
   // through `context`. An explicit `context.isMac` still wins via the spread below.
   return {
-    terminalFocus: false,
-    terminalOpen: false,
     isMac: isMacPlatform(resolvePlatform(options)),
     ...options?.context,
   };
@@ -542,8 +463,6 @@ export function shortcutLabelForCommand(
     if (platformAware) {
       return formatShortcutLabel(platformAware, platform);
     }
-    // Fall back to the last binding ignoring `when` so focus-gated chords
-    // (e.g. terminal-only) still surface a label in chrome affordances.
     for (let index = keybindings.length - 1; index >= 0; index -= 1) {
       const binding = keybindings[index];
       if (!binding || binding.command !== command) continue;
@@ -608,38 +527,6 @@ export function shouldShowThreadJumpHints(
   return false;
 }
 
-export function isTerminalToggleShortcut(
-  event: ShortcutEventLike,
-  keybindings: ResolvedKeybindingsConfig,
-  options?: ShortcutMatchOptions,
-): boolean {
-  return matchesCommandShortcut(event, keybindings, "terminal.toggle", options);
-}
-
-export function isTerminalSplitShortcut(
-  event: ShortcutEventLike,
-  keybindings: ResolvedKeybindingsConfig,
-  options?: ShortcutMatchOptions,
-): boolean {
-  return matchesCommandShortcut(event, keybindings, "terminal.split", options);
-}
-
-export function isTerminalNewShortcut(
-  event: ShortcutEventLike,
-  keybindings: ResolvedKeybindingsConfig,
-  options?: ShortcutMatchOptions,
-): boolean {
-  return matchesCommandShortcut(event, keybindings, "terminal.new", options);
-}
-
-export function isTerminalCloseShortcut(
-  event: ShortcutEventLike,
-  keybindings: ResolvedKeybindingsConfig,
-  options?: ShortcutMatchOptions,
-): boolean {
-  return matchesCommandShortcut(event, keybindings, "terminal.close", options);
-}
-
 export function isSidebarToggleShortcut(
   event: ShortcutEventLike,
   keybindings: ResolvedKeybindingsConfig,
@@ -675,16 +562,6 @@ export function isOpenFavoriteEditorShortcut(
   return matchesCommandShortcut(event, keybindings, "editor.openFavorite", options);
 }
 
-export function isTerminalClearShortcut(event: ShortcutEventLike): boolean {
-  if (event.type !== undefined && event.type !== "keydown") {
-    return false;
-  }
-
-  const key = event.key.toLowerCase();
-
-  return key === "l" && event.ctrlKey && !event.metaKey && !event.altKey && !event.shiftKey;
-}
-
 export function isKeyboardShortcutsHelpShortcut(
   event: ShortcutEventLike,
   platform = navigator.platform,
@@ -705,43 +582,4 @@ export function isKeyboardShortcutsHelpShortcut(
       isWindows: isWindowsPlatform(platform),
     },
   );
-}
-
-export function terminalNavigationShortcutData(
-  event: ShortcutEventLike,
-  platform = navigator.platform,
-): string | null {
-  if (event.type !== undefined && event.type !== "keydown") {
-    return null;
-  }
-
-  if (event.shiftKey) return null;
-
-  const key = normalizeEventKey(event.key);
-  if (key !== "arrowleft" && key !== "arrowright") {
-    return null;
-  }
-
-  const moveWord = key === "arrowleft" ? TERMINAL_WORD_BACKWARD : TERMINAL_WORD_FORWARD;
-  const moveLine = key === "arrowleft" ? TERMINAL_LINE_START : TERMINAL_LINE_END;
-
-  if (isMacPlatform(platform)) {
-    if (event.altKey && !event.metaKey && !event.ctrlKey) {
-      return moveWord;
-    }
-    if (event.metaKey && !event.altKey && !event.ctrlKey) {
-      return moveLine;
-    }
-    return null;
-  }
-
-  if (event.ctrlKey && !event.metaKey && !event.altKey) {
-    return moveWord;
-  }
-
-  if (event.altKey && !event.metaKey && !event.ctrlKey) {
-    return moveWord;
-  }
-
-  return null;
 }

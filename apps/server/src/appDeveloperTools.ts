@@ -3,7 +3,7 @@ import * as FS from "node:fs/promises";
 import * as OS from "node:os";
 import * as Path from "node:path";
 
-import { defaultProcessTreeKiller } from "./terminal/processTreeKiller";
+import { defaultProcessTreeKiller } from "./processTreeKiller";
 
 const APP_TEST_HOST_STOP_TIMEOUT_MS = 1_000;
 const APP_TEST_HOST_RESULT_POLL_MS = 25;

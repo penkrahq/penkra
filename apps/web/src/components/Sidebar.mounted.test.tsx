@@ -57,7 +57,6 @@ const folder: Project = {
   cwd: "/stable",
   defaultModelSelection: null,
   expanded: true,
-  scripts: [],
 };
 const space: Space = {
   id: spaceId,

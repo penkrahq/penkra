@@ -106,7 +106,6 @@ it.layer(BaseTestLayer)("OrchestrationProjectionPipeline", (it) => {
           title: "Project 1",
           workspaceRoot: "/tmp/project-1",
           defaultModelSelection: null,
-          scripts: [],
           createdAt: now,
           updatedAt: now,
         },
@@ -154,17 +153,13 @@ it.layer(BaseTestLayer)("OrchestrationProjectionPipeline", (it) => {
       const projectRows = yield* sql<{
         readonly folderId: string;
         readonly title: string;
-        readonly scriptsJson: string;
       }>`
         SELECT
           folder_id AS "folderId",
-          title,
-          scripts_json AS "scriptsJson"
+          title
         FROM projection_folders
       `;
-      assert.deepEqual(projectRows, [
-        { folderId: "project-1", title: "Project 1", scriptsJson: "[]" },
-      ]);
+      assert.deepEqual(projectRows, [{ folderId: "project-1", title: "Project 1" }]);
 
       const messageRows = yield* sql<{
         readonly messageId: string;
@@ -218,7 +213,6 @@ it.layer(BaseTestLayer)("OrchestrationProjectionPipeline", (it) => {
           title: "Project",
           workspaceRoot: "/tmp/project-visit",
           defaultModelSelection: null,
-          scripts: [],
           createdAt,
           updatedAt: createdAt,
         },
@@ -296,7 +290,6 @@ it.layer(BaseTestLayer)("OrchestrationProjectionPipeline", (it) => {
           title: "Retained error project",
           workspaceRoot: "/tmp/project-retained-error",
           defaultModelSelection: null,
-          scripts: [],
           createdAt,
           updatedAt: createdAt,
         },
@@ -596,7 +589,6 @@ it.effect("fast-forwards lagging hot projector cursors before restart replay", (
           title: "Bootstrap fast-forward project",
           workspaceRoot: "/tmp/project-bootstrap-fast-forward",
           defaultModelSelection: null,
-          scripts: [],
           createdAt,
           updatedAt: createdAt,
         },
@@ -707,7 +699,6 @@ it.effect("drains 2,501 file-backed events to a captured high-water fence", () =
           title: "Project 0",
           workspaceRoot: "/tmp/project-bootstrap-paged",
           defaultModelSelection: null,
-          scripts: [],
           createdAt: occurredAt,
           updatedAt: occurredAt,
         },
@@ -1008,7 +999,6 @@ it.layer(BaseTestLayer)("OrchestrationProjectionPipeline", (it) => {
             title: "Project Clear Attachments",
             workspaceRoot: "/tmp/project-clear-attachments",
             defaultModelSelection: null,
-            scripts: [],
             createdAt: now,
             updatedAt: now,
           },
@@ -1126,7 +1116,6 @@ it.layer(
           title: "Project Overwrite",
           workspaceRoot: "/tmp/project-overwrite",
           defaultModelSelection: null,
-          scripts: [],
           createdAt: now,
           updatedAt: now,
         },
@@ -1261,7 +1250,6 @@ it.layer(
           title: "Project Rollback",
           workspaceRoot: "/tmp/project-rollback",
           defaultModelSelection: null,
-          scripts: [],
           createdAt: now,
           updatedAt: now,
         },
@@ -1372,7 +1360,6 @@ it.layer(
           title: "Stream Append Project",
           workspaceRoot: "/tmp/project-stream-append",
           defaultModelSelection: null,
-          scripts: [],
           createdAt,
           updatedAt: createdAt,
         },
@@ -1593,7 +1580,6 @@ it.layer(
           title: "Stream Restart Project",
           workspaceRoot: "/tmp/project-stream-restart",
           defaultModelSelection: null,
-          scripts: [],
           createdAt,
           updatedAt: createdAt,
         },
@@ -1749,7 +1735,6 @@ it.layer(
           title: "Project Revert Files",
           workspaceRoot: "/tmp/project-revert-files",
           defaultModelSelection: null,
-          scripts: [],
           createdAt: now,
           updatedAt: now,
         },
@@ -1959,7 +1944,6 @@ it.layer(BaseTestLayer)("OrchestrationProjectionPipeline", (it) => {
           title: "Project A",
           workspaceRoot: "/tmp/project-a",
           defaultModelSelection: null,
-          scripts: [],
           createdAt: now,
           updatedAt: now,
         },
@@ -2076,7 +2060,6 @@ it.layer(BaseTestLayer)("OrchestrationProjectionPipeline", (it) => {
           title: "Project Empty",
           workspaceRoot: "/tmp/project-empty",
           defaultModelSelection: null,
-          scripts: [],
           createdAt: now,
           updatedAt: now,
         },
@@ -2226,14 +2209,13 @@ engineLayer("OrchestrationProjectionPipeline via engine dispatch", (it) => {
         createdAt,
       });
 
-      const projectRows = yield* sql<{ readonly title: string; readonly scriptsJson: string }>`
+      const projectRows = yield* sql<{ readonly title: string }>`
         SELECT
-          title,
-          scripts_json AS "scriptsJson"
+          title
         FROM projection_folders
         WHERE folder_id = 'project-live'
       `;
-      assert.deepEqual(projectRows, [{ title: "Live Project", scriptsJson: "[]" }]);
+      assert.deepEqual(projectRows, [{ title: "Live Project" }]);
 
       const projectorRows = yield* sql<{ readonly lastAppliedSequence: number }>`
         SELECT
@@ -2304,14 +2286,6 @@ engineLayer("OrchestrationProjectionPipeline via engine dispatch", (it) => {
         commandId: CommandId.makeUnsafe("cmd-scripts-project-update"),
         folderId: FolderId.makeUnsafe("project-scripts"),
         iconDataUrl: "data:image/webp;base64,Y3VzdG9t",
-        scripts: [
-          {
-            id: "script-1",
-            name: "Build",
-            command: "bun run build",
-            icon: "build",
-          },
-        ],
         defaultModelSelection: {
           provider: "codex",
           model: "gpt-5",
@@ -2319,12 +2293,10 @@ engineLayer("OrchestrationProjectionPipeline via engine dispatch", (it) => {
       });
 
       const projectRows = yield* sql<{
-        readonly scriptsJson: string;
         readonly defaultModelSelection: string;
         readonly iconDataUrl: string | null;
       }>`
         SELECT
-          scripts_json AS "scriptsJson",
           default_model_selection_json AS "defaultModelSelection",
           icon_data_url AS "iconDataUrl"
         FROM projection_folders
@@ -2332,8 +2304,6 @@ engineLayer("OrchestrationProjectionPipeline via engine dispatch", (it) => {
       `;
       assert.deepEqual(projectRows, [
         {
-          scriptsJson:
-            '[{"id":"script-1","name":"Build","command":"bun run build","icon":"build"}]',
           defaultModelSelection: '{"provider":"codex","model":"gpt-5"}',
           iconDataUrl: "data:image/webp;base64,Y3VzdG9t",
         },

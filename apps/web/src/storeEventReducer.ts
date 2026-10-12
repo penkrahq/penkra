@@ -545,7 +545,6 @@ function applyOrchestrationEvent(
           title: event.payload.title,
           workspaceRoot: event.payload.workspaceRoot,
           defaultModelSelection: event.payload.defaultModelSelection,
-          scripts: event.payload.scripts,
           iconDataUrl: event.payload.iconDataUrl ?? null,
           spaceId: event.payload.spaceId,
           createdAt: event.payload.createdAt,
@@ -574,7 +573,6 @@ function applyOrchestrationEvent(
             event.payload.defaultModelSelection !== undefined
               ? event.payload.defaultModelSelection
               : existingProject.defaultModelSelection,
-          scripts: event.payload.scripts ?? existingProject.scripts,
           iconDataUrl:
             event.payload.iconDataUrl !== undefined
               ? event.payload.iconDataUrl
@@ -597,7 +595,6 @@ function applyOrchestrationEvent(
               title: existingFolder.remoteName,
               workspaceRoot: existingFolder.cwd || null,
               defaultModelSelection: existingFolder.defaultModelSelection,
-              scripts: existingFolder.scripts,
               iconDataUrl: existingFolder.iconDataUrl,
               spaceId: event.payload.spaceId,
               sidebarSortOrder: existingFolder.sidebarSortOrder,

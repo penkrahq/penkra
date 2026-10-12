@@ -23,22 +23,14 @@ import type { ProviderConnectionId } from "./baseSchemas";
 import type {
   ProjectCreateLocalFilePreviewGrantInput,
   ProjectCreateLocalFilePreviewGrantResult,
-  ProjectDevServerEvent,
-  ProjectDiscoverScriptsInput,
-  ProjectDiscoverScriptsResult,
-  ProjectListDevServersResult,
   ProjectListDirectoriesInput,
   ProjectListDirectoriesResult,
   ProjectReadFileInput,
   ProjectReadFileResult,
-  ProjectRunDevServerInput,
-  ProjectRunDevServerResult,
   ProjectSearchEntriesInput,
   ProjectSearchEntriesResult,
   ProjectSearchLocalEntriesInput,
   ProjectSearchLocalEntriesResult,
-  ProjectStopDevServerInput,
-  ProjectStopDevServerResult,
   ProjectWriteFileInput,
   ProjectWorkspaceChangeEvent,
   ProjectWriteFileResult,
@@ -52,10 +44,7 @@ import type {
   ServerListProviderUsageInput,
   ServerListProviderUsageResult,
   ServerGetSettingsResult,
-  ServerListLocalServersResult,
   ServerRefreshProvidersResult,
-  ServerStopLocalServerInput,
-  ServerStopLocalServerResult,
   ServerUpdateSettingsInput,
   ServerUpdateSettingsResult,
   ServerSpaceNavigationState,
@@ -65,17 +54,6 @@ import type {
   ServerVoiceTranscriptionInput,
   ServerVoiceTranscriptionResult,
 } from "./server";
-import type {
-  TerminalAckOutputInput,
-  TerminalClearInput,
-  TerminalCloseInput,
-  TerminalEvent,
-  TerminalOpenInput,
-  TerminalResizeInput,
-  TerminalRestartInput,
-  TerminalSessionSnapshot,
-  TerminalWriteInput,
-} from "./terminal";
 import type {
   ClientOrchestrationCommand,
   OrchestrationAcknowledgeSyncInput,
@@ -980,18 +958,7 @@ export interface NativeApi {
     }) => Promise<string | null>;
     confirm: (message: string) => Promise<boolean>;
   };
-  terminal: {
-    open: (input: TerminalOpenInput) => Promise<TerminalSessionSnapshot>;
-    write: (input: TerminalWriteInput) => Promise<void>;
-    ackOutput: (input: TerminalAckOutputInput) => Promise<void>;
-    resize: (input: TerminalResizeInput) => Promise<void>;
-    clear: (input: TerminalClearInput) => Promise<void>;
-    restart: (input: TerminalRestartInput) => Promise<TerminalSessionSnapshot>;
-    close: (input: TerminalCloseInput) => Promise<void>;
-    onEvent: (callback: (event: TerminalEvent) => void) => () => void;
-  };
   folders: {
-    discoverScripts: (input: ProjectDiscoverScriptsInput) => Promise<ProjectDiscoverScriptsResult>;
     listDirectories: (input: ProjectListDirectoriesInput) => Promise<ProjectListDirectoriesResult>;
     searchEntries: (input: ProjectSearchEntriesInput) => Promise<ProjectSearchEntriesResult>;
     searchLocalEntries: (
@@ -1002,10 +969,6 @@ export interface NativeApi {
       input: ProjectCreateLocalFilePreviewGrantInput,
     ) => Promise<ProjectCreateLocalFilePreviewGrantResult>;
     writeFile: (input: ProjectWriteFileInput) => Promise<ProjectWriteFileResult>;
-    runDevServer: (input: ProjectRunDevServerInput) => Promise<ProjectRunDevServerResult>;
-    stopDevServer: (input: ProjectStopDevServerInput) => Promise<ProjectStopDevServerResult>;
-    listDevServers: () => Promise<ProjectListDevServersResult>;
-    onDevServerEvent: (callback: (event: ProjectDevServerEvent) => void) => () => void;
     onWorkspaceChange: (callback: (event: ProjectWorkspaceChangeEvent) => void) => () => void;
   };
   filesystem: {
@@ -1045,8 +1008,6 @@ export interface NativeApi {
     revokeOtherAuthClients: () => Promise<{ revokedCount: number }>;
     logoutAuthSession: () => Promise<AuthLogoutResult>;
     refreshProviders: () => Promise<ServerRefreshProvidersResult>;
-    listLocalServers: () => Promise<ServerListLocalServersResult>;
-    stopLocalServer: (input: ServerStopLocalServerInput) => Promise<ServerStopLocalServerResult>;
     getProviderUsageSnapshot: (
       input: ServerGetProviderUsageSnapshotInput,
     ) => Promise<ServerGetProviderUsageSnapshotResult>;
