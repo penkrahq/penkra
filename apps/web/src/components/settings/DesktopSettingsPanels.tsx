@@ -3,7 +3,7 @@
 // Layer: Settings UI components
 // Exports: NotificationsSettingsPanel
 
-import { useEffect, useState } from "react";
+import { useState } from "react";
 
 import type { AppSettingsBinding } from "~/appSettings";
 import { isElectron } from "~/env";
@@ -25,15 +25,8 @@ export function NotificationsSettingsPanel({
   active,
 }: AppSettingsBinding & { readonly active: boolean }) {
   const [browserNotificationPermission, setBrowserNotificationPermission] = useState(
-    readBrowserNotificationPermissionState(),
+    readBrowserNotificationPermissionState,
   );
-
-  useEffect(() => {
-    const timeoutId = window.setTimeout(() => {
-      setBrowserNotificationPermission(readBrowserNotificationPermissionState());
-    }, 0);
-    return () => window.clearTimeout(timeoutId);
-  }, []);
 
   async function setSystemNotificationsEnabled(nextEnabled: boolean) {
     if (!nextEnabled) {
