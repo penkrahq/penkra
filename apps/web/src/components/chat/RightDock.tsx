@@ -119,15 +119,42 @@ export function RightDock(props: RightDockProps) {
   useLayoutEffect(() => {
     const wasOpen = previousOpenRef.current;
     previousOpenRef.current = props.state.open;
-    if (!props.state.open) {
-      setOpeningMotion({ active: false, startedAt: null });
-      return;
-    }
-    if (wasOpen) return;
-    setOpeningMotion({ active: true, startedAt: Date.now() });
-    return () => {
-      previousOpenRef.current = false;
+    setOpeningMotion({ active: false, startedAt: null });
+    if (!props.state.open || wasOpen) return;
+    const container = contentRef.current?.closest<HTMLElement>("[data-slot='sidebar-container']");
+    if (!container) return;
+    const style = window.getComputedStyle(container);
+    const properties = style.transitionProperty.split(",").map((property) => property.trim());
+    const durations = style.transitionDuration
+      .split(",")
+      .map((duration) => Number.parseFloat(duration));
+    const canTransitionWidth = properties.some(
+      (property, index) =>
+        (property === "width" || property === "all") && durations[index % durations.length]! > 0,
+    );
+    if (!canTransitionWidth) return;
+    const isOwnWidth = (event: TransitionEvent) =>
+      event.target === container && event.propertyName === "width";
+    const onRun = (event: TransitionEvent) => {
+      // A positive CSS duration alone does not mean the width actually changed.
+      if (!isOwnWidth(event)) return;
+      container.removeEventListener("transitionrun", onRun);
+      setOpeningMotion({ active: true, startedAt: Date.now() });
     };
+    const onFinished = (event: TransitionEvent) => {
+      if (!isOwnWidth(event)) return;
+      releaseListeners();
+      setOpeningMotion({ active: false, startedAt: null });
+    };
+    const releaseListeners = () => {
+      container.removeEventListener("transitionrun", onRun);
+      container.removeEventListener("transitionend", onFinished);
+      container.removeEventListener("transitioncancel", onFinished);
+    };
+    container.addEventListener("transitionrun", onRun);
+    container.addEventListener("transitionend", onFinished);
+    container.addEventListener("transitioncancel", onFinished);
+    return releaseListeners;
   }, [props.state.open]);
   useLayoutEffect(() => {
     const wrapper = contentRef.current?.closest<HTMLElement>("[data-slot='sidebar-wrapper']");
@@ -219,10 +246,6 @@ export function RightDock(props: RightDockProps) {
     >
       <Sidebar
         data-pencil-component="ayA7J"
-        onTransitionEnd={(event) => {
-          if (event.target !== event.currentTarget || event.propertyName !== "width") return;
-          setOpeningMotion({ active: false, startedAt: null });
-        }}
         side="right"
         positioning="inline"
         collapsible="offcanvas"

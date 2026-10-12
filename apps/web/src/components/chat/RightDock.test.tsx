@@ -2,10 +2,12 @@
 import { act } from "react";
 import { createRoot } from "react-dom/client";
 import { renderToStaticMarkup } from "react-dom/server";
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import type { RightDockPane } from "~/rightDockStore.logic";
 import { RightDock } from "./RightDock";
+
+afterEach(() => vi.restoreAllMocks());
 
 function pane(id: string, name: string): RightDockPane {
   return {
@@ -56,6 +58,10 @@ it("ends opening presentation only on the dock's own width transition and clears
   const container = document.createElement("div");
   document.body.appendChild(container);
   const root = createRoot(container);
+  vi.spyOn(window, "getComputedStyle").mockReturnValue({
+    transitionProperty: "width, visibility",
+    transitionDuration: "0.2s",
+  } as CSSStyleDeclaration);
   const canvas = pane("canvas-tab", "Canvas");
   const renderPane = vi.fn((_pane, { animateEntrance }: { animateEntrance: boolean }) => (
     <div data-entrance={String(animateEntrance)} />
@@ -75,9 +81,9 @@ it("ends opening presentation only on the dock's own width transition and clears
         />,
       ),
     );
-  const transition = (target: Element, propertyName: string) =>
+  const transition = (target: Element, propertyName: string, type = "transitionend") =>
     act(() => {
-      const event = new Event("transitionend", { bubbles: true });
+      const event = new Event(type, { bubbles: true });
       Object.defineProperty(event, "propertyName", { value: propertyName });
       target.dispatchEvent(event);
     });
@@ -86,6 +92,11 @@ it("ends opening presentation only on the dock's own width transition and clears
     render(true);
     const dock = container.querySelector('[data-slot="sidebar-container"]')!;
     const content = container.querySelector("[data-entrance]")!;
+    expect(content.getAttribute("data-entrance")).toBe("false");
+    transition(content, "width", "transitionrun");
+    transition(dock, "visibility", "transitionrun");
+    expect(content.getAttribute("data-entrance")).toBe("false");
+    transition(dock, "width", "transitionrun");
     expect(content.getAttribute("data-entrance")).toBe("true");
     transition(content, "width");
     transition(dock, "visibility");
@@ -94,7 +105,13 @@ it("ends opening presentation only on the dock's own width transition and clears
     expect(content.getAttribute("data-entrance")).toBe("false");
     render(false);
     render(true);
+    const reopenedDock = container.querySelector('[data-slot="sidebar-container"]')!;
+    transition(reopenedDock, "width", "transitionrun");
     expect(container.querySelector("[data-entrance]")?.getAttribute("data-entrance")).toBe("true");
+    transition(reopenedDock, "width", "transitioncancel");
+    expect(container.querySelector("[data-entrance]")?.getAttribute("data-entrance")).toBe("false");
+    transition(reopenedDock, "width", "transitionrun");
+    expect(container.querySelector("[data-entrance]")?.getAttribute("data-entrance")).toBe("false");
     render(false);
     expect(container.querySelector("[data-entrance]")).toBeNull();
   } finally {
@@ -102,3 +119,49 @@ it("ends opening presentation only on the dock's own width transition and clears
     container.remove();
   }
 });
+
+it.each([
+  ["reduced motion", "none", "0s"],
+  ["suppressed motion", "width", "0s"],
+  ["unchanged width", "width", "0.2s"],
+])(
+  "leaves entrance presentation inactive with %s",
+  (_name, transitionProperty, transitionDuration) => {
+    (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
+    vi.spyOn(window, "getComputedStyle").mockReturnValue({
+      transitionProperty,
+      transitionDuration,
+    } as CSSStyleDeclaration);
+    const container = document.createElement("div");
+    document.body.appendChild(container);
+    const root = createRoot(container);
+    const canvas = pane("canvas-tab", "Canvas");
+    const render = (open: boolean) =>
+      act(() =>
+        root.render(
+          <RightDock
+            state={{ open, panes: [canvas], activePaneId: canvas.id, width: null }}
+            minWidth={320}
+            defaultWidth="50vw"
+            shouldAcceptWidth={() => true}
+            onSelectPane={vi.fn()}
+            onClosePane={vi.fn()}
+            onOpenChange={vi.fn()}
+            renderPane={(_pane, { animateEntrance }) => (
+              <div data-entrance={String(animateEntrance)} />
+            )}
+          />,
+        ),
+      );
+    try {
+      render(false);
+      render(true);
+      expect(container.querySelector("[data-entrance]")?.getAttribute("data-entrance")).toBe(
+        "false",
+      );
+    } finally {
+      act(() => root.unmount());
+      container.remove();
+    }
+  },
+);
