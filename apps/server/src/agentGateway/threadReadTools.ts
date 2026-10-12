@@ -627,7 +627,7 @@ export function makeThreadReadTools(input: ThreadReadToolsInput): ReadonlyArray<
     definition: {
       name: "penkra_list_threads",
       description:
-        "Use to discover existing Penkra Threads or child Threads before reading, sending, or interrupting them. Filters by folder, hierarchy, provider/model, status, title, source, and update window; archived Threads are hidden unless includeArchived is true. latestTurn.turnId is a Penkra handle accepted by --turn-id; latestTurn.providerTurnId is the separate provider-native id when known. Use `penkra threads read` once you know the exact Thread id.",
+        "Use to discover existing Penkra Threads before reading, sending, or interrupting them. Filters by folder, provider/model, status, title, source, and update window; archived Threads are hidden unless includeArchived is true. latestTurn.turnId is a Penkra handle accepted by --turn-id; latestTurn.providerTurnId is the separate provider-native id when known. Use `penkra threads read` once you know the exact Thread id.",
       inputSchema: {
         type: "object",
         properties: {

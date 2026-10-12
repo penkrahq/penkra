@@ -465,7 +465,7 @@ const FOLDER_OPERATIONS: Readonly<Record<string, HostOperationDeclaration>> = {
     command: "penkra folder compose",
     summary: "Write one exact composition into a selected folder member.",
     instructions:
-      "Returns a receipt bound to the exact target and bytes. Complex documents, attachments, Skills, and model choices use --input JSON.",
+      "Returns a composeId identifying this target and its saved message. Complex documents, attachments, Skills, and model choices use --input JSON.",
     input: {
       type: "object",
       properties: {
@@ -491,9 +491,9 @@ const FOLDER_OPERATIONS: Readonly<Record<string, HostOperationDeclaration>> = {
   },
   send: {
     command: "penkra folder send",
-    summary: "Send exactly one previously composed receipt.",
+    summary: "Send one previously saved composition.",
     instructions:
-      "The receipt must still match the untouched composer. Repeating the same receipt returns the same submission result.",
+      "The saved composition must still match the untouched composer. Repeating the same composeId returns the same submission result.",
     input: {
       type: "object",
       properties: {
@@ -752,7 +752,7 @@ const APP_DEVELOPER_OPERATIONS: Readonly<Record<string, HostOperationDeclaration
   test: developerOperation(
     "test",
     "Validate an App package directory without installing or publishing it.",
-    "Run before packaging or publishing. Validation is read-only and exercises manifest and package validation, generated root and operation help, the isolated App runtime, and its ready-state diagnostics.",
+    "Run before packaging or publishing. Validation is read-only and exercises manifest and package validation, generated root and operation help, the isolated App runtime, and its ready-state checks.",
     { directory: DIRECTORY_PROPERTY },
     ["directory"],
     "penkra app test --directory ./dist",
