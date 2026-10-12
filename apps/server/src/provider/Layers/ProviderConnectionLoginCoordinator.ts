@@ -9,7 +9,7 @@ import path from "node:path";
 
 import { ProviderConnectionId, THREADS_PAGE_SIZE } from "@penkra/contracts";
 import * as SqlClient from "effect/unstable/sql/SqlClient";
-import { Effect, Layer, Option } from "effect";
+import { Effect, Layer, Option, Stream } from "effect";
 
 import { ServerConfig } from "../../config.ts";
 import { prepareManagedCodexProfileConfig } from "../../codexProcessEnv.ts";
@@ -1360,6 +1360,21 @@ export function makeProviderConnectionLoginCoordinator(
       begin,
       get,
       cancel,
+      subscribe: (input: Parameters<ProviderConnectionLoginCoordinatorShape["get"]>[0]) =>
+        Stream.unwrap(
+          Effect.gen(function* () {
+            // Register before the snapshot read so completion cannot fall between them.
+            const live = yield* logins.subscribeChanges;
+            const snapshot = yield* get(input);
+            return Stream.concat(
+              Stream.succeed(snapshot),
+              Stream.fromSubscription(live).pipe(
+                Stream.filter((record) => record.operationId === input.operationId),
+                Stream.mapEffect(() => get(input)),
+              ),
+            );
+          }),
+        ),
       terminateProfile,
       initialize: reconcileActiveManagedConnections.pipe(
         Effect.andThen(cleanupManagedProfiles),

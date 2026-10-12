@@ -203,6 +203,7 @@ export const WS_METHODS = {
   providerRetryAuthConnection: "provider.retryAuthConnection",
   providerCreateStaticConnection: "provider.createStaticConnection",
   providerBeginConnectionLogin: "provider.beginConnectionLogin",
+  providerSubscribeConnectionLogin: "provider.subscribeConnectionLogin",
   providerGetConnectionLogin: "provider.getConnectionLogin",
   providerCancelConnectionLogin: "provider.cancelConnectionLogin",
   providerTerminateConnection: "provider.terminateConnection",

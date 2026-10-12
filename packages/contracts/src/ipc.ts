@@ -1083,6 +1083,11 @@ export interface NativeApi {
     beginConnectionLogin: (
       input: BeginProviderConnectionLoginInput,
     ) => Promise<ProviderConnectionLoginSnapshot>;
+    subscribeConnectionLogin: (
+      input: GetProviderConnectionLoginInput,
+      onSnapshot: (snapshot: ProviderConnectionLoginSnapshot) => void,
+      onError: (error: Error) => void,
+    ) => () => void;
     getConnectionLogin: (
       input: GetProviderConnectionLoginInput,
     ) => Promise<ProviderConnectionLoginSnapshot>;

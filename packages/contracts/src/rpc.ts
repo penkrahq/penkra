@@ -623,6 +623,16 @@ export const WsProviderBeginConnectionLoginRpc = Rpc.make(WS_METHODS.providerBeg
   success: ProviderConnectionLoginSnapshot,
   error: WsRpcError,
 });
+export const WsProviderSubscribeConnectionLoginRpc = Rpc.make(
+  WS_METHODS.providerSubscribeConnectionLogin,
+  {
+    payload: GetProviderConnectionLoginInput,
+    success: ProviderConnectionLoginSnapshot,
+    error: WsRpcError,
+    stream: true,
+  },
+);
+
 export const WsProviderGetConnectionLoginRpc = Rpc.make(WS_METHODS.providerGetConnectionLogin, {
   payload: GetProviderConnectionLoginInput,
   success: ProviderConnectionLoginSnapshot,
@@ -865,6 +875,7 @@ export const WsFeatureRpcGroup = RpcGroup.make(
   WsProviderRetryAuthConnectionRpc,
   WsProviderCreateStaticConnectionRpc,
   WsProviderBeginConnectionLoginRpc,
+  WsProviderSubscribeConnectionLoginRpc,
   WsProviderGetConnectionLoginRpc,
   WsProviderCancelConnectionLoginRpc,
   WsProviderTerminateConnectionRpc,

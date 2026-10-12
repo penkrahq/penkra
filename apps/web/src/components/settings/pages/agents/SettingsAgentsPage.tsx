@@ -165,37 +165,35 @@ export function SettingsAgentsPage(_props: { embedded?: boolean } = {}) {
   useEffect(() => {
     if (loginOperationId === null) return;
     let stopped = false;
-    let timeout: number | undefined;
-    const poll = async () => {
-      try {
-        const login = await ensureNativeApi().provider.getConnectionLogin({
-          operationId: loginOperationId,
-        });
-        if (stopped) return;
-        if (login.state === "completed") {
-          if (login.connection !== null) selectNewConnection(login.connection);
-          await refresh();
-          setLoginOperationId(null);
-          clearAdd();
-          return;
-        }
-        if (login.state === "failed" || login.state === "cancelled") {
-          setLoginOperationId(null);
-          toastManager.add({
-            type: "error",
-            title: login.failureReason ?? "Sign in did not complete.",
-          });
-          return;
-        }
-        timeout = window.setTimeout(poll, 800);
-      } catch {
-        if (!stopped) timeout = window.setTimeout(poll, 1200);
-      }
+    let terminalReceived = false;
+    const fail = (error: Error) => {
+      if (stopped) return;
+      setLoginOperationId(null);
+      toastManager.add({ type: "error", title: error.message });
     };
-    void poll();
+    const unsubscribe = ensureNativeApi().provider.subscribeConnectionLogin(
+      { operationId: loginOperationId },
+      (login) => {
+        if (stopped || terminalReceived) return;
+        if (login.state === "completed") {
+          terminalReceived = true;
+          void (async () => {
+            if (login.connection !== null) selectNewConnection(login.connection);
+            await refresh();
+            if (stopped) return;
+            setLoginOperationId(null);
+            clearAdd();
+          })().catch(fail);
+        } else if (login.state === "failed" || login.state === "cancelled") {
+          terminalReceived = true;
+          fail(new Error(login.failureReason ?? "Sign in did not complete."));
+        }
+      },
+      fail,
+    );
     return () => {
       stopped = true;
-      if (timeout !== undefined) window.clearTimeout(timeout);
+      unsubscribe();
     };
   }, [clearAdd, loginOperationId, refresh]);
 
