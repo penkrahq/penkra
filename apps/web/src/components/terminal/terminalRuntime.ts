@@ -52,11 +52,11 @@ import type {
   TerminalRuntimeViewState,
 } from "./terminalRuntimeTypes";
 import { waitForTerminalFontReady } from "./terminalFontSettle";
+import { enqueueTerminalResize } from "./terminalResizeQueue";
 import { observeTerminalWriteParsed } from "./terminalPerformance";
 
 const ENABLE_TERMINAL_WEBGL = true;
 const VISUAL_RESIZE_MIN_INTERVAL_MS = 64;
-const BACKEND_RESIZE_DEBOUNCE_MS = 120;
 const WRITE_BATCH_SIZE_LIMIT = 262_144;
 const WRITE_BATCH_MAX_LATENCY_MS = 50;
 const LINK_MATCH_CACHE_LIMIT = 512;
@@ -206,13 +206,6 @@ function replaySnapshot(
   onParsed?.();
 }
 
-function clearBackendResizeTimer(entry: TerminalRuntimeEntry): void {
-  if (entry.resizeDispatchTimer !== null) {
-    window.clearTimeout(entry.resizeDispatchTimer);
-    entry.resizeDispatchTimer = null;
-  }
-}
-
 function clearPendingWrites(entry: TerminalRuntimeEntry): void {
   if (entry.writeRafHandle !== null) {
     window.cancelAnimationFrame(entry.writeRafHandle);
@@ -288,43 +281,18 @@ function scheduleWrite(entry: TerminalRuntimeEntry, data: string, byteLength: nu
   }
 }
 
-function flushPendingResize(entry: TerminalRuntimeEntry): void {
-  const api = readNativeApi();
-  const pendingResize = entry.pendingResize;
-  if (!api || !pendingResize) return;
-
-  entry.pendingResize = null;
-  entry.lastSentResize = pendingResize;
-  void api.terminal
-    .resize({
-      threadId: entry.threadId,
-      terminalId: entry.terminalId,
-      cols: pendingResize.cols,
-      rows: pendingResize.rows,
-    })
-    .catch(() => {
-      const current = entry.lastSentResize;
-      if (current && current.cols === pendingResize.cols && current.rows === pendingResize.rows) {
-        entry.lastSentResize = null;
-      }
-    });
-}
-
 function queueBackendResize(entry: TerminalRuntimeEntry, cols: number, rows: number): void {
-  const lastSentResize = entry.lastSentResize;
-  const pendingResize = entry.pendingResize;
-  if (
-    (lastSentResize && lastSentResize.cols === cols && lastSentResize.rows === rows) ||
-    (pendingResize && pendingResize.cols === cols && pendingResize.rows === rows)
-  ) {
-    return;
-  }
-  entry.pendingResize = { cols, rows };
-  clearBackendResizeTimer(entry);
-  entry.resizeDispatchTimer = window.setTimeout(() => {
-    entry.resizeDispatchTimer = null;
-    flushPendingResize(entry);
-  }, BACKEND_RESIZE_DEBOUNCE_MS);
+  enqueueTerminalResize(entry, { cols, rows }, () => {
+    const api = readNativeApi();
+    if (!api) return null;
+    return (size) =>
+      api.terminal.resize({
+        threadId: entry.threadId,
+        terminalId: entry.terminalId,
+        cols: size.cols,
+        rows: size.rows,
+      });
+  });
 }
 
 function runTerminalResize(
@@ -810,7 +778,7 @@ export function createRuntimeEntry(config: TerminalRuntimeConfig): TerminalRunti
     opened: false,
     disposed: false,
     resizeObserver: null,
-    resizeDispatchTimer: null,
+    resizeInFlight: false,
     visualResizeFrame: null,
     visualResizeTimer: null,
     lastVisualResizeAt: 0,
@@ -1070,12 +1038,12 @@ export function createRuntimeEntry(config: TerminalRuntimeConfig): TerminalRunti
           return;
         }
         entry.hasHandledExit = true;
-        window.setTimeout(() => {
-          if (!entry.hasHandledExit) {
+        terminal.write("", () => {
+          if (entry.disposed || !entry.hasHandledExit) {
             return;
           }
           entry.callbacks.onSessionExited();
-        }, 0);
+        });
       }
     },
   );
@@ -1195,7 +1163,6 @@ export function detachRuntimeFromContainer(entry: TerminalRuntimeEntry): void {
   stopVisibilityRecovery(entry);
   disposeWebglAddon(entry);
   clearAttachDisposables(entry);
-  clearBackendResizeTimer(entry);
   entry.pendingResize = null;
   entry.lastSentResize = null;
   entry.lastVisualResizeAt = 0;
