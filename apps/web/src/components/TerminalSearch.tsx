@@ -4,7 +4,7 @@
 // Exports: TerminalSearch
 
 import type { SearchAddon, ISearchOptions } from "@xterm/addon-search";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { IconButton } from "~/components/ui/icon-button";
 import { ChevronDownIcon, ChevronUpIcon, XIcon } from "~/lib/icons";
 import { cn } from "~/lib/utils";
@@ -23,20 +23,21 @@ const SEARCH_DECORATIONS = {
   activeMatchBorder: "#ffd33d",
   activeMatchColorOverviewRuler: "#ffd33d",
 } satisfies NonNullable<ISearchOptions["decorations"]>;
-const SEARCH_DEBOUNCE_MS = 90;
 
 export function TerminalSearch({ searchAddon, isOpen, onClose }: TerminalSearchProps) {
   const inputRef = useRef<HTMLInputElement>(null);
-  const searchTimerRef = useRef<number | null>(null);
   const [query, setQuery] = useState("");
   const [hasResults, setHasResults] = useState<boolean | null>(null);
   const [caseSensitive, setCaseSensitive] = useState(false);
 
-  const searchOptions: ISearchOptions = {
-    caseSensitive,
-    regex: false,
-    decorations: SEARCH_DECORATIONS as NonNullable<ISearchOptions["decorations"]>,
-  };
+  const searchOptions: ISearchOptions = useMemo(
+    () => ({
+      caseSensitive,
+      regex: false,
+      decorations: SEARCH_DECORATIONS,
+    }),
+    [caseSensitive],
+  );
 
   useEffect(() => {
     if (isOpen && inputRef.current) {
@@ -51,68 +52,32 @@ export function TerminalSearch({ searchAddon, isOpen, onClose }: TerminalSearchP
     }
   }, [isOpen, searchAddon]);
 
+  useEffect(() => {
+    if (!searchAddon) return;
+    const subscription = searchAddon.onDidChangeResults(({ resultCount }) => {
+      setHasResults(resultCount > 0);
+    });
+    return () => subscription.dispose();
+  }, [searchAddon]);
+
   const handleSearch = (direction: "next" | "previous") => {
     if (!searchAddon || !query) return;
-    if (searchTimerRef.current !== null) {
-      window.clearTimeout(searchTimerRef.current);
-      searchTimerRef.current = null;
-    }
-    const found =
-      direction === "next"
-        ? searchAddon.findNext(query, searchOptions)
-        : searchAddon.findPrevious(query, searchOptions);
-    setHasResults(found);
-  };
-
-  const clearSearchTimer = () => {
-    if (searchTimerRef.current === null) return;
-    window.clearTimeout(searchTimerRef.current);
-    searchTimerRef.current = null;
-  };
-
-  const scheduleSearch = (nextQuery: string) => {
-    clearSearchTimer();
-    if (!searchAddon || !nextQuery) {
-      setHasResults(null);
-      searchAddon?.clearDecorations();
-      return;
-    }
-
-    searchTimerRef.current = window.setTimeout(() => {
-      searchTimerRef.current = null;
-      setHasResults(searchAddon.findNext(nextQuery, searchOptions));
-    }, SEARCH_DEBOUNCE_MS);
+    if (direction === "next") searchAddon.findNext(query, searchOptions);
+    else searchAddon.findPrevious(query, searchOptions);
   };
 
   const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const newQuery = e.target.value;
     setQuery(newQuery);
-    scheduleSearch(newQuery);
+    if (!searchAddon || !newQuery) {
+      searchAddon?.clearDecorations();
+      setHasResults(null);
+    }
   };
 
-  // Re-run search when case sensitivity or search addon changes
-  // (but not on query change — handleInputChange handles that).
-  const prevCaseSensitiveRef = useRef(caseSensitive);
-  const prevSearchAddonRef = useRef<SearchAddon | null>(searchAddon);
   useEffect(() => {
-    const caseSensitivityChanged = prevCaseSensitiveRef.current !== caseSensitive;
-    const searchAddonChanged = prevSearchAddonRef.current !== searchAddon;
-    if (!caseSensitivityChanged && !searchAddonChanged) return;
-
-    prevCaseSensitiveRef.current = caseSensitive;
-    prevSearchAddonRef.current = searchAddon;
-    if (searchAddon && query) {
-      // Inline debounce (rather than scheduleSearch) so every state write in
-      // this effect happens inside the timer, keeping it compiler-eligible.
-      clearSearchTimer();
-      searchTimerRef.current = window.setTimeout(() => {
-        searchTimerRef.current = null;
-        setHasResults(searchAddon.findNext(query, searchOptions));
-      }, SEARCH_DEBOUNCE_MS);
-    }
-  }, [searchAddon, query, clearSearchTimer, caseSensitive, searchOptions]);
-
-  useEffect(() => () => clearSearchTimer(), [clearSearchTimer]);
+    if (searchAddon && query) searchAddon.findNext(query, searchOptions);
+  }, [searchAddon, query, searchOptions]);
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === "Escape") {
