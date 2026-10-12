@@ -31,6 +31,7 @@ import { ProviderLaunchResolver } from "../../provider/Services/ProviderLaunchRe
 import { ProviderService } from "../../provider/Services/ProviderService.ts";
 import { ProviderNativeStateMaterializer } from "../../provider/Services/ProviderNativeStateMaterializer.ts";
 import { ProviderNativeStateMaterializerLive } from "../../provider/Layers/ProviderNativeStateMaterializer.ts";
+import { ProviderTurnSelectionResolver } from "../../provider/Services/ProviderTurnSelectionResolver.ts";
 import { ProviderTurnSelectionResolverLive } from "../../provider/Layers/ProviderTurnSelectionResolver.ts";
 import { providerNativeStateRoot } from "../../provider/providerNativeStatePaths.ts";
 import { ServerSettingsService } from "../../serverSettings.ts";
@@ -157,6 +158,8 @@ const fixture = Effect.fn(function* (
   const sql = yield* SqlClient.SqlClient;
   const publisher = yield* ThreadPublisher;
   const materializer = yield* ProviderNativeStateMaterializer;
+  const resolver = yield* ProviderTurnSelectionResolver;
+  const authorizations: Parameters<typeof resolver.authorizeConnection>[0][] = [];
   const threadId = ThreadId.makeUnsafe(randomUUID());
   const folderId = FolderId.makeUnsafe(randomUUID());
   const nativeStateId = options.native === false ? null : randomUUID();
@@ -199,6 +202,13 @@ const fixture = Effect.fn(function* (
       publisher.publish({ threadId });
     });
   const coordinator = yield* makeProviderThreadSwitchCoordinator.pipe(
+    Effect.provideService(ProviderTurnSelectionResolver, {
+      ...resolver,
+      authorizeConnection: (input) =>
+        Effect.sync(() => {
+          authorizations.push(input);
+        }).pipe(Effect.andThen(resolver.authorizeConnection(input))),
+    }),
     Effect.provideService(ThreadPublisher, {
       ...publisher,
       subscribe: (id, callback) => {
@@ -280,6 +290,7 @@ const fixture = Effect.fn(function* (
     read,
     settle,
     subscribed,
+    authorizations,
     sent: () => sent,
     context: () => context,
     failDispatch: () => {
@@ -384,6 +395,7 @@ layer("canonical turn selection", (it) => {
       assert.strictEqual((yield* f.read()).connectionId, sourceConnectionId);
     }),
   );
+
   it.effect("rejects an unavailable steering account before interrupting", () =>
     Effect.gen(function* () {
       const f = yield* fixture("opencode", { running: true });
@@ -431,6 +443,41 @@ layer("canonical turn selection", (it) => {
       }),
     );
   }
+  for (const dispatch of ["explicit", "queued"] as const) {
+    it.effect(`passes the ${dispatch} selection intact to the account pre-check`, () =>
+      Effect.gen(function* () {
+        const f = yield* fixture("codex", { running: true });
+        const selection = { provider: "codex" as const, model: modelFor("codex", true) };
+        const before = modelDiscoveryCalls;
+        const operation =
+          dispatch === "explicit"
+            ? f.send({ modelSelection: selection })
+            : f.coordinator.dispatchQueuedTurn({
+                command: {
+                  type: "thread.turn.dispatch-queued",
+                  commandId: CommandId.makeUnsafe(randomUUID()),
+                  threadId: f.threadId,
+                  messageId: MessageId.makeUnsafe(randomUUID()),
+                  modelSelection: selection,
+                  connectionId: targetConnectionId,
+                  runtimeMode: "full-access",
+                  dispatchMode: "queue",
+                  createdAt: timestamp,
+                },
+                attachmentPrincipal: LOCAL_LOOPBACK_ATTACHMENT_PRINCIPAL,
+              });
+        const waiting = yield* operation.pipe(Effect.forkChild);
+        yield* Deferred.await(f.subscribed);
+        assert.strictEqual(f.authorizations[0]?.modelSelection, selection);
+        assert.equal(modelDiscoveryCalls - before, 0);
+        yield* f.settle();
+        yield* Fiber.join(waiting);
+        assert.equal(modelDiscoveryCalls - before, 1);
+        assert.strictEqual((yield* f.read()).model, selection.model);
+      }),
+    );
+  }
+
   it.effect("pre-authorizes a running account switch without reading a model catalog", () =>
     Effect.gen(function* () {
       const f = yield* fixture("codex", { running: true });

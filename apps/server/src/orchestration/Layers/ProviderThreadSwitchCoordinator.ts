@@ -109,12 +109,7 @@ export const makeProviderThreadSwitchCoordinator = Effect.gen(function* () {
       yield* resolver
         .authorizeConnection({
           harness: thread.provider,
-          modelSelection:
-            input.command.modelSelection ??
-            Schema.decodeUnknownSync(ModelSelection)({
-              provider: thread.provider,
-              model: thread.model,
-            }),
+          modelSelection: modelSelection ?? { provider: thread.provider, model: thread.model },
           connectionId:
             input.command.connectionId === undefined
               ? thread.connectionId
