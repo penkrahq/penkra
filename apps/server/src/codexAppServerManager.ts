@@ -179,6 +179,12 @@ interface CodexAccountProcess {
     { turnId: TurnId | null; resolve: (success: boolean) => void; reject: (cause: Error) => void }
   >;
   stopping: boolean;
+  protocolClosed: boolean;
+  terminationPromise?: Promise<unknown>;
+  treeExitProven?: true;
+  processClosed?: true;
+  closePromise?: Promise<void>;
+  protocolFailure?: Error;
   stopPromise?: Promise<void>;
 
   account: CodexAccountSnapshot;
@@ -189,8 +195,8 @@ interface CodexAccountProcess {
   stderrTail?: string;
   lastRequestMethod?: string;
   transportFailureHandled?: boolean;
-  stdoutEndTimer?: ReturnType<typeof setTimeout>;
   detachStdout?: () => void;
+  detachProcessListeners?: () => void;
   pending: Map<PendingRequestKey, PendingRequest>;
   mcpStartupStatuses: Map<string, McpStartupStatusEntry>;
   reportedMcpStartupFailures: Set<string>;
@@ -379,7 +385,6 @@ const CODEX_STDERR_LOG_REGEX =
 const BENIGN_PROCESS_OUTPUT_REGEXES = [/^(?:\^C)?Token usage:/i];
 const CODEX_PENDING_SETTLE_DEADLINE_MS = 2_000;
 const CODEX_STDERR_TAIL_MAX_BYTES = 64 * 1024;
-const CODEX_STDOUT_END_GRACE_MS = 100;
 const CODEX_MISSING_TOOL_OUTPUT_REGEX =
   /Custom tool call output is missing for call id:\s*([^\s,;]+)/;
 
@@ -2560,6 +2565,7 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
     return (
       !context.stopping &&
       !context.transport.stopping &&
+      !context.transport.protocolClosed &&
       context.session.status !== "closed" &&
       context.transport.child.exitCode === null &&
       context.transport.child.signalCode === null &&
@@ -2668,7 +2674,14 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
     const existing = this.accountProcesses.get(input.key);
     if (existing) {
       const transport = await existing.process;
-      if (!transport.stopping) {
+      if (transport.protocolClosed && !transport.stopping) {
+        await this.terminateAccountProcess(transport);
+        // attachProcessListeners installs this native-close promise before any
+        // request is admitted. Acquisition cannot take requested-stop ownership.
+        await transport.closePromise;
+        return this.getOrCreateAccountProcess(input);
+      }
+      if (!transport.stopping && !transport.protocolClosed) {
         if (input.connectionId !== null) transport.connectionIds.add(input.connectionId);
         return transport;
       }
@@ -2707,6 +2720,7 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
       probes: new Map(),
       pendingCloses: new Map(),
       stopping: false,
+      protocolClosed: false,
       account: { type: "unknown", planType: null, sparkEnabled: true },
       child,
       binaryPath: input.binaryPath,
@@ -2733,6 +2747,29 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
     }
   }
 
+  private terminateAccountProcess(transport: CodexAccountProcess): Promise<unknown> {
+    if (transport.terminationPromise) return transport.terminationPromise;
+    const termination = teardownChildProcessTree(transport.child, this.teardownProcessTree).then(
+      (result) => {
+        transport.treeExitProven = true;
+        if (
+          transport.processClosed &&
+          this.accountProcesses.get(transport.key)?.token === transport.token
+        )
+          this.accountProcesses.delete(transport.key);
+        return result;
+      },
+      (cause) => {
+        if (transport.terminationPromise === termination) delete transport.terminationPromise;
+        throw cause instanceof Error
+          ? cause
+          : new Error("Codex process-tree exit proof failed", { cause });
+      },
+    );
+    transport.terminationPromise = termination;
+    return termination;
+  }
+
   private async closeAccountProcess(transport: CodexAccountProcess): Promise<void> {
     if (transport.stopPromise) return transport.stopPromise;
     transport.stopping = true;
@@ -2750,11 +2787,10 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
       }
       this.rejectPendingRequests(transport, new Error("Codex account process stopped"), null);
       transport.detachStdout?.();
-      if (transport.stdoutEndTimer) clearTimeout(transport.stdoutEndTimer);
       if (transport.stderrRecordFlushTimer) clearTimeout(transport.stderrRecordFlushTimer);
       transport.stdinWriter.close(new Error("Codex account process stopped"));
       try {
-        await teardownChildProcessTree(transport.child, this.teardownProcessTree);
+        await this.terminateAccountProcess(transport);
         await Promise.all(
           Array.from(transport.threads, (context) => this.finishThreadClose(context)),
         );
@@ -2778,6 +2814,10 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
   }
 
   private attachProcessListeners(transport: CodexAccountProcess): void {
+    let resolveClose!: () => void;
+    transport.closePromise = new Promise<void>((resolve) => {
+      resolveClose = resolve;
+    });
     const onStdoutData = (chunk: Buffer) => {
       if (transport.stopping) return;
       try {
@@ -2797,22 +2837,14 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
       if (transport.stopping) return;
       try {
         transport.stdoutFramer.finish();
-        // stdout commonly closes immediately before `exit`/`close`. Give stderr
-        // and the child's exit status one event-loop beat to land so the real
-        // process failure is not replaced by a generic read-closed error.
-        transport.stdoutEndTimer = setTimeout(() => {
-          delete transport.stdoutEndTimer;
-          if (transport.stopping || transport.transportFailureHandled) return;
-          this.handleTransportFailure(
-            transport,
-            new CodexAppServerTransportError({
-              reason: "read-closed",
-              maxBytes: transport.stdoutFramer.maxFrameBytes,
-              observedBytes: 0,
-            }),
-          );
-        }, CODEX_STDOUT_END_GRACE_MS);
-        transport.stdoutEndTimer.unref?.();
+        this.handleTransportFailure(
+          transport,
+          new CodexAppServerTransportError({
+            reason: "read-closed",
+            maxBytes: transport.stdoutFramer.maxFrameBytes,
+            observedBytes: 0,
+          }),
+        );
       } catch (cause) {
         this.handleTransportFailure(transport, cause);
       }
@@ -2826,7 +2858,7 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
       delete transport.detachStdout;
     };
 
-    transport.child.stderr.on("data", (chunk: Buffer) => {
+    const onStderrData = (chunk: Buffer) => {
       appendCodexStderrTail(transport, chunk);
       if (transport.stopping) {
         return;
@@ -2835,80 +2867,141 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
         this.ingestCodexStderrLine(transport, rawLine);
       }
       this.scheduleCodexStderrRecordFlush(transport);
-    });
-    transport.child.stderr.once("end", () => {
+    };
+    const onStderrEnd = () => {
       for (const rawLine of transport.stderrLineFramer.finish()) {
         this.ingestCodexStderrLine(transport, rawLine);
       }
       this.flushCodexStderrRecord(transport);
-    });
-
-    transport.child.on("error", (error) => {
+    };
+    const onProcessError = (error: Error) => {
       this.flushCodexStderrRecord(transport);
       this.handleTransportFailure(transport, error);
-    });
-
-    transport.child.on("exit", (code, signal) => {
-      const closeError = new Error(
-        formatCodexProcessFailure(transport, "process-exit", code, signal),
-      );
-      for (const waiter of transport.pendingCloses.values()) waiter.reject(closeError);
-      transport.pendingCloses.clear();
+    };
+    const onProcessExit = (code: number | null, signal: NodeJS.Signals | null) => {
       if (transport.stopping) {
+        const error = new Error(formatCodexProcessFailure(transport, "process-exit", code, signal));
+        for (const waiter of transport.pendingCloses.values()) waiter.reject(error);
+        transport.pendingCloses.clear();
         return;
       }
-
+      // Unexpected protocol closure owns reporting after stdio drains. Ordinary
+      // exit keeps the existing immediate lifecycle notification.
+      if (!transport.protocolClosed)
+        this.reportAccountProcessCompletion(transport, { kind: "exit", code, signal });
+    };
+    const onProcessClose = (code: number | null, signal: NodeJS.Signals | null) => {
+      for (const rawLine of transport.stderrLineFramer.finish()) {
+        this.ingestCodexStderrLine(transport, rawLine);
+      }
       this.flushCodexStderrRecord(transport);
-
-      if (transport.stdoutEndTimer) {
-        clearTimeout(transport.stdoutEndTimer);
-        delete transport.stdoutEndTimer;
-      }
-      if (transport.transportFailureHandled) return;
-      transport.transportFailureHandled = true;
-
+      transport.processClosed = true;
+      this.reportAccountProcessCompletion(transport, { kind: "exit", code, signal });
+      // Requested stop owns finishThreadClose and its cut-off lifecycle event
+      // after tree proof. Native close must not retire those contexts first.
+      if (!transport.stopping) this.releaseAccountProcess(transport);
+      transport.stdinWriter.close(new Error("Codex account process closed."));
+      transport.detachProcessListeners?.();
+      resolveClose();
+    };
+    transport.child.stderr.on("data", onStderrData);
+    transport.child.stderr.once("end", onStderrEnd);
+    transport.child.on("error", onProcessError);
+    transport.child.on("exit", onProcessExit);
+    transport.child.on("close", onProcessClose);
+    transport.detachProcessListeners = () => {
       transport.detachStdout?.();
-      const message = formatCodexProcessFailure(transport, "process-exit", code, signal);
-      const exitError = new Error(message);
-      transport.stdinWriter.close(exitError);
-      this.rejectPendingRequests(transport, exitError, null);
-      for (const probe of transport.probes.values()) probe.reject(exitError);
-      transport.probes.clear();
+      transport.child.stderr.off("data", onStderrData);
+      transport.child.stderr.off("end", onStderrEnd);
+      transport.child.off("error", onProcessError);
+      transport.child.off("exit", onProcessExit);
+      transport.child.off("close", onProcessClose);
+      delete transport.detachProcessListeners;
+    };
+  }
+
+  private reportAccountProcessCompletion(
+    transport: CodexAccountProcess,
+    outcome:
+      | { kind: "exit"; code: number | null; signal: NodeJS.Signals | null }
+      | { kind: "termination-failed"; error: Error },
+  ): void {
+    if (transport.stopping || transport.transportFailureHandled) return;
+    transport.transportFailureHandled = true;
+    this.flushCodexStderrRecord(transport);
+    const message =
+      outcome.kind === "exit"
+        ? formatCodexProcessFailure(
+            transport,
+            transport.protocolFailure?.message ?? "process-exit",
+            outcome.code,
+            outcome.signal,
+          )
+        : formatCodexProcessFailure(transport, outcome.error.message);
+    const error =
+      outcome.kind === "exit"
+        ? new Error(message, { cause: transport.protocolFailure })
+        : outcome.error;
+    if (outcome.kind === "termination-failed") error.message = message;
+    for (const waiter of transport.pendingCloses.values()) waiter.reject(error);
+    transport.pendingCloses.clear();
+    this.rejectPendingRequests(transport, error, null);
+    for (const probe of transport.probes.values()) probe.reject(error);
+    transport.probes.clear();
+    if (outcome.kind === "termination-failed") {
       for (const context of transport.threads) {
-        this.clearTaskCompleteFallback(context);
-        context.gatewaySessionLease?.release();
-        context.pendingUserInputs.clear();
-        void this.clearTemporaryResources(context);
-        this.updateSession(context, {
-          status: "closed",
-          activeTurnId: undefined,
-          lastError: code === 0 ? context.session.lastError : message,
-        });
-        this.emitLifecycleEvent(context, "session/exited", message);
-        this.sessions.delete(context.session.threadId);
+        this.updateSession(context, { status: "error", lastError: message });
+        this.emitErrorEvent(context, "protocol/transportError", message);
       }
-      transport.threads.clear();
-      if (this.accountProcesses.get(transport.key)?.token === transport.token)
-        this.accountProcesses.delete(transport.key);
-    });
+      return;
+    }
+    transport.stdinWriter.close(error);
+    for (const context of transport.threads) {
+      this.updateSession(context, {
+        status: "closed",
+        activeTurnId: undefined,
+        lastError:
+          outcome.code === 0 && !transport.protocolClosed ? context.session.lastError : message,
+      });
+      this.emitLifecycleEvent(context, "session/exited", message);
+    }
+    this.releaseAccountProcess(transport);
+  }
+
+  private releaseAccountProcess(transport: CodexAccountProcess): void {
+    transport.detachStdout?.();
+    for (const context of transport.threads) {
+      this.clearTaskCompleteFallback(context);
+      context.gatewaySessionLease?.release();
+      context.pendingUserInputs.clear();
+      void this.clearTemporaryResources(context);
+      this.sessions.delete(context.session.threadId);
+    }
+    transport.threads.clear();
+    // A direct child's close is not proof that its descendants exited. Keep
+    // the existing replacement barrier until the shared tree teardown succeeds.
+    if (
+      (!transport.protocolClosed || transport.treeExitProven) &&
+      this.accountProcesses.get(transport.key)?.token === transport.token
+    )
+      this.accountProcesses.delete(transport.key);
   }
 
   private handleTransportFailure(transport: CodexAccountProcess, cause: unknown): void {
-    if (transport.stopping || transport.transportFailureHandled) return;
-    transport.transportFailureHandled = true;
-    const error =
+    if (transport.stopping || transport.protocolClosed || transport.transportFailureHandled) return;
+    transport.protocolClosed = true;
+    transport.protocolFailure =
       cause instanceof Error ? cause : new Error("Codex app-server transport failed", { cause });
-    const message = formatCodexProcessFailure(transport, error.message);
-    this.rejectPendingRequests(transport, new Error(message, { cause: error }), null);
-    for (const context of transport.threads) {
-      this.updateSession(context, { status: "error", lastError: message });
-      this.emitErrorEvent(context, "protocol/transportError", message);
-    }
-    void this.closeAccountProcess(transport).catch((stopError) => {
-      log.error("failed to stop Codex account process after transport error", {
-        key: transport.key,
-        error: stopError,
-      });
+    // Existing requests receive the single final stderr/exit error, rather than
+    // a timer or a write failure racing the native close notification.
+    for (const pending of transport.pending.values()) clearTimeout(pending.timeout);
+    transport.detachStdout?.();
+    void this.terminateAccountProcess(transport).catch((cause) => {
+      const error =
+        cause instanceof Error
+          ? cause
+          : new Error("Codex process-tree exit proof failed", { cause });
+      this.reportAccountProcessCompletion(transport, { kind: "termination-failed", error });
     });
   }
 
@@ -3700,6 +3793,7 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
     timeoutMs = 20_000,
     signal?: AbortSignal,
   ): Promise<TResponse> {
+    if (transport.protocolClosed) throw new Error("Codex account protocol is closed.");
     if (signal?.aborted) {
       throw new Error(`Cancelled ${method} because Codex session startup was interrupted.`);
     }
@@ -3742,6 +3836,8 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
         return;
       }
       void this.writeMessage(transport, { method, id, params }).catch((error) => {
+        if (transport.protocolClosed && !transport.stopping && !transport.transportFailureHandled)
+          return;
         transport.pending.delete(String(id));
         cleanup();
         reject(error);
@@ -3752,6 +3848,8 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
   }
 
   private writeMessage(transport: CodexAccountProcess, message: unknown): Promise<void> {
+    if (transport.protocolClosed)
+      return Promise.reject(new Error("Codex account protocol is closed."));
     return transport.stdinWriter.write(message).catch((cause) => {
       this.handleTransportFailure(transport, cause);
       throw cause;
