@@ -19,6 +19,25 @@ export default Effect.gen(function* () {
   const removed = (yield* sql<{ workingDirectories: number; deckMemberships: number }>`
     SELECT COUNT(working_directory) AS workingDirectories,
       COUNT(deck_id) AS deckMemberships FROM threads`)[0]!;
+  const folderRoots = (yield* sql<{ adoptedFolderRoots: number; conflictingFolders: number }>`
+    SELECT COUNT(CASE WHEN paths = 1 THEN 1 END) AS adoptedFolderRoots,
+      COUNT(CASE WHEN paths > 1 THEN 1 END) AS conflictingFolders
+    FROM (
+      SELECT COUNT(DISTINCT t.working_directory) AS paths
+      FROM projection_folders f JOIN threads t ON t.folder_id = f.folder_id
+      WHERE f.workspace_root IS NULL AND t.deleted_at IS NULL
+        AND t.working_directory IS NOT NULL
+      GROUP BY f.folder_id
+    )`)[0]!;
+  yield* sql`UPDATE projection_folders SET workspace_root = (
+      SELECT MIN(t.working_directory) FROM threads t
+      WHERE t.folder_id = projection_folders.folder_id
+        AND t.deleted_at IS NULL AND t.working_directory IS NOT NULL
+    ) WHERE workspace_root IS NULL AND (
+      SELECT COUNT(DISTINCT t.working_directory) FROM threads t
+      WHERE t.folder_id = projection_folders.folder_id
+        AND t.deleted_at IS NULL AND t.working_directory IS NOT NULL
+    ) = 1`;
   // Bindings depend on harness rows; save both before dropping either table.
   // thread_items has no foreign key to threads and stays in place with its FTS index.
   yield* sql`CREATE TEMP TABLE folder_owned_harness AS SELECT * FROM thread_harness_states`;
@@ -254,6 +273,8 @@ export default Effect.gen(function* () {
   }
   yield* Effect.logInfo("Migrated folder-owned threads", {
     rows: after,
+    adoptedFolderRoots: folderRoots.adoptedFolderRoots,
+    conflictingFolders: folderRoots.conflictingFolders,
     removedWorkingDirectories: removed.workingDirectories,
     removedDeckMemberships: removed.deckMemberships,
   });

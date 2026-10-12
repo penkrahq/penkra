@@ -89,3 +89,49 @@ it.effect(
       assert.deepStrictEqual(yield* sql`SELECT * FROM notices`, []);
     }).pipe(Effect.provide(NodeSqliteClient.layerMemory())),
 );
+
+it.effect("adopts only a folder's one agreed live thread directory", () =>
+  Effect.gen(function* () {
+    const sql = yield* SqlClient.SqlClient;
+    yield* runMigrations({ toMigrationInclusive: 182 });
+    const now = "2026-10-10T00:00:00.000Z";
+    for (const [id, root] of [
+      ["adopt", null],
+      ["existing", "/chosen"],
+      ["conflict", null],
+      ["empty", null],
+    ] as const) {
+      yield* sql`INSERT INTO projection_folders (folder_id, title, workspace_root, scripts_json, space_id, created_at, updated_at)
+        VALUES (${id}, ${id}, ${root}, '[]', 'penkra-personal', ${now}, ${now})`;
+    }
+    for (const [id, folder, directory, deleted] of [
+      ["adopt-one", "adopt", "/missing-on-disk", null],
+      ["adopt-two", "adopt", "/missing-on-disk", null],
+      ["adopt-null", "adopt", null, null],
+      ["adopt-deleted", "adopt", "/ignored", now],
+      ["existing-one", "existing", "/other", null],
+      ["conflict-one", "conflict", "/one", null],
+      ["conflict-two", "conflict", "/two", null],
+      ["empty-one", "empty", null, null],
+    ] as const) {
+      yield* sql`INSERT INTO threads (id, space_id, folder_id, title, provider, model, runtime_mode, state, created_by,
+        working_directory, deleted_at, created_at, updated_at)
+        VALUES (${id}, 'penkra-personal', ${folder}, ${id}, 'codex', 'gpt-5.5', 'full-access', 'idle', 'user',
+          ${directory}, ${deleted}, ${now}, ${now})`;
+    }
+    const before = yield* sql`SELECT id FROM threads ORDER BY id`;
+    yield* runMigrations();
+    assert.deepStrictEqual(
+      yield* sql`SELECT folder_id, workspace_root FROM projection_folders
+      WHERE folder_id IN ('adopt', 'existing', 'conflict', 'empty') ORDER BY folder_id`,
+      [
+        { folder_id: "adopt", workspace_root: "/missing-on-disk" },
+        { folder_id: "conflict", workspace_root: null },
+        { folder_id: "empty", workspace_root: null },
+        { folder_id: "existing", workspace_root: "/chosen" },
+      ],
+    );
+    assert.deepStrictEqual(yield* sql`SELECT id FROM threads ORDER BY id`, before);
+    assert.deepStrictEqual(yield* sql`PRAGMA foreign_key_check`, []);
+  }).pipe(Effect.provide(NodeSqliteClient.layerMemory())),
+);
