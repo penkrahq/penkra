@@ -5,7 +5,11 @@
 // Depends on: voiceTranscription utility and mocked fetch responses.
 
 import { ProviderConnectionId, type ServerVoiceTranscriptionInput } from "@penkra/contracts";
-import { outboundHttp, type OutboundHttpResponse } from "@penkra/shared/outboundHttp";
+import {
+  outboundHttp,
+  OutboundHttpError,
+  type OutboundHttpResponse,
+} from "@penkra/shared/outboundHttp";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { transcribeVoiceWithChatGptSession } from "./voiceTranscription";
@@ -47,8 +51,20 @@ describe("transcribeVoiceWithChatGptSession", () => {
     });
 
     const outbound = request.mock.calls[0]?.[0];
+    expect(outbound?.policy.deadlineMs).toBe(30_000);
     expect(outbound?.url).toBe("https://chatgpt.com/backend-api/transcribe");
     expect(new TextDecoder().decode(outbound?.body as Uint8Array)).not.toContain('name="model"');
+  });
+
+  it("surfaces a typed deadline without retrying or refreshing auth", async () => {
+    const timeout = new OutboundHttpError("timeout", "Voice transcription exceeded its deadline.");
+    const request = vi.spyOn(outboundHttp, "request").mockRejectedValue(timeout);
+    const resolveAuth = vi.fn(async () => ({ token: "chatgpt-token" }));
+    await expect(
+      transcribeVoiceWithChatGptSession({ request: baseRequest, resolveAuth }),
+    ).rejects.toBe(timeout);
+    expect(request).toHaveBeenCalledOnce();
+    expect(resolveAuth).toHaveBeenCalledExactlyOnceWith(false);
   });
 
   it("refreshes the ChatGPT session once when the upload is unauthorized", async () => {

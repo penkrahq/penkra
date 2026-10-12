@@ -8,6 +8,8 @@ import { createHash } from "node:crypto";
 import nodePath from "node:path";
 import { promisify } from "node:util";
 
+import { OutboundHttpError } from "@penkra/shared/outboundHttp";
+
 import type {
   ServerProviderUsageLimit,
   ServerProviderUsageLine,
@@ -15,7 +17,13 @@ import type {
 } from "@penkra/contracts";
 
 import { readJsonFile, refreshOAuthAccessToken } from "../credentials";
-import { fetchJson, isAuthFailureStatus, isRateLimitStatus, parseRetryAfterMs } from "../http";
+import {
+  fetchJson,
+  isAuthFailureStatus,
+  isRateLimitStatus,
+  parseRetryAfterMs,
+  USAGE_FETCH_DEADLINE_MS,
+} from "../http";
 import {
   asFiniteNumber,
   asRecord,
@@ -426,23 +434,26 @@ export const claudeUsageFetcher: ProviderUsageFetcher = {
       }
 
       const rateLimitKey = claudeCredentialCacheKey(ctx, creds);
-      let activeCreds = creds;
-      if (shouldRefreshClaudeCreds(activeCreds, ctx.nowMs)) {
-        const refreshed = await refreshClaudeCreds(activeCreds);
-        if (refreshed) {
-          activeCreds = refreshed;
-        } else if (activeCreds.expiresAtMs !== undefined && activeCreds.expiresAtMs <= ctx.nowMs) {
-          continue;
-        }
-      }
-
-      // Inside an active rate-limit cooldown, skip only for the credential that originally hit it.
-      const cooldownSnapshot = claudeRateLimit.serveDuringCooldown(rateLimitKey, ctx.nowMs);
-      if (cooldownSnapshot) {
-        return cooldownSnapshot;
-      }
-
       try {
+        let activeCreds = creds;
+        if (shouldRefreshClaudeCreds(activeCreds, ctx.nowMs)) {
+          const refreshed = await refreshClaudeCreds(activeCreds);
+          if (refreshed) {
+            activeCreds = refreshed;
+          } else if (
+            activeCreds.expiresAtMs !== undefined &&
+            activeCreds.expiresAtMs <= ctx.nowMs
+          ) {
+            continue;
+          }
+        }
+
+        // Inside an active rate-limit cooldown, skip only for the credential that originally hit it.
+        const cooldownSnapshot = claudeRateLimit.serveDuringCooldown(rateLimitKey, ctx.nowMs);
+        if (cooldownSnapshot) {
+          return cooldownSnapshot;
+        }
+
         let result = await fetchClaudeUsage(activeCreds.accessToken);
         if (isAuthFailureStatus(result.status) && activeCreds.refreshToken) {
           const refreshed = await refreshClaudeCreds(activeCreds);
@@ -480,7 +491,10 @@ export const claudeUsageFetcher: ProviderUsageFetcher = {
         });
         claudeRateLimit.rememberLastGood(rateLimitKey, snapshot);
         return snapshot;
-      } catch {
+      } catch (cause) {
+        if (cause instanceof OutboundHttpError && cause.code === "timeout") {
+          return errorSnapshot("claudeAgent", ctx.nowMs, SOURCE, cause.message);
+        }
         lastErrorSnapshot = errorSnapshot(
           "claudeAgent",
           ctx.nowMs,
@@ -502,6 +516,7 @@ export const claudeUsageFetcher: ProviderUsageFetcher = {
 function fetchClaudeUsage(accessToken: string) {
   return fetchJson({
     service: "provider-usage-claude",
+    deadlineMs: USAGE_FETCH_DEADLINE_MS,
     url: USAGE_URL,
     allowedOrigins: [new URL(USAGE_URL).origin],
     headers: {

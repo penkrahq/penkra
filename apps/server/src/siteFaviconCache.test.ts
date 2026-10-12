@@ -3,11 +3,17 @@
 //          underpins domain-level dedup (every URL on a site shares one cache key).
 // Layer: Server utility tests
 
-import { outboundHttp, type OutboundHttpResponse } from "@penkra/shared/outboundHttp";
+import {
+  outboundHttp,
+  OutboundHttpError,
+  type OutboundHttpResponse,
+} from "@penkra/shared/outboundHttp";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
   clearSiteFaviconCache,
+  FAVICON_SOURCE_DEADLINE_MS,
+  FAVICON_DIRECT_SOURCE_DEADLINE_MS,
   normalizeFaviconHost,
   resolveFavicon,
   tryParseHost,
@@ -70,10 +76,41 @@ describe("resolveFavicon", () => {
     expect(favicon.bytes).toEqual(new Uint8Array([1, 2, 3]));
     expect(request.mock.calls[0]?.[0].policy).toMatchObject({
       service: "site-favicon",
+      deadlineMs: FAVICON_SOURCE_DEADLINE_MS,
       allowedOrigins: ["https://www.google.com"],
       maxResponseBytes: 512 * 1024,
       requirePublicAddress: true,
     });
+  });
+
+  it("falls through to the next favicon source after a typed timeout", async () => {
+    const request = vi
+      .spyOn(outboundHttp, "request")
+      .mockRejectedValueOnce(
+        new OutboundHttpError("timeout", "Favicon source exceeded its deadline."),
+      )
+      .mockResolvedValueOnce({
+        ...imageResponse,
+        url: "https://icons.duckduckgo.com/ip3/example.com.ico",
+      });
+    const favicon = await resolveFavicon("example.com");
+    expect(favicon.bytes).toEqual(imageResponse.body);
+    expect(request).toHaveBeenCalledTimes(2);
+    expect(
+      request.mock.calls.map(([input]) => ({
+        url: String(input.url),
+        deadlineMs: input.policy.deadlineMs,
+      })),
+    ).toEqual([
+      {
+        url: "https://www.google.com/s2/favicons?domain=example.com&sz=64",
+        deadlineMs: FAVICON_SOURCE_DEADLINE_MS,
+      },
+      {
+        url: "https://icons.duckduckgo.com/ip3/example.com.ico",
+        deadlineMs: FAVICON_SOURCE_DEADLINE_MS,
+      },
+    ]);
   });
 
   it("pins the direct fallback to the requested public origin", async () => {
@@ -90,7 +127,10 @@ describe("resolveFavicon", () => {
 
     expect(request.mock.calls[2]?.[0]).toMatchObject({
       url: "https://example.org/favicon.ico",
-      policy: { allowedOrigins: ["https://example.org"] },
+      policy: {
+        allowedOrigins: ["https://example.org"],
+        deadlineMs: FAVICON_DIRECT_SOURCE_DEADLINE_MS,
+      },
     });
   });
 });

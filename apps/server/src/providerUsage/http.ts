@@ -3,6 +3,9 @@
 
 import { decodeOutboundJson, outboundHttp } from "@penkra/shared/outboundHttp";
 
+// Bound a silent usage endpoint so its admission slot and usage result cannot stay pending (3b).
+export const USAGE_FETCH_DEADLINE_MS = 10_000;
+
 export interface FetchJsonResult {
   readonly status: number;
   readonly ok: boolean;
@@ -12,6 +15,7 @@ export interface FetchJsonResult {
 
 export async function fetchJson(input: {
   service: string;
+  deadlineMs: number;
   url: string;
   allowedOrigins: ReadonlyArray<string>;
   method?: "GET" | "POST";
@@ -22,6 +26,7 @@ export async function fetchJson(input: {
   const response = await outboundHttp.request({
     policy: {
       service: input.service,
+      deadlineMs: input.deadlineMs,
       allowedOrigins: input.allowedOrigins,
       maxRequestBytes: 64 * 1024,
       maxResponseBytes: 1024 * 1024,

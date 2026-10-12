@@ -121,6 +121,7 @@ describe("outbound request completion", () => {
   const input = {
     policy: {
       service: "event-completion-test",
+      deadlineMs: 10_000,
       allowedOrigins: ["https://8.8.8.8"],
       maxRequestBytes: 1_024,
       maxResponseBytes: 1_024,
@@ -174,6 +175,91 @@ describe("outbound request completion", () => {
     syncBuiltinESMExports();
   });
 
+  it.each(["response", "body"])(
+    "times out a silent %s and releases its admission slot",
+    async (silentPart) => {
+      const paths: string[] = [];
+      let accept!: () => void;
+      const accepted = new Promise<void>((resolve) => {
+        accept = resolve;
+      });
+      const server = Http.createServer((request, response) => {
+        paths.push(request.url!);
+        if (request.url === "/silent") {
+          if (silentPart === "body") {
+            response.writeHead(200, { "content-type": "application/json", "content-length": "2" });
+            response.write("{");
+          }
+          accept();
+          return;
+        }
+        response.end("{}");
+      });
+      await new Promise<void>((resolve, reject) => {
+        server.once("error", reject);
+        server.listen(0, "127.0.0.1", resolve);
+      });
+      const address = server.address();
+      if (address === null || typeof address === "string")
+        throw new Error("Test server has no TCP port.");
+      // Only the test transport is rerouted to this real local server. URL/DNS/admission,
+      // deadline, abort and slot release still execute in the production client.
+      const start = (
+        url: string | URL,
+        options: Https.RequestOptions,
+        respond: (response: Http.IncomingMessage) => void,
+      ) =>
+        Http.request(
+          new URL(`http://127.0.0.1:${address.port}${new URL(url).pathname}`),
+          {
+            method: options.method,
+            headers: options.headers,
+            signal: options.signal,
+          },
+          respond,
+        );
+      vi.spyOn(Https, "request").mockImplementation(start as typeof Https.request);
+      syncBuiltinESMExports();
+      try {
+        const client = new OutboundHttpClient();
+        const policy = {
+          ...input.policy,
+          service: `silent-${silentPart}-admission-test`,
+          deadlineMs: 200,
+        };
+        const timedOut = expect(
+          client.request({ policy, url: "https://8.8.8.8/silent" }),
+        ).rejects.toMatchObject({
+          name: "OutboundHttpError",
+          code: "timeout",
+          message: "Outbound request exceeded its 200ms deadline.",
+        });
+        await accepted;
+        const next = client.request({
+          policy: { ...policy, deadlineMs: 2_000 },
+          url: "https://8.8.8.8/next",
+        });
+        await timedOut;
+        expect((await next).status).toBe(200);
+        expect(paths).toEqual(["/silent", "/next"]);
+      } finally {
+        server.closeAllConnections();
+        await new Promise<void>((resolve, reject) =>
+          server.close((error) => (error ? reject(error) : resolve())),
+        );
+      }
+    },
+  );
+
+  it.each([0, -1, Number.NaN])("rejects the invalid required deadline %s", async (deadlineMs) => {
+    await expect(
+      new OutboundHttpClient().request({ ...input, policy: { ...input.policy, deadlineMs } }),
+    ).rejects.toMatchObject({
+      code: "request",
+      message: "Outbound request deadline must be a positive integer.",
+    });
+  });
+
   it("waits for the complete response body before returning", async () => {
     const wire = transport();
     let completed = false;
@@ -191,7 +277,7 @@ describe("outbound request completion", () => {
     expect(new TextDecoder().decode((await result).body)).toBe('{"usage":42}');
   });
 
-  it("surfaces a network failure instead of waiting for a deadline", async () => {
+  it("surfaces a network failure before the deadline", async () => {
     const wire = transport();
     const result = new OutboundHttpClient().request(input);
     const rejected = expect(result).rejects.toMatchObject({

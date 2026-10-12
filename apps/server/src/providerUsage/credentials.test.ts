@@ -1,6 +1,12 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { outboundHttp, OutboundHttpError } from "@penkra/shared/outboundHttp";
 
-import { decodeJwtExpMs, decodeKeychainJson } from "./credentials.ts";
+import {
+  decodeJwtExpMs,
+  decodeKeychainJson,
+  refreshOAuthAccessToken,
+  OAUTH_REFRESH_DEADLINE_MS,
+} from "./credentials.ts";
 
 describe("decodeKeychainJson", () => {
   it("parses raw JSON payloads", () => {
@@ -34,4 +40,34 @@ describe("decodeJwtExpMs", () => {
     expect(decodeJwtExpMs("not-a-jwt")).toBeNull();
     expect(decodeJwtExpMs(undefined)).toBeNull();
   });
+});
+
+afterEach(() => vi.restoreAllMocks());
+describe("refreshOAuthAccessToken deadline", () => {
+  const input = {
+    service: "oauth-test",
+    refreshUrl: "https://example.com/token",
+    allowedOrigins: ["https://example.com"],
+    refreshToken: "refresh",
+    clientId: "client",
+  };
+  it("propagates the typed timeout with its own required OAuth deadline", async () => {
+    const timeout = new OutboundHttpError("timeout", "Token endpoint exceeded its deadline.");
+    const request = vi.spyOn(outboundHttp, "request").mockRejectedValue(timeout);
+    await expect(refreshOAuthAccessToken(input)).rejects.toBe(timeout);
+    expect(request.mock.calls[0]?.[0].policy.deadlineMs).toBe(OAUTH_REFRESH_DEADLINE_MS);
+    expect(request).toHaveBeenCalledOnce();
+  });
+  it.each([401, 200])(
+    "keeps null for a rejected or malformed token response (%s)",
+    async (status) => {
+      vi.spyOn(outboundHttp, "request").mockResolvedValue({
+        status,
+        headers: new Headers(),
+        body: new TextEncoder().encode('{"error":"invalid_token"}'),
+        url: input.refreshUrl,
+      });
+      await expect(refreshOAuthAccessToken(input)).resolves.toBeNull();
+    },
+  );
 });
