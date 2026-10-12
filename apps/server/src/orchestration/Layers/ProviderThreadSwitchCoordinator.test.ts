@@ -50,6 +50,7 @@ const configLayer = Layer.succeed(ServerConfig, { stateDir } as never);
 const database = Layer.effectDiscard(runMigrations()).pipe(
   Layer.provideMerge(NodeSqliteClient.layerMemory()),
 );
+let modelDiscoveryCalls = 0;
 const dependencies = Layer.mergeAll(
   database,
   configLayer,
@@ -72,22 +73,25 @@ const dependencies = Layer.mergeAll(
     getByProvider: (provider: ProviderKind) =>
       Effect.succeed({
         listModels: () =>
-          Effect.succeed({
-            models:
-              provider === "opencode"
-                ? [
-                    { slug: "opencode-go/kimi", name: "Kimi" },
-                    { slug: "opencode-go/glm", name: "GLM" },
-                  ]
-                : provider === "codex"
+          Effect.sync(() => {
+            modelDiscoveryCalls += 1;
+            return {
+              models:
+                provider === "opencode"
                   ? [
-                      { slug: "gpt-5.5", name: "GPT" },
-                      { slug: "gpt-5.4", name: "GPT previous" },
+                      { slug: "opencode-go/kimi", name: "Kimi" },
+                      { slug: "opencode-go/glm", name: "GLM" },
                     ]
-                  : [
-                      { slug: "claude-sonnet-5", name: "Sonnet" },
-                      { slug: "claude-haiku-4-5", name: "Haiku" },
-                    ],
+                  : provider === "codex"
+                    ? [
+                        { slug: "gpt-5.5", name: "GPT" },
+                        { slug: "gpt-5.4", name: "GPT previous" },
+                      ]
+                    : [
+                        { slug: "claude-sonnet-5", name: "Sonnet" },
+                        { slug: "claude-haiku-4-5", name: "Haiku" },
+                      ],
+            };
           }),
       } as never),
     listProviders: () => Effect.succeed(["codex", "claudeAgent", "opencode"]),
@@ -466,6 +470,7 @@ layer("canonical turn selection", (it) => {
   it.effect("switches the model for a promoted queued turn", () =>
     Effect.gen(function* () {
       const f = yield* fixture();
+      const discoveryCallsBefore = modelDiscoveryCalls;
       yield* f.coordinator.dispatchQueuedTurn({
         command: {
           type: "thread.turn.dispatch-queued",
@@ -482,6 +487,7 @@ layer("canonical turn selection", (it) => {
       });
       assert.strictEqual((yield* f.read()).model, modelFor("opencode", true));
       assert.lengthOf(f.clones, 0);
+      assert.equal(modelDiscoveryCalls - discoveryCallsBefore, 1);
     }),
   );
   it.effect(
