@@ -35,7 +35,6 @@ import * as SqlitePersistence from "./persistence/Layers/Sqlite";
 import { makeServerApplicationLayers } from "./serverLayers";
 import { startThreadRetentionJob } from "./threadRetention.ts";
 import { ProjectionSnapshotQuery } from "./orchestration/Services/ProjectionSnapshotQuery";
-import { ProviderSessionReaperLive } from "./provider/Layers/ProviderSessionReaper";
 import { ThreadPublisherLive } from "./cleanCore/ThreadPublisher.ts";
 import { ProviderHealth } from "./provider/Services/ProviderHealth";
 import { ProviderAdapterRegistry } from "./provider/Services/ProviderAdapterRegistry";
@@ -297,15 +296,10 @@ const ServerConfigLive = (input: CliInput) =>
 
 const LayerLive = (input: CliInput) => {
   const { runtimeServicesLayer, providerLayer } = makeServerApplicationLayers();
-  const providerSessionReaperLayer = ProviderSessionReaperLive.pipe(
-    // The reaper reads canonical thread state and stops live provider sessions.
-    Layer.provideMerge(providerLayer),
-  );
 
   return Layer.empty.pipe(
     Layer.provideMerge(runtimeServicesLayer),
     Layer.provideMerge(providerLayer),
-    Layer.provideMerge(providerSessionReaperLayer),
     Layer.provideMerge(ThreadPublisherLive),
     Layer.provideMerge(SqlitePersistence.layerConfig),
     Layer.provideMerge(ServerLoggerLive),

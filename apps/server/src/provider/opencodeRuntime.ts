@@ -7,7 +7,7 @@ import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
 
-import type { ChatAttachment, RuntimeMode } from "@penkra/contracts";
+import type { ChatAttachment, RuntimeMode, ProviderConnectionId } from "@penkra/contracts";
 import {
   type ConsoleState,
   createOpencodeClient,
@@ -48,7 +48,6 @@ import { isWindowsShellCommandMissingResult } from "../shell-command-detection.t
 
 const DEFAULT_OPENCODE_SERVER_TIMEOUT_MS = 20_000;
 const DEFAULT_HOSTNAME = "127.0.0.1";
-export const OPENCODE_LOCAL_SERVER_IDLE_TTL_MS = 5 * 60_000;
 const OPENCODE_STARTUP_OUTPUT_MAX_CHARS = 4_000;
 const REDACTED_STARTUP_SECRET = "[redacted]";
 const STARTUP_OUTPUT_AUTHORIZATION_PATTERN =
@@ -91,9 +90,8 @@ interface PooledOpenCodeServer {
   readonly key: string;
   readonly server: OpenCodeServerProcess;
   readonly scope: Scope.Closeable;
-  readonly closeOnRelease: boolean;
+  readonly connectionIds: Set<ProviderConnectionId>;
   refCount: number;
-  idleCloseFiber: Fiber.Fiber<void, never> | null;
   exitWatchFiber: Fiber.Fiber<void, never> | null;
 }
 
@@ -218,13 +216,14 @@ export interface OpenCodeRuntimeShape {
     readonly timeoutMs?: number;
     readonly experimentalWebSockets?: boolean;
     readonly processEnv?: NodeJS.ProcessEnv;
-    /**
-     * Makes a managed server private to one owner and closes it immediately
-     * when that owner's scope ends. Required before installing per-thread MCP
-     * credentials into process-scoped configuration.
-     */
+    /** Isolates the managed program; the runtime retains it until explicit close. */
     readonly poolIsolationKey?: string;
+    readonly connectionId?: ProviderConnectionId;
   }) => Effect.Effect<OpenCodeServerConnection, OpenCodeRuntimeError, Scope.Scope>;
+  readonly stopAccount: (
+    connectionId: ProviderConnectionId,
+  ) => Effect.Effect<void, OpenCodeRuntimeError>;
+  readonly stopAll: () => Effect.Effect<void, OpenCodeRuntimeError>;
   readonly runOpenCodeCommand: (input: {
     readonly binaryPath: string;
     readonly cliSpec?: OpenCodeCompatibleCliSpec;
@@ -1106,30 +1105,17 @@ const makeOpenCodeRuntime = (options?: OpenCodeRuntimeLiveOptions) =>
         } satisfies OpenCodeServerProcess;
       });
 
-    const cancelPooledServerIdleClose = Effect.fn("cancelPooledServerIdleClose")(function* (
-      pooledServer: PooledOpenCodeServer,
-    ) {
-      const idleCloseFiber = pooledServer.idleCloseFiber;
-      pooledServer.idleCloseFiber = null;
-      if (idleCloseFiber !== null) {
-        yield* Fiber.interrupt(idleCloseFiber).pipe(Effect.ignore);
-      }
-    });
-
-    const detachPooledServer = Effect.fn("detachPooledServer")(function* (
-      pooledServer: PooledOpenCodeServer,
-    ) {
-      pooledServers.delete(pooledServer.key);
-      pooledServer.refCount = 0;
-      yield* cancelPooledServerIdleClose(pooledServer);
-    });
+    const detachPooledServer = (pooledServer: PooledOpenCodeServer) =>
+      Effect.sync(() => {
+        pooledServers.delete(pooledServer.key);
+        pooledServer.refCount = 0;
+      });
 
     const closePooledServer = Effect.fn("closePooledServer")(function* (
       pooledServer: PooledOpenCodeServer,
     ) {
       // Keep the pool entry authoritative while scope finalization proves the server tree exited.
       // Acquirers serialize on pooledServerMutex and cannot observe a replacement before proof.
-      yield* cancelPooledServerIdleClose(pooledServer);
 
       const exitWatchFiber = pooledServer.exitWatchFiber;
       pooledServer.exitWatchFiber = null;
@@ -1139,30 +1125,6 @@ const makeOpenCodeRuntime = (options?: OpenCodeRuntimeLiveOptions) =>
 
       yield* Scope.close(pooledServer.scope, Exit.void);
       yield* detachPooledServer(pooledServer);
-    });
-
-    const schedulePooledServerIdleClose = Effect.fn("schedulePooledServerIdleClose")(function* (
-      pooledServer: PooledOpenCodeServer,
-    ) {
-      yield* cancelPooledServerIdleClose(pooledServer);
-      const idleCloseFiber = yield* Effect.sleep(OPENCODE_LOCAL_SERVER_IDLE_TTL_MS).pipe(
-        Effect.andThen(
-          pooledServerMutex.withPermit(
-            Effect.gen(function* () {
-              if (
-                pooledServers.get(pooledServer.key) !== pooledServer ||
-                pooledServer.refCount > 0
-              ) {
-                return;
-              }
-              pooledServer.idleCloseFiber = null;
-              yield* closePooledServer(pooledServer);
-            }),
-          ),
-        ),
-        Effect.forkIn(pooledServerScope),
-      );
-      pooledServer.idleCloseFiber = idleCloseFiber;
     });
 
     const watchPooledServerExit = Effect.fn("watchPooledServerExit")(function* (
@@ -1196,6 +1158,7 @@ const makeOpenCodeRuntime = (options?: OpenCodeRuntimeLiveOptions) =>
       readonly timeoutMs?: number;
       readonly experimentalWebSockets?: boolean;
       readonly poolIsolationKey?: string;
+      readonly connectionId?: ProviderConnectionId;
       readonly processEnv?: NodeJS.ProcessEnv;
     }) =>
       pooledServerMutex.withPermit(
@@ -1203,12 +1166,12 @@ const makeOpenCodeRuntime = (options?: OpenCodeRuntimeLiveOptions) =>
           const key = pooledOpenCodeServerKey(input);
           const existing = pooledServers.get(key);
           if (existing) {
-            yield* cancelPooledServerIdleClose(existing);
+            if (input.connectionId !== undefined) existing.connectionIds.add(input.connectionId);
             existing.refCount += 1;
             return existing;
           }
 
-          // Start lazily on first real use, then keep warm only while recent sessions need it.
+          // Start lazily and keep the shared program until quit, removal or update.
           return yield* Effect.uninterruptibleMask((restore) =>
             Effect.gen(function* () {
               const serverScope = yield* Scope.make();
@@ -1229,9 +1192,10 @@ const makeOpenCodeRuntime = (options?: OpenCodeRuntimeLiveOptions) =>
                 key,
                 server: startedExit.value,
                 scope: serverScope,
-                closeOnRelease: input.poolIsolationKey !== undefined,
+                connectionIds: new Set(
+                  input.connectionId === undefined ? [] : [input.connectionId],
+                ),
                 refCount: 1,
-                idleCloseFiber: null,
                 exitWatchFiber: null,
               };
               pooledServers.set(key, pooledServer);
@@ -1244,30 +1208,29 @@ const makeOpenCodeRuntime = (options?: OpenCodeRuntimeLiveOptions) =>
 
     const releasePooledServer = (pooledServer: PooledOpenCodeServer) =>
       pooledServerMutex.withPermit(
-        Effect.gen(function* () {
-          if (pooledServers.get(pooledServer.key) !== pooledServer) {
-            return;
-          }
+        Effect.sync(() => {
+          if (pooledServers.get(pooledServer.key) !== pooledServer) return;
           pooledServer.refCount = Math.max(0, pooledServer.refCount - 1);
-          if (pooledServer.refCount === 0) {
-            if (pooledServer.closeOnRelease) {
-              yield* closePooledServer(pooledServer);
-            } else {
-              yield* schedulePooledServerIdleClose(pooledServer);
-            }
-          }
         }),
       );
 
-    yield* Effect.addFinalizer(() =>
+    const stopAll: OpenCodeRuntimeShape["stopAll"] = () =>
+      pooledServerMutex.withPermit(
+        Effect.gen(function* () {
+          for (const pooledServer of Array.from(pooledServers.values()))
+            yield* closePooledServer(pooledServer);
+        }),
+      );
+    const stopAccount: OpenCodeRuntimeShape["stopAccount"] = (connectionId) =>
       pooledServerMutex.withPermit(
         Effect.gen(function* () {
           for (const pooledServer of Array.from(pooledServers.values())) {
-            yield* closePooledServer(pooledServer);
+            if (pooledServer.connectionIds.has(connectionId))
+              yield* closePooledServer(pooledServer);
           }
         }),
-      ),
-    );
+      );
+    yield* Effect.addFinalizer(() => stopAll().pipe(Effect.orDie));
 
     const connectToOpenCodeServer: OpenCodeRuntimeShape["connectToOpenCodeServer"] = (input) => {
       const serverUrl = input.serverUrl?.trim();
@@ -1301,6 +1264,7 @@ const makeOpenCodeRuntime = (options?: OpenCodeRuntimeLiveOptions) =>
             ? { poolIsolationKey: input.poolIsolationKey }
             : {}),
           ...(input.processEnv !== undefined ? { processEnv: input.processEnv } : {}),
+          ...(input.connectionId !== undefined ? { connectionId: input.connectionId } : {}),
         });
         yield* Scope.addFinalizer(callerScope, releasePooledServer(pooledServer));
         return {
@@ -1489,6 +1453,8 @@ const makeOpenCodeRuntime = (options?: OpenCodeRuntimeLiveOptions) =>
     return {
       startOpenCodeServerProcess,
       connectToOpenCodeServer,
+      stopAccount,
+      stopAll,
       runOpenCodeCommand,
       createOpenCodeSdkClient,
       loadOpenCodeInventory,
