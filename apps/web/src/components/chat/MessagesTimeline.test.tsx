@@ -21,6 +21,8 @@ import {
 } from "../../storeTestFixtures";
 import type { WorkLogEntry } from "../../workLog";
 import { MessagesTimeline } from "./MessagesTimeline";
+import { buildOptimisticComposerAttachments } from "../../lib/composerSend";
+import { deriveTimelineEntries } from "../../session-logic";
 import { COLLAPSED_USER_MESSAGE_MAX_CHARS } from "./userMessageCollapse";
 
 const TOOLTIP_TRIGGER_MARKER = 'data-base-ui-tooltip-trigger=""';
@@ -74,6 +76,42 @@ function matchMedia() {
     removeEventListener: () => {},
   };
 }
+
+it("renders a sent optimistic image from its composer blob before a server message exists", () => {
+  const attachments = buildOptimisticComposerAttachments({
+    images: [
+      {
+        type: "image",
+        id: "optimistic-image",
+        name: "sent.png",
+        mimeType: "image/png",
+        sizeBytes: 1,
+        previewUrl: "blob:sent-before-persistence",
+        file: new File(["image"], "sent.png", { type: "image/png" }),
+      },
+    ],
+    files: [],
+    assistantSelections: [],
+  });
+  const timelineEntries = deriveTimelineEntries(
+    [
+      {
+        id: MessageId.makeUnsafe("optimistic-image-message"),
+        role: "user",
+        text: "Sent image",
+        attachments,
+        createdAt: "2026-10-11T00:00:00Z",
+        streaming: false,
+      },
+    ],
+    [],
+  );
+  const markup = renderToStaticMarkup(
+    <MessagesTimeline {...makeTimelineBaseProps()} timelineEntries={timelineEntries} />,
+  );
+  expect(markup).toContain('src="blob:sent-before-persistence"');
+  expect(markup).toContain('alt="sent.png"');
+});
 
 beforeAll(() => {
   const classList = {
