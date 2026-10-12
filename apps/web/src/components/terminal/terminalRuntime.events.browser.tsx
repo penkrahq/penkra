@@ -160,3 +160,31 @@ it("detaching clears a pending resize so completion after reattach cannot send a
   expect(entry!.pendingResize).toBeNull();
   expect(entry!.resizeInFlight).toBe(false);
 });
+
+it("accepts an empty open snapshot then streamed output without a timed second open", async () => {
+  const { api, event, writes } = runtime();
+  api.terminal.open.mockResolvedValue({
+    threadId: "thread",
+    terminalId: "term",
+    cwd: "/workspace",
+    status: "running",
+    pid: 1,
+    history: "",
+    exitCode: null,
+    exitSignal: null,
+    updatedAt: "2026-10-11T00:00:00.000Z",
+  });
+  vi.spyOn(entry!.fitAddon, "fit").mockImplementation(() => {});
+  const timers = vi.spyOn(window, "setTimeout");
+  const container = document.createElement("div");
+  document.body.appendChild(container);
+  attachRuntimeToContainer(entry!, { isVisible: false, autoFocus: false }, container);
+  await api.terminal.open.mock.results[0]!.value;
+  expect(entry!.runtimeStatus).toBe("ready");
+  expect(timers).not.toHaveBeenCalledWith(expect.any(Function), 250);
+  event("output");
+  await new Promise<void>((resolve) => window.requestAnimationFrame(() => resolve()));
+  expect(writes.some((write) => write.text === "final output")).toBe(true);
+  expect(entry!.runtimeStatus).toBe("ready");
+  expect(api.terminal.open).toHaveBeenCalledTimes(1);
+});

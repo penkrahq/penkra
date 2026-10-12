@@ -60,7 +60,6 @@ const VISUAL_RESIZE_MIN_INTERVAL_MS = 64;
 const WRITE_BATCH_SIZE_LIMIT = 262_144;
 const WRITE_BATCH_MAX_LATENCY_MS = 50;
 const LINK_MATCH_CACHE_LIMIT = 512;
-const OPEN_SNAPSHOT_RECONCILE_DELAY_MS = 250;
 const TERMINAL_TEXT_ENCODER = new TextEncoder();
 const TERMINAL_PARKING_CONTAINER_ID = "penkra-terminal-parking";
 
@@ -1073,30 +1072,6 @@ function openTerminal(entry: TerminalRuntimeEntry): void {
         replaySnapshot(entry, snapshot, () => setRuntimeStatus(entry, "ready"));
       } else if (entry.outputEventVersion === outputEventVersionAtOpen) {
         setRuntimeStatus(entry, "ready");
-        window.setTimeout(() => {
-          if (
-            entry.disposed ||
-            !entry.opened ||
-            entry.outputEventVersion !== outputEventVersionAtOpen
-          ) {
-            return;
-          }
-          void api.terminal
-            .open(openInput)
-            .then((nextSnapshot) => {
-              if (
-                entry.disposed ||
-                entry.outputEventVersion !== outputEventVersionAtOpen ||
-                !snapshotHasReplayPayload(nextSnapshot)
-              ) {
-                return;
-              }
-              replaySnapshot(entry, nextSnapshot, () => setRuntimeStatus(entry, "ready"));
-            })
-            .catch(() => {
-              // Best-effort recovery only; the original open already succeeded.
-            });
-        }, OPEN_SNAPSHOT_RECONCILE_DELAY_MS);
       }
       if (entry.viewState.autoFocus) {
         window.requestAnimationFrame(() => {
