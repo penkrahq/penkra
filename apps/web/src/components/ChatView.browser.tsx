@@ -5140,6 +5140,50 @@ describe("ChatView timeline estimator parity (full app)", () => {
     }
   });
 
+  it("closes a composer picker on thread navigation and reopens it on the next thread", async () => {
+    const base = createSnapshotForTargetUser({
+      targetMessageId: MessageId.makeUnsafe("picker-navigation-user"),
+      targetText: "Picker navigation",
+    });
+    const source = base.threads[0]!;
+    const secondId = ThreadId.makeUnsafe("picker-navigation-next");
+    const snapshot: OrchestrationReadModel = {
+      ...base,
+      threads: [
+        ...base.threads,
+        {
+          ...source,
+          id: secondId,
+          title: "Next picker thread",
+          messages: source.messages.map((message) => ({
+            ...message,
+            id: MessageId.makeUnsafe(`next-${message.id}`),
+          })),
+          session: { ...source.session!, threadId: secondId },
+        },
+      ],
+    };
+    const mounted = await mountChatView({ viewport: DEFAULT_VIEWPORT, snapshot });
+    try {
+      await waitForServerConfigToApply();
+      const firstEditor = await waitForComposerEditor();
+      firstEditor.focus();
+      dispatchComposerPickerShortcut(firstEditor, "m");
+      await waitForComposerPickerSurfaceOpen();
+      await mounted.router.navigate({ to: "/$threadId", params: { threadId: secondId } });
+      await vi.waitFor(() => {
+        expect(mounted.router.state.location.pathname).toBe(`/${secondId}`);
+        expect(document.querySelector('[data-slot="menu-popup"]')).toBeNull();
+      });
+      const nextEditor = await waitForComposerEditor();
+      nextEditor.focus();
+      dispatchComposerPickerShortcut(nextEditor, "m");
+      await waitForComposerPickerSurfaceOpen();
+    } finally {
+      await mounted.cleanup();
+    }
+  });
+
   it("shows the standalone Connection control on a new Thread", async () => {
     const base = createSnapshotForTargetUser({
       targetMessageId: "msg-user-new-thread-connection-menu" as MessageId,

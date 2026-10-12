@@ -1111,6 +1111,13 @@ function ChatViewContent({
   );
   const [isModelPickerOpen, setIsModelPickerOpen] = useState(false);
   const [isTraitsPickerOpen, setIsTraitsPickerOpen] = useState(false);
+  const [pickerThreadId, setPickerThreadId] = useState(threadId);
+  if (pickerThreadId !== threadId) {
+    setPickerThreadId(threadId);
+    setComposerCommandPicker(null);
+    setIsModelPickerOpen(false);
+    setIsTraitsPickerOpen(false);
+  }
   const transcriptListRef = useRef<TranscriptVirtualListRef | null>(null);
   const transcriptControllerDiagnosticInstanceIdRef = useRef<number | null>(null);
   if (transcriptControllerDiagnosticInstanceIdRef.current === null) {
@@ -1127,16 +1134,6 @@ function ChatViewContent({
     new Debouncer(() => setShowScrollToBottom(true), { wait: 150 }),
   );
 
-  useEffect(() => {
-    // Async setState (post-paint) keeps this thread-change reset out of the
-    // render->effect->render cascade; the pickers already closed post-commit.
-    const settle = window.setTimeout(() => {
-      setComposerCommandPicker(null);
-      setIsModelPickerOpen(false);
-      setIsTraitsPickerOpen(false);
-    }, 0);
-    return () => window.clearTimeout(settle);
-  }, [threadId]);
   useEffect(() => {
     const scrollDebouncer = showScrollDebouncer.current;
     return () => {
