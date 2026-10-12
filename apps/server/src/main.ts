@@ -38,6 +38,7 @@ import { ProjectionSnapshotQuery } from "./orchestration/Services/ProjectionSnap
 import { ProviderSessionReaperLive } from "./provider/Layers/ProviderSessionReaper";
 import { ThreadPublisherLive } from "./cleanCore/ThreadPublisher.ts";
 import { ProviderHealth } from "./provider/Services/ProviderHealth";
+import { ProviderAdapterRegistry } from "./provider/Services/ProviderAdapterRegistry";
 import { startAutomaticProviderUpdates } from "./provider/providerUpdateCoordinator";
 import { ProviderInstallationRepository } from "./persistence/Services/ProviderInstallations";
 import { ProviderConnectionLoginCoordinator } from "./provider/Services/ProviderConnectionLoginCoordinator";
@@ -430,12 +431,17 @@ const makeServerProgram = (input: CliInput) => {
         : undefined;
 
     const projectionSnapshotQuery = yield* ProjectionSnapshotQuery;
+    const providerAdapters = yield* ProviderAdapterRegistry;
     yield* startAutomaticProviderUpdates({
       providerHealth,
       projectionSnapshotQuery,
       serverSettings,
       config,
       installationRepository,
+      onProviderInstalled: (provider) =>
+        providerAdapters
+          .getByProvider(provider)
+          .pipe(Effect.flatMap((adapter) => adapter.stopAll())),
     });
     yield* Effect.forkChild(recordStartupHeartbeat);
     yield* Effect.logInfo("Penkra running", makeServerStartupLogData(config));

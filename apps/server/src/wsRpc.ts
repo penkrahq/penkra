@@ -1293,9 +1293,16 @@ const makeWsRpcHandlersLayer = () =>
                 Option.match({
                   onNone: () => Effect.fail(new Error("The Connection is unavailable.")),
                   onSome: (connection) =>
-                    connection.profileRef
-                      ? providerConnectionLoginCoordinator.terminateProfile(input)
-                      : providerConnectionLifecycle.terminate(input),
+                    Effect.gen(function* () {
+                      const terminated = connection.profileRef
+                        ? yield* providerConnectionLoginCoordinator.terminateProfile(input)
+                        : yield* providerConnectionLifecycle.terminate(input);
+                      const adapter = yield* providerAdapterRegistry.getByProvider(
+                        connection.harness,
+                      );
+                      if (adapter.stopAccount) yield* adapter.stopAccount(input.connectionId);
+                      return terminated;
+                    }),
                 }),
               ),
             ),

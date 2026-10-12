@@ -1,3 +1,4 @@
+import type { ThreadId } from "@penkra/contracts";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { CodexAppServerManager } from "./codexAppServerManager";
@@ -32,12 +33,13 @@ describe("Codex app-server failures", () => {
       manager as unknown as {
         sendRequest: (
           context: unknown,
+          ownerThreadId: ThreadId | null,
           method: string,
           params: unknown,
           timeoutMs: number,
         ) => Promise<unknown>;
       }
-    ).sendRequest(context, "thread/read", {}, 25);
+    ).sendRequest(context, null, "thread/read", {}, 25);
     const rejection = expect(request).rejects.toThrow("Timed out waiting for thread/read.");
     await vi.advanceTimersByTimeAsync(25);
     await rejection;

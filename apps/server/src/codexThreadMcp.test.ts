@@ -32,6 +32,7 @@ readline.createInterface({input:process.stdin}).on('line',line => {
   if(request.method==='mcpServerStatus/list')result={data:[],nextCursor:null};
   if(request.method==='plugin/list')result={marketplaces:[]};
   process.stdout.write(JSON.stringify({id:request.id,result})+'\\n');
+  if(request.method==='thread/unsubscribe')process.stdout.write(JSON.stringify({method:'thread/closed',params:{threadId:request.params.threadId}})+'\\n');
 });
 `,
   );

@@ -209,7 +209,9 @@ export const makeProviderLaunchResolver = Effect.gen(function* () {
         profileRoot,
         nativeStateRoot,
         isolationKey: providerOpaquePathKey(
-          `${installation.value.id}:${profileIdentity}:${input.nativeStateIdentity}`,
+          input.harness === "codex"
+            ? `${installation.value.id}:${profileIdentity}`
+            : `${installation.value.id}:${profileIdentity}:${input.nativeStateIdentity}`,
         ),
         connectionId: input.connectionId,
         installationId: input.installationId,
