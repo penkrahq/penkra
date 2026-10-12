@@ -11,7 +11,6 @@ import {
 import {
   forwardRef,
   useCallback,
-  useEffect,
   useImperativeHandle,
   useLayoutEffect,
   useRef,
@@ -1010,59 +1009,6 @@ function TranscriptVirtualListInner<TItem>(
   });
 
   const virtualItems = virtualizer.getVirtualItems();
-
-  useEffect(() => {
-    if (!areChatScrollDiagnosticsEnabled()) return;
-    let frameId = 0;
-    let remainingFrames = 240;
-    let previous:
-      | {
-          scrollTop: number;
-          scrollHeight: number;
-          clientHeight: number;
-          anchorKey: string | null;
-        }
-      | undefined;
-    const sampleFrame = () => {
-      const element = scrollElementRef.current;
-      if (!element || remainingFrames <= 0) return;
-      remainingFrames -= 1;
-      const rendered = virtualizer.getVirtualItems();
-      const anchor =
-        rendered.find((item) => item.end > element.scrollTop + GEOMETRY_EPSILON_PX) ??
-        rendered.at(0) ??
-        null;
-      const next = {
-        scrollTop: element.scrollTop,
-        scrollHeight: element.scrollHeight,
-        clientHeight: element.clientHeight,
-        anchorKey: anchor ? String(anchor.key) : null,
-      };
-      if (
-        !previous ||
-        Math.abs(previous.scrollTop - next.scrollTop) > GEOMETRY_EPSILON_PX ||
-        Math.abs(previous.scrollHeight - next.scrollHeight) > GEOMETRY_EPSILON_PX ||
-        Math.abs(previous.clientHeight - next.clientHeight) > GEOMETRY_EPSILON_PX ||
-        previous.anchorKey !== next.anchorKey
-      ) {
-        const attribution = readChatScrollWriteAttribution(element);
-        recordDiagnostic("frame-geometry-change", {
-          frame: 240 - remainingFrames,
-          memoryKey: viewportMemoryKey ?? null,
-          previous: previous ?? null,
-          next,
-          lastWriter: attribution?.owner ?? "unattributed",
-          lastWriteSequence: attribution?.sequence ?? null,
-          lastWriteAgeMs: attribution ? performance.now() - attribution.recordedAt : null,
-          lastRequestedTop: attribution?.requestedTop ?? null,
-        });
-      }
-      previous = next;
-      frameId = window.requestAnimationFrame(sampleFrame);
-    };
-    frameId = window.requestAnimationFrame(sampleFrame);
-    return () => window.cancelAnimationFrame(frameId);
-  }, [recordDiagnostic, viewportMemoryKey, virtualizer]);
 
   const containerStyle: CSSProperties = {
     position: "relative",
