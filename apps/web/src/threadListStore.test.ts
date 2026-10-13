@@ -10,6 +10,7 @@ import {
   resetThreadListForTests,
   subscribeThreadList,
   subscribeThreadRowChanges,
+  subscribeThreadPageReads,
 } from "./threadListStore";
 
 const api = vi.hoisted(() => ({
@@ -20,6 +21,7 @@ const api = vi.hoisted(() => ({
 vi.mock("./nativeApi", () => ({ ensureNativeApi: () => ({ cleanCore: api }) }));
 function row(queue: string, updatedAt: string): CleanCoreThreadSummary {
   return {
+    latestTurn: null,
     id: ThreadId.makeUnsafe("thread-51"),
     spaceId: "space" as CleanCoreThreadSummary["spaceId"],
     folderId: FolderId.makeUnsafe("folder"),
@@ -89,6 +91,8 @@ it("refreshes the canonical queue after a broadcast and ignores an older in-flig
 });
 
 it("reads one scope page at a time, deduplicates a pending next page, and stops at its final cursor", async () => {
+  const captured: CleanCoreThreadSummary[][] = [];
+  const stopSnapshots = subscribeThreadPageReads((rows) => captured.push([...rows]));
   const thread = row("[]", "2026-10-10T00:00:01.000Z");
   const scope = { spaceId: thread.spaceId, folderId: thread.folderId };
   const cursor = { sidebarSortOrder: 0, createdAt: thread.createdAt, id: thread.id };
@@ -114,6 +118,8 @@ it("reads one scope page at a time, deduplicates a pending next page, and stops 
     loading: false,
   });
   expect([...getThreadListById().keys()]).toEqual([thread.id, other.id]);
+  expect(captured).toEqual([[thread], [other]]);
+  stopSnapshots();
 });
 it("keeps a newer move and visit when an older page reply arrives after a broadcast", async () => {
   const old = row("[]", "2026-10-10T00:00:01.000Z");

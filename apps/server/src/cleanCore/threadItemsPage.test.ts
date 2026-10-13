@@ -63,3 +63,43 @@ it.effect("reads the newest 50 items, then pages older by seq cursor", () =>
     }),
   ),
 );
+
+it.effect(
+  "cold page reads exact turn timing even when its marker is beyond the page boundary",
+  () =>
+    withDb(
+      Effect.gen(function* () {
+        yield* runMigrations();
+        yield* seedThreadFolderFixture("core-test-folder", "space-1");
+        yield* createThread(baseThread);
+        const startedAt = "2026-10-12T00:00:00.000Z";
+        const endedAt = "2026-10-12T00:05:00.000Z";
+        yield* upsertThreadItem({
+          threadId: "thread-1",
+          sourceId: "turn:long",
+          turnId: "long",
+          kind: "turn",
+          status: "done",
+          data: JSON.stringify({ startedAt, endedAt }),
+          createdAt: startedAt,
+          updatedAt: endedAt,
+        });
+        for (let n = 0; n < 60; n++)
+          yield* upsertThreadItem({
+            threadId: "thread-1",
+            sourceId: `part-${n}`,
+            turnId: "long",
+            kind: "text",
+            status: "done",
+            text: `part ${n}`,
+            createdAt: endedAt,
+            updatedAt: endedAt,
+          });
+        const page = yield* listThreadItemsPage({ threadId: ThreadId.makeUnsafe("thread-1") });
+        assert.equal(page.items.length, 50);
+        assert.isFalse(page.items.some((item) => item.kind === "turn"));
+        assert.deepStrictEqual(JSON.parse(page.turns.long!.data!), { startedAt, endedAt });
+        assert.equal(Object.keys(page.turns).length, 1);
+      }),
+    ),
+);

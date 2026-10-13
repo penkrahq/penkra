@@ -424,12 +424,7 @@ function EventRouter() {
     const api = ensureNativeApi();
     let disposed = false;
     let latestRead = 0;
-    const unsubscribe = api.cleanCore.onSidebarChange((change) => {
-      if (change.kind === "folder.appTabs") {
-        applyFolderAppTabs(change);
-        return;
-      }
-      if (change.kind !== "navigation") return;
+    const refreshNavigation = () => {
       const read = ++latestRead;
       void api.cleanCore
         .getNavigation()
@@ -437,8 +432,18 @@ function EventRouter() {
           if (!disposed && read === latestRead)
             useStore.setState((state) => syncServerNavigation(state, navigation));
         })
-        .catch((error) => toastManager.add({ type: "error", title: errorMessage(error) }));
+        .catch((error) => {
+          if (!disposed) toastManager.add({ type: "error", title: errorMessage(error) });
+        });
+    };
+    const unsubscribe = api.cleanCore.onSidebarChange((change) => {
+      if (change.kind === "folder.appTabs") {
+        applyFolderAppTabs(change);
+        return;
+      }
+      if (change.kind === "navigation") refreshNavigation();
     });
+    refreshNavigation();
     return () => {
       disposed = true;
       unsubscribe();

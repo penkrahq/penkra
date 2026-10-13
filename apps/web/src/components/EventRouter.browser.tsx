@@ -245,7 +245,7 @@ function observeAcknowledgement(requestBody: Record<string, unknown>): void {
 function createThreadItemsPageFromFixtureSnapshot(threadId: ThreadId) {
   const thread = getFixtureThread(threadId);
   if (!thread) {
-    return { items: [], nextCursor: null };
+    return { items: [], turns: {}, nextCursor: null };
   }
   const pending: Array<{ at: string; item: Omit<CleanCoreThreadItem, "seq"> }> = [];
   for (const message of thread.messages) {
@@ -334,12 +334,28 @@ function createThreadItemsPageFromFixtureSnapshot(threadId: ThreadId) {
   const items = pending
     .toSorted((left, right) => left.at.localeCompare(right.at))
     .map((entry, index) => ({ ...entry.item, seq: index + 1 })) as CleanCoreThreadItem[];
-  return { items, nextCursor: null };
+  return { items, turns: {}, nextCursor: null };
 }
 
 /** Push a clean-core thread change so mounted transcripts re-read thread_items. */
-function summarizeFixtureThread(thread: OrchestrationThread) {
+function summarizeFixtureThread(
+  thread: OrchestrationThread,
+): import("@penkra/contracts").CleanCoreThreadSummary {
   return {
+    latestTurn:
+      thread.latestTurn?.startedAt && thread.latestTurn.state !== "queued"
+        ? {
+            turnId: thread.latestTurn.turnId,
+            status:
+              thread.latestTurn.state === "completed"
+                ? "done"
+                : thread.latestTurn.state === "cancelled"
+                  ? "interrupted"
+                  : thread.latestTurn.state,
+            startedAt: thread.latestTurn.startedAt,
+            endedAt: thread.latestTurn.completedAt,
+          }
+        : null,
     id: thread.id,
     spaceId: TEST_SPACE_ID,
     folderId: thread.folderId,

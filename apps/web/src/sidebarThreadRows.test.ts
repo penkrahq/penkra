@@ -12,6 +12,7 @@ import {
 import type { SidebarThreadSummary } from "./types";
 function row(queue: string, updatedAt: string): CleanCoreThreadSummary {
   return {
+    latestTurn: null,
     id: ThreadId.makeUnsafe("thread-51"),
     spaceId: "space" as CleanCoreThreadSummary["spaceId"],
     folderId: FolderId.makeUnsafe("folder"),

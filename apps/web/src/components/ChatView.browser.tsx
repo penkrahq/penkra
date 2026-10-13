@@ -529,7 +529,7 @@ function createThreadTurnsPageFromFixtureSnapshot(threadId: ThreadId) {
 function createThreadItemsPageFromFixtureSnapshot(threadId: ThreadId) {
   const thread = findThreadDetailFromFixtureSnapshot(threadId);
   if (!thread) {
-    return { items: [], nextCursor: null };
+    return { items: [], turns: {}, nextCursor: null };
   }
   const pending: Array<{ at: string; item: Omit<CleanCoreThreadItem, "seq"> }> = [];
   for (const message of thread.messages) {
@@ -618,7 +618,24 @@ function createThreadItemsPageFromFixtureSnapshot(threadId: ThreadId) {
   const items = pending
     .toSorted((left, right) => left.at.localeCompare(right.at))
     .map((entry, index) => ({ ...entry.item, seq: index + 1 })) as CleanCoreThreadItem[];
-  return { items, nextCursor: null };
+  const turn = thread?.latestTurn;
+  const turns = turn?.startedAt
+    ? {
+        [turn.turnId]: {
+          threadId,
+          seq: 0,
+          sourceId: `turn:${turn.turnId}`,
+          turnId: turn.turnId,
+          kind: "turn",
+          status: turn.state === "completed" ? "done" : turn.state,
+          text: null,
+          data: JSON.stringify({ startedAt: turn.startedAt, endedAt: turn.completedAt }),
+          createdAt: turn.startedAt,
+          updatedAt: turn.completedAt ?? turn.startedAt,
+        },
+      }
+    : {};
+  return { items, turns, nextCursor: null };
 }
 
 /** Push a clean-core thread change so mounted transcripts re-read thread_items. */
@@ -1412,7 +1429,9 @@ function recordSpaceCreateUpdate(command: unknown): boolean {
   return true;
 }
 
-function summarizeFixtureThread(thread: OrchestrationThread) {
+function summarizeFixtureThread(
+  thread: OrchestrationThread,
+): import("@penkra/contracts").CleanCoreThreadSummary {
   return {
     id: thread.id,
     spaceId: TEST_SPACE_ID,
@@ -1427,6 +1446,20 @@ function summarizeFixtureThread(thread: OrchestrationThread) {
     runtimeMode: thread.runtimeMode,
     state: thread.session?.status === "running" ? "running" : "idle",
     activeTurnId: thread.session?.activeTurnId ?? null,
+    latestTurn:
+      thread.latestTurn?.startedAt && thread.latestTurn.state !== "queued"
+        ? {
+            turnId: thread.latestTurn.turnId,
+            status:
+              thread.latestTurn.state === "completed"
+                ? "done"
+                : thread.latestTurn.state === "cancelled"
+                  ? "interrupted"
+                  : thread.latestTurn.state,
+            startedAt: thread.latestTurn.startedAt,
+            endedAt: thread.latestTurn.completedAt,
+          }
+        : null,
     lastError: thread.session?.lastError ?? null,
     queue: JSON.stringify(
       (thread.messages ?? [])
@@ -3135,7 +3168,7 @@ describe("ChatView timeline estimator parity (full app)", () => {
 
       const settledTrigger = Array.from(
         document.querySelectorAll<HTMLButtonElement>("button"),
-      ).find((element) => element.textContent?.includes("Worked for"));
+      ).find((element) => element.textContent?.trim() === "Details");
       expect(settledTrigger).not.toBeUndefined();
       settledTrigger!.click();
       await vi.waitFor(
@@ -6946,6 +6979,123 @@ describe("ChatView timeline estimator parity (full app)", () => {
       // The empty thread view and composer should still be visible.
       await expect.element(page.getByTestId("composer-editor")).toBeInTheDocument();
     } finally {
+      await mounted.cleanup();
+    }
+  });
+
+  it("cold-opens a turn longer than one page with its exact persisted duration", async () => {
+    const base = createSnapshotWithInlineToolOverflow({ active: false });
+    const startedAt = NOW_ISO;
+    const endedAt = new Date(Date.parse(startedAt) + 300_000).toISOString();
+    const snapshot = {
+      ...base,
+      threads: base.threads.map((thread) => ({
+        ...thread,
+        latestTurn: thread.latestTurn && { ...thread.latestTurn, startedAt, completedAt: endedAt },
+        activities: Array.from({ length: 70 }, (_, index) => ({
+          ...thread.activities[0]!,
+          id: EventId.makeUnsafe(`cold-tool-${index}`),
+          createdAt: new Date(Date.parse(startedAt) + 240_000 + index).toISOString(),
+        })),
+        messages: thread.messages.map((message) =>
+          message.role === "assistant"
+            ? { ...message, createdAt: endedAt, updatedAt: endedAt, completedAt: endedAt }
+            : message,
+        ),
+      })),
+    };
+    const previousNativeApi = window.nativeApi;
+    const api = readNativeApi()!;
+    Object.defineProperty(window, "nativeApi", {
+      configurable: true,
+      value: {
+        ...api,
+        cleanCore: {
+          ...api.cleanCore,
+          listThreadItemsPage: async (input: { threadId: ThreadId; beforeSeq?: number }) => {
+            const page = createThreadItemsPageFromFixtureSnapshot(input.threadId);
+            const items = page.items
+              .filter((item) => input.beforeSeq === undefined || item.seq < input.beforeSeq)
+              .slice(-50)
+              .toReversed();
+            return { ...page, items, nextCursor: items.length === 50 ? items.at(-1)!.seq : null };
+          },
+        },
+      },
+    });
+    const mounted = await mountChatView({ viewport: DEFAULT_VIEWPORT, snapshot });
+    try {
+      await expect.element(page.getByText("Worked for 5m", { exact: true })).toBeVisible();
+      expect(createThreadItemsPageFromFixtureSnapshot(THREAD_ID).items.length).toBeGreaterThan(50);
+    } finally {
+      await mounted.cleanup();
+      if (previousNativeApi) window.nativeApi = previousNativeApi;
+      else Reflect.deleteProperty(window, "nativeApi");
+    }
+  });
+
+  it("notifies a hidden canonical turn once after two immediate sidebar pushes", async () => {
+    const turnId = TurnId.makeUnsafe("hidden-native-turn");
+    const base = addThreadToSnapshot(
+      createSnapshotForTargetUser({
+        targetMessageId: MessageId.makeUnsafe("visible-notification-target"),
+        targetText: "Visible thread",
+      }),
+      OTHER_THREAD_ID,
+    );
+    const snapshot = {
+      ...base,
+      threads: base.threads.map((thread) =>
+        thread.id === OTHER_THREAD_ID
+          ? {
+              ...thread,
+              latestTurn: {
+                turnId,
+                state: "running" as const,
+                requestedAt: NOW_ISO,
+                startedAt: NOW_ISO,
+                completedAt: null,
+                assistantMessageId: null,
+              },
+            }
+          : thread,
+      ),
+    };
+    const mounted = await mountChatView({ viewport: DEFAULT_VIEWPORT, snapshot });
+    const spy = vi.spyOn(toastManager, "add");
+    try {
+      const endedAt = new Date().toISOString();
+      fixture = {
+        ...fixture,
+        snapshot: {
+          ...fixture.snapshot,
+          threads: fixture.snapshot.threads.map((thread) =>
+            thread.id === OTHER_THREAD_ID
+              ? {
+                  ...thread,
+                  updatedAt: endedAt,
+                  latestTurn: { ...thread.latestTurn!, state: "completed", completedAt: endedAt },
+                }
+              : thread,
+          ),
+        },
+      };
+      pushCleanCoreThreadChange(OTHER_THREAD_ID);
+      pushCleanCoreThreadChange(OTHER_THREAD_ID);
+      await vi.waitFor(() =>
+        expect(
+          spy.mock.calls.filter(
+            ([toast]) => toast.type === "success" && toast.data?.threadId === OTHER_THREAD_ID,
+          ),
+        ).toHaveLength(1),
+      );
+      const reads = wsRequests.filter(
+        (request) =>
+          request._tag === WS_METHODS.cleanCoreGetThread && request.threadId === OTHER_THREAD_ID,
+      );
+      expect(reads.length).toBeGreaterThanOrEqual(2);
+    } finally {
+      spy.mockRestore();
       await mounted.cleanup();
     }
   });

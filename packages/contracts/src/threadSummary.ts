@@ -12,6 +12,14 @@ import {
   NonNegativeInt,
 } from "./baseSchemas";
 
+export const CleanCoreLatestTurn = Schema.Struct({
+  turnId: TurnId,
+  status: Schema.Literals(["running", "done", "interrupted", "error"]),
+  startedAt: IsoDateTime,
+  endedAt: Schema.NullOr(IsoDateTime),
+});
+export type CleanCoreLatestTurn = typeof CleanCoreLatestTurn.Type;
+
 export const CleanCoreThreadSummary = Schema.Struct({
   id: ThreadId,
   spaceId: SpaceId,
@@ -24,6 +32,7 @@ export const CleanCoreThreadSummary = Schema.Struct({
   runtimeMode: Schema.String,
   state: Schema.String,
   activeTurnId: Schema.NullOr(TurnId),
+  latestTurn: Schema.NullOr(CleanCoreLatestTurn),
   lastError: Schema.NullOr(Schema.String),
   queue: Schema.String,
   createdBy: Schema.String,

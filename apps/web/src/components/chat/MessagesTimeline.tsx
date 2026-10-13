@@ -3,6 +3,7 @@
 // Layer: Web chat presentation component
 // Exports: MessagesTimeline
 
+import type { CleanCoreThreadItem } from "@penkra/contracts";
 import {
   type MessageId,
   type ProviderMentionReference,
@@ -277,6 +278,7 @@ interface MessagesTimelineProps {
   /** Provenance for a conversation created from another Penkra task. */
   crossTaskOrigin?: CrossTaskOrigin | null;
   timelineEntries: ReturnType<typeof deriveTimelineEntries>;
+  turns?: Readonly<Record<string, CleanCoreThreadItem>> | undefined;
   nowIso?: string;
   expandedWorkGroups?: Record<string, boolean>;
   onToggleWorkGroup?: (groupId: string) => void;
@@ -320,6 +322,7 @@ export const MessagesTimeline = memo(function MessagesTimeline({
   controllerRef,
   crossTaskOrigin: crossTaskOriginProp,
   timelineEntries,
+  turns,
   nowIso,
   expandedWorkGroups,
   onToggleWorkGroup,
@@ -429,13 +432,14 @@ export const MessagesTimeline = memo(function MessagesTimeline({
       measureChatPerformanceWork("transcript-rows", () =>
         deriveMessagesTimelineRows({
           timelineEntries,
+          turns,
           isWorking,
           activeTurnInProgress,
           activeTurnId,
           activeTurnStartedAt,
         }),
       ),
-    [timelineEntries, isWorking, activeTurnInProgress, activeTurnId, activeTurnStartedAt],
+    [timelineEntries, turns, isWorking, activeTurnInProgress, activeTurnId, activeTurnStartedAt],
   );
   const rows = useStableRows(rawRows);
   // Record the committed work-state inputs separately from the working predicate.

@@ -63,6 +63,7 @@ vi.mock("../components/chat/SingleChatSurface", () => ({ SingleChatSurface: "cha
 
 function row(): CleanCoreThreadSummary {
   return {
+    latestTurn: null,
     id: ThreadId.makeUnsafe(fixture.threadId),
     spaceId: SpaceId.makeUnsafe("space"),
     folderId: FolderId.makeUnsafe("canonical-folder"),

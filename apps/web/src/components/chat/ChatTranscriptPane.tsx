@@ -3,6 +3,7 @@
 // Layer: Chat transcript shell
 // Depends on: MessagesTimeline and ChatView's list-owned scroll contract.
 
+import type { CleanCoreThreadItem } from "@penkra/contracts";
 import { type MessageId, ThreadId, type TurnId } from "@penkra/contracts";
 import {
   memo,
@@ -72,6 +73,7 @@ interface ChatTranscriptPaneProps {
   onToggleWorkGroup?: (groupId: string) => void;
   resolvedTheme: "light" | "dark";
   scrollButtonVisible: boolean;
+  turns?: Readonly<Record<string, CleanCoreThreadItem>>;
   timelineEntries: ComponentProps<typeof MessagesTimeline>["timelineEntries"];
   timestampFormat: TimestampFormat;
   workspaceRoot: string | undefined;
@@ -113,6 +115,7 @@ function ChatTranscriptPaneImpl({
   resolvedTheme,
   scrollButtonVisible,
   timelineEntries,
+  turns,
   timestampFormat,
   workspaceRoot,
 }: ChatTranscriptPaneProps) {
@@ -236,6 +239,7 @@ function ChatTranscriptPaneImpl({
             listRef={listRef}
             {...(crossTaskOrigin ? { crossTaskOrigin } : {})}
             timelineEntries={timelineEntries}
+            turns={turns}
             onOpenThread={onOpenThread}
             onImageExpand={onExpandTimelineImage}
             onIsAtEndChange={onIsAtEndChange}

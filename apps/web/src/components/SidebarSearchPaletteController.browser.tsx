@@ -33,6 +33,7 @@ vi.mock("@tanstack/react-query", async (importOriginal) => ({
 const spaceId = SpaceId.makeUnsafe("search-space");
 function result(id: string): CleanCoreThreadSearchMatch {
   return {
+    latestTurn: null,
     id: ThreadId.makeUnsafe(id),
     spaceId,
     folderId: FolderId.makeUnsafe("folder"),

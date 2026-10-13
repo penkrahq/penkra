@@ -34,6 +34,7 @@ function input(): CleanCoreCreateThreadInput {
 }
 function makeCanonicalThread(request: CleanCoreCreateThreadInput): CleanCoreThreadSummary {
   return {
+    latestTurn: null,
     id: request.threadId,
     spaceId: SpaceId.makeUnsafe("space-test"),
     folderId: request.folderId,

@@ -7,6 +7,7 @@
 
 import type {
   CleanCoreSearchThreadsInput,
+  CleanCoreLatestTurn,
   CleanCoreThreadSearchCursor,
   FolderId,
   ProviderConnectionId,
@@ -30,6 +31,7 @@ export interface ThreadSummaryRecord {
   readonly runtimeMode: string;
   readonly state: string;
   readonly activeTurnId: TurnId | null;
+  readonly latestTurn: CleanCoreLatestTurn | null;
   readonly lastError: string | null;
   readonly queue: string;
   readonly createdBy: string;
@@ -46,6 +48,18 @@ export interface ThreadSummaryRecord {
   readonly updatedAt: string;
 }
 
+interface RawThreadSummaryRecord extends Omit<ThreadSummaryRecord, "latestTurn"> {
+  readonly latestTurnJson: string | null;
+}
+const decodeSummary = (row: RawThreadSummaryRecord): ThreadSummaryRecord => {
+  const { latestTurnJson, ...rest } = row;
+  return {
+    ...rest,
+    latestTurn:
+      latestTurnJson === null ? null : (JSON.parse(latestTurnJson) as CleanCoreLatestTurn),
+  };
+};
+
 export const THREAD_SUMMARY_COLUMNS = `
         id,
         space_id AS "spaceId",
@@ -58,6 +72,10 @@ export const THREAD_SUMMARY_COLUMNS = `
         runtime_mode AS "runtimeMode",
         state,
         active_turn_id AS "activeTurnId",
+        (SELECT json_object('turnId', item.turn_id, 'status', item.status,
+          'startedAt', json_extract(item.data,'$.startedAt'), 'endedAt', json_extract(item.data,'$.endedAt'))
+          FROM thread_items item WHERE item.thread_id=id AND item.kind='turn'
+          ORDER BY item.seq DESC LIMIT 1) AS "latestTurnJson",
         last_error AS "lastError",
         queue,
         created_by AS "createdBy",
@@ -105,7 +123,7 @@ const readThreadPage = (input: ThreadPageInput, includeArchived: boolean) =>
     const afterOrder = after?.sidebarSortOrder ?? null;
     const afterCreatedAt = after?.createdAt ?? null;
     const afterId = after?.id ?? null;
-    const rows = yield* sql<ThreadSummaryRecord>`
+    const rows = yield* sql<RawThreadSummaryRecord>`
       SELECT ${sql.literal(THREAD_SUMMARY_COLUMNS)}
       FROM threads
       WHERE space_id = ${input.spaceId}
@@ -131,7 +149,7 @@ const readThreadPage = (input: ThreadPageInput, includeArchived: boolean) =>
     const pageRows = rows.length > limit ? rows.slice(0, limit) : rows;
     const last = pageRows.at(-1);
     return {
-      threads: pageRows,
+      threads: pageRows.map(decodeSummary),
       nextCursor:
         rows.length > limit && last !== undefined
           ? {
@@ -152,12 +170,12 @@ export const listFolderThreads = (input: Omit<ThreadPageInput, "limit">) =>
 export const findThread = (threadId: ThreadId) =>
   Effect.gen(function* () {
     const sql = yield* SqlClient.SqlClient;
-    const rows = yield* sql<ThreadSummaryRecord>`
+    const rows = yield* sql<RawThreadSummaryRecord>`
       SELECT ${sql.literal(THREAD_SUMMARY_COLUMNS)}
       FROM threads
       WHERE id = ${threadId}
   `;
-    return rows[0] === undefined ? null : rows[0];
+    return rows[0] === undefined ? null : decodeSummary(rows[0]);
   });
 
 export const getThread = (threadId: ThreadId) =>
@@ -180,7 +198,9 @@ export const searchThreads = (input: CleanCoreSearchThreadsInput) =>
     const cursor = input.cursor;
     // Quote the user's text as an FTS phrase, rather than interpreting FTS operators.
     const phrase = '"' + input.query.replaceAll('"', '""') + '"';
-    const rows = yield* sql<ThreadSearchMatch>`
+    const rows = yield* sql<
+      Omit<ThreadSearchMatch, "latestTurn"> & { latestTurnJson: string | null }
+    >`
       WITH message_hits AS (
         SELECT i.thread_id, i.source_id, i.text,
           ROW_NUMBER() OVER (PARTITION BY i.thread_id ORDER BY i.seq DESC) AS position
@@ -210,7 +230,14 @@ export const searchThreads = (input: CleanCoreSearchThreadsInput) =>
       ORDER BY match_order ASC, last_activity_at DESC, id ASC
       LIMIT ${THREADS_PAGE_SIZE + 1}
     `;
-    const threads = rows.slice(0, THREADS_PAGE_SIZE);
+    const threads = rows.slice(0, THREADS_PAGE_SIZE).map(
+      (row): ThreadSearchMatch => ({
+        ...decodeSummary(row),
+        matchKind: row.matchKind,
+        messageId: row.messageId,
+        messageText: row.messageText,
+      }),
+    );
     const last = threads.at(-1);
     const nextCursor: CleanCoreThreadSearchCursor | null =
       rows.length > THREADS_PAGE_SIZE && last !== undefined
@@ -223,5 +250,5 @@ export const RUNNING_THREADS_SQL = `SELECT ${THREAD_SUMMARY_COLUMNS} FROM thread
 export const listRunningThreads = () =>
   Effect.gen(function* () {
     const sql = yield* SqlClient.SqlClient;
-    return yield* sql.unsafe<ThreadSummaryRecord>(RUNNING_THREADS_SQL);
+    return (yield* sql.unsafe<RawThreadSummaryRecord>(RUNNING_THREADS_SQL)).map(decodeSummary);
   });

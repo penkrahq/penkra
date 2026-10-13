@@ -1,9 +1,17 @@
 import { describe, expect, it, vi } from "vitest";
-import { EventId, MessageId, FolderId, ThreadId, TurnId } from "@penkra/contracts";
+import {
+  EventId,
+  MessageId,
+  FolderId,
+  ThreadId,
+  TurnId,
+  SpaceId,
+  type CleanCoreThreadSummary,
+} from "@penkra/contracts";
 import {
   buildInputNeededCopy,
   buildTaskCompletionCopy,
-  collectCompletedThreadCandidates,
+  createCompletedThreadTracker,
   collectInputNeededThreadCandidates,
   focusAvailableNotificationThread,
   isNotificationRuntimeFreshTimestamp,
@@ -46,45 +54,50 @@ function makeThread(overrides: Partial<Thread>): Thread {
   return Object.assign({}, thread, {}) as Thread;
 }
 
+function makeCanonicalThread(
+  overrides: Partial<CleanCoreThreadSummary> = {},
+): CleanCoreThreadSummary {
+  return {
+    id: ThreadId.makeUnsafe("thread-1"),
+    spaceId: SpaceId.makeUnsafe("space-1"),
+    folderId: FolderId.makeUnsafe("project-1"),
+    title: "Polish notifications",
+    provider: "codex",
+    connectionId: null,
+    model: "model",
+    modelOptions: null,
+    runtimeMode: "full-access",
+    state: "idle",
+    activeTurnId: null,
+    lastError: null,
+    queue: "[]",
+    createdBy: "user",
+    createdByThreadId: null,
+    sidebarSortOrder: null,
+    lastActivityAt: null,
+    lastMessagePreview: null,
+    lastUserMessageAt: null,
+    lastVisitedAt: null,
+    openQuestionCount: 0,
+    archivedAt: null,
+    deletedAt: null,
+    createdAt: "2026-04-05T10:00:00.000Z",
+    updatedAt: "2026-04-05T10:00:05.000Z",
+    latestTurn: {
+      turnId: TurnId.makeUnsafe("turn-1"),
+      status: "done",
+      startedAt: "2026-04-05T10:00:00.000Z",
+      endedAt: "2026-04-05T10:00:05.000Z",
+    },
+    ...overrides,
+  };
+}
 function buildCollectedTaskCompletionCopy(assistantText: string) {
-  const completedAt = "2026-04-05T10:00:05.000Z";
-  const candidates = collectCompletedThreadCandidates(
-    [makeThread({})],
-    [
-      makeThread({
-        session: {
-          provider: "codex",
-          status: "ready",
-          orchestrationStatus: "ready",
-          createdAt: "2026-04-05T10:00:00.000Z",
-          updatedAt: completedAt,
-        },
-        latestTurn: {
-          turnId: TurnId.makeUnsafe("turn-1"),
-          state: "completed",
-          requestedAt: "2026-04-05T10:00:00.000Z",
-          startedAt: "2026-04-05T10:00:00.000Z",
-          completedAt,
-          assistantMessageId: MessageId.makeUnsafe("msg-1"),
-        },
-        messages: [
-          {
-            id: MessageId.makeUnsafe("msg-1"),
-            role: "assistant",
-            text: assistantText,
-            createdAt: "2026-04-05T10:00:01.000Z",
-            completedAt,
-            turnId: TurnId.makeUnsafe("turn-1"),
-            streaming: false,
-          },
-        ],
-      }),
-    ],
+  const candidate = createCompletedThreadTracker([]).consume(
+    makeCanonicalThread({ lastMessagePreview: assistantText }),
+    new Set(),
   );
-  const candidate = candidates[0];
-  if (!candidate) {
-    throw new Error("Expected a completed thread candidate");
-  }
+  if (!candidate) throw new Error("Expected a canonical completion");
   return buildTaskCompletionCopy(candidate);
 }
 
@@ -107,407 +120,62 @@ describe("notification thread activation", () => {
   });
 });
 
-describe("collectCompletedThreadCandidates", () => {
-  it("returns threads that moved from working to completed", () => {
-    const previous = [
-      makeThread({
-        session: {
-          provider: "codex",
-          status: "running",
-          orchestrationStatus: "running",
-          createdAt: "2026-04-05T10:00:00.000Z",
-          updatedAt: "2026-04-05T10:00:01.000Z",
-        },
-      }),
-    ];
-    const next = [
-      makeThread({
-        session: {
-          provider: "codex",
-          status: "ready",
-          orchestrationStatus: "ready",
-          createdAt: "2026-04-05T10:00:00.000Z",
-          updatedAt: "2026-04-05T10:00:05.000Z",
-        },
-        latestTurn: {
-          turnId: TurnId.makeUnsafe("turn-1"),
-          state: "completed",
-          requestedAt: "2026-04-05T10:00:00.000Z",
-          startedAt: "2026-04-05T10:00:00.000Z",
-          completedAt: "2026-04-05T10:00:05.000Z",
-          assistantMessageId: MessageId.makeUnsafe("msg-1"),
-        },
-        messages: [
-          {
-            id: MessageId.makeUnsafe("msg-1"),
-            role: "assistant",
-            text: "Finished the task and everything looks good.",
-            createdAt: "2026-04-05T10:00:01.000Z",
-            completedAt: "2026-04-05T10:00:05.000Z",
-            streaming: false,
-          },
-        ],
-      }),
-    ];
-
-    expect(collectCompletedThreadCandidates(previous, next)).toEqual([
-      {
-        threadId: ThreadId.makeUnsafe("thread-1"),
-        folderId: FolderId.makeUnsafe("project-1"),
-        title: "Polish notifications",
-        completedAt: "2026-04-05T10:00:05.000Z",
-        assistantSummary: "Finished the task and everything looks good.",
-      },
+describe("canonical completion tracking", () => {
+  it("does not baseline a new completion when an already-loaded page is read again", () => {
+    const row = makeCanonicalThread();
+    const tracker = createCompletedThreadTracker([
+      { ...row, latestTurn: { ...row.latestTurn!, status: "running", endedAt: null } },
     ]);
+    tracker.observeBaseline([row]);
+    expect(tracker.consume(row, new Set())).not.toBeNull();
   });
-
-  it("summarizes the turn's final assistant message, not the opening preamble", () => {
-    const previous = [makeThread({})];
-    const next = [
-      makeThread({
-        session: {
-          provider: "codex",
-          status: "ready",
-          orchestrationStatus: "ready",
-          createdAt: "2026-04-05T10:00:00.000Z",
-          updatedAt: "2026-04-05T10:00:06.000Z",
-        },
-        latestTurn: {
-          turnId: TurnId.makeUnsafe("turn-1"),
-          state: "completed",
-          requestedAt: "2026-04-05T10:00:00.000Z",
-          startedAt: "2026-04-05T10:00:00.000Z",
-          completedAt: "2026-04-05T10:00:06.000Z",
-          assistantMessageId: MessageId.makeUnsafe("msg-final"),
-        },
-        messages: [
-          {
-            id: MessageId.makeUnsafe("msg-preamble"),
-            role: "assistant",
-            text: "Alright, I'll take the hint and start inspecting the work.",
-            createdAt: "2026-04-05T10:00:01.000Z",
-            completedAt: "2026-04-05T10:00:01.500Z",
-            turnId: TurnId.makeUnsafe("turn-1"),
-            streaming: false,
-          },
-          {
-            id: MessageId.makeUnsafe("msg-final"),
-            role: "assistant",
-            text: "Done — separated the risky changes from the in-progress ones.",
-            createdAt: "2026-04-05T10:00:05.500Z",
-            completedAt: "2026-04-05T10:00:06.000Z",
-            turnId: TurnId.makeUnsafe("turn-1"),
-            streaming: false,
-          },
-        ],
-      }),
-    ];
-
-    expect(collectCompletedThreadCandidates(previous, next)[0]?.assistantSummary).toBe(
-      "Done — separated the risky changes from the in-progress ones.",
-    );
-  });
-
-  it("falls back to the turn's last non-empty reply when the final message is still empty", () => {
-    const previous = [makeThread({})];
-    const next = [
-      makeThread({
-        session: {
-          provider: "codex",
-          status: "ready",
-          orchestrationStatus: "ready",
-          createdAt: "2026-04-05T10:00:00.000Z",
-          updatedAt: "2026-04-05T10:00:06.000Z",
-        },
-        latestTurn: {
-          turnId: TurnId.makeUnsafe("turn-1"),
-          state: "completed",
-          requestedAt: "2026-04-05T10:00:00.000Z",
-          startedAt: "2026-04-05T10:00:00.000Z",
-          completedAt: "2026-04-05T10:00:06.000Z",
-          assistantMessageId: MessageId.makeUnsafe("msg-final"),
-        },
-        messages: [
-          {
-            id: MessageId.makeUnsafe("msg-preamble"),
-            role: "assistant",
-            text: "Working on it now.",
-            createdAt: "2026-04-05T10:00:01.000Z",
-            completedAt: "2026-04-05T10:00:01.500Z",
-            turnId: TurnId.makeUnsafe("turn-1"),
-            streaming: false,
-          },
-          {
-            id: MessageId.makeUnsafe("msg-final"),
-            role: "assistant",
-            text: "   ",
-            createdAt: "2026-04-05T10:00:05.500Z",
-            completedAt: "2026-04-05T10:00:06.000Z",
-            turnId: TurnId.makeUnsafe("turn-1"),
-            streaming: false,
-          },
-        ],
-      }),
-    ];
-
-    expect(collectCompletedThreadCandidates(previous, next)[0]?.assistantSummary).toBe(
-      "Working on it now.",
-    );
-  });
-
-  it("does not reuse a legacy null-turn reply for a newer completed turn", () => {
-    const previous = [makeThread({})];
-    const next = [
-      makeThread({
-        session: {
-          provider: "codex",
-          status: "ready",
-          orchestrationStatus: "ready",
-          createdAt: "2026-04-05T10:00:00.000Z",
-          updatedAt: "2026-04-05T10:00:06.000Z",
-        },
-        latestTurn: {
-          turnId: TurnId.makeUnsafe("turn-2"),
-          state: "completed",
-          requestedAt: "2026-04-05T10:00:04.000Z",
-          startedAt: "2026-04-05T10:00:04.000Z",
-          completedAt: "2026-04-05T10:00:06.000Z",
-          assistantMessageId: MessageId.makeUnsafe("msg-final"),
-        },
-        messages: [
-          {
-            id: MessageId.makeUnsafe("msg-legacy"),
-            role: "assistant",
-            text: "Stale answer from an imported turn.",
-            createdAt: "2026-04-05T09:00:00.000Z",
-            completedAt: "2026-04-05T09:00:01.000Z",
-            streaming: false,
-          },
-          {
-            id: MessageId.makeUnsafe("msg-final"),
-            role: "assistant",
-            text: "   ",
-            createdAt: "2026-04-05T10:00:05.500Z",
-            completedAt: "2026-04-05T10:00:06.000Z",
-            turnId: TurnId.makeUnsafe("turn-2"),
-            streaming: false,
-          },
-        ],
-      }),
-    ];
-
-    const candidate = collectCompletedThreadCandidates(previous, next)[0];
-    expect(candidate?.assistantSummary).toBeNull();
-    expect(candidate && buildTaskCompletionCopy(candidate)).toEqual({
-      title: "Polish notifications",
-      body: "Finished working.",
+  it("notifies a hidden settled turn once across two immediate pushes", () => {
+    const tracker = createCompletedThreadTracker([]);
+    const row = makeCanonicalThread();
+    expect(tracker.consume(row, new Set())).toMatchObject({
+      threadId: row.id,
+      completedAt: row.latestTurn!.endedAt,
     });
+    expect(tracker.consume(row, new Set())).toBeNull();
+    expect(
+      tracker.consume(
+        { ...row, latestTurn: { ...row.latestTurn!, turnId: TurnId.makeUnsafe("turn-2") } },
+        new Set(),
+      ),
+    ).not.toBeNull();
   });
-
-  it("returns threads that settle after skipping the visible running-to-ready transition", () => {
-    const previous = [
-      makeThread({
-        session: {
-          provider: "codex",
-          status: "ready",
-          orchestrationStatus: "ready",
-          activeTurnId: TurnId.makeUnsafe("turn-1"),
-          createdAt: "2026-04-05T10:00:00.000Z",
-          updatedAt: "2026-04-05T10:00:01.000Z",
-        },
-        latestTurn: {
-          turnId: TurnId.makeUnsafe("turn-1"),
-          state: "running",
-          requestedAt: "2026-04-05T10:00:00.000Z",
-          startedAt: "2026-04-05T10:00:00.000Z",
-          completedAt: null,
-          assistantMessageId: null,
-        },
-      }),
-    ];
-    const next = [
-      makeThread({
-        session: {
-          provider: "codex",
-          status: "ready",
-          orchestrationStatus: "ready",
-          createdAt: "2026-04-05T10:00:00.000Z",
-          updatedAt: "2026-04-05T10:00:05.000Z",
-        },
-        latestTurn: {
-          turnId: TurnId.makeUnsafe("turn-1"),
-          state: "completed",
-          requestedAt: "2026-04-05T10:00:00.000Z",
-          startedAt: "2026-04-05T10:00:00.000Z",
-          completedAt: "2026-04-05T10:00:05.000Z",
-          assistantMessageId: MessageId.makeUnsafe("msg-1"),
-        },
-        messages: [
-          {
-            id: MessageId.makeUnsafe("msg-1"),
-            role: "assistant",
-            text: "Done and verified.",
-            createdAt: "2026-04-05T10:00:01.000Z",
-            completedAt: "2026-04-05T10:00:05.000Z",
-            streaming: false,
-          },
-        ],
-      }),
-    ];
-
-    expect(collectCompletedThreadCandidates(previous, next)).toEqual([
-      {
-        threadId: ThreadId.makeUnsafe("thread-1"),
-        folderId: FolderId.makeUnsafe("project-1"),
-        title: "Polish notifications",
-        completedAt: "2026-04-05T10:00:05.000Z",
-        assistantSummary: "Done and verified.",
-      },
+  it("takes existing settled turns as the baseline without catch-up notifications", () => {
+    const row = makeCanonicalThread();
+    expect(createCompletedThreadTracker([row]).consume(row, new Set())).toBeNull();
+  });
+  it("notifies a baseline running turn when it settles", () => {
+    const row = makeCanonicalThread();
+    const tracker = createCompletedThreadTracker([
+      { ...row, latestTurn: { ...row.latestTurn!, status: "running", endedAt: null } },
     ]);
+    expect(tracker.consume(row, new Set())).not.toBeNull();
   });
-
-  it("does not notify while the same turn is still running after an assistant block completes", () => {
-    const previous = [
-      makeThread({
-        session: {
-          provider: "codex",
-          status: "running",
-          orchestrationStatus: "running",
-          activeTurnId: TurnId.makeUnsafe("turn-1"),
-          createdAt: "2026-04-05T10:00:00.000Z",
-          updatedAt: "2026-04-05T10:00:01.000Z",
-        },
-      }),
-    ];
-    const next = [
-      makeThread({
-        session: {
-          provider: "codex",
-          status: "running",
-          orchestrationStatus: "running",
-          activeTurnId: TurnId.makeUnsafe("turn-1"),
-          createdAt: "2026-04-05T10:00:00.000Z",
-          updatedAt: "2026-04-05T10:00:05.000Z",
-        },
-        latestTurn: {
-          turnId: TurnId.makeUnsafe("turn-1"),
-          state: "completed",
-          requestedAt: "2026-04-05T10:00:00.000Z",
-          startedAt: "2026-04-05T10:00:00.000Z",
-          completedAt: "2026-04-05T10:00:05.000Z",
-          assistantMessageId: MessageId.makeUnsafe("msg-1"),
-        },
-        messages: [
-          {
-            id: MessageId.makeUnsafe("msg-1"),
-            role: "assistant",
-            text: "First block is done.",
-            createdAt: "2026-04-05T10:00:01.000Z",
-            completedAt: "2026-04-05T10:00:05.000Z",
-            streaming: false,
-          },
-        ],
-      }),
-    ];
-
-    expect(collectCompletedThreadCandidates(previous, next)).toEqual([]);
+  it("consumes visible completions without later notifying them in the background", () => {
+    const row = makeCanonicalThread();
+    const tracker = createCompletedThreadTracker([]);
+    expect(tracker.consume(row, new Set([row.id]))).toBeNull();
+    expect(tracker.consume(row, new Set())).toBeNull();
   });
-
-  it("notifies once when the same completed turn later settles via session idle", () => {
-    const previous = [
-      makeThread({
-        session: {
-          provider: "codex",
-          status: "running",
-          orchestrationStatus: "running",
-          activeTurnId: TurnId.makeUnsafe("turn-1"),
-          createdAt: "2026-04-05T10:00:00.000Z",
-          updatedAt: "2026-04-05T10:00:05.000Z",
-        },
-        latestTurn: {
-          turnId: TurnId.makeUnsafe("turn-1"),
-          state: "completed",
-          requestedAt: "2026-04-05T10:00:00.000Z",
-          startedAt: "2026-04-05T10:00:00.000Z",
-          completedAt: "2026-04-05T10:00:05.000Z",
-          assistantMessageId: MessageId.makeUnsafe("msg-1"),
-        },
-        messages: [
-          {
-            id: MessageId.makeUnsafe("msg-1"),
-            role: "assistant",
-            text: "First block is done.",
-            createdAt: "2026-04-05T10:00:01.000Z",
-            completedAt: "2026-04-05T10:00:05.000Z",
-            streaming: false,
-          },
-        ],
-      }),
-    ];
-    const next = [
-      makeThread({
-        session: {
-          provider: "codex",
-          status: "ready",
-          orchestrationStatus: "ready",
-          createdAt: "2026-04-05T10:00:00.000Z",
-          updatedAt: "2026-04-05T10:00:06.000Z",
-        },
-        latestTurn: {
-          turnId: TurnId.makeUnsafe("turn-1"),
-          state: "completed",
-          requestedAt: "2026-04-05T10:00:00.000Z",
-          startedAt: "2026-04-05T10:00:00.000Z",
-          completedAt: "2026-04-05T10:00:05.000Z",
-          assistantMessageId: MessageId.makeUnsafe("msg-1"),
-        },
-        messages: [
-          {
-            id: MessageId.makeUnsafe("msg-1"),
-            role: "assistant",
-            text: "First block is done.",
-            createdAt: "2026-04-05T10:00:01.000Z",
-            completedAt: "2026-04-05T10:00:05.000Z",
-            streaming: false,
-          },
-        ],
-      }),
-    ];
-
-    expect(collectCompletedThreadCandidates(previous, next)).toEqual([
-      {
-        threadId: ThreadId.makeUnsafe("thread-1"),
-        folderId: FolderId.makeUnsafe("project-1"),
-        title: "Polish notifications",
-        completedAt: "2026-04-05T10:00:05.000Z",
-        assistantSummary: "First block is done.",
-      },
-    ]);
-  });
-
-  it("ignores initial hydrated threads and non-completion updates", () => {
-    const previous = [makeThread({ session: null })];
-    const next = [
-      makeThread({
-        session: {
-          provider: "codex",
-          status: "ready",
-          orchestrationStatus: "ready",
-          createdAt: "2026-04-05T10:00:00.000Z",
-          updatedAt: "2026-04-05T10:00:05.000Z",
-        },
-        latestTurn: {
-          turnId: TurnId.makeUnsafe("turn-1"),
-          state: "completed",
-          requestedAt: "2026-04-05T10:00:00.000Z",
-          startedAt: "2026-04-05T10:00:00.000Z",
-          completedAt: "2026-04-05T10:00:05.000Z",
-          assistantMessageId: null,
-        },
-      }),
-    ];
-
-    expect(collectCompletedThreadCandidates(previous, next)).toEqual([]);
+  it("uses the canonical turn record without session-status or prior-snapshot guesses", () => {
+    const row = makeCanonicalThread({ state: "running" });
+    const tracker = createCompletedThreadTracker([]);
+    expect(
+      tracker.consume(
+        { ...row, latestTurn: { ...row.latestTurn!, status: "running", endedAt: null } },
+        new Set(),
+      ),
+    ).toBeNull();
+    expect(
+      tracker.consume(
+        { ...row, latestTurn: { ...row.latestTurn!, status: "interrupted" } },
+        new Set(),
+      ),
+    ).not.toBeNull();
   });
 });
 

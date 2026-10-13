@@ -68,6 +68,7 @@ const space: Space = {
 };
 function row(id: ThreadId, title: string): CleanCoreThreadSummary {
   return {
+    latestTurn: null,
     id,
     spaceId,
     folderId,

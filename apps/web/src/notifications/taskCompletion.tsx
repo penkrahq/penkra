@@ -5,7 +5,7 @@
 
 import { ThreadId } from "@penkra/contracts";
 import { useNavigate, useParams } from "@tanstack/react-router";
-import { useMemo, useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { toastManager } from "../components/ui/toast";
 import { resolveVisibleToastThreadIds } from "../components/ui/toastRouteVisibility";
 import { useAppSettings } from "../appSettings";
@@ -14,9 +14,14 @@ import { useStore } from "../store";
 import { createAllThreadsSelector } from "../storeSelectors";
 import type { Thread } from "../types";
 import {
+  getThreadList,
+  subscribeThreadRowChanges,
+  subscribeThreadPageReads,
+} from "../threadListStore";
+import {
   buildInputNeededCopy,
   buildTaskCompletionCopy,
-  collectCompletedThreadCandidates,
+  createCompletedThreadTracker,
   collectInputNeededThreadCandidates,
   focusAvailableNotificationThread,
   isNotificationRuntimeFreshTimestamp,
@@ -179,6 +184,37 @@ export function TaskCompletionNotifications() {
     };
   }, [navigate]);
 
+  const completionOptionsRef = useRef({ settings, visibleThreadIds, navigate });
+  completionOptionsRef.current = { settings, visibleThreadIds, navigate };
+  useEffect(() => {
+    if (!threadsHydrated) return;
+    const tracker = createCompletedThreadTracker(getThreadList());
+    const stopBaseline = subscribeThreadPageReads(tracker.observeBaseline);
+    const stopChanges = subscribeThreadRowChanges(
+      (_change, row) => {
+        if (row === null) return;
+        const options = completionOptionsRef.current;
+        const completion = tracker.consume(row, options.visibleThreadIds);
+        if (completion === null) return;
+        const copy = buildTaskCompletionCopy(completion);
+        if (options.settings.enableTaskCompletionToasts)
+          showThreadToast(copy, completion.threadId, "success", options.navigate);
+        if (
+          options.settings.enableSystemTaskCompletionNotifications &&
+          (window.desktopBridge || !isWindowForeground())
+        )
+          void showSystemThreadNotification(copy, completion.threadId, options.navigate);
+      },
+      (error) => {
+        throw error;
+      },
+    );
+    return () => {
+      stopBaseline();
+      stopChanges();
+    };
+  }, [threadsHydrated]);
+
   useEffect(() => {
     if (!threadsHydrated) {
       return;
@@ -190,12 +226,6 @@ export function TaskCompletionNotifications() {
       return;
     }
 
-    const completions = collectCompletedThreadCandidates(
-      previousThreadsRef.current,
-      threads,
-    ).filter((candidate) =>
-      isNotificationRuntimeFreshTimestamp(candidate.completedAt, runtimeStartedAtMs),
-    );
     const inputNeededCandidates = collectInputNeededThreadCandidates(
       previousThreadsRef.current,
       threads,
@@ -204,30 +234,13 @@ export function TaskCompletionNotifications() {
     );
     previousThreadsRef.current = threads;
 
-    if (completions.length === 0 && inputNeededCandidates.length === 0) {
+    if (inputNeededCandidates.length === 0) {
       return;
     }
 
     const shouldAttemptSystemNotification =
       settings.enableSystemTaskCompletionNotifications &&
       (window.desktopBridge ? true : !isWindowForeground());
-
-    for (const completion of completions) {
-      const copy = buildTaskCompletionCopy(completion);
-      if (
-        settings.enableTaskCompletionToasts &&
-        shouldShowThreadNotificationToast({
-          threadId: completion.threadId,
-          visibleThreadIds,
-        })
-      ) {
-        showThreadToast(copy, completion.threadId, "success", navigate);
-      }
-
-      if (shouldAttemptSystemNotification) {
-        void showSystemThreadNotification(copy, completion.threadId, navigate);
-      }
-    }
 
     for (const candidate of inputNeededCandidates) {
       const copy = buildInputNeededCopy(candidate);
@@ -247,6 +260,7 @@ export function TaskCompletionNotifications() {
     }
   }, [
     navigate,
+    runtimeStartedAtMs,
     settings.enableSystemTaskCompletionNotifications,
     settings.enableTaskCompletionToasts,
     threads,

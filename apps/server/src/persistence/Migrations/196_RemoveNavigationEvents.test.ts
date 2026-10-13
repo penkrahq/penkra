@@ -46,6 +46,7 @@ it.effect(
       assert.deepStrictEqual(yield* runMigrations(), [
         [196, "RemoveNavigationEvents"],
         [197, "SendRecoveryDraft"],
+        [198, "IndexLatestTurn"],
       ]);
       assert.deepStrictEqual(yield* sql`SELECT * FROM projection_spaces`, spaces);
       assert.deepStrictEqual(yield* sql`SELECT * FROM projection_folders`, folders);

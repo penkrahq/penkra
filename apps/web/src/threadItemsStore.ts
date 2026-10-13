@@ -11,6 +11,7 @@ export interface ThreadItemsPage {
   /** Newest first, as the server returns it. */
   readonly items: ReadonlyArray<CleanCoreThreadItem>;
   readonly nextCursor: number | null;
+  readonly turns: Readonly<Record<string, CleanCoreThreadItem>>;
 }
 
 export interface ThreadItemsState {
@@ -18,12 +19,14 @@ export interface ThreadItemsState {
   readonly items: ReadonlyArray<CleanCoreThreadItem>;
   /** Cursor for the next older page, or null when exhausted. */
   readonly nextCursor: number | null;
+  readonly turns: Readonly<Record<string, CleanCoreThreadItem>>;
   /** False until the first page is loaded. */
   readonly loaded: boolean;
 }
 
 export const EMPTY_THREAD_ITEMS_STATE: ThreadItemsState = {
   items: [],
+  turns: {},
   nextCursor: null,
   loaded: false,
 };
@@ -34,6 +37,7 @@ const ascending = (items: Iterable<CleanCoreThreadItem>): CleanCoreThreadItem[] 
 /** First (newest) page: replace state with it, oldest-first. */
 export const loadFirstPage = (page: ThreadItemsPage): ThreadItemsState => ({
   items: ascending(page.items),
+  turns: page.turns,
   nextCursor: page.nextCursor,
   loaded: true,
 });
@@ -47,6 +51,7 @@ export const prependOlderPage = (
   page: ThreadItemsPage,
 ): ThreadItemsState => ({
   items: mergeBySeq(state.items, page.items),
+  turns: { ...state.turns, ...page.turns },
   nextCursor: page.nextCursor,
   loaded: true,
 });
@@ -55,6 +60,7 @@ export const prependOlderPage = (
 export const mergeItems = (
   state: ThreadItemsState,
   incoming: ReadonlyArray<CleanCoreThreadItem>,
+  turns: ThreadItemsPage["turns"],
 ): ThreadItemsState => {
   const firstSeq = incoming.length === 0 ? 0 : Math.min(...incoming.map((item) => item.seq));
   return {
@@ -63,6 +69,7 @@ export const mergeItems = (
       state.items.filter((item) => item.seq < firstSeq),
       incoming,
     ),
+    turns: { ...state.turns, ...turns },
     loaded: true,
   };
 };
