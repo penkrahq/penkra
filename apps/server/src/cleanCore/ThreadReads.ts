@@ -40,6 +40,7 @@ export interface ThreadTranscriptPage {
   readonly threadId: ThreadId;
   readonly conversationTurnCount: number;
   readonly messages: ReadonlyArray<OrchestrationMessage>;
+  readonly userStatuses: ReadonlyMap<string, string>;
   readonly activities: ReadonlyArray<OrchestrationThreadActivity>;
   readonly pendingInteractions: NonNullable<typeof OrchestrationThread.Type.pendingInteractions>;
   readonly hasOlder: boolean;
@@ -48,12 +49,14 @@ export interface ThreadTranscriptPage {
 
 function transcriptRows(items: ReadonlyArray<ThreadItemRecord>) {
   const messages: OrchestrationMessage[] = [];
+  const userStatuses = new Map<string, string>();
   const activities: OrchestrationThreadActivity[] = [];
   const pendingInteractions: NonNullable<
     typeof OrchestrationThread.Type.pendingInteractions
   >[number][] = [];
   for (const item of items.toSorted((a, b) => a.seq - b.seq)) {
     const data = item.data === null ? {} : JSON.parse(item.data);
+    if (item.kind === "user") userStatuses.set(item.sourceId, item.status);
     if (item.kind === "user" || item.kind === "text") {
       messages.push({
         id: MessageId.makeUnsafe(item.sourceId),
@@ -102,7 +105,7 @@ function transcriptRows(items: ReadonlyArray<ThreadItemRecord>) {
         });
     }
   }
-  return { messages, activities, pendingInteractions };
+  return { messages, userStatuses, activities, pendingInteractions };
 }
 
 export const makeThreadReads = Effect.gen(function* () {
