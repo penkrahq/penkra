@@ -185,7 +185,6 @@ it.effect("allows client Play recovery while keeping restart recovery server-onl
     const parsed = yield* decodeClientOrchestrationCommand(command);
     assert.strictEqual(parsed.type, "thread.turn.recover");
     assert.strictEqual(parsed.reason, "play");
-    assert.strictEqual("bindingRevision" in parsed, false);
     const restart = yield* Effect.exit(
       decodeClientOrchestrationCommand({ ...command, reason: "restart" }),
     );

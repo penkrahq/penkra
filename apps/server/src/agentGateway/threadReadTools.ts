@@ -6,7 +6,6 @@ import {
   ThreadId,
   TurnId,
   type OrchestrationThreadShell,
-  type OrchestrationGetThreadTurnsPageResult,
   type ProviderKind,
   ProviderConnectionId,
   type ProviderConnection,
@@ -15,10 +14,8 @@ import {
 import { POSSIBLE_MODEL_CATALOG } from "@penkra/shared/possibleModels";
 import { Effect, Option, Schema } from "effect";
 
-import type { ProjectionFolderPageCursor } from "../orchestration/Services/ProjectionSnapshotQuery.ts";
-import type { ProjectionSnapshotQueryShape } from "../orchestration/Services/ProjectionSnapshotQuery.ts";
-import type { ProjectionTurnRepositoryShape } from "../persistence/Services/ProjectionTurns.ts";
-import type { QueuedTurnPromotionRepositoryShape } from "../persistence/Services/QueuedTurnPromotions.ts";
+import type { ProjectionFolderPageCursor } from "../cleanCore/ThreadReads.ts";
+import type { ThreadReadsShape } from "../cleanCore/ThreadReads.ts";
 import type { ProviderDiscoveryServiceShape } from "../provider/Services/ProviderDiscoveryService.ts";
 import { resolveDefaultConnection } from "../provider/defaultConnection.ts";
 import { PENKRA_INSTRUCTION_SET_VERSION } from "./harnessPolicy.ts";
@@ -30,7 +27,6 @@ import {
 } from "./targetResolver.ts";
 import {
   deriveAgentThreadStatus,
-  normalizeTranscriptTurnIdentity,
   summarizeThreadShell,
   packAgentTranscriptPage,
   READ_THREAD_DEFAULT_ITEM_LIMIT,
@@ -38,7 +34,6 @@ import {
   type AgentTranscriptCursorAnchor,
   type AgentTranscriptInclude,
 } from "./threadSummary.ts";
-import { resolveAuthoritativeActiveTurn } from "./activeExecution.ts";
 import { requireThreadSpaceId } from "./threadSpaceContext.ts";
 import {
   errorText,
@@ -249,9 +244,7 @@ const decodeFolderListCursor = (
 export interface ThreadReadToolsInput {
   readonly loadConnections: Effect.Effect<ReadonlyArray<ProviderConnection>, unknown>;
   readonly loadSettings: Effect.Effect<ServerSettings, unknown>;
-  readonly snapshotQuery: ProjectionSnapshotQueryShape;
-  readonly projectionTurns: ProjectionTurnRepositoryShape;
-  readonly queuedTurnPromotions: QueuedTurnPromotionRepositoryShape;
+  readonly snapshotQuery: ThreadReadsShape;
   readonly providerDiscovery: ProviderDiscoveryServiceShape;
   readonly loadProviderAvailabilities: Effect.Effect<
     ReadonlyMap<ProviderKind, AgentGatewayProviderAvailability>,
@@ -270,30 +263,11 @@ export interface ThreadReadToolsInput {
 export function makeThreadReadTools(input: ThreadReadToolsInput): ReadonlyArray<ToolEntry> {
   const {
     snapshotQuery,
-    projectionTurns,
-    queuedTurnPromotions,
     providerDiscovery,
     loadProviderAvailabilities,
     requireThreadShell,
     workspacePaths: _workspacePaths,
   } = input;
-
-  const loadTurnIdentityMap = (threadId: ThreadId) =>
-    Effect.gen(function* () {
-      const turns = yield* projectionTurns
-        .listByThreadId({ threadId })
-        .pipe(Effect.mapError((error) => new ToolInputError(errorText(error))));
-      const identities = new Map<string, string>();
-      for (const turn of turns) {
-        identities.set(turn.turnId, turn.turnId);
-        if (turn.providerTurnId) identities.set(turn.providerTurnId, turn.turnId);
-        const aliases = yield* projectionTurns
-          .listProviderTurnIds({ threadId, turnId: turn.turnId })
-          .pipe(Effect.mapError((error) => new ToolInputError(errorText(error))));
-        for (const providerTurnId of aliases) identities.set(providerTurnId, turn.turnId);
-      }
-      return identities;
-    });
 
   const contextTool: ToolEntry = {
     requiredCapability: "thread:read",
@@ -311,14 +285,7 @@ export function makeThreadReadTools(input: ThreadReadToolsInput): ReadonlyArray<
     handler: (_args, context) =>
       Effect.gen(function* () {
         const caller = yield* requireThreadShell(context.callerThreadId);
-        const turnId =
-          context.callerTurnId ??
-          (yield* resolveAuthoritativeActiveTurn({
-            threadId: caller.id,
-            session: caller.session,
-            projectionTurns,
-          }))?.turnId ??
-          null;
+        const turnId = context.callerTurnId ?? caller.session?.activeTurnId ?? null;
         return mcpToolResultJson({
           harness: {
             name: "Penkra",
@@ -725,18 +692,12 @@ export function makeThreadReadTools(input: ThreadReadToolsInput): ReadonlyArray<
           })
           .pipe(Effect.mapError((error) => new ToolInputError(errorText(error))));
         const page = result.threads;
-        const pendingCounts = yield* queuedTurnPromotions
-          .countPendingByThreadIds(page.map((thread) => thread.id))
-          .pipe(Effect.mapError((error) => new ToolInputError(errorText(error))));
-        const queuedCountByThread = new Map(
-          pendingCounts.map(({ threadId, count }) => [threadId, count]),
-        );
-        const threads = page.map((thread) =>
-          summarizeThreadShell(
-            thread,
-            context.callerThreadId,
-            queuedCountByThread.get(thread.id) ?? 0,
-          ),
+        const threads = yield* Effect.forEach(page, (thread) =>
+          snapshotQuery
+            .queueLength(thread.id)
+            .pipe(
+              Effect.map((count) => summarizeThreadShell(thread, context.callerThreadId, count)),
+            ),
         );
         return mcpToolResultJson({
           threads,
@@ -1057,21 +1018,13 @@ export function makeThreadReadTools(input: ThreadReadToolsInput): ReadonlyArray<
             include,
             limit: READ_THREAD_MAX_ITEM_LIMIT,
           });
-          const identities = yield* loadTurnIdentityMap(shell.id);
           return mcpToolResultJson({
             threadId: shell.id,
             title: shell.title,
             anchorMessageIds: windows.map(({ messageId }) => messageId),
             beforeTurns,
             afterTurns,
-            items: packed.items.map((item) => ({
-              ...item,
-              ...normalizeTranscriptTurnIdentity(
-                item.providerTurnId ?? item.turnId,
-                identities,
-                shell.modelSelection.provider,
-              ),
-            })),
+            items: packed.items,
             complete: packed.exhaustedPage,
           });
         }
@@ -1139,22 +1092,6 @@ export function makeThreadReadTools(input: ThreadReadToolsInput): ReadonlyArray<
                   },
                 })
               : null;
-          const identityByThread = new Map<string, ReadonlyMap<string, string>>();
-          for (const resultItem of selected) {
-            if (identityByThread.has(resultItem.threadId)) continue;
-            identityByThread.set(
-              resultItem.threadId,
-              yield* loadTurnIdentityMap(ThreadId.makeUnsafe(resultItem.threadId)),
-            );
-          }
-          const normalizedSelected = selected.map((item) => ({
-            ...item,
-            ...normalizeTranscriptTurnIdentity(
-              item.turnId,
-              identityByThread.get(item.threadId) ?? new Map(),
-              providerByThread.get(item.threadId),
-            ),
-          }));
           return mcpToolResultJson({
             scope: shell
               ? { kind: "thread", threadId: shell.id, title: shell.title }
@@ -1168,7 +1105,7 @@ export function makeThreadReadTools(input: ThreadReadToolsInput): ReadonlyArray<
             queryMode,
             order,
             searchPath: result.path,
-            items: normalizedSelected,
+            items: selected,
             pageInfo: { nextCursor },
           });
         }
@@ -1176,220 +1113,41 @@ export function makeThreadReadTools(input: ThreadReadToolsInput): ReadonlyArray<
         if (!shell || !threadId) {
           throw new ToolInputError('Argument "threadId" is required when "query" is absent.');
         }
-        const requestedTurn = turnId
-          ? yield* projectionTurns
-              .getByTurnId({
-                threadId: shell.id,
-                turnId: TurnId.makeUnsafe(turnId),
-              })
-              .pipe(Effect.mapError((error) => new ToolInputError(errorText(error))))
-          : Option.none();
-        if (turnId && Option.isNone(requestedTurn)) {
-          throw new ToolInputError(`Turn "${turnId}" was not found in Thread "${threadId}".`);
-        }
-        const turn = Option.getOrUndefined(requestedTurn);
-        const logicalTurnByProviderTurnId = yield* loadTurnIdentityMap(shell.id);
-        const providerTurnIds = new Set<string>(
-          turn
-            ? [
-                ...(yield* projectionTurns
-                  .listProviderTurnIds({
-                    threadId: shell.id,
-                    turnId: turn.turnId,
-                  })
-                  .pipe(Effect.mapError((error) => new ToolInputError(errorText(error))))),
-                ...(turn.providerTurnId === null ? [] : [turn.providerTurnId]),
-              ]
-            : [],
-        );
-        const queuedPosition =
-          turn?.state === "queued"
-            ? (yield* projectionTurns.listByThreadId({ threadId: shell.id }))
-                .filter((candidate) => candidate.state === "queued")
-                .findIndex((candidate) => candidate.turnId === turn.turnId) + 1
-            : undefined;
-        if (turn && (turn.state === "queued" || turn.state === "cancelled")) {
-          return mcpToolResultJson({
-            threadId: shell.id,
-            turn: {
-              turnId: turn.turnId,
-              state: turn.state,
-              ...(turn.state === "queued" && queuedPosition && queuedPosition > 0
-                ? { position: queuedPosition }
-                : {}),
-            },
-            items: [],
-            pageInfo: { nextCursor: null },
-          });
-        }
-        type TurnMessageBoundary = {
-          readonly sequence: number | undefined;
-          readonly createdAt: string;
-        };
-        type LaterTurnMessageBoundary = TurnMessageBoundary & {
-          readonly admissionSequence: number | undefined;
-          readonly admittedAt: string;
-        };
-        let turnBoundary: TurnMessageBoundary | undefined;
-        let nextTurnBoundary: TurnMessageBoundary | undefined;
-        if (turn?.pendingMessageId) {
-          const initiatingMessageIds = new Set(
-            (yield* projectionTurns.listByThreadId({ threadId: shell.id }))
-              .flatMap((candidate) =>
-                candidate.pendingMessageId === null ? [] : [candidate.pendingMessageId],
-              )
-              .filter((messageId) => messageId !== turn.pendingMessageId),
-          );
-          const laterBoundaries: Array<LaterTurnMessageBoundary> = [];
-          let boundaryPageBefore: string | undefined;
-          while (true) {
-            const boundaryPage = yield* snapshotQuery.getThreadTurnsPage({
+        const cursor = decodeThreadReadCursor(cursorValue, shell.id, turnId);
+        const page = yield* turnId
+          ? snapshotQuery.getTurnPage({
               threadId: shell.id,
-              ...(boundaryPageBefore ? { before: boundaryPageBefore } : {}),
-            });
-            const initiatingMessage = boundaryPage.messages.find(
-              (message) => message.id === turn.pendingMessageId,
-            );
-            for (const message of boundaryPage.messages) {
-              if (
-                initiatingMessageIds.has(message.id) &&
-                message.delivery !== undefined &&
-                message.delivery.state !== "queued" &&
-                message.delivery.state !== "failed"
-              ) {
-                laterBoundaries.push({
-                  sequence: message.delivery.sequence,
-                  createdAt: message.updatedAt,
-                  admissionSequence: message.sequence,
-                  admittedAt: message.createdAt,
-                });
-              }
-            }
-            if (initiatingMessage) {
-              const wasPromotedFromQueue = initiatingMessage.delivery?.queued === true;
-              turnBoundary = {
-                sequence:
-                  wasPromotedFromQueue && initiatingMessage.delivery?.state === "accepted"
-                    ? initiatingMessage.delivery.sequence
-                    : initiatingMessage.sequence,
-                createdAt:
-                  wasPromotedFromQueue && initiatingMessage.delivery?.state === "accepted"
-                    ? initiatingMessage.updatedAt
-                    : initiatingMessage.createdAt,
-              };
-              nextTurnBoundary = laterBoundaries
-                .filter((boundary) =>
-                  initiatingMessage.sequence !== undefined &&
-                  boundary.admissionSequence !== undefined
-                    ? boundary.admissionSequence > initiatingMessage.sequence
-                    : boundary.admittedAt > initiatingMessage.createdAt,
-                )
-                .toSorted((left, right) =>
-                  left.admissionSequence !== undefined && right.admissionSequence !== undefined
-                    ? left.admissionSequence - right.admissionSequence
-                    : left.admittedAt.localeCompare(right.admittedAt),
-                )[0];
-              break;
-            }
-            if (!boundaryPage.hasOlder || !boundaryPage.nextCursor) break;
-            boundaryPageBefore = boundaryPage.nextCursor;
-          }
-        }
-        const belongsToRequestedTurn = (item: {
-          readonly turnId?: string | null;
-          readonly sequence?: number | undefined;
-          readonly createdAt: string;
-        }) => {
-          if (!turn) return true;
-          const isInsideLogicalWindow =
-            turnBoundary?.sequence !== undefined && item.sequence !== undefined
-              ? item.sequence > turnBoundary.sequence &&
-                (nextTurnBoundary?.sequence === undefined ||
-                  item.sequence < nextTurnBoundary.sequence)
-              : item.createdAt >= (turnBoundary?.createdAt ?? turn.requestedAt) &&
-                (nextTurnBoundary === undefined || item.createdAt < nextTurnBoundary.createdAt);
-          if (!isInsideLogicalWindow) return false;
-          if (item.turnId === turn.turnId) return true;
-          if (
-            item.turnId === null ||
-            item.turnId === undefined ||
-            !providerTurnIds.has(item.turnId)
-          ) {
-            return false;
-          }
-          return true;
-        };
-        const cursor = decodeThreadReadCursor(cursorValue, threadId, turnId);
-        const queuedPositions = new Map(
-          (yield* projectionTurns.listByThreadId({ threadId: shell.id }))
-            .filter(
-              (candidate) => candidate.state === "queued" && candidate.pendingMessageId !== null,
-            )
-            .map((candidate, index) => [candidate.pendingMessageId!, index + 1] as const),
-        );
-
-        let pageBefore = cursor?.pageBefore ?? undefined;
-        let page: OrchestrationGetThreadTurnsPageResult;
-        let packed: ReturnType<typeof packAgentTranscriptPage>;
-        // If a live Thread grew by more than one turn page since the prior read,
-        // walk durable page anchors until the cursor's item is found. New output
-        // can never make a cursor skip or duplicate older transcript content.
-        while (true) {
-          page = yield* snapshotQuery.getThreadTurnsPage({
-            threadId: shell.id,
-            ...(pageBefore ? { before: pageBefore } : {}),
-          });
-          packed = packAgentTranscriptPage({
-            messages: turn
-              ? page.messages.filter(
-                  (message) => message.role === "assistant" && belongsToRequestedTurn(message),
-                )
-              : page.messages,
-            activities: turn ? page.activities.filter(belongsToRequestedTurn) : page.activities,
-            queuedPositions,
-            include,
-            ...(cursor?.anchor ? { anchor: cursor.anchor } : {}),
-            limit,
-          });
-          if (
-            packed.items.length > 0 ||
-            (turn?.state === "running" && cursor === undefined) ||
-            !page.hasOlder ||
-            !page.nextCursor
-          ) {
-            break;
-          }
-          pageBefore = page.nextCursor;
-        }
-
-        const nextCursor = packed.nextAnchor
-          ? encodeThreadReadCursor({
-              version: 1,
-              threadId,
-              ...(turnId ? { turnId } : {}),
-              pageBefore: pageBefore ?? null,
-              anchor: packed.nextAnchor,
+              turnId: TurnId.makeUnsafe(turnId),
+              ...(cursor?.pageBefore ? { before: cursor.pageBefore } : {}),
             })
-          : page.hasOlder && page.nextCursor
+          : snapshotQuery.getThreadTurnsPage({
+              threadId: shell.id,
+              ...(cursor?.pageBefore ? { before: cursor.pageBefore } : {}),
+            });
+        const packed = packAgentTranscriptPage({
+          messages: page.messages,
+          activities: page.activities,
+          include,
+          limit,
+          ...(cursor?.anchor ? { anchor: cursor.anchor } : {}),
+        });
+        const nextCursor =
+          !packed.exhaustedPage && packed.nextAnchor
             ? encodeThreadReadCursor({
                 version: 1,
-                threadId,
+                threadId: shell.id,
                 ...(turnId ? { turnId } : {}),
-                pageBefore: page.nextCursor,
+                pageBefore: cursor?.pageBefore ?? null,
+                anchor: packed.nextAnchor,
               })
-            : null;
-        const totalMessages =
-          !turn && snapshotQuery.countThreadMessages
-            ? yield* snapshotQuery.countThreadMessages(shell.id)
-            : page.messages.length;
-        const items = packed.items.map((item) => ({
-          ...item,
-          ...normalizeTranscriptTurnIdentity(
-            item.providerTurnId ?? item.turnId,
-            logicalTurnByProviderTurnId,
-            shell.modelSelection.provider,
-          ),
-        }));
+            : page.nextCursor === null
+              ? null
+              : encodeThreadReadCursor({
+                  version: 1,
+                  threadId: shell.id,
+                  ...(turnId ? { turnId } : {}),
+                  pageBefore: page.nextCursor,
+                });
         return mcpToolResultJson({
           threadId: shell.id,
           folderId: shell.folderId,
@@ -1405,27 +1163,11 @@ export function makeThreadReadTools(input: ThreadReadToolsInput): ReadonlyArray<
               : shell.creationSource === "provider_native"
                 ? "provider-native"
                 : "human",
-          archived: (shell.archivedAt ?? null) !== null,
+          archived: shell.archivedAt !== null,
           lastError: shell.session?.lastError ?? null,
           createdAt: shell.createdAt,
           updatedAt: shell.updatedAt,
-          ...(turn
-            ? {
-                turn: {
-                  turnId: turn.turnId,
-                  ...(turn.providerTurnId ? { providerTurnId: turn.providerTurnId } : {}),
-                  state: turn.state,
-                },
-              }
-            : {}),
-          items,
-          ...(!turn && cursor === undefined
-            ? {
-                before: {
-                  messages: Math.max(0, totalMessages - page.messages.length),
-                },
-              }
-            : {}),
+          items: packed.items,
           pageInfo: { nextCursor },
         });
       }).pipe(Effect.catch((error) => Effect.succeed(mcpToolErrorResult(error)))),

@@ -25,7 +25,7 @@ import { ChildProcessSpawner } from "effect/unstable/process";
 
 import { writeFileStringAtomically } from "../atomicWrite";
 import type { ServerConfigShape } from "../config";
-import type { ProjectionSnapshotQueryShape } from "../orchestration/Services/ProjectionSnapshotQuery";
+import type { ThreadReadsShape } from "../cleanCore/ThreadReads";
 import type { ServerSettingsShape } from "../serverSettings";
 import type { ProviderHealthShape } from "./Services/ProviderHealth";
 import type { ProviderInstallationRepositoryShape } from "../persistence/Services/ProviderInstallations";
@@ -137,7 +137,7 @@ function appendHistoryEntry(stateDir: string, entry: ProviderUpdateHistoryEntry)
 type ManagedProviderCoordinatorInput = {
   readonly providerHealth: ProviderHealthShape;
   readonly onProviderInstalled: (provider: ProviderKind) => Effect.Effect<void, unknown>;
-  readonly projectionSnapshotQuery: ProjectionSnapshotQueryShape;
+  readonly projectionSnapshotQuery: ThreadReadsShape;
   readonly serverSettings: ServerSettingsShape;
   readonly config: Pick<ServerConfigShape, "stateDir">;
   readonly installationRepository: ProviderInstallationRepositoryShape;

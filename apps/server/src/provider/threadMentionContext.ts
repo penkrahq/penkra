@@ -16,7 +16,7 @@ import {
 import { Effect, Option } from "effect";
 
 import { paginateThreadMessages } from "../agentGateway/threadSummary.ts";
-import type { ProjectionSnapshotQueryShape } from "../orchestration/Services/ProjectionSnapshotQuery.ts";
+import type { ThreadReadsShape } from "../cleanCore/ThreadReads.ts";
 
 export const THREAD_MENTION_MESSAGE_LIMIT = 20;
 export const THREAD_MENTION_MAX_MESSAGE_CHARS = 1_500;
@@ -110,7 +110,7 @@ export interface ResolvedThreadMentionPromptProjection {
 
 export function resolveThreadMentionPromptProjection(input: {
   readonly mentions: ReadonlyArray<ProviderMentionReference> | undefined;
-  readonly snapshotQuery: Pick<ProjectionSnapshotQueryShape, "getThreadDetailById">;
+  readonly snapshotQuery: Pick<ThreadReadsShape, "getThreadDetailById">;
   readonly maxTotalContextChars?: number;
 }): Effect.Effect<ResolvedThreadMentionPromptProjection> {
   const threadMentions = (input.mentions ?? []).filter(isThreadMentionReference);

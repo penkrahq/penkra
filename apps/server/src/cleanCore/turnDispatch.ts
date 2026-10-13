@@ -19,7 +19,7 @@ import {
   resolveProviderTurnContext,
 } from "../provider/providerTurnInput.ts";
 import { resolveProviderDispatchAttachments } from "../provider/providerAttachmentPaths.ts";
-import { ProjectionSnapshotQuery } from "../orchestration/Services/ProjectionSnapshotQuery.ts";
+import { ThreadReads } from "../cleanCore/ThreadReads.ts";
 import { ManagedAttachmentRepository } from "../persistence/Services/ManagedAttachments.ts";
 import { ServerSettingsService } from "../serverSettings.ts";
 import { ProviderAuthCircuits } from "../provider/providerAuthCircuit.ts";
@@ -54,7 +54,7 @@ export const TurnDispatchLive = Layer.effect(
     const config = yield* ServerConfig;
     const provider = yield* ProviderService;
     const launchResolver = yield* ProviderLaunchResolver;
-    const snapshot = yield* ProjectionSnapshotQuery;
+    const snapshot = yield* ThreadReads;
     const attachments = yield* ManagedAttachmentRepository;
     const settings = yield* ServerSettingsService;
     const circuits = yield* ProviderAuthCircuits;
@@ -165,7 +165,9 @@ export const TurnDispatchLive = Layer.effect(
           };
           const result = yield* input.nativeSteer
             ? provider.steerTurn(request)
-            : provider.sendTurn(request);
+            : command.reviewTarget === undefined
+              ? provider.sendTurn(request)
+              : provider.startReview({ ...request, reviewTarget: command.reviewTarget });
           yield* settleMessage(
             publisher,
             {

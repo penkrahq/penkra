@@ -12,7 +12,7 @@ import {
 import { buildPromptThreadTitleFallback } from "@penkra/shared/chatThreads";
 import { Effect, Option, Schema } from "effect";
 import type { ManagedAttachmentPrincipal } from "../managedAttachmentPrincipal.ts";
-import type { ProjectionSnapshotQueryShape } from "../orchestration/Services/ProjectionSnapshotQuery.ts";
+import type { ThreadReadsShape } from "../cleanCore/ThreadReads.ts";
 import type { ProviderDiscoveryServiceShape } from "../provider/Services/ProviderDiscoveryService.ts";
 import type { ProviderTurnSelectionResolverShape } from "../provider/Services/ProviderTurnSelectionResolver.ts";
 import { ThreadLifecycle } from "../cleanCore/threadLifecycle.ts";
@@ -31,7 +31,7 @@ interface CreationCoordinatorDependencies {
   readonly stateDir: string;
   readonly lifecycle: typeof ThreadLifecycle.Service;
   readonly sender: typeof ThreadSender.Service;
-  readonly snapshotQuery: ProjectionSnapshotQueryShape;
+  readonly snapshotQuery: ThreadReadsShape;
   readonly providerDiscovery: ProviderDiscoveryServiceShape;
   readonly providerTurnSelectionResolver: ProviderTurnSelectionResolverShape;
   readonly loadProviderAvailabilities: Effect.Effect<

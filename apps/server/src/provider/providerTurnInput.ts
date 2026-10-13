@@ -10,7 +10,7 @@ import type {
   ThreadId,
 } from "@penkra/contracts";
 import { Effect, Option } from "effect";
-import type { ProjectionSnapshotQueryShape } from "../orchestration/Services/ProjectionSnapshotQuery.ts";
+import type { ThreadReadsShape } from "../cleanCore/ThreadReads.ts";
 import { buildInlineSkillInstructions } from "./skillPromptInjection.ts";
 import {
   clampMentionTitle,
@@ -52,7 +52,7 @@ export const resolveProviderTurnContext = Effect.fnUntraced(function* (
     readonly mentions: ReadonlyArray<ProviderMentionReference> | undefined;
     readonly maxContextChars: number;
   },
-  snapshotQuery: Pick<ProjectionSnapshotQueryShape, "getThreadDetailById" | "getThreadShellById">,
+  snapshotQuery: Pick<ThreadReadsShape, "getThreadDetailById" | "getThreadShellById">,
 ) {
   const projection = yield* resolveThreadMentionPromptProjection({
     mentions: input.mentions,

@@ -21,16 +21,7 @@ import {
   ManagedAttachmentCleanup,
   type ManagedAttachmentCleanupShape,
 } from "./managedAttachmentCleanup";
-import {
-  OrchestrationEngineService,
-  type OrchestrationEngineShape,
-} from "./orchestration/Services/OrchestrationEngine";
-
-import {
-  ProviderCommandReactor,
-  type ProviderCommandReactorShape,
-} from "./orchestration/Services/ProviderCommandReactor";
-import { ProjectionSnapshotQuery } from "./orchestration/Services/ProjectionSnapshotQuery";
+import { ThreadReads } from "./cleanCore/ThreadReads";
 import { settleRunningThreadsOnStartup } from "./cleanCore/providerStreamConsumer.ts";
 import { ThreadPublisher } from "./cleanCore/ThreadPublisher.ts";
 import { ProviderService, type ProviderServiceShape } from "./provider/Services/ProviderService";
@@ -59,9 +50,7 @@ export interface ServerShape {
     | Keybindings
     | ManagedAttachmentCleanup
     | ServerLifecycleEvents
-    | OrchestrationEngineService
-    | ProviderCommandReactor
-    | ProjectionSnapshotQuery
+    | ThreadReads
     | ThreadPublisher
     | ProviderService
     | ServerRuntimeStartup
@@ -87,7 +76,6 @@ export class ServerLifecycleError extends Schema.TaggedErrorClass<ServerLifecycl
 /** Cut off interrupted work and attach runtime observers before accepting commands. */
 export function startServerRuntimeSubscriptions(input: {
   readonly threadPublisher: typeof ThreadPublisher.Service;
-  readonly providerCommandReactor: Pick<ProviderCommandReactorShape, "start">;
   readonly subscriptionsScope: Scope.Closeable;
   readonly startedAt: string;
 }) {
@@ -96,21 +84,10 @@ export function startServerRuntimeSubscriptions(input: {
       "clean-core.startup-cutoff",
       settleRunningThreadsOnStartup(input.threadPublisher, input.startedAt),
     );
-    // Observe provider events before commands can begin. Sequential scope
-    // finalization drains commands before releasing their runtime observer.
-    yield* runStartupStage(
-      "provider-command-dispatch.start",
-      Scope.provide(input.providerCommandReactor.start, input.subscriptionsScope),
-    );
   });
 }
 
 export function closeServerRuntimePipeline(input: {
-  readonly orchestrationEngine: Pick<OrchestrationEngineShape, "quiesce" | "drain" | "stop">;
-  readonly providerCommandReactor: Pick<
-    ProviderCommandReactorShape,
-    "drain" | "quiesceQueuePromotions"
-  >;
   readonly providerService: Pick<ProviderServiceShape, "closeRuntimeEvents">;
   readonly managedAttachmentCleanup: Pick<ManagedAttachmentCleanupShape, "drain">;
   readonly workspaceWatcher: Pick<WorkspaceWatcherShape, "close">;
@@ -122,29 +99,12 @@ export function closeServerRuntimePipeline(input: {
       Effect.andThen(Effect.logInfo("server shutdown stage completed", { stage })),
     );
 
-  return runStage("orchestration.quiesce", input.orchestrationEngine.quiesce).pipe(
-    // Drain already-admitted commands while every subscriber is live, then wait
-    // for provider-side delivery claims to reach a durable settlement. Closing
-    // the reactor scope before this second drain can interrupt the narrow window
-    // between an external command being claimed and its acceptance being
-    // recorded, which quarantines the thread after restart.
-    Effect.andThen(runStage("orchestration.drain", input.orchestrationEngine.drain)),
-    Effect.andThen(runStage("provider-command-reactor.drain", input.providerCommandReactor.drain)),
-    Effect.andThen(
-      runStage(
-        "provider-command-reactor.quiesce-queue-promotions",
-        input.providerCommandReactor.quiesceQueuePromotions,
-      ),
-    ),
-    // Provider close now fences terminal runtime events into subscriber workers;
-    // scope close drains those workers before the engine accepts its final stop.
-    Effect.andThen(runStage("provider-runtime.close", input.providerService.closeRuntimeEvents)),
+  return runStage("provider-runtime.close", input.providerService.closeRuntimeEvents).pipe(
     Effect.andThen(
       runStage("subscriptions.close", Scope.close(input.subscriptionsScope, Exit.void)),
     ),
     Effect.andThen(runStage("workspace-watcher.close", input.workspaceWatcher.close)),
     Effect.andThen(runStage("managed-attachments.drain", input.managedAttachmentCleanup.drain)),
-    Effect.andThen(runStage("orchestration.stop", input.orchestrationEngine.stop)),
   );
 }
 
@@ -164,8 +124,6 @@ export const createEffectServer = Effect.fn(function* (
   const managedAttachmentCleanup = yield* ManagedAttachmentCleanup;
   const workspaceWatcher = yield* WorkspaceWatcher;
   const lifecycleEvents = yield* ServerLifecycleEvents;
-  const orchestrationEngine = yield* OrchestrationEngineService;
-  const providerCommandReactor = yield* ProviderCommandReactor;
   const providerService = yield* ProviderService;
   const threadPublisher = yield* ThreadPublisher;
   const runtimeStartup = yield* ServerRuntimeStartup;
@@ -231,8 +189,6 @@ export const createEffectServer = Effect.fn(function* (
   const subscriptionsScope = yield* Scope.make("sequential");
   const shutdown = yield* Effect.cached(
     closeServerRuntimePipeline({
-      orchestrationEngine,
-      providerCommandReactor,
       providerService,
       managedAttachmentCleanup,
       workspaceWatcher,
@@ -245,7 +201,6 @@ export const createEffectServer = Effect.fn(function* (
   yield* Effect.addFinalizer(() => shutdown);
   yield* startServerRuntimeSubscriptions({
     threadPublisher,
-    providerCommandReactor,
     subscriptionsScope,
     startedAt: new Date().toISOString(),
   });

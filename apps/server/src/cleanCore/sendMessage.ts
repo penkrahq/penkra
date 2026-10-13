@@ -18,6 +18,7 @@ export const PLAY_TURN_RECOVERY_PROMPT =
 
 export interface SendMessageInput extends Pick<
   CleanCoreSendMessageInput,
+  | "reviewTarget"
   | "runtimeMode"
   | "draftUpdatedAt"
   | "providerOptions"

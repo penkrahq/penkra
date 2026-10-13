@@ -255,23 +255,21 @@ export function useComposerSlashCommands(input: {
         },
         api,
       );
-      await api.orchestration.dispatchCommand({
-        type: "thread.turn.start",
-        commandId: newCommandId(),
+      await api.cleanCore.sendMessage({
         threadId: nextThreadId,
         message: {
           messageId: newMessageId(),
-          role: "user",
           text: messageText,
           attachments: [],
+          senderThreadId: null,
+          dispatchOrigin: "user",
+          queuedAt: createdAt,
         },
         modelSelection: selectedModelSelection,
         connectionId: selectedConnectionId,
-        bindingRevision: 0,
         reviewTarget,
         dispatchMode: "queue",
         runtimeMode,
-        createdAt,
       });
       await navigateToThread(nextThreadId);
       return true;

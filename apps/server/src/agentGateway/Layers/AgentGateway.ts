@@ -8,8 +8,8 @@ import { ThreadLifecycle } from "../../cleanCore/threadLifecycle.ts";
  * this endpoint plus a thread-bound bearer token injected at session start, so
  * any agent running in a Penkra thread can use Penkra's registered commands.
  *
- * All tools delegate to existing services (OrchestrationEngine dispatch,
- * ProjectionSnapshotQuery reads); no orchestration
+ * All tools delegate to canonical thread services (admission,
+ * ThreadReads reads); no orchestration
  * state lives here.
  *
  * @module agentGateway/Layers/AgentGateway
@@ -27,14 +27,13 @@ import {
 import { Effect, Layer, Option } from "effect";
 
 import { ServerConfig } from "../../config.ts";
-import { OrchestrationEngineService } from "../../orchestration/Services/OrchestrationEngine.ts";
+import * as SqlClient from "effect/unstable/sql/SqlClient";
+import { ThreadPublisher } from "../../cleanCore/ThreadPublisher.ts";
 import {
   OrchestrationCommandInvariantError,
   findThreadGuardInvariant,
 } from "../../orchestration/Errors.ts";
-import { ProjectionSnapshotQuery } from "../../orchestration/Services/ProjectionSnapshotQuery.ts";
-import { ProjectionTurnRepository } from "../../persistence/Services/ProjectionTurns.ts";
-import { QueuedTurnPromotionRepository } from "../../persistence/Services/QueuedTurnPromotions.ts";
+import { ThreadReads } from "../../cleanCore/ThreadReads.ts";
 import { AgentGateway, type AgentGatewayShape } from "../Services/AgentGateway.ts";
 import { AgentGatewayCredentials } from "../Services/AgentGatewayCredentials.ts";
 import { AgentGatewayToolBridge } from "../Services/AgentGatewayToolBridge.ts";
@@ -98,7 +97,6 @@ import {
   PENKRA_EXEC_COMMAND_NAME,
 } from "../hostToolContract.ts";
 import { renderPenkraMcpServerInstructions } from "../harnessPolicy.ts";
-import { resolveAuthoritativeActiveTurn } from "../activeExecution.ts";
 import { presentFile, resolvePresentFileCwd } from "../presentFile.ts";
 import { ThreadSender } from "../../cleanCore/ThreadSender.ts";
 
@@ -148,16 +146,15 @@ export const makeAgentGateway = Effect.gen(function* () {
   const lifecycle = yield* ThreadLifecycle;
   const credentials = yield* AgentGatewayCredentials;
   const toolBridge = yield* AgentGatewayToolBridge;
-  const snapshotQuery = yield* ProjectionSnapshotQuery;
-  const orchestrationEngine = yield* OrchestrationEngineService;
+  const snapshotQuery = yield* ThreadReads;
+  const sql = yield* SqlClient.SqlClient;
+  const publisher = yield* ThreadPublisher;
   const providerTurnSelectionResolver = yield* ProviderTurnSelectionResolver;
   const providerThreadSwitchCoordinator = yield* ProviderThreadSwitchCoordinator;
   const providerDiscovery = yield* ProviderDiscoveryService;
   const providerHealth = yield* ProviderHealth;
   const serverSettings = yield* ServerSettingsService;
   const connections = yield* ProviderConnectionRepository;
-  const projectionTurns = yield* ProjectionTurnRepository;
-  const queuedTurnPromotions = yield* QueuedTurnPromotionRepository;
   const serverConfig = yield* ServerConfig;
   const managedAttachments = yield* ManagedAttachmentRepository;
   const loadProviderAvailabilities = Effect.gen(function* () {
@@ -234,8 +231,6 @@ export const makeAgentGateway = Effect.gen(function* () {
     loadConnections: connections.list(),
     loadSettings: serverSettings.getSettings,
     snapshotQuery,
-    projectionTurns,
-    queuedTurnPromotions,
     providerDiscovery,
     loadProviderAvailabilities,
     requireThreadShell,
@@ -564,10 +559,10 @@ export const makeAgentGateway = Effect.gen(function* () {
               attachmentsDir: serverConfig.attachmentsDir,
               stateDir: serverConfig.stateDir,
               repository: managedAttachments,
-              engine: orchestrationEngine,
+              publisher,
               assertActive: context.assertCallerTurnActive,
               ...(presentationId === undefined ? {} : { presentationId, presentationIndex: index }),
-            }),
+            }).pipe(Effect.provideService(SqlClient.SqlClient, sql)),
           );
           return mcpToolResultJson(results.length === 1 ? results[0] : { items: results });
         }).pipe(Effect.catch((error) => Effect.succeed(mcpToolErrorResult(error)))),

@@ -35,6 +35,7 @@ it.effect("adds admission storage and preserves sent items through the replaceme
       [198, "IndexLatestTurn"],
       [199, "IndexOpenQuestions"],
       [200, "FailedSendPayload"],
+      [201, "DropLegacyPipeline"],
     ]);
     assert.deepStrictEqual(
       yield* sql`SELECT thread_id,seq,source_id,text FROM thread_items`,

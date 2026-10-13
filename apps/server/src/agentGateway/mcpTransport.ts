@@ -3,7 +3,7 @@ import { randomUUID } from "node:crypto";
 import { ThreadId, type OrchestrationThreadShell } from "@penkra/contracts";
 import { Effect, Option } from "effect";
 
-import type { ProjectionSnapshotQueryShape } from "../orchestration/Services/ProjectionSnapshotQuery.ts";
+import type { ThreadReadsShape } from "../cleanCore/ThreadReads.ts";
 import type { AgentGatewayShape } from "./Services/AgentGateway.ts";
 import type { AgentGatewayCredentialsShape } from "./Services/AgentGatewayCredentials.ts";
 import { extractBearerToken } from "./bearerToken.ts";
@@ -34,7 +34,7 @@ const MCP_MAX_BATCH_MESSAGES = 50;
 export function makeAgentGatewayMcpTransport(input: {
   readonly stateDir: string;
   readonly credentials: AgentGatewayCredentialsShape;
-  readonly snapshotQuery: ProjectionSnapshotQueryShape;
+  readonly snapshotQuery: ThreadReadsShape;
   readonly tools: ReadonlyArray<ToolEntry>;
   readonly instructions:
     | string

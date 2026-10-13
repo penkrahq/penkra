@@ -1,3 +1,4 @@
+import { CleanCoreGetBootstrapResult } from "./cleanCore";
 import {
   CleanCoreListArchivedNavigationResult,
   CleanCoreListArchivedThreadsInput,
@@ -147,114 +148,11 @@ export const WsBootstrapNegotiateRpc = Rpc.make(WS_BOOTSTRAP_METHOD, {
   error: WsCompatibilityError,
 });
 
-export const WsOrchestrationDispatchCommandRpc = Rpc.make(
-  ORCHESTRATION_WS_METHODS.dispatchCommand,
-  {
-    payload: ClientOrchestrationCommand,
-    success: OrchestrationRpcSchemas.dispatchCommand.output,
-    error: WsRpcError,
-  },
-);
-
 export const WsOrchestrationImportThreadRpc = Rpc.make(ORCHESTRATION_WS_METHODS.importThread, {
   payload: OrchestrationImportThreadInput,
   success: OrchestrationImportThreadResult,
   error: WsRpcError,
 });
-
-export const WsOrchestrationGetSnapshotRpc = Rpc.make(ORCHESTRATION_WS_METHODS.getSnapshot, {
-  payload: OrchestrationRpcSchemas.getSnapshot.input,
-  success: OrchestrationRpcSchemas.getSnapshot.output,
-  error: WsRpcError,
-});
-
-export const WsOrchestrationGetThreadDetailSnapshotRpc = Rpc.make(
-  ORCHESTRATION_WS_METHODS.getThreadDetailSnapshot,
-  {
-    payload: OrchestrationRpcSchemas.getThreadDetailSnapshot.input,
-    success: OrchestrationRpcSchemas.getThreadDetailSnapshot.output,
-    error: WsRpcError,
-  },
-);
-
-export const WsOrchestrationGetThreadTurnsPageRpc = Rpc.make(
-  ORCHESTRATION_WS_METHODS.getThreadTurnsPage,
-  {
-    payload: OrchestrationRpcSchemas.getThreadTurnsPage.input,
-    success: OrchestrationRpcSchemas.getThreadTurnsPage.output,
-    error: WsRpcError,
-  },
-);
-
-export const WsOrchestrationGetPendingStartOutcomeRpc = Rpc.make(
-  ORCHESTRATION_WS_METHODS.getPendingStartOutcome,
-  {
-    payload: OrchestrationRpcSchemas.getPendingStartOutcome.input,
-    success: OrchestrationRpcSchemas.getPendingStartOutcome.output,
-    error: WsRpcError,
-  },
-);
-
-export const WsOrchestrationSubscribeSyncRpc = Rpc.make(ORCHESTRATION_WS_METHODS.subscribeSync, {
-  payload: OrchestrationRpcSchemas.subscribeSync.input,
-  success: OrchestrationSyncStreamItem,
-  error: WsRpcError,
-  stream: true,
-});
-
-export const WsOrchestrationAcknowledgeSyncRpc = Rpc.make(
-  ORCHESTRATION_WS_METHODS.acknowledgeSync,
-  {
-    payload: OrchestrationRpcSchemas.acknowledgeSync.input,
-    success: Schema.Void,
-    error: WsRpcError,
-  },
-);
-
-export const WsOrchestrationSubscribeShellRpc = Rpc.make(ORCHESTRATION_WS_METHODS.subscribeShell, {
-  payload: OrchestrationRpcSchemas.subscribeShell.input,
-  success: OrchestrationShellStreamItem,
-  error: WsRpcError,
-  stream: true,
-});
-
-export const WsOrchestrationUnsubscribeShellRpc = Rpc.make(
-  ORCHESTRATION_WS_METHODS.unsubscribeShell,
-  {
-    payload: OrchestrationRpcSchemas.unsubscribeShell.input,
-    success: Schema.Void,
-    error: WsRpcError,
-  },
-);
-
-export const WsOrchestrationSubscribeThreadRpc = Rpc.make(
-  ORCHESTRATION_WS_METHODS.subscribeThread,
-  {
-    payload: OrchestrationRpcSchemas.subscribeThread.input,
-    success: OrchestrationThreadStreamItem,
-    error: WsRpcError,
-    stream: true,
-  },
-);
-
-export const WsOrchestrationSubscribeDomainEventsRpc = Rpc.make(
-  WS_METHODS.subscribeOrchestrationDomainEvents,
-  {
-    payload: Schema.Struct({}),
-    success: OrchestrationEvent,
-    error: WsRpcError,
-    stream: true,
-  },
-);
-
-export const WsOrchestrationUnsubscribeThreadRpc = Rpc.make(
-  ORCHESTRATION_WS_METHODS.unsubscribeThread,
-  {
-    payload: OrchestrationRpcSchemas.unsubscribeThread.input,
-    success: Schema.Void,
-    error: WsRpcError,
-  },
-);
 
 export const WsFoldersListDirectoriesRpc = Rpc.make(WS_METHODS.projectsListDirectories, {
   payload: ProjectListDirectoriesInput,
@@ -555,6 +453,11 @@ export const WsCleanCoreGetFoldersRpc = Rpc.make(WS_METHODS.cleanCoreGetFolders,
   success: CleanCoreGetFoldersResult,
   error: WsRpcError,
 });
+export const WsCleanCoreGetBootstrapRpc = Rpc.make(WS_METHODS.cleanCoreGetBootstrap, {
+  payload: Schema.Struct({}),
+  success: CleanCoreGetBootstrapResult,
+  error: WsRpcError,
+});
 export const WsCleanCoreGetThreadShellRpc = Rpc.make(WS_METHODS.cleanCoreGetThreadShell, {
   payload: CleanCoreGetThreadShellInput,
   success: Schema.NullOr(OrchestrationThreadShell),
@@ -676,6 +579,7 @@ export const WsFeatureRpcGroup = RpcGroup.make(
   WsCleanCoreUpdateNavigationRpc,
   WsCleanCoreGetFoldersRpc,
   WsCleanCoreGetThreadShellRpc,
+  WsCleanCoreGetBootstrapRpc,
   WsCleanCoreListArchivedNavigationRpc,
   WsCleanCoreListArchivedThreadsRpc,
   WsCleanCoreRestoreThreadRpc,
@@ -690,19 +594,7 @@ export const WsFeatureRpcGroup = RpcGroup.make(
   WsCleanCoreSetThreadDraftRpc,
   WsCleanCoreSubscribeThreadRpc,
   WsCleanCoreAnswerThreadQuestionRpc,
-  WsOrchestrationDispatchCommandRpc,
   WsOrchestrationImportThreadRpc,
-  WsOrchestrationGetSnapshotRpc,
-  WsOrchestrationGetThreadDetailSnapshotRpc,
-  WsOrchestrationGetThreadTurnsPageRpc,
-  WsOrchestrationGetPendingStartOutcomeRpc,
-  WsOrchestrationSubscribeSyncRpc,
-  WsOrchestrationAcknowledgeSyncRpc,
-  WsOrchestrationSubscribeShellRpc,
-  WsOrchestrationUnsubscribeShellRpc,
-  WsOrchestrationSubscribeThreadRpc,
-  WsOrchestrationUnsubscribeThreadRpc,
-  WsOrchestrationSubscribeDomainEventsRpc,
   WsFoldersListDirectoriesRpc,
   WsFoldersSearchEntriesRpc,
   WsFoldersSearchLocalEntriesRpc,

@@ -1,3 +1,4 @@
+import { threadShellFromRow } from "@penkra/shared/threadView";
 import { applyFolderAppTabs } from "../rightDockStore";
 
 import { syncServerNavigation } from "../storeProjection";
@@ -455,9 +456,14 @@ function EventRouter() {
         (change, row) => {
           if (change.kind === "thread.created")
             markPromotedDraftThreads(new Set([change.threadId]));
-          if (row === null || row.archivedAt !== null || row.deletedAt !== null) {
-            useStore.getState().syncServerThreadShell(change.threadId, null);
-          }
+          useStore
+            .getState()
+            .syncServerThreadShell(
+              change.threadId,
+              row === null || row.archivedAt !== null || row.deletedAt !== null
+                ? null
+                : threadShellFromRow(row),
+            );
         },
         (error: unknown) =>
           toastManager.add({
@@ -468,12 +474,8 @@ function EventRouter() {
       ),
     [],
   );
-  const syncServerStartupSnapshot = useStore((store) => store.syncServerStartupSnapshot);
-  const syncServerThreadTurnsPage = useStore((store) => store.syncServerThreadTurnsPage);
-  const applyOrchestrationEvents = useStore((store) => store.applyOrchestrationEvents);
   const setProjectExpanded = useStore((store) => store.setProjectExpanded);
   const setServerWorkspacePaths = useWorkspacePathsStore((store) => store.setServerWorkspacePaths);
-  const serverThreadIdList = useStore((store) => store.threadIds);
   const queryClient = useQueryClient();
   const navigate = useNavigate();
   const pathname = useRouterState({
@@ -484,11 +486,8 @@ function EventRouter() {
     select: (params) => (params.threadId ? ThreadId.makeUnsafe(params.threadId) : null),
   });
   const visibleThreadIds = useMemo(() => (routeThreadId ? [routeThreadId] : []), [routeThreadId]);
-  const serverThreadIds = useMemo(() => new Set(serverThreadIdList ?? []), [serverThreadIdList]);
   const pathnameRef = useRef(pathname);
   const handledBootstrapThreadIdRef = useRef<string | null>(null);
-  const previouslyVisibleThreadIdsRef = useRef<ReadonlySet<ThreadId>>(new Set());
-  const seenThreadIdsRef = useRef<Set<ThreadId>>(new Set());
 
   useEffect(() => {
     pathnameRef.current = pathname;
@@ -500,259 +499,27 @@ function EventRouter() {
     if (!api) return;
 
     let disposed = false;
-    let pendingSyncDeliveries: OrchestrationSyncStreamItem[] = [];
-    let syncDeliveryFlushTimer: ReturnType<typeof setTimeout> | null = null;
-    let syncApplicationFailed = false;
-    let syncApplicationRecoveryAttempts = 0;
-    let syncApplicationRecoveryTimer: ReturnType<typeof setTimeout> | null = null;
-    let unsubscribeSyncEvent: (() => void) | null = null;
-    let subscribeToSyncEvents: () => void = () => undefined;
-    let pendingSyncAcknowledgement: {
-      readonly deliveryId: string;
-      readonly appliedSequence: number;
-    } | null = null;
-    let syncAcknowledgementWorker: Promise<void> | null = null;
-
-    const startSyncAcknowledgementWorker = () => {
-      if (syncAcknowledgementWorker || disposed) return;
-      syncAcknowledgementWorker = (async () => {
-        while (!disposed && pendingSyncAcknowledgement) {
-          const acknowledgement = pendingSyncAcknowledgement;
-          pendingSyncAcknowledgement = null;
-          try {
-            await api.orchestration.acknowledgeSync(acknowledgement);
-          } catch (error) {
-            if (!disposed) {
-              console.error("Failed to acknowledge orchestration synchronization", error);
-            }
-          }
-        }
-      })().finally(() => {
-        syncAcknowledgementWorker = null;
-        if (!disposed && pendingSyncAcknowledgement) {
-          startSyncAcknowledgementWorker();
-        }
-      });
-    };
-
-    const acknowledgeAppliedSyncSequence = (input: {
-      readonly deliveryId: string;
-      readonly appliedSequence: number;
-    }) => {
-      const pending = pendingSyncAcknowledgement;
-      pendingSyncAcknowledgement =
-        pending?.deliveryId === input.deliveryId && pending.appliedSequence >= input.appliedSequence
-          ? pending
-          : input;
-      startSyncAcknowledgementWorker();
-    };
     let providerDiscoveryInvalidationFingerprint: string | null = null;
-
-    const flushSyncDeliveries = (
-      reason: "delivery" | "visible-timer" | "visibility-hidden" | "window-blur" = "visible-timer",
-    ) => {
-      syncDeliveryFlushTimer = null;
-      if (disposed || syncApplicationFailed || pendingSyncDeliveries.length === 0) return;
-      const deliveries = pendingSyncDeliveries;
-      pendingSyncDeliveries = [];
-      const publicationRanges = new Map<
-        string,
-        { firstOrchestrationSequence: number; lastOrchestrationSequence: number }
-      >();
-      for (const item of deliveries) {
-        const threadId =
-          item.kind === "event" && item.event.aggregateKind === "thread"
-            ? String(item.event.aggregateId)
-            : "*";
-        const orchestrationSequence =
-          item.kind === "event" ? item.event.sequence : item.snapshot.snapshotSequence;
-        const existing = publicationRanges.get(threadId);
-        publicationRanges.set(threadId, {
-          firstOrchestrationSequence: Math.min(
-            existing?.firstOrchestrationSequence ?? orchestrationSequence,
-            orchestrationSequence,
-          ),
-          lastOrchestrationSequence: Math.max(
-            existing?.lastOrchestrationSequence ?? orchestrationSequence,
-            orchestrationSequence,
-          ),
-        });
-      }
-      const recordPublicationBatch = (
-        event:
-          | "sync-publication-flushed"
-          | "sync-publication-apply-failed"
-          | "sync-publication-recovery-scheduled"
-          | "sync-publication-recovered"
-          | "sync-publication-recovery-exhausted",
-        options?: { readonly failureName?: string; readonly recoveryAttempt?: number },
-      ) => {
-        for (const [threadId, range] of publicationRanges) {
-          recordChatSyncPublicationDiagnostic({
-            event,
-            threadId,
-            rendererVisibility: document.visibilityState,
-            rendererHasFocus: document.hasFocus(),
-            reason,
-            queuedDeliveryCount: deliveries.length,
-            ...range,
-            ...(options?.failureName === undefined ? {} : { failureName: options.failureName }),
-            ...(options?.recoveryAttempt === undefined
-              ? {}
-              : { recoveryAttempt: options.recoveryAttempt }),
-          });
-        }
-      };
-      let latestApplied:
-        | { readonly deliveryId: string; readonly appliedSequence: number }
-        | undefined;
-      try {
-        for (let index = 0; index < deliveries.length; index += 1) {
-          const item = deliveries[index]!;
-          if (item.kind === "snapshot") {
-            syncServerStartupSnapshot(item.snapshot);
-            for (const row of item.snapshot.runningThreads) applyThreadRow(row);
-            latestApplied = {
-              deliveryId: item.deliveryId,
-              appliedSequence: item.snapshot.snapshotSequence,
-            };
-            continue;
+    const loadBootstrap = () =>
+      api.cleanCore
+        .getBootstrap()
+        .then(({ runningThreads }) => {
+          if (disposed) return;
+          for (const row of runningThreads) {
+            applyThreadRow(row);
+            useStore.getState().syncServerThreadShell(row.id, threadShellFromRow(row));
           }
-
-          const eventDeliveries = [item];
-          while (deliveries[index + 1]?.kind === "event") {
-            eventDeliveries.push(
-              deliveries[(index += 1)] as Extract<OrchestrationSyncStreamItem, { kind: "event" }>,
-            );
-          }
-          const events = eventDeliveries.map((delivery) => delivery.event);
-          applyOrchestrationEvents(events);
-          for (const event of events) recordChatLifecycleSyncDiagnostic(event, "applied");
-          const affectedThreadIds = new Set(
-            eventDeliveries.flatMap((delivery) =>
-              delivery.event.aggregateKind === "thread"
-                ? [ThreadId.makeUnsafe(String(delivery.event.aggregateId))]
-                : [],
-            ),
-          );
-          for (const threadId of affectedThreadIds) {
-            const thread = getThreadFromState(useStore.getState(), threadId);
-            if (thread) reconcilePromotedDraftFromThreadDetail(thread);
-          }
-          const latestEventDelivery = eventDeliveries.at(-1)!;
-          latestApplied = {
-            deliveryId: latestEventDelivery.deliveryId,
-            appliedSequence: latestEventDelivery.event.sequence,
-          };
-        }
-      } catch (error) {
-        syncApplicationFailed = true;
-        recordPublicationBatch("sync-publication-apply-failed", {
-          failureName: error instanceof Error ? error.name : "UnknownError",
+          useStore.setState({ threadsHydrated: true });
+        })
+        .catch((error) => {
+          if (!disposed)
+            toastManager.add({
+              type: "error",
+              title: "Could not load threads",
+              description: errorMessage(error),
+            });
         });
-        console.error("Failed to apply orchestration synchronization delivery", error);
-        const recoveryDelay =
-          ORCHESTRATION_SYNC_APPLICATION_RECOVERY_DELAYS_MS[syncApplicationRecoveryAttempts];
-        if (recoveryDelay !== undefined && syncApplicationRecoveryTimer === null) {
-          syncApplicationRecoveryAttempts += 1;
-          recordPublicationBatch("sync-publication-recovery-scheduled", {
-            failureName: error instanceof Error ? error.name : "UnknownError",
-            recoveryAttempt: syncApplicationRecoveryAttempts,
-          });
-          syncApplicationRecoveryTimer = setTimeout(() => {
-            syncApplicationRecoveryTimer = null;
-            if (disposed) return;
-            // Do not acknowledge or retry the failed batch in place. Closing its
-            // lease makes the server replace it with an authoritative snapshot,
-            // which is the only safe boundary after a client projection error.
-            unsubscribeSyncEvent?.();
-            unsubscribeSyncEvent = null;
-            pendingSyncDeliveries = [];
-            syncApplicationFailed = false;
-            subscribeToSyncEvents();
-          }, recoveryDelay);
-        } else if (recoveryDelay === undefined) {
-          recordPublicationBatch("sync-publication-recovery-exhausted", {
-            failureName: error instanceof Error ? error.name : "UnknownError",
-            recoveryAttempt: syncApplicationRecoveryAttempts,
-          });
-        }
-        return;
-      }
-
-      recordPublicationBatch("sync-publication-flushed");
-      if (
-        syncApplicationRecoveryAttempts > 0 &&
-        deliveries.some((delivery) => delivery.kind === "snapshot")
-      ) {
-        recordPublicationBatch("sync-publication-recovered", {
-          recoveryAttempt: syncApplicationRecoveryAttempts,
-        });
-        syncApplicationRecoveryAttempts = 0;
-      }
-
-      if (latestApplied) {
-        acknowledgeAppliedSyncSequence(latestApplied);
-      }
-    };
-
-    subscribeToSyncEvents = () => {
-      unsubscribeSyncEvent = api.orchestration.onSyncEvent((item) => {
-        if (disposed || syncApplicationFailed) return;
-        if (item.kind === "event") recordChatLifecycleSyncDiagnostic(item.event, "received");
-        pendingSyncDeliveries.push(item);
-        const orchestrationSequence =
-          item.kind === "event" ? item.event.sequence : item.snapshot.snapshotSequence;
-        recordChatSyncPublicationDiagnostic({
-          event: "sync-publication-queued",
-          threadId:
-            item.kind === "event" && item.event.aggregateKind === "thread"
-              ? String(item.event.aggregateId)
-              : "*",
-          rendererVisibility: document.visibilityState,
-          rendererHasFocus: document.hasFocus(),
-          reason: "delivery",
-          queuedDeliveryCount: pendingSyncDeliveries.length,
-          firstOrchestrationSequence: orchestrationSequence,
-          lastOrchestrationSequence: orchestrationSequence,
-        });
-        if (document.visibilityState !== "visible" || !document.hasFocus()) {
-          if (syncDeliveryFlushTimer !== null) {
-            clearTimeout(syncDeliveryFlushTimer);
-            syncDeliveryFlushTimer = null;
-          }
-          flushSyncDeliveries("delivery");
-          return;
-        }
-        if (syncDeliveryFlushTimer !== null) return;
-        // Provider deltas commonly arrive in separate socket tasks. Publish their
-        // ordered projection at a bounded interactive cadence instead of committing React
-        // work for every delivery; persistence and server admission remain immediate.
-        syncDeliveryFlushTimer = setTimeout(
-          () => flushSyncDeliveries("visible-timer"),
-          ORCHESTRATION_SYNC_PUBLICATION_INTERVAL_MS,
-        );
-      });
-    };
-    subscribeToSyncEvents();
-    const onVisibilityChange = () => {
-      if (document.visibilityState === "visible" || pendingSyncDeliveries.length === 0) return;
-      if (syncDeliveryFlushTimer !== null) {
-        clearTimeout(syncDeliveryFlushTimer);
-        syncDeliveryFlushTimer = null;
-      }
-      flushSyncDeliveries("visibility-hidden");
-    };
-    const onWindowBlur = () => {
-      if (pendingSyncDeliveries.length === 0) return;
-      if (syncDeliveryFlushTimer !== null) {
-        clearTimeout(syncDeliveryFlushTimer);
-        syncDeliveryFlushTimer = null;
-      }
-      flushSyncDeliveries("window-blur");
-    };
-    document.addEventListener("visibilitychange", onVisibilityChange);
-    window.addEventListener("blur", onWindowBlur);
+    void loadBootstrap();
     const unsubWorkspaceChange = api.folders.onWorkspaceChange((event) => {
       void invalidateProjectQueriesForWorkspaceChange(queryClient, event);
     });
@@ -804,6 +571,7 @@ function EventRouter() {
       (state) => {
         if (state !== "open") return;
         void refreshServerConfigAfterTransportOpen(queryClient).catch(() => undefined);
+        void loadBootstrap();
       },
       { replayCurrent: true },
     );
@@ -815,91 +583,13 @@ function EventRouter() {
     });
     return () => {
       disposed = true;
-      pendingSyncDeliveries = [];
-      if (syncDeliveryFlushTimer !== null) {
-        clearTimeout(syncDeliveryFlushTimer);
-        syncDeliveryFlushTimer = null;
-      }
-      if (syncApplicationRecoveryTimer !== null) {
-        clearTimeout(syncApplicationRecoveryTimer);
-        syncApplicationRecoveryTimer = null;
-      }
-      document.removeEventListener("visibilitychange", onVisibilityChange);
-      window.removeEventListener("blur", onWindowBlur);
-      unsubscribeSyncEvent?.();
       unsubWorkspaceChange();
       unsubWelcome();
       unsubProviderStatusesUpdated();
       unsubWsTransportState();
       unsubServerSettingsUpdated();
     };
-  }, [
-    applyOrchestrationEvents,
-    navigate,
-    queryClient,
-    setProjectExpanded,
-    setServerWorkspacePaths,
-    syncServerStartupSnapshot,
-    syncServerThreadTurnsPage,
-  ]);
-
-  useLayoutEffect(() => {
-    const api = readNativeApi();
-    if (!api) return;
-    const previouslyVisibleThreadIds = previouslyVisibleThreadIdsRef.current;
-    previouslyVisibleThreadIdsRef.current = new Set(visibleThreadIds);
-    for (const threadId of visibleThreadIds) {
-      // Opening a persisted thread loads its per-thread metadata first; detail
-      // pages can attach only after that targeted read supplies the thread.
-      if (!serverThreadIds.has(threadId)) continue;
-      const state = useStore.getState();
-      const wasSeen = seenThreadIdsRef.current.has(threadId);
-      seenThreadIdsRef.current.add(threadId);
-      const isReopened = wasSeen && !previouslyVisibleThreadIds.has(threadId);
-      if (!isReopened && state.threadDetailSyncById?.[threadId] === "synced") continue;
-      recordChatPaginationDiagnostic({
-        event: "visible-reconcile-requested",
-        threadId,
-        dataCount: state.activityIdsByThreadId?.[threadId]?.length ?? 0,
-        detail: {
-          previousSyncState: state.threadDetailSyncById?.[threadId] ?? null,
-          isReopened,
-          shellSnapshotSequence: state.shellSnapshotSequence ?? null,
-        },
-      });
-      void api.orchestration
-        .getThreadTurnsPage({ threadId })
-        .then((page) => {
-          // The response hydrates an authoritative retained-detail cache, not
-          // component-local state. A route or shell rerender while the read is
-          // in flight must not revoke it; deleted threads are rejected by the
-          // store merge itself.
-          syncServerThreadTurnsPage(page);
-          recordChatPaginationDiagnostic({
-            event: "visible-reconcile-applied",
-            threadId,
-            dataCount: page.activities.length,
-            detail: {
-              messageCount: page.messages.length,
-              snapshotSequence: page.snapshotSequence,
-            },
-          });
-          const thread = getThreadFromState(useStore.getState(), threadId);
-          if (thread) reconcilePromotedDraftFromThreadDetail(thread);
-        })
-        .catch((error: unknown) => {
-          useStore.getState().markThreadDetailSyncFailed(threadId);
-          recordChatPaginationDiagnostic({
-            event: "visible-reconcile-failed",
-            threadId,
-            dataCount: 0,
-            detail: {
-              errorName: error instanceof Error ? error.name : typeof error,
-            },
-          });
-        });
-    }
-  }, [serverThreadIds, syncServerThreadTurnsPage, visibleThreadIds]);
+  }, [navigate, queryClient, setProjectExpanded, setServerWorkspacePaths]);
 
   return null;
 }

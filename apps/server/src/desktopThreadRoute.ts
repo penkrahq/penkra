@@ -20,7 +20,7 @@ import {
 } from "./managedAttachmentStore";
 import { ThreadSender } from "./cleanCore/ThreadSender";
 import { CurrentManagedAttachmentPrincipal } from "./managedAttachmentPrincipal";
-import { ProjectionSnapshotQuery } from "./orchestration/Services/ProjectionSnapshotQuery";
+import { ThreadReads } from "./cleanCore/ThreadReads";
 import { ManagedAttachmentRepository } from "./persistence/Services/ManagedAttachments";
 import { authorizeDesktopShutdown } from "./serverShutdown";
 import { ServerRuntimeStartup } from "./serverRuntimeStartup";
@@ -44,7 +44,7 @@ export const desktopThreadRouteLayer = HttpRouter.add(
         { ok: false, error: auth.reason },
         { status: auth.status },
       );
-    const snapshotQuery = yield* ProjectionSnapshotQuery;
+    const snapshotQuery = yield* ThreadReads;
     const sender = yield* ThreadSender;
     const attachments = yield* ManagedAttachmentRepository;
     const runtimeStartup = yield* ServerRuntimeStartup;

@@ -13,7 +13,9 @@ import {
 } from "@penkra/contracts";
 import { Effect } from "effect";
 
-import type { OrchestrationEngineShape } from "../orchestration/Services/OrchestrationEngine.ts";
+import * as SqlClient from "effect/unstable/sql/SqlClient";
+import { upsertThreadItem, type ThreadPublisher } from "../cleanCore/threadStore.ts";
+import { threadItemActivityData } from "../cleanCore/threadItemData.ts";
 import type { ManagedAttachmentRepositoryShape } from "../persistence/Services/ManagedAttachments.ts";
 import {
   persistReservedManagedAttachment,
@@ -64,7 +66,7 @@ export function presentFile(input: {
   readonly attachmentsDir: string;
   readonly stateDir: string;
   readonly repository: ManagedAttachmentRepositoryShape;
-  readonly engine: OrchestrationEngineShape;
+  readonly publisher: ThreadPublisher;
   readonly assertActive: () => Effect.Effect<void, Error>;
   readonly presentationId?: string;
   readonly presentationIndex?: number;
@@ -169,14 +171,21 @@ export function presentFile(input: {
       turnId: input.turnId === null ? null : TurnId.makeUnsafe(input.turnId),
       createdAt: new Date().toISOString(),
     };
-    yield* input.engine
-      .dispatch({
-        type: "thread.activity.append",
-        commandId,
-        threadId: ThreadId.makeUnsafe(input.threadId),
-        activity,
-        createdAt: activity.createdAt,
-      })
+    const sql = yield* SqlClient.SqlClient;
+    yield* sql
+      .withTransaction(
+        upsertThreadItem({
+          threadId: input.threadId,
+          sourceId: activity.id,
+          turnId: activity.turnId,
+          kind: "notice",
+          status: "done",
+          text: activity.summary,
+          data: threadItemActivityData(activity),
+          createdAt: activity.createdAt,
+          updatedAt: activity.createdAt,
+        }),
+      )
       .pipe(
         Effect.tapError(() =>
           input.repository.markCleanupByIds({
@@ -187,6 +196,7 @@ export function presentFile(input: {
           }),
         ),
       );
+    input.publisher.publish({ threadId: input.threadId });
     return { attachment, activityId: activity.id, turnId: input.turnId };
   });
 }

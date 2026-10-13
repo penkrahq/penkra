@@ -21,7 +21,7 @@ import { ProviderTurnSelectionResolver } from "../provider/Services/ProviderTurn
 import type { ProviderDiscoveryServiceShape } from "../provider/Services/ProviderDiscoveryService.ts";
 import { ProviderService } from "../provider/Services/ProviderService.ts";
 import { ProviderThreadSwitchCoordinator } from "../orchestration/Services/ProviderThreadSwitchCoordinator.ts";
-import type { ProjectionSnapshotQueryShape } from "../orchestration/Services/ProjectionSnapshotQuery.ts";
+import type { ThreadReadsShape } from "../cleanCore/ThreadReads.ts";
 import { makeThreadSender } from "../cleanCore/ThreadSender.ts";
 import { ThreadPublisher } from "../cleanCore/ThreadPublisher.ts";
 import { makeThreadPublisher, setThreadState } from "../cleanCore/threadStore.ts";
@@ -162,7 +162,7 @@ it.effect(
             Effect.succeed(
               Option.some({ id: folderId, spaceId: "penkra-personal", workspaceRoot: null }),
             ),
-        } as unknown as ProjectionSnapshotQueryShape,
+        } as unknown as ThreadReadsShape,
         loadProviderAvailabilities: Effect.succeed(
           new Map([["codex", { enabled: true, available: true, authStatus: "authenticated" }]]),
         ),

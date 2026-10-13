@@ -5,7 +5,7 @@ import type {
 } from "@penkra/contracts";
 import { Effect, Option } from "effect";
 
-import type { ProjectionSnapshotQueryShape } from "../orchestration/Services/ProjectionSnapshotQuery.ts";
+import type { ThreadReadsShape } from "../cleanCore/ThreadReads.ts";
 import { ToolInputError, errorText } from "./toolInput.ts";
 
 export function resolveThreadSpaceId(input: {
@@ -16,7 +16,7 @@ export function resolveThreadSpaceId(input: {
 }
 
 export function requireThreadSpaceId(
-  snapshotQuery: ProjectionSnapshotQueryShape,
+  snapshotQuery: ThreadReadsShape,
   thread: Pick<OrchestrationThreadShell, "id" | "folderId">,
 ): Effect.Effect<SpaceId, ToolInputError> {
   return snapshotQuery.getFolderShellById(thread.folderId).pipe(

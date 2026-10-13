@@ -4,14 +4,14 @@
 import type { OrchestrationImportThreadInput } from "@penkra/contracts";
 import { Data, Effect, Option } from "effect";
 
-import type { ProjectionSnapshotQueryShape } from "./Services/ProjectionSnapshotQuery";
+import type { ThreadReadsShape } from "../cleanCore/ThreadReads";
 
 class ImportThreadError extends Data.TaggedError("ImportThreadError")<{
   readonly message: string;
 }> {}
 
 export interface ImportThreadHandlerOptions {
-  readonly projectionSnapshotQuery: Pick<ProjectionSnapshotQueryShape, "getThreadDetailById">;
+  readonly projectionSnapshotQuery: Pick<ThreadReadsShape, "getThreadDetailById">;
 }
 
 /**

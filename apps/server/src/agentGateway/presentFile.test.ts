@@ -6,8 +6,12 @@ import path from "node:path";
 import { describe, expect, it } from "vitest";
 import { Effect } from "effect";
 
-import { ThreadId, type OrchestrationCommand } from "@penkra/contracts";
-import type { OrchestrationEngineShape } from "../orchestration/Services/OrchestrationEngine.ts";
+import { ThreadId } from "@penkra/contracts";
+import * as NodeSqliteClient from "../persistence/NodeSqliteClient.ts";
+import * as SqlClient from "effect/unstable/sql/SqlClient";
+import { runMigrations } from "../persistence/Migrations.ts";
+import { seedThreadFolderFixture } from "../cleanCore/threadFixtures.ts";
+import { createThread, makeThreadPublisher } from "../cleanCore/threadStore.ts";
 import type {
   ManagedAttachmentBlob,
   ManagedAttachmentRepositoryShape,
@@ -45,7 +49,7 @@ describe("penkra show file", () => {
       const bytes = Buffer.from([137, 80, 78, 71, 13, 10, 26, 10, 1, 2, 3]);
       await fs.writeFile(sourcePath, bytes);
       let blob: ManagedAttachmentBlob | undefined;
-      let command: OrchestrationCommand | undefined;
+      const threadId = `thread-${randomUUID()}`;
       const repository = {
         reserve: (input: Parameters<ManagedAttachmentRepositoryShape["reserve"]>[0]) =>
           Effect.sync(() => {
@@ -79,44 +83,55 @@ describe("penkra show file", () => {
             return { status: "claimed" as const, attachments: [blob!] };
           }),
       } as unknown as ManagedAttachmentRepositoryShape;
-      const engine = {
-        dispatch: (input: OrchestrationCommand) =>
-          Effect.sync(() => {
-            command = input;
-            return {};
-          }),
-      } as unknown as OrchestrationEngineShape;
       const result = await Effect.runPromise(
-        presentFile({
-          requestedPath: "./logo.png",
-          cwd: root,
-          threadId: `thread-${randomUUID()}`,
-          turnId: "turn-active",
-          attachmentsDir: path.join(root, "attachments"),
-          stateDir: root,
-          repository,
-          engine,
-          assertActive: () => Effect.void,
-          presentationId: "gallery-1",
-          presentationIndex: 2,
-        }),
+        Effect.gen(function* () {
+          yield* runMigrations();
+          yield* seedThreadFolderFixture("folder", "space");
+          yield* createThread({
+            id: threadId,
+            folderId: "folder",
+            spaceId: "space",
+            title: "Show",
+            provider: "codex",
+            model: "model",
+            runtimeMode: "full-access",
+            createdBy: "user",
+            createdAt: new Date().toISOString(),
+          });
+          const result = yield* presentFile({
+            requestedPath: "./logo.png",
+            cwd: root,
+            threadId,
+            turnId: "turn-active",
+            attachmentsDir: path.join(root, "attachments"),
+            stateDir: root,
+            repository,
+            publisher: makeThreadPublisher(),
+            assertActive: () => Effect.void,
+            presentationId: "gallery-1",
+            presentationIndex: 2,
+          });
+          const sql = yield* SqlClient.SqlClient;
+          const [row] = yield* sql<{
+            data: string;
+            turnId: string;
+          }>`SELECT data,turn_id AS "turnId" FROM thread_items WHERE thread_id=${threadId}`;
+          expect(row!.turnId).toBe("turn-active");
+          expect(JSON.parse(row!.data)).toMatchObject({
+            kind: "media.presented",
+            payload: {
+              attachmentId: result.attachment.id,
+              name: "logo.png",
+              type: "image",
+              presentationId: "gallery-1",
+              presentationIndex: 2,
+            },
+          });
+          return result;
+        }).pipe(Effect.provide(NodeSqliteClient.layerMemory())),
       );
       expect(result.attachment.type).toBe("image");
       expect(blob?.state).toBe("claimed");
-      expect(command).toMatchObject({
-        type: "thread.activity.append",
-        activity: {
-          kind: "media.presented",
-          turnId: "turn-active",
-          payload: {
-            attachmentId: result.attachment.id,
-            name: "logo.png",
-            type: "image",
-            presentationId: "gallery-1",
-            presentationIndex: 2,
-          },
-        },
-      });
       await fs.unlink(sourcePath);
       expect(await fs.readFile(path.join(root, "attachments", blob!.relativePath))).toEqual(bytes);
     } finally {

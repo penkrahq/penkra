@@ -222,7 +222,11 @@ import { toAttachmentPreviewUrl } from "../lib/wsHttpUrl";
 import { isEditableEventTarget } from "../lib/editableEventTarget";
 import { useComposerDraftSync } from "../composerDraftSync";
 import { useThreadItems } from "../useThreadItems";
-import { threadItemsToTimelineEntries } from "./chat/threadItemMappers";
+import {
+  threadItemsToTimelineEntries,
+  threadItemToChatMessage,
+  threadItemToActivity,
+} from "./chat/threadItemMappers";
 import {
   type ComposerFileAttachment,
   type ComposerImageAttachment,
@@ -652,9 +656,6 @@ function ChatViewContent({
   // into a full long-thread render.
   const paneScopeId = paneScopeIdProp ?? SINGLE_CHAT_PANE_SCOPE_ID;
   const markThreadVisited = useStore((store) => store.markThreadVisited);
-  const syncServerThreadTurnsPage = useStore((store) => store.syncServerThreadTurnsPage);
-  const markThreadDetailSyncFailed = useStore((store) => store.markThreadDetailSyncFailed);
-  const clearThreadDetailSyncFailure = useStore((store) => store.clearThreadDetailSyncFailure);
   const setStoreThreadError = useStore((store) => store.setError);
   const { settings, serverSettings } = useAppSettings();
   const assistantDeliveryMode = resolveAssistantDeliveryMode(settings);
@@ -782,8 +783,31 @@ function ChatViewContent({
   );
   const markWorkflowRunPaused = useWorkflowRunUiStore((store) => store.markPaused);
   const markWorkflowRunDismissed = useWorkflowRunUiStore((store) => store.markDismissed);
-  const serverThread = useStore(useMemo(() => createThreadSelector(threadId), [threadId]));
-  const threadDetailSyncState = useStore((store) => store.threadDetailSyncById?.[threadId] ?? null);
+  const serverThreadShell = useStore(useMemo(() => createThreadSelector(threadId), [threadId]));
+  const {
+    state: threadItemsState,
+    loadOlder: loadOlderItems,
+    reload: retryThreadDetailHydration,
+    error: threadItemsError,
+  } = useThreadItems(canonicalRows.some((row) => row.id === threadId) ? threadId : null);
+  const threadItems = threadItemsState.items;
+  const serverThread = useMemo(
+    () =>
+      serverThreadShell === undefined
+        ? undefined
+        : {
+            ...serverThreadShell,
+            messages: threadItems
+              .filter((item) => item.kind === "user" || item.kind === "text")
+              .map(threadItemToChatMessage),
+            activities: threadItems
+              .filter(
+                (item) => item.kind !== "user" && item.kind !== "text" && item.kind !== "turn",
+              )
+              .map(threadItemToActivity),
+          },
+    [serverThreadShell, threadItems],
+  );
   const selectMentionSources = useMemo(() => createComposerThreadMentionSourcesSelector(), []);
   const composerThreadSummaries = selectMentionSources(useThreadList());
   const composerThreadFolders = useStore((state) => state.folders);
@@ -1337,33 +1361,13 @@ function ChatViewContent({
       : (parentScopedDraftThread?.runtimeMode ?? DEFAULT_RUNTIME_MODE));
   const isServerThread = serverThread !== undefined;
   const isLocalDraftThread = !isServerThread && localDraftThread !== undefined;
-  const threadDetailHydration = resolveThreadDetailHydration({
-    isServerThread,
-    detailSyncState: threadDetailSyncState,
-  });
-  const retryThreadDetailHydration = useCallback(() => {
-    if (!isServerThread) return;
-    const api = readNativeApi();
-    if (!api) return;
-    clearThreadDetailSyncFailure(threadId);
-    void api.orchestration
-      .getThreadTurnsPage({ threadId })
-      .then(syncServerThreadTurnsPage)
-      .catch(() => markThreadDetailSyncFailed(threadId));
-  }, [
-    clearThreadDetailSyncFailure,
-    isServerThread,
-    markThreadDetailSyncFailed,
-    syncServerThreadTurnsPage,
-    threadId,
-  ]);
+  const threadDetailHydration =
+    !isServerThread || threadItemsState.loaded
+      ? "ready"
+      : threadItemsError !== null
+        ? "failed"
+        : "loading";
   const activeThreadId = activeThread?.id ?? null;
-  // Clean-core transcript source (0.14.4 design 2.1): the transcript renders
-  // strictly from thread_items, paged by seq.
-  const { state: threadItemsState } = useThreadItems(
-    canonicalRows.some((row) => row.id === threadId) ? threadId : null,
-  );
-  const threadItems = threadItemsState.items;
   const activeLatestTurn = activeThread?.latestTurn ?? null;
   const activeLatestTurnId = activeLatestTurn?.turnId ?? null;
   const activeSessionTurnId = activeThread?.session?.activeTurnId ?? null;
@@ -2018,7 +2022,11 @@ function ChatViewContent({
       threadId: activeThreadId,
       isServerThread,
       isLocalDraftThread,
-      threadDetailSyncState,
+      threadDetailSyncState: threadItemsState.loaded
+        ? "synced"
+        : threadItemsError !== null
+          ? "failed"
+          : null,
       threadDetailHydration,
       projectedMessageCount: activeThread?.messages.length ?? 0,
       draftPromotedTo: draftThread?.promotedTo ?? null,
@@ -2089,7 +2097,8 @@ function ChatViewContent({
     phase,
     showThinking,
     threadDetailHydration,
-    threadDetailSyncState,
+    threadItemsState.loaded,
+    threadItemsError,
   ]);
   const activeTurnInProgress = activeTurnLayoutLive;
   const isComposerEditorDisabled = isLocalConnecting;
@@ -2717,17 +2726,14 @@ function ChatViewContent({
     const commandId = newCommandId();
     pendingContinueCommandIdRef.current = commandId;
     try {
-      await api.orchestration.dispatchCommand({
-        type: "thread.turn.recover",
-        reason: "play",
-        runtimeMode,
-        commandId,
-        threadId: target.threadId,
-        turnId: target.turnId,
-        interruptedTurnId: target.turnId,
-        recoveryMessageId: newMessageId(),
-        connectionId: context.row.connectionId,
-        createdAt: new Date().toISOString(),
+      await api.cleanCore.updateThread({
+        update: {
+          action: "resume",
+          threadId: target.threadId,
+          messageId: newMessageId(),
+          runtimeMode,
+          updatedAt: new Date().toISOString(),
+        },
       });
     } catch (error) {
       pendingContinueCommandIdRef.current = null;
@@ -3628,12 +3634,13 @@ function ChatViewContent({
   const onStopWorkflowRun = useCallback(async () => {
     const api = readNativeApi();
     if (!api || !activeThread || !workflowRunState) return;
-    await api.orchestration.dispatchCommand({
-      type: "thread.task.stop",
-      commandId: newCommandId(),
-      threadId: activeThread.id,
-      taskId: workflowRunState.workflowTaskId,
-      createdAt: new Date().toISOString(),
+    await api.cleanCore.updateThread({
+      update: {
+        action: "stopTask",
+        threadId: activeThread.id,
+        taskId: workflowRunState.workflowTaskId,
+        updatedAt: new Date().toISOString(),
+      },
     });
   }, [activeThread, workflowRunState]);
 
@@ -6119,6 +6126,7 @@ function ChatViewContent({
                         crossTaskOrigin={crossTaskOrigin}
                         timelineEntries={visibleTimelineEntries}
                         turns={threadItemsState.turns}
+                        onLoadOlder={loadOlderItems}
                         onOpenThread={onNavigateToThread}
                         onRemoveFailedMessage={removeFailedMessage}
                         onExpandTimelineImage={onExpandTimelineImage}

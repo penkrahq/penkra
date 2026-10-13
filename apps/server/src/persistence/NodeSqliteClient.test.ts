@@ -9,7 +9,6 @@ import * as SqlClient from "effect/unstable/sql/SqlClient";
 import { describe, expect } from "vitest";
 
 import * as SqliteClient from "./NodeSqliteClient.ts";
-import { takeRuntimeJournalTimings } from "./runtimeJournalMetrics.ts";
 
 const layer = it.layer(SqliteClient.layerMemory());
 
@@ -32,20 +31,6 @@ layer("NodeSqliteClient", (it) => {
       assert.equal(values.length, 2);
       assert.equal(values[0]?.[1], "alpha");
       assert.equal(values[1]?.[1], "beta");
-    }),
-  );
-
-  it.effect("records every executed statement's duration for the bounded-query target", () =>
-    Effect.gen(function* () {
-      const sql = yield* SqlClient.SqlClient;
-      // Drain anything left by earlier tests so the count is this query's.
-      takeRuntimeJournalTimings();
-      yield* sql`SELECT 1 AS one`;
-      const drained = takeRuntimeJournalTimings();
-      const bucket = drained.timings["sqliteStatement"];
-      assert.isDefined(bucket);
-      assert.isAtLeast(bucket!.count, 1);
-      assert.isAtLeast(bucket!.maxMs, 0);
     }),
   );
 });

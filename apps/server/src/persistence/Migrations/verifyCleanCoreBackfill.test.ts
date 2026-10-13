@@ -1,9 +1,9 @@
-import { seedHistoricalFolderFixture } from "./Migrations/historicalFolderFixture.ts";
+import { seedHistoricalFolderFixture } from "./historicalFolderFixture.ts";
 import { assert, it } from "@effect/vitest";
 import { Cause, Effect, Exit } from "effect";
 import * as SqlClient from "effect/unstable/sql/SqlClient";
-import { runMigrations } from "./Migrations.ts";
-import * as NodeSqliteClient from "./NodeSqliteClient.ts";
+import { runMigrations } from "../Migrations.ts";
+import * as NodeSqliteClient from "../NodeSqliteClient.ts";
 import { verifyCleanCoreBackfill } from "./verifyCleanCoreBackfill.ts";
 
 const seedSource = Effect.gen(function* () {

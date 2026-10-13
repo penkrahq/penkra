@@ -26,26 +26,7 @@ import {
   CleanCoreSidebarChange,
 } from "./cleanCore";
 
-import {
-  ClientOrchestrationCommand,
-  OrchestrationEvent,
-  OrchestrationImportThreadInput,
-  OrchestrationAcknowledgeSyncInput,
-  OrchestrationGetThreadTurnsPageInput,
-  OrchestrationGetPendingStartOutcomeInput,
-  OrchestrationShellStreamItem,
-  OrchestrationSubscribeSyncInput,
-  OrchestrationSubscribeShellInput,
-  OrchestrationSyncStreamItem,
-  OrchestrationSubscribeThreadInput,
-  OrchestrationThreadStreamItem,
-  OrchestrationUnsubscribeShellInput,
-  OrchestrationUnsubscribeThreadInput,
-  ORCHESTRATION_WS_CHANNELS,
-  OrchestrationGetThreadDetailSnapshotInput,
-  ORCHESTRATION_WS_METHODS,
-  OrchestrationGetSnapshotInput,
-} from "./orchestration";
+import { OrchestrationImportThreadInput, ORCHESTRATION_WS_METHODS } from "./orchestration";
 import { KeybindingRule } from "./keybindings";
 import {
   ProjectCreateLocalFilePreviewGrantInput,
@@ -117,6 +98,7 @@ export const WS_METHODS = {
   cleanCoreUpdateNavigation: "cleanCore.updateNavigation",
   cleanCoreGetFolders: "cleanCore.getFolders",
   cleanCoreGetThreadShell: "cleanCore.getThreadShell",
+  cleanCoreGetBootstrap: "cleanCore.getBootstrap",
   cleanCoreGetFolderAppTabs: "cleanCore.getFolderAppTabs",
   cleanCoreUpdateFolderAppTabs: "cleanCore.updateFolderAppTabs",
   cleanCoreCreateThread: "cleanCore.createThread",
@@ -149,7 +131,6 @@ export const WS_METHODS = {
   subscribeServerConfig: "server.subscribeConfig",
   subscribeServerProviderStatuses: "server.subscribeProviderStatuses",
   subscribeServerSettings: "server.subscribeSettings",
-  subscribeOrchestrationDomainEvents: "orchestration.subscribeDomainEvents",
 
   // Provider discovery
   providerGetComposerCapabilities: "provider.getComposerCapabilities",
@@ -195,30 +176,7 @@ const tagRequestBody = <const Tag extends string, const Fields extends Schema.St
   );
 
 const WebSocketRequestBody = Schema.Union([
-  // Orchestration methods
-  tagRequestBody(
-    ORCHESTRATION_WS_METHODS.dispatchCommand,
-    Schema.Struct({
-      command: ClientOrchestrationCommand,
-    }),
-  ),
   tagRequestBody(ORCHESTRATION_WS_METHODS.importThread, OrchestrationImportThreadInput),
-  tagRequestBody(ORCHESTRATION_WS_METHODS.getSnapshot, OrchestrationGetSnapshotInput),
-  tagRequestBody(
-    ORCHESTRATION_WS_METHODS.getThreadDetailSnapshot,
-    OrchestrationGetThreadDetailSnapshotInput,
-  ),
-  tagRequestBody(ORCHESTRATION_WS_METHODS.getThreadTurnsPage, OrchestrationGetThreadTurnsPageInput),
-  tagRequestBody(
-    ORCHESTRATION_WS_METHODS.getPendingStartOutcome,
-    OrchestrationGetPendingStartOutcomeInput,
-  ),
-  tagRequestBody(ORCHESTRATION_WS_METHODS.subscribeSync, OrchestrationSubscribeSyncInput),
-  tagRequestBody(ORCHESTRATION_WS_METHODS.acknowledgeSync, OrchestrationAcknowledgeSyncInput),
-  tagRequestBody(ORCHESTRATION_WS_METHODS.subscribeShell, OrchestrationSubscribeShellInput),
-  tagRequestBody(ORCHESTRATION_WS_METHODS.unsubscribeShell, OrchestrationUnsubscribeShellInput),
-  tagRequestBody(ORCHESTRATION_WS_METHODS.subscribeThread, OrchestrationSubscribeThreadInput),
-  tagRequestBody(ORCHESTRATION_WS_METHODS.unsubscribeThread, OrchestrationUnsubscribeThreadInput),
   tagRequestBody(WS_METHODS.projectsListDirectories, ProjectListDirectoriesInput),
   tagRequestBody(WS_METHODS.projectsSearchEntries, ProjectSearchEntriesInput),
   tagRequestBody(WS_METHODS.projectsSearchLocalEntries, ProjectSearchLocalEntriesInput),
@@ -248,6 +206,7 @@ const WebSocketRequestBody = Schema.Union([
   tagRequestBody(WS_METHODS.cleanCoreUpdateNavigation, CleanCoreUpdateNavigationInput),
   tagRequestBody(WS_METHODS.cleanCoreGetFolders, CleanCoreGetFoldersInput),
   tagRequestBody(WS_METHODS.cleanCoreGetThreadShell, CleanCoreGetThreadShellInput),
+  tagRequestBody(WS_METHODS.cleanCoreGetBootstrap, Schema.Struct({})),
   tagRequestBody(WS_METHODS.cleanCoreGetFolderAppTabs, CleanCoreGetFolderAppTabsInput),
   tagRequestBody(WS_METHODS.cleanCoreUpdateFolderAppTabs, CleanCoreUpdateFolderAppTabsInput),
   tagRequestBody(WS_METHODS.cleanCoreCreateThread, CleanCoreCreateThreadInput),
@@ -333,10 +292,6 @@ export interface WsPushPayloadByChannel {
   readonly [WS_CHANNELS.serverProviderStatusesUpdated]: typeof ServerProviderStatusesUpdatedPayload.Type;
   readonly [WS_CHANNELS.serverSettingsUpdated]: typeof ServerSettingsUpdatedPayload.Type;
   readonly [WS_CHANNELS.projectWorkspaceChange]: typeof ProjectWorkspaceChangeEvent.Type;
-  readonly [ORCHESTRATION_WS_CHANNELS.domainEvent]: OrchestrationEvent;
-  readonly [ORCHESTRATION_WS_CHANNELS.syncEvent]: OrchestrationSyncStreamItem;
-  readonly [ORCHESTRATION_WS_CHANNELS.shellEvent]: OrchestrationShellStreamItem;
-  readonly [ORCHESTRATION_WS_CHANNELS.threadEvent]: OrchestrationThreadStreamItem;
   readonly [CLEAN_CORE_WS_CHANNELS.threadChange]: CleanCoreThreadChange;
   readonly [CLEAN_CORE_WS_CHANNELS.sidebarChange]: CleanCoreSidebarChange;
 }
@@ -376,22 +331,6 @@ export const WsPushProjectWorkspaceChange = makeWsPushSchema(
   WS_CHANNELS.projectWorkspaceChange,
   ProjectWorkspaceChangeEvent,
 );
-export const WsPushOrchestrationDomainEvent = makeWsPushSchema(
-  ORCHESTRATION_WS_CHANNELS.domainEvent,
-  OrchestrationEvent,
-);
-export const WsPushOrchestrationSyncEvent = makeWsPushSchema(
-  ORCHESTRATION_WS_CHANNELS.syncEvent,
-  OrchestrationSyncStreamItem,
-);
-export const WsPushOrchestrationShellEvent = makeWsPushSchema(
-  ORCHESTRATION_WS_CHANNELS.shellEvent,
-  OrchestrationShellStreamItem,
-);
-export const WsPushOrchestrationThreadEvent = makeWsPushSchema(
-  ORCHESTRATION_WS_CHANNELS.threadEvent,
-  OrchestrationThreadStreamItem,
-);
 
 export const WsPushCleanCoreSidebarChange = makeWsPushSchema(
   CLEAN_CORE_WS_CHANNELS.sidebarChange,
@@ -409,10 +348,6 @@ export const WsPushChannelSchema = Schema.Literals([
   WS_CHANNELS.serverProviderStatusesUpdated,
   WS_CHANNELS.serverSettingsUpdated,
   WS_CHANNELS.projectWorkspaceChange,
-  ORCHESTRATION_WS_CHANNELS.domainEvent,
-  ORCHESTRATION_WS_CHANNELS.syncEvent,
-  ORCHESTRATION_WS_CHANNELS.shellEvent,
-  ORCHESTRATION_WS_CHANNELS.threadEvent,
   CLEAN_CORE_WS_CHANNELS.threadChange,
   CLEAN_CORE_WS_CHANNELS.sidebarChange,
 ]);
@@ -425,10 +360,6 @@ export const WsPush = Schema.Union([
   WsPushServerProviderStatusesUpdated,
   WsPushServerSettingsUpdated,
   WsPushProjectWorkspaceChange,
-  WsPushOrchestrationDomainEvent,
-  WsPushOrchestrationSyncEvent,
-  WsPushOrchestrationShellEvent,
-  WsPushOrchestrationThreadEvent,
   WsPushCleanCoreThreadChange,
   WsPushCleanCoreSidebarChange,
 ]);

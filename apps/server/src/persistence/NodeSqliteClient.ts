@@ -29,7 +29,6 @@ import {
   isSqliteCorruptionError,
   isSqliteIoError,
 } from "./SqliteSafety.ts";
-import { observeRuntimeJournalTiming } from "./runtimeJournalMetrics.ts";
 
 export { isSqliteCorruptionError, isSqliteIoError } from "./SqliteSafety.ts";
 
@@ -141,11 +140,6 @@ const makeWithDatabase = (
         phase: "prepare" | "execute" = "execute",
       ): void => {
         const durationMs = Math.round(performance.now() - startedAt);
-        if (phase === "execute") {
-          // Every query's duration is recorded so the periodic drain can show
-          // the distribution and any query over the bounded-query target.
-          observeRuntimeJournalTiming("sqliteStatement", durationMs);
-        }
         if (durationMs < SLOW_STATEMENT_TARGET_MS) return;
         console.warn("[sqlite] query exceeded the bounded-query target", {
           ownerFiberId: Fiber.getCurrent()?.id ?? null,
@@ -277,7 +271,6 @@ const makeWithDatabase = (
       const startedAt = performance.now();
       return semaphore.withPermits(1)(
         Effect.sync(() => {
-          observeRuntimeJournalTiming("sqliteSemaphoreWait", performance.now() - startedAt);
           return connection;
         }),
       );
@@ -290,12 +283,10 @@ const makeWithDatabase = (
         Effect.tap(restore(semaphore.take(1)), () => {
           const acquiredAt = performance.now();
           const acquiredAtUtc = new Date().toISOString();
-          observeRuntimeJournalTiming("sqliteSemaphoreWait", acquiredAt - waitStartedAt);
           return Scope.addFinalizer(
             scope,
             Effect.sync(() => {
               const elapsedMs = performance.now() - acquiredAt;
-              observeRuntimeJournalTiming("sqliteTransactionHold", elapsedMs);
               return Math.round(elapsedMs);
             }).pipe(
               Effect.ensuring(semaphore.release(1)),

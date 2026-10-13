@@ -7,8 +7,8 @@ import { Layer } from "effect";
 import { ThreadSenderLive } from "./cleanCore/ThreadSender.ts";
 import { AgentGatewayLive } from "./agentGateway/Layers/AgentGateway";
 import { AgentGatewayCredentialsWithSecretsLive } from "./agentGateway/Layers/AgentGatewayCredentials";
-import { ProviderCommandReactorLive } from "./orchestration/Layers/ProviderCommandReactor";
-import { OrchestrationLayerLive } from "./orchestration/runtimeLayer";
+import { ThreadReadsLive } from "./cleanCore/ThreadReads.ts";
+import { ManagedAttachmentRepositoryLive } from "./persistence/Layers/ManagedAttachments.ts";
 import { KeybindingsLive } from "./keybindings";
 import { TextGenerationLayerLive } from "./textGeneration/runtimeLayer";
 import { AuthControlPlaneLive } from "./auth/Layers/AuthControlPlane";
@@ -23,10 +23,6 @@ import { ServerSettingsLive } from "./serverSettings";
 import { WorkspaceLayerLive } from "./workspace/runtimeLayer";
 import { ProjectFaviconResolverLive } from "./project/Layers/ProjectFaviconResolver";
 import { ServerEnvironmentLive } from "./environment/Layers/ServerEnvironment";
-import { ProjectionTurnRepositoryLive } from "./persistence/Layers/ProjectionTurns";
-import { QueuedTurnPromotionRepositoryLive } from "./persistence/Layers/QueuedTurnPromotions";
-import { OrchestrationEventDeliveryRepositoryLive } from "./persistence/Layers/OrchestrationEventDeliveries";
-import { ProviderRuntimeEventRepositoryLive } from "./persistence/Layers/ProviderRuntimeEvents";
 import { ProviderInstallationRepositoryLive } from "./persistence/Layers/ProviderInstallations";
 import { ProviderConnectionRepositoryLive } from "./persistence/Layers/ProviderConnections";
 import { ConnectionRateLimitsLive } from "./providerUsage/ConnectionRateLimits";
@@ -79,11 +75,15 @@ export function makeServerRuntimeServicesLayer(
     Layer.provideMerge(ServerSettingsLive),
     Layer.provideMerge(providerConnectionPersistenceLayer),
     Layer.provideMerge(ProviderInstallationRepositoryLive),
-    Layer.provideMerge(OrchestrationLayerLive),
+    Layer.provideMerge(ThreadReadsLive),
     Layer.provideMerge(providerLaunchResolverLayer),
   );
 
-  const runtimeServicesLayer = Layer.mergeAll(OrchestrationLayerLive);
+  const runtimeServicesLayer = Layer.mergeAll(
+    ThreadReadsLive,
+    ManagedAttachmentRepositoryLive,
+    ProviderAuthCircuitsLive,
+  );
   const managedAttachmentCleanupLayer = ManagedAttachmentCleanupLive.pipe(
     Layer.provideMerge(runtimeServicesLayer),
   );
@@ -100,16 +100,6 @@ export function makeServerRuntimeServicesLayer(
     Layer.provideMerge(providerTurnSelectionResolverLayer),
     Layer.provideMerge(providerNativeStateMaterializerLayer),
     Layer.provideMerge(providerLaunchResolverLayer),
-  );
-  const providerCommandReactorLayer = ProviderCommandReactorLive.pipe(
-    Layer.provideMerge(runtimeServicesLayer),
-    Layer.provideMerge(OrchestrationEventDeliveryRepositoryLive),
-    Layer.provideMerge(TextGenerationLayerLive),
-    Layer.provideMerge(ServerSettingsLive),
-    Layer.provideMerge(providerConnectionPersistenceLayer),
-    Layer.provideMerge(providerLaunchResolverLayer),
-    Layer.provideMerge(providerTurnSelectionResolverLayer),
-    Layer.provideMerge(providerThreadSwitchCoordinatorLayer),
   );
   const sessionCredentialLayer = SessionCredentialServiceLive.pipe(
     Layer.provide(ServerSecretStoreLive),
@@ -145,10 +135,6 @@ export function makeServerRuntimeServicesLayer(
     Layer.provideMerge(threadSenderLayer),
     Layer.provideMerge(agentGatewayCredentialsLayer),
     Layer.provideMerge(runtimeServicesLayer),
-    Layer.provideMerge(ProjectionTurnRepositoryLive),
-    Layer.provideMerge(QueuedTurnPromotionRepositoryLive),
-    Layer.provideMerge(OrchestrationEventDeliveryRepositoryLive),
-    Layer.provideMerge(ProviderRuntimeEventRepositoryLive),
     Layer.provideMerge(ServerSettingsLive),
     Layer.provideMerge(providerHealthLayer),
     Layer.provideMerge(providerTurnSelectionResolverLayer),
@@ -170,7 +156,6 @@ export function makeServerRuntimeServicesLayer(
     providerNativeStateMaterializerLayer,
     providerThreadSwitchCoordinatorLayer,
     providerHealthLayer,
-    providerCommandReactorLayer,
     TextGenerationLayerLive,
     KeybindingsLive,
     ServerSettingsLive,

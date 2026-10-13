@@ -24,7 +24,7 @@ import { Effect, Option } from "effect";
 import { describe, expect, it, vi } from "vitest";
 import { ProviderValidationError } from "../provider/Errors.ts";
 import type { ProviderDiscoveryServiceShape } from "../provider/Services/ProviderDiscoveryService.ts";
-import type { ProjectionSnapshotQueryShape } from "../orchestration/Services/ProjectionSnapshotQuery.ts";
+import type { ThreadReadsShape } from "../cleanCore/ThreadReads.ts";
 import { makeCreateThreadHandler, type GatewayCreationContext } from "./creationCoordinator.ts";
 import { makeAgentCreationIds, stableGatewayDigest } from "./creationUtils.ts";
 import type { McpToolCallResult } from "./protocol.ts";
@@ -92,7 +92,7 @@ function makeHarness() {
   let deliveries = 0;
   let caller = CALLER;
   let callerRuntimeMode: CleanCoreThreadSummary["runtimeMode"] = "full-access";
-  const snapshotQuery: ProjectionSnapshotQueryShape = {
+  const snapshotQuery: ThreadReadsShape = {
     getCommandReadModel: () => Effect.die("unused snapshot method"),
     getSnapshot: () => Effect.die("unused snapshot method"),
     getCounts: () => Effect.die("unused snapshot method"),

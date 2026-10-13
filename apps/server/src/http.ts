@@ -42,7 +42,7 @@ import { resolveCachedEditorIcon } from "./editorAppIcons";
 import { LOCAL_IMAGE_ROUTE_PATH, resolveAllowedLocalPreviewFile } from "./localImageFiles.ts";
 import { createLogger } from "./logger";
 import { ProjectFaviconResolver } from "./project/Services/ProjectFaviconResolver";
-import { ProjectionSnapshotQuery } from "./orchestration/Services/ProjectionSnapshotQuery";
+import { ThreadReads } from "./cleanCore/ThreadReads";
 import { ProviderAdapterRegistry } from "./provider/Services/ProviderAdapterRegistry";
 import { ProviderLaunchResolver } from "./provider/Services/ProviderLaunchResolver";
 import { ProviderInstallationRepository } from "./persistence/Services/ProviderInstallations";
@@ -732,7 +732,7 @@ const threadExportEffectRouteLayer = HttpRouter.add(
         headers: corsHeaders,
       });
 
-    const snapshotQuery = yield* ProjectionSnapshotQuery;
+    const snapshotQuery = yield* ThreadReads;
     const threadOption = yield* snapshotQuery.getThreadDetailForExportById(
       ThreadId.makeUnsafe(threadIdParam),
     );

@@ -19,7 +19,7 @@ export {
 
 import { ensurePrivateDirectorySync, repairPrivateFile } from "../privatePathPermissions.ts";
 import { withDatabaseLifecycleLock } from "./DatabaseLifecycleLock.ts";
-import { inspectPenkraDatabaseHealth } from "./DatabaseHealth.ts";
+import { inspectSqliteIntegrity } from "./DatabaseHealth.ts";
 import {
   findFirstMigrationLineageDivergence,
   LAST_SHARED_LINEAGE_MIGRATION_ID,
@@ -902,9 +902,7 @@ async function validateSqliteMigrationBackup(backupPath: string): Promise<void> 
 
   const database = new DatabaseSync(backupPath, { readOnly: true });
   try {
-    inspectPenkraDatabaseHealth(
-      (sql) => database.prepare(sql).all() as Array<Record<string, unknown>>,
-    );
+    inspectSqliteIntegrity((sql) => database.prepare(sql).all() as Array<Record<string, unknown>>);
   } finally {
     database.close();
   }

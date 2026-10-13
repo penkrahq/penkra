@@ -164,11 +164,6 @@ export type OrchestrationDispatchError =
   | OrchestrationProjectorDecodeError
   | OrchestrationListenerCallbackError;
 
-export type OrchestrationEngineError =
-  | OrchestrationDispatchError
-  | OrchestrationCommandJsonParseError
-  | OrchestrationCommandDecodeError;
-
 export function toOrchestrationCommandDecodeError(error: Schema.SchemaError) {
   return new OrchestrationCommandDecodeError({
     issue: SchemaIssue.makeFormatterDefault()(error.issue),
