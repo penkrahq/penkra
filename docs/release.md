@@ -74,12 +74,16 @@ The detached agent performs the written transaction, logging each command and re
 4. Launch the installed executable as an owned child. Watch new log writes and process exit.
 5. Request the new local `/status` after its listening event. It waits for server readiness and
    reports the actual migration startup result plus `PENKRA_APP_VERSION`. Require the expected
-   version, migration status `ok`, and the new `server.log` migration-success entry.
+   version and migration status `ok`. Log lines (including bootstrap warnings) are progress only,
+   never a success or failure signal. There is no startup deadline; a snapshot and upgrade can
+   take several minutes. Fail only on a reported migration failure or app/backend process exit;
+   record progress every minute without cancelling startup.
 6. On failure, stop the candidate, restore and launch the old bundle, and record the result.
    If migration committed, move the closed current `state.sqlite` and `-wal`/`-shm` into
    `failed-db/`, copy `state.pre-0.14.4.sqlite` into place, and require read-only
    `integrity_check=ok` before relaunching the old app. Never delete or edit either database or
    backup. Keep both app bundles. Do not touch userdata's backup directory or `.corrupt` files.
+   The restored 0.14.3 app uses `/health` with `startupReady=true`; its `/status` is HTML, not JSON.
 7. Write `update.log` and `report.md`, show a macOS notification, and exit after one attempt.
 
 Read the final report after Penkra reopens:
