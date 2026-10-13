@@ -27,7 +27,9 @@ export const buildReconstructedTurnInput = Effect.fnUntraced(function* (input: {
   let foundCompaction = false;
   do {
     const page = yield* listThreadItemsPage({ threadId: input.threadId, beforeSeq });
-    items.push(...page.items);
+    // An unacknowledged user input belongs to the current delivery cohort, not
+    // to provider history; including it here would send that input twice.
+    items.push(...page.items.filter((item) => item.kind !== "user" || item.status === "sent"));
     foundCompaction = page.items.some(isContextCompaction);
     if (foundCompaction || page.nextCursor === null) break;
     beforeSeq = page.nextCursor;
