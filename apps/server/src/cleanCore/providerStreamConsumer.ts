@@ -49,6 +49,7 @@ export type CleanCoreProviderEvent =
   | {
       readonly type: "delta";
       readonly threadId: string;
+      readonly turnId?: string | null;
       readonly sourceId: string;
       readonly kind: "text" | "reasoning" | "tool";
       readonly delta: string;
@@ -127,6 +128,7 @@ const writeProviderEvent = (event: CleanCoreProviderEvent) =>
           event.kind,
           event.delta,
           event.at,
+          event.turnId,
         );
         return [event.threadId];
       }

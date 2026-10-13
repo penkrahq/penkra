@@ -2,7 +2,7 @@ import type { DesktopBridge } from "@penkra/contracts";
 import type { ReactNode } from "react";
 import { useCallback, useEffect, useRef, useState } from "react";
 
-import { INITIAL_STARTUP_STATUS_MESSAGE, SplashScreen } from "~/components/SplashScreen";
+import { SplashScreen } from "~/components/SplashScreen";
 
 import { OnboardingConnectAgent } from "./connect-agent/OnboardingConnectAgent";
 import { OnboardingWelcome } from "./welcome/OnboardingWelcome";
@@ -107,7 +107,7 @@ export function DesktopOnboardingGate({
         className="flex min-h-screen bg-background"
         role="status"
       >
-        <SplashScreen statusMessage={INITIAL_STARTUP_STATUS_MESSAGE} />
+        <SplashScreen />
       </div>
     );
   }

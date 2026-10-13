@@ -67,7 +67,7 @@ import { useTheme } from "../hooks/useTheme";
 import { useNativeFontSmoothing } from "../hooks/useNativeFontSmoothing";
 import { invalidateProviderData } from "../lib/providerDataRefresh";
 import { providerModelDiscoveryInvalidationFingerprint } from "../lib/providerDiscoveryInvalidation";
-import { INITIAL_STARTUP_STATUS_MESSAGE, SplashScreen } from "../components/SplashScreen";
+import { SplashScreen } from "../components/SplashScreen";
 import { ConnectionDefaultsMigration } from "../components/ConnectionDefaultsMigration";
 
 interface ThreadStartedState {
@@ -184,7 +184,7 @@ function RootRouteView() {
                 <Outlet />
               ) : (
                 <div className="flex min-h-screen bg-background" role="status" aria-busy="true">
-                  <SplashScreen statusMessage={INITIAL_STARTUP_STATUS_MESSAGE} />
+                  <SplashScreen />
                 </div>
               )}
             </AnchoredToastProvider>

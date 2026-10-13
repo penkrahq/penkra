@@ -153,6 +153,7 @@ it("maps content deltas by stream kind", () => {
       {
         type: "delta",
         threadId: "thread-1",
+        turnId: "turn-1",
         sourceId: "msg-1",
         kind: "text",
         delta: "he",

@@ -527,6 +527,7 @@ export const appendThreadItemText = (
   kind: "text" | "reasoning" | "tool",
   delta: string,
   at: string,
+  turnId?: string | null,
 ) =>
   Effect.gen(function* () {
     const sql = yield* SqlClient.SqlClient;
@@ -536,10 +537,11 @@ export const appendThreadItemText = (
       ) VALUES (
         ${threadId},
         (SELECT COALESCE(MAX(seq), 0) + 1 FROM thread_items WHERE thread_id = ${threadId}),
-        ${sourceId}, NULL, ${kind}, 'streaming', ${delta}, NULL, ${at}, ${at}
+        ${sourceId}, ${turnId ?? null}, ${kind}, 'streaming', ${delta}, NULL, ${at}, ${at}
       )
       ON CONFLICT (thread_id, source_id) DO UPDATE SET
         text = COALESCE(thread_items.text, '') || excluded.text,
+        turn_id = COALESCE(excluded.turn_id, thread_items.turn_id),
         status = 'streaming',
         updated_at = excluded.updated_at
     `;
