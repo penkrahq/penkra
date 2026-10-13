@@ -7,9 +7,7 @@
 import { createHash } from "node:crypto";
 import { DatabaseSync, type StatementSync } from "node:sqlite";
 
-import * as Cache from "effect/Cache";
 import * as Config from "effect/Config";
-import * as Duration from "effect/Duration";
 import * as Effect from "effect/Effect";
 import * as Fiber from "effect/Fiber";
 import { identity } from "effect/Function";
@@ -57,8 +55,6 @@ export interface SqliteClientConfig {
   readonly filename: string;
   readonly readonly?: boolean | undefined;
   readonly allowExtension?: boolean | undefined;
-  readonly prepareCacheSize?: number | undefined;
-  readonly prepareCacheTTL?: Duration.Input | undefined;
   readonly spanAttributes?: Record<string, unknown> | undefined;
   readonly transformResultNames?: ((str: string) => string) | undefined;
   readonly transformQueryNames?: ((str: string) => string) | undefined;
@@ -161,15 +157,19 @@ const makeWithDatabase = (
         }
       };
 
-      const prepareCache = yield* Cache.make({
-        capacity: options.prepareCacheSize ?? 200,
-        timeToLive: options.prepareCacheTTL ?? Duration.minutes(10),
-        lookup: (sql: string) =>
-          Effect.try({
-            try: () => prepareStatement(sql),
-            catch: (cause) => makeSqlError(cause, `Failed to prepare statement: ${sql}`),
-          }),
-      });
+      // Prepared statements belong to this connection and expire when it closes.
+      const preparedStatements = new Map<string, StatementSync>();
+      const getPreparedStatement = (sql: string) =>
+        Effect.try({
+          try: () => {
+            const existing = preparedStatements.get(sql);
+            if (existing !== undefined) return existing;
+            const statement = prepareStatement(sql);
+            preparedStatements.set(sql, statement);
+            return statement;
+          },
+          catch: (cause) => makeSqlError(cause, `Failed to prepare statement: ${sql}`),
+        });
 
       const runStatement = (
         sql: string,
@@ -195,11 +195,11 @@ const makeWithDatabase = (
         });
 
       const run = (sql: string, params: ReadonlyArray<unknown>, raw = false) =>
-        Effect.flatMap(Cache.get(prepareCache, sql), (s) => runStatement(sql, s, params, raw));
+        Effect.flatMap(getPreparedStatement(sql), (s) => runStatement(sql, s, params, raw));
 
       const runValues = (sql: string, params: ReadonlyArray<unknown>) =>
         Effect.acquireUseRelease(
-          Cache.get(prepareCache, sql),
+          getPreparedStatement(sql),
           (statement) =>
             Effect.try({
               try: () => {
