@@ -1,6 +1,6 @@
 import { ThreadId, type FolderId, type ProviderKind } from "@penkra/contracts";
 import { OptimisticSortingPlugin } from "@dnd-kit/dom/sortable";
-import { useDragDropMonitor } from "@dnd-kit/react";
+import { useDragDropMonitor, type DragOverEvent } from "@dnd-kit/react";
 import { useSortable } from "@dnd-kit/react/sortable";
 import { useNavigate } from "@tanstack/react-router";
 import {
@@ -58,11 +58,18 @@ import {
 } from "./FolderTabsDnd";
 import { FolderTabStripViewport } from "./FolderTabStripViewport";
 
+interface FolderDropPreview {
+  readonly targetThreadId: ThreadId;
+  readonly placement: "before" | "after";
+  readonly gapWidth: number;
+}
+
 function SortableFolderThread(props: {
   readonly children: ReactNode;
   readonly folderId: string;
   readonly index: number;
   readonly tab: FolderTab;
+  readonly dropPreview: FolderDropPreview | null;
 }) {
   const data: FolderThreadDndData = {
     type: "folder-tabs-tab",
@@ -85,6 +92,9 @@ function SortableFolderThread(props: {
     // transform so committed canonical rows own the visible order.
     plugins: (defaults) => defaults.filter((plugin) => plugin !== OptimisticSortingPlugin),
   });
+  const dropPlacement =
+    props.dropPreview?.targetThreadId === props.tab.id ? props.dropPreview.placement : null;
+  const gapWidth = dropPlacement ? (props.dropPreview?.gapWidth ?? 0) : 0;
   const sortableRef = sortable.ref;
   const sortableHandleRef = sortable.handleRef;
   const setNodeRef = useCallback(
@@ -105,8 +115,24 @@ function SortableFolderThread(props: {
       )}
       data-folder-tabs-drag-source={sortable.isDragSource ? "true" : undefined}
       data-folder-tabs-drag-target={sortable.isDropTarget ? "true" : undefined}
+      data-folder-tabs-drop-preview={dropPlacement ?? undefined}
+      style={
+        dropPlacement === "before"
+          ? { paddingLeft: gapWidth }
+          : dropPlacement === "after"
+            ? { paddingRight: gapWidth }
+            : undefined
+      }
       data-shell-dnd-activation-target="true"
     >
+      {dropPlacement ? (
+        <span
+          aria-hidden="true"
+          className="pointer-events-none absolute top-1/2 z-30 h-6 w-0.5 -translate-y-1/2 rounded-full bg-[var(--color-border-focus)]"
+          data-thread-deck-drop-indicator={dropPlacement}
+          style={dropPlacement === "before" ? { left: gapWidth / 2 } : { right: gapWidth / 2 }}
+        />
+      ) : null}
       {props.children}
     </div>
   );
@@ -172,6 +198,7 @@ function CanonicalFolderTabs(props: FolderTabsProps & { folderId: FolderId }) {
       }),
     );
   }, [folderId, folder?.spaceId]);
+  const [folderDropPreview, setFolderDropPreview] = useState<FolderDropPreview | null>(null);
   const [optimisticActiveThreadId, setOptimisticActiveThreadId] = useState<ThreadId | null>(null);
 
   const primeThreadActivation = (event: PointerEvent<HTMLButtonElement>, threadId: ThreadId) => {
@@ -181,8 +208,47 @@ function CanonicalFolderTabs(props: FolderTabsProps & { folderId: FolderId }) {
     setOptimisticActiveThreadId(threadId);
   };
 
+  const updateFolderDropPreview = ({ operation }: Pick<DragOverEvent, "operation">) => {
+    const source = readFolderThreadDndData(operation.source?.data);
+    const target = readFolderThreadDndData(operation.target?.data);
+    if (!source || !target || source.folderId !== folderId || target.folderId !== folderId) {
+      setFolderDropPreview(null);
+      return;
+    }
+    if (source.threadId === target.threadId) {
+      setFolderDropPreview(null);
+      return;
+    }
+    const sourceIndex = tabs.findIndex((tab) => tab.id === source.threadId);
+    const targetIndex = tabs.findIndex((tab) => tab.id === target.threadId);
+    if (sourceIndex < 0 || targetIndex < 0) {
+      setFolderDropPreview(null);
+      return;
+    }
+    const measuredWidth = operation.source?.element?.getBoundingClientRect().width ?? 0;
+    const next: FolderDropPreview = {
+      targetThreadId: target.threadId,
+      placement: sourceIndex < targetIndex ? "after" : "before",
+      gapWidth: measuredWidth,
+    };
+    setFolderDropPreview((current) =>
+      current?.targetThreadId === next.targetThreadId &&
+      current.placement === next.placement &&
+      current.gapWidth === next.gapWidth
+        ? current
+        : next,
+    );
+  };
+
   useDragDropMonitor({
+    onDragMove(event) {
+      updateFolderDropPreview(event);
+    },
+    onDragOver(event) {
+      updateFolderDropPreview(event);
+    },
     onDragEnd(event) {
+      setFolderDropPreview(null);
       setOptimisticActiveThreadId(null);
       const folderSource = readFolderThreadDndData(event.operation.source?.data);
       const folderTarget = readFolderThreadDndData(event.operation.target?.data);
@@ -370,7 +436,12 @@ function CanonicalFolderTabs(props: FolderTabsProps & { folderId: FolderId }) {
                   data-slot="folder-tabs-divider"
                 />
               ) : null}
-              <SortableFolderThread folderId={folderId} index={index} tab={tab}>
+              <SortableFolderThread
+                folderId={folderId}
+                index={index}
+                tab={tab}
+                dropPreview={folderDropPreview}
+              >
                 <SurfaceTabChip
                   active={active}
                   title={tab.title}

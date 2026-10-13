@@ -4,19 +4,14 @@
 
 import { PenkraMark } from "~/components/foundations/penkra-mark-shared/PenkraMark";
 
-export const INITIAL_STARTUP_STATUS_MESSAGE =
-  "Starting Penkra… Upgrading your data if needed. This can take several minutes.";
-
 export function SplashScreen({
   errorMessage,
-  statusMessage,
   onRetry,
 }: {
   errorMessage?: string | null;
-  statusMessage?: string | null;
   onRetry?: (() => void) | null;
 }) {
-  const message = errorMessage ?? statusMessage;
+  const message = errorMessage;
   const showRetry = Boolean(errorMessage && onRetry);
 
   return (

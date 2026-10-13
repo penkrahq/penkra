@@ -177,6 +177,7 @@ export function toCleanCoreProviderEvents(
         {
           type: "delta",
           threadId: event.threadId,
+          turnId: event.turnId ?? null,
           sourceId: event.itemId ?? event.eventId,
           kind,
           delta: event.payload.delta,

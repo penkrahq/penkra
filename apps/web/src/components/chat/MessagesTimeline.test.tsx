@@ -1,4 +1,4 @@
-import { threadItemToChatMessage } from "./threadItemMappers";
+import { threadItemToChatMessage, threadItemsToTimelineEntries } from "./threadItemMappers";
 // FILE: MessagesTimeline.test.tsx
 // Purpose: Covers transcript row rendering and SSR-safe presentation contracts.
 // Layer: Web chat component tests
@@ -2779,4 +2779,39 @@ describe("MessagesTimeline", () => {
       markup.indexOf('data-penkra-thread-creation-card="true"'),
     );
   });
+});
+
+it("shows persisted turn duration for settled canonical transcript items", () => {
+  const turn = TIMING_FIXTURE_TURNS["fixture-duration"];
+  const timelineEntries = threadItemsToTimelineEntries([
+    {
+      ...turn,
+      seq: 2,
+      sourceId: "read-file",
+      kind: "tool",
+      text: "Read file",
+      data: JSON.stringify({ kind: "tool.completed", summary: "Read file", payload: {} }),
+    },
+    { ...turn, seq: 3, sourceId: "answer", kind: "text", text: "Done.", data: null },
+  ]);
+  const markup = renderToStaticMarkup(
+    <MessagesTimeline
+      hasMessages
+      isWorking={false}
+      activeTurnInProgress={false}
+      activeTurnStartedAt={null}
+      turns={TIMING_FIXTURE_TURNS}
+      timelineEntries={timelineEntries}
+      nowIso={turn.updatedAt}
+      expandedWorkGroups={{}}
+      onToggleWorkGroup={() => {}}
+      onImageExpand={() => {}}
+      markdownCwd={undefined}
+      resolvedTheme="dark"
+      timestampFormat="locale"
+      workspaceRoot={undefined}
+    />,
+  );
+  expect(markup).toContain("Worked for 1.0s");
+  expect(markup).not.toContain(">Details<");
 });

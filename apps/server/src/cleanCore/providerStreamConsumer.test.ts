@@ -1,3 +1,5 @@
+import { toCleanCoreProviderEvents } from "./providerEventBridge.ts";
+import { listThreadItemsPage } from "./threadItemsPage.ts";
 import { seedThreadFolderFixture } from "./threadFixtures.ts";
 import { assert, it } from "@effect/vitest";
 import fs from "node:fs/promises";
@@ -885,6 +887,53 @@ it.effect("a provider user echo preserves the admitted row until settlement", ()
         yield* sql`SELECT * FROM thread_items WHERE source_id='admitted'`,
         before,
       );
+    }),
+  ),
+);
+
+it.effect("stream-only assistant output retains its turn timing after completion", () =>
+  withDb(
+    Effect.gen(function* () {
+      const sql = yield* SqlClient.SqlClient;
+      const publisher = makeThreadPublisher();
+      yield* runMigrations();
+      yield* seedThreadFolderFixture("core-test-folder", "space-1");
+      yield* createThread(baseThread);
+      yield* applyProviderEvent(publisher, {
+        type: "turn.started",
+        threadId: baseThread.id,
+        turnId: "timed-turn",
+        at: baseThread.createdAt,
+      });
+      const deltas = toCleanCoreProviderEvents({
+        type: "content.delta",
+        eventId: "delta-event",
+        provider: "codex",
+        threadId: baseThread.id,
+        turnId: "timed-turn",
+        itemId: "streamed-answer",
+        createdAt: baseThread.createdAt,
+        payload: { streamKind: "assistant_text", delta: "Done." },
+      } as unknown as import("@penkra/contracts").ProviderRuntimeEvent);
+      for (const delta of deltas) yield* applyProviderEvent(publisher, delta);
+      yield* applyProviderEvent(publisher, {
+        type: "turn.ended",
+        threadId: baseThread.id,
+        turnId: "timed-turn",
+        state: "completed",
+        at: "2026-10-09T00:00:12.000Z",
+      });
+      assert.deepStrictEqual(
+        yield* sql`SELECT turn_id,status FROM thread_items WHERE source_id='streamed-answer'`,
+        [{ turn_id: "timed-turn", status: "interrupted" }],
+      );
+      const page = yield* listThreadItemsPage({
+        threadId: "thread-1" as import("@penkra/contracts").ThreadId,
+      });
+      assert.deepStrictEqual(JSON.parse(page.turns["timed-turn"]!.data!), {
+        startedAt: baseThread.createdAt,
+        endedAt: "2026-10-09T00:00:12.000Z",
+      });
     }),
   ),
 );

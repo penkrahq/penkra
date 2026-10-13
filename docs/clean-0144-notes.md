@@ -503,3 +503,37 @@ Retained native state: 229 historical rows, 229 existing folders staged by same-
 Final migration duration: **396,762.52 ms (6.61 min)**. Before VACUUM: 12,115,427,328 bytes, 2,957,868 pages, 2,174,165 free pages. After VACUUM: **3,169,517,568 bytes**, 773,808 pages, **0 free pages**, `integrity_check = ok`. These are migration figures, not a live WAL peak measurement; the rehearsal used the rollback journal.
 
 Evidence is under `~/penkra-rehearsal/run-8/final/result.json` and `run.log`; the initial failed run's report is retained alongside them. At the operator's instruction, closed rehearsal databases, disposable native copies and the retained rehearsal source were deleted after recording the results. Free space afterward: **47,176,974,336 bytes**. No Production database, userdata backup directory or `.corrupt` file was touched.
+
+
+### Operator-approved post-upgrade cleanup and fixes (2026-10-13)
+
+The local Production upgrade succeeded. The operator subsequently authorized removing the old
+backup snapshots and preserved 0.14.3 bundle. The live state.sqlite, WAL/SHM and
+state.sqlite.corrupt-20260808T0848Z.sqlite were excluded. Deleted paths and logical sizes:
+
+| Path | Bytes |
+| --- | ---: |
+| /Users/emmanuelgyekyeatta-penkra/Penkra/.penkra/userdata/state.pre-0.14.4.sqlite | 8879104000 |
+| /Users/emmanuelgyekyeatta-penkra/Penkra/.penkra/userdata/state.sqlite.backups/.state.sqlite.pre-migration-v161-to-v162-20260910T105155259Z-8d872562-a62b-4c1c-93c4-e2a5be151842.sqlite.partial-journal | 1024 |
+| /Users/emmanuelgyekyeatta-penkra/Penkra/.penkra/userdata/state.sqlite.backups/state.sqlite.pre-migration-v175-to-v202-20261013T103828607Z-1b4f0efa-a622-4118-b05a-124aad82ccb5.sqlite | 8879104000 |
+| /Users/emmanuelgyekyeatta-penkra/Penkra/.penkra/userdata/state.sqlite.backups/state.sqlite.pre-stall-investigation-20260928.sqlite | 5635252224 |
+| /Users/emmanuelgyekyeatta-penkra/Penkra/.penkra/userdata/state.sqlite.backups/state.sqlite.pre-stall-investigation-20260928.sqlite-shm | 32768 |
+| /Users/emmanuelgyekyeatta-penkra/Penkra/.penkra/userdata/state.sqlite.backups/state.sqlite.pre-stall-investigation-20260928.sqlite-wal | 0 |
+| /Users/emmanuelgyekyeatta-penkra/Penkra/.penkra/updates/20261013-043233-825486/Penkra.app | 445269890 |
+
+The fixed pre-upgrade snapshot and its dated backup were hard links; distinct-inode logical
+bytes removed total 14959659906. Free space after removal: 71,556,935,680 bytes.
+
+The finished-turn regression reproduced with stream-only output: the delta bridge and insertion
+discarded turn_id, so bounded item reads did not return the turn timing needed by the disclosure.
+The writer now preserves the provider turn ID. The branded splash returns to the mark-only
+presentation. Folder tab drag previews restore the measured before/after gap and indicator from
+0.14.3; canonical moveSidebarItem remains the commit owner. Version stays 0.14.4.
+
+Checks: providerStreamConsumer/providerEventBridge 33 passed (10.68 s); MessagesTimeline
+51 passed (3.35 s). Root typecheck 11/11 tasks (20.936 s), and final typecheck 11/11 (6.27 s) after the added render regression. No broad or browser suite requested.
+
+Explorer 0.2.15 was published to the Production registry after operator approval, from the
+Explorer-only main commit 9891fa48. Submission 38139da5-39b6-4d9f-bc0a-c5cb13f91ce4
+reports published, package digest 6950f865658ac00d24d7253a54314b18dac33f68f894844dbd52e9aa8341837e.
+Other Apps and uncommitted source work were excluded from the push.
