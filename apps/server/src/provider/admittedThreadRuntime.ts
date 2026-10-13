@@ -19,7 +19,10 @@ import { providerNativeStateRoot } from "./providerNativeStatePaths.ts";
 import { providerNativeResumeCursor } from "./nativeResumeIdentity.ts";
 import type { ProviderManagedLaunchContext } from "./Services/ProviderAdapter.ts";
 import type { ProviderLaunchResolverShape } from "./Services/ProviderLaunchResolver.ts";
-import type { ProviderTurnSelectionResolverShape } from "./Services/ProviderTurnSelectionResolver.ts";
+import type {
+  ResolvedProviderTurnSelection,
+  ProviderTurnSelectionResolverShape,
+} from "./Services/ProviderTurnSelectionResolver.ts";
 
 export interface AdmittedThreadRuntimeDependencies {
   readonly stateDir: string;
@@ -57,6 +60,25 @@ export const resolveAdmittedThreadRuntime = Effect.fnUntraced(function* (
     })
     .pipe(Effect.mapError((cause) => validation(cause.message, cause)));
   if (selection.changed) return yield* validation("A Connection change requires turn admission.");
+  return yield* resolveSelectedThreadRuntime(input, selection, dependencies);
+});
+
+/** Launch from the selection already authorized at turn admission. */
+export const resolveSelectedThreadRuntime = Effect.fnUntraced(function* (
+  input: { readonly threadId: ThreadId; readonly provider: ProviderKind },
+  selection: ResolvedProviderTurnSelection,
+  dependencies: Pick<
+    AdmittedThreadRuntimeDependencies,
+    "stateDir" | "sql" | "providerLaunchResolver"
+  >,
+) {
+  const validation = (issue: string, cause?: unknown) =>
+    new ProviderAdapterValidationError({
+      provider: input.provider,
+      operation: "thread.turn.start",
+      issue,
+      ...(cause === undefined ? {} : { cause }),
+    });
   const row = yield* readThreadNativeState(input.threadId).pipe(
     Effect.provideService(SqlClient.SqlClient, dependencies.sql),
     Effect.mapError((cause) => validation("Could not read the thread's native state.", cause)),
@@ -113,6 +135,7 @@ export const resolveAdmittedThreadRuntime = Effect.fnUntraced(function* (
       : undefined,
     requiresReconstruction: !hasConversation,
     managedLaunch: {
+      connectionId: launch.connectionId,
       binaryPath: launch.binaryPath,
       isolationKey: launch.isolationKey,
       profileRoot: launch.profileRoot,

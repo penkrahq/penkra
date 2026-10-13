@@ -1,3 +1,5 @@
+import { TurnDispatchLive } from "./cleanCore/turnDispatch.ts";
+import { ProviderAuthCircuitsLive } from "./provider/providerAuthCircuit.ts";
 import { ThreadLifecycleLive } from "./cleanCore/threadLifecycle.ts";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { Layer } from "effect";
@@ -90,7 +92,14 @@ export function makeServerRuntimeServicesLayer(
     Layer.provideMerge(providerConnectionPersistenceLayer),
     Layer.provideMerge(runtimeServicesLayer),
   );
+  const turnDispatchLayer = TurnDispatchLive.pipe(
+    Layer.provideMerge(runtimeServicesLayer),
+    Layer.provideMerge(providerLaunchResolverLayer),
+    Layer.provideMerge(ServerSettingsLive),
+    Layer.provideMerge(ProviderAuthCircuitsLive),
+  );
   const providerThreadSwitchCoordinatorLayer = ProviderThreadSwitchCoordinatorLive.pipe(
+    Layer.provideMerge(turnDispatchLayer),
     Layer.provideMerge(runtimeServicesLayer),
     Layer.provideMerge(providerConnectionPersistenceLayer),
     Layer.provideMerge(providerTurnSelectionResolverLayer),

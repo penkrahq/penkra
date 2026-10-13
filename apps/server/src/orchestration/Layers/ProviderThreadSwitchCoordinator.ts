@@ -16,7 +16,8 @@ import { ThreadPublisher } from "../../cleanCore/ThreadPublisher.ts";
 import { ProviderNativeStateMaterializer } from "../../provider/Services/ProviderNativeStateMaterializer.ts";
 import { ProviderService } from "../../provider/Services/ProviderService.ts";
 import { ProviderTurnSelectionResolver } from "../../provider/Services/ProviderTurnSelectionResolver.ts";
-import { OrchestrationEngineService } from "../Services/OrchestrationEngine.ts";
+import { TurnDispatch } from "../../cleanCore/turnDispatch.ts";
+import { commitThreadTurnSelection } from "../../cleanCore/threadTurnSelection.ts";
 import {
   ProviderThreadSwitchCoordinator,
   ProviderThreadSwitchCoordinatorError,
@@ -32,7 +33,7 @@ type TurnAdmissionCommand = Extract<
 >;
 
 export const makeProviderThreadSwitchCoordinator = Effect.gen(function* () {
-  const engine = yield* OrchestrationEngineService;
+  const dispatch = yield* TurnDispatch;
   const sql = yield* SqlClient.SqlClient;
   const publisher = yield* ThreadPublisher;
   const resolver = yield* ProviderTurnSelectionResolver;
@@ -217,53 +218,50 @@ export const makeProviderThreadSwitchCoordinator = Effect.gen(function* () {
       }>`SELECT native_state_id AS "nativeStateId" FROM threads WHERE id=${input.command.threadId}`;
       if (rows[0]?.nativeStateId !== nativeState.id) yield* materializer.discard(nativeState.id);
     });
-    const result = yield* engine
-      .dispatch(
-        {
+    if (!nativeSteer)
+      yield* sql
+        .withTransaction(
+          commitThreadTurnSelection({
+            threadId: input.command.threadId,
+            modelSelection: selectedModel,
+            connectionId: selection.connectionId,
+            nativeState,
+            runtimeMode: input.command.runtimeMode,
+            updatedAt: input.command.createdAt,
+          }),
+        )
+        .pipe(
+          Effect.mapError((cause) => failure("Could not commit the turn selection.", cause)),
+          Effect.onError(() => discardUncommitted.pipe(Effect.orDie)),
+        );
+    const committed = {
+      ...selection,
+      nativeStateId: nativeState?.id ?? thread.nativeStateId,
+      providerSessionId:
+        nativeState === undefined ? thread.providerSessionId : nativeState.providerSessionId,
+      changed: false,
+    };
+    const result = yield* dispatch
+      .dispatch({
+        command: {
           ...input.command,
-          dispatchMode: nativeSteer ? "steer" : "queue",
           modelSelection: selectedModel,
           connectionId: selection.connectionId,
         },
-        {
-          attachmentPrincipal: input.attachmentPrincipal,
-          ...(nativeSteer
-            ? {}
-            : {
-                acceptedTurnSelection: {
-                  threadId: input.command.threadId,
-                  modelSelection: selectedModel,
-                  connectionId: selection.connectionId,
-                  nativeState,
-                  runtimeMode: input.command.runtimeMode,
-                  updatedAt: input.command.createdAt,
-                },
-              }),
-          ...(selection.changed
-            ? {
-                acceptedConnectionChange: {
-                  previousConnectionId: selection.previousConnectionId,
-                  connectionId: selection.connectionId,
-                  label:
-                    selection.connectionLabel === null
-                      ? selection.harness
-                      : selection.connectionLabel,
-                  previousModelId: selection.previousModelId,
-                  modelId: selection.modelId,
-                  modelLabel: selection.modelLabel,
-                },
-              }
-            : {}),
-        },
-      )
+        selection: committed,
+        modelSelection: selectedModel,
+        nativeSteer,
+        ...(input.cwd === undefined ? {} : { cwd: input.cwd }),
+      })
       .pipe(
-        Effect.mapError((cause) => failure(cause.message, cause)),
-        Effect.onError(() => discardUncommitted.pipe(Effect.orDie)),
+        Effect.mapError((cause) =>
+          failure(cause instanceof Error ? cause.message : String(cause), cause),
+        ),
       );
     yield* discardUncommitted.pipe(
       Effect.mapError((cause) => failure("Could not discard uncommitted native state.", cause)),
     );
-    return result;
+    return { turnId: result.turnId };
   });
 
   return {
