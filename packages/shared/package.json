@@ -4,6 +4,10 @@
   "private": true,
   "type": "module",
   "exports": {
+    "./userItemData": {
+      "types": "./src/userItemData.ts",
+      "import": "./src/userItemData.ts"
+    },
     "./diagnostics/limits": {
       "types": "./src/diagnostics/limits.ts",
       "import": "./src/diagnostics/limits.ts"

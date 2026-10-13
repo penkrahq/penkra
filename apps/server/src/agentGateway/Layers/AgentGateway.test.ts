@@ -2849,7 +2849,7 @@ describe("AgentGateway", () => {
       assert.equal(created.folderId, PROJECT_ID);
       assert.equal(created.runtimeMode, "approval-required");
       assert.equal(created.title, "analyze the feature");
-      assert.equal(harness.sent[0]!.message.dispatchOrigin, "agent");
+      assert.equal(harness.sent[0]!.message.origin._tag, "agent");
       assert.equal(harness.sent[0]!.message.text, "analyze the feature");
       assert.equal(payload.messageId, harness.sent[0]!.message.messageId);
     }).pipe(Effect.provide(gatewayLayer));
@@ -3109,8 +3109,10 @@ describe("AgentGateway", () => {
       assert.isFalse(isToolError(response.result), toolErrorText(response.result));
       const turn = harness.sent[0]!;
       if (turn) {
-        assert.equal(turn.message.dispatchOrigin, "agent");
-        assert.equal(turn.message.senderThreadId, ThreadId.makeUnsafe("thread-parent"));
+        assert.deepStrictEqual(turn.message.origin, {
+          _tag: "agent",
+          senderThreadId: ThreadId.makeUnsafe("thread-parent"),
+        });
         assert.equal(turn.dispatchMode, "steer");
         assert.isUndefined(turn.connectionId);
         assert.isUndefined(turn.modelSelection);

@@ -3,13 +3,14 @@
 // Layer: Provider prompt preparation
 
 import type {
-  MessageDispatchOrigin,
+  MessageOrigin,
   ProviderKind,
   ProviderMentionReference,
   ProviderSkillReference,
   ThreadId,
 } from "@penkra/contracts";
 import { Effect, Option } from "effect";
+import { decodeUserItemData } from "@penkra/shared/userItemData";
 import type { ThreadReadsShape } from "../cleanCore/ThreadReads.ts";
 import { buildInlineSkillInstructions } from "./skillPromptInjection.ts";
 import {
@@ -47,32 +48,32 @@ export function normalizeSkillMentionTextForProvider(input: {
 export const resolveProviderTurnContext = Effect.fnUntraced(function* (
   input: {
     readonly messageText: string;
-    readonly dispatchOrigin: MessageDispatchOrigin | undefined;
-    readonly senderThreadId: ThreadId | undefined;
+    readonly origin: MessageOrigin;
     readonly mentions: ReadonlyArray<ProviderMentionReference> | undefined;
     readonly maxContextChars: number;
   },
   snapshotQuery: Pick<ThreadReadsShape, "getThreadDetailById" | "getThreadShellById">,
 ) {
+  const { origin } = decodeUserItemData({ origin: input.origin, attachments: [] });
   const projection = yield* resolveThreadMentionPromptProjection({
     mentions: input.mentions,
     snapshotQuery,
     maxTotalContextChars: input.maxContextChars,
   });
   const senderShell =
-    input.dispatchOrigin === "agent" && input.senderThreadId
-      ? Option.getOrNull(yield* snapshotQuery.getThreadShellById(input.senderThreadId))
+    origin._tag === "agent"
+      ? Option.getOrNull(yield* snapshotQuery.getThreadShellById(origin.senderThreadId))
       : null;
   const senderTitle = senderShell?.title;
   const senderContext =
-    input.dispatchOrigin === "agent" && input.senderThreadId
+    origin._tag === "agent"
       ? [
           "<agent_message_sender>",
           "This message was written by the agent in another Penkra thread, not by the user.",
           ...(senderTitle?.trim()
             ? [`Thread: ${JSON.stringify(clampMentionTitle(senderTitle))}`]
             : []),
-          `Thread ID: ${input.senderThreadId}`,
+          `Thread ID: ${origin.senderThreadId}`,
           "</agent_message_sender>",
           "",
           "",

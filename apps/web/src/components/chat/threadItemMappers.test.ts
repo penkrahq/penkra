@@ -21,7 +21,7 @@ const item = (
   kind,
   status: "done",
   text: "hello",
-  data: null,
+  data: kind === "user" ? JSON.stringify({ origin: { _tag: "user" }, attachments: [] }) : null,
   createdAt: "2026-10-09T00:00:00.000Z",
   updatedAt: "2026-10-09T00:00:00.000Z",
   ...overrides,
@@ -156,7 +156,8 @@ describe("threadItemToChatMessage", () => {
           attachments: [
             { type: "file", id: "f1", name: "notes.txt", mimeType: "text/plain", sizeBytes: 12 },
           ],
-          dispatchMode: "steer",
+          origin: { _tag: "user" },
+          steered: true,
         }),
       }),
     );
@@ -164,7 +165,7 @@ describe("threadItemToChatMessage", () => {
     expect(message.role).toBe("user");
     expect(message.sequence).toBe(2);
     expect(message.attachments).toHaveLength(1);
-    expect(message.dispatchMode).toBe("steer");
+    expect(message.steered).toBe(true);
     expect(message.streaming).toBe(false);
   });
 
@@ -173,11 +174,13 @@ describe("threadItemToChatMessage", () => {
       item("user", {
         sourceId: "msg-sender",
         text: "sent by another thread",
-        data: JSON.stringify({ senderThreadId: "thread-sender", dispatchOrigin: "agent" }),
+        data: JSON.stringify({
+          origin: { _tag: "agent", senderThreadId: "thread-sender" },
+          attachments: [],
+        }),
       }),
     );
-    expect(message.senderThreadId).toBe("thread-sender");
-    expect(message.dispatchOrigin).toBe("agent");
+    expect(message.origin).toEqual({ _tag: "agent", senderThreadId: "thread-sender" });
   });
 
   it("maps a text item to an assistant ChatMessage and keeps streaming", () => {
@@ -237,10 +240,10 @@ describe("threadItemToUserContent", () => {
           attachments: [
             { type: "file", id: "f1", name: "notes.txt", mimeType: "text/plain", sizeBytes: 12 },
           ],
-          skills: [{ name: "skill-a" }],
-          mentions: [{ path: "src/app.ts" }],
-          dispatchMode: "steer",
-          dispatchOrigin: "agent",
+          skills: [{ name: "skill-a", path: "/skills/skill-a" }],
+          mentions: [{ name: "app.ts", path: "src/app.ts" }],
+          steered: true,
+          origin: { _tag: "agent", senderThreadId: "thread-sender" },
         }),
       }),
     );
@@ -248,8 +251,8 @@ describe("threadItemToUserContent", () => {
     expect(content.attachments).toHaveLength(1);
     expect(content.skills).toHaveLength(1);
     expect(content.mentions).toHaveLength(1);
-    expect(content.dispatchMode).toBe("steer");
-    expect(content.dispatchOrigin).toBe("agent");
+    expect(content.steered).toBe(true);
+    expect(content.origin?._tag).toBe("agent");
   });
 });
 

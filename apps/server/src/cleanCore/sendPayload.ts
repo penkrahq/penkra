@@ -11,6 +11,7 @@ import {
 import { QueuedMessage } from "./threadQueue.ts";
 import { upsertThreadItem } from "./threadStore.ts";
 import type { SendMessageInput } from "./sendMessage.ts";
+import { encodeUserItemAdmission } from "./userItemAdmission.ts";
 
 const SendPayload = Schema.Struct({
   message: QueuedMessage,
@@ -30,9 +31,10 @@ export const admitSendingPayload = (
 ) =>
   Effect.gen(function* () {
     const sql = yield* SqlClient.SqlClient;
+    const data = yield* encodeUserItemAdmission(input, plan !== "deliver");
     const owner = principal ?? (yield* CurrentManagedAttachmentPrincipal);
     const failed: Array<{ seq: number; sourceId: string; payload: StoredSendPayload }> = [];
-    if (input.message.dispatchOrigin === "user") {
+    {
       let after = 0;
       while (true) {
         const rows = yield* sql<{ seq: number; sourceId: string; sendPayload: string }>`
@@ -79,12 +81,7 @@ export const admitSendingPayload = (
         deliveryMessageId: input.message.messageId,
         batchMessageIds,
       }),
-      data: JSON.stringify({
-        attachments: input.message.attachments,
-        senderThreadId: input.message.senderThreadId,
-        skills: input.skills,
-        mentions: input.mentions,
-      }),
+      data,
       createdAt: input.message.queuedAt,
       updatedAt: input.message.queuedAt,
     });

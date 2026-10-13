@@ -10,15 +10,15 @@
 //   threadItemToPendingUserInput, threadItemToUserContent, ThreadItemUserContent
 
 import {
-  type MessageDispatchOrigin,
+  type MessageOrigin,
   MessageId,
   type OrchestrationThreadActivity,
   type ProviderMentionReference,
   type ProviderSkillReference,
-  type TurnDispatchMode,
   type UserInputQuestion,
 } from "@penkra/contracts";
-import { EventId, ThreadId, TurnId } from "@penkra/contracts";
+import { EventId, TurnId } from "@penkra/contracts";
+import { decodeUserItemData } from "@penkra/shared/userItemData";
 import type { CleanCoreThreadItem } from "@penkra/contracts";
 
 import type { PendingUserInput } from "../../pendingInteractionDerivation";
@@ -105,6 +105,7 @@ export function threadItemToActivity(item: CleanCoreThreadItem): OrchestrationTh
 export function threadItemToWorkLogEntry(item: CleanCoreThreadItem): WorkLogEntry | null {
   // Turn records supply timing, not an extra work-log row.
   if (item.kind === "turn") return null;
+  if (item.kind === "reasoning" && (item.text === null || item.text.length === 0)) return null;
   const entry = deriveWorkLogEntries([threadItemToActivity(item)], undefined)[0] ?? null;
   if (entry === null || item.kind !== "tool") return entry;
   const toolStatus = TOOL_STATUS_BY_ITEM_STATUS[item.status];
@@ -134,44 +135,19 @@ export interface ThreadItemUserContent {
   readonly attachments: ReadonlyArray<ChatAttachment>;
   readonly skills: ReadonlyArray<ProviderSkillReference>;
   readonly mentions: ReadonlyArray<ProviderMentionReference>;
-  readonly dispatchMode?: TurnDispatchMode;
-  readonly dispatchOrigin?: MessageDispatchOrigin;
-  readonly senderThreadId?: ThreadId;
+  readonly origin?: MessageOrigin;
+  readonly steered?: true;
 }
 
 export function threadItemToUserContent(item: CleanCoreThreadItem): ThreadItemUserContent {
-  const data = parseThreadItemData(item.data);
-  const attachments = Array.isArray(data?.attachments)
-    ? (data.attachments as ReadonlyArray<ChatAttachment>)
-    : [];
-  const skills = Array.isArray(data?.skills)
-    ? (data.skills as ReadonlyArray<ProviderSkillReference>)
-    : [];
-  const mentions = Array.isArray(data?.mentions)
-    ? (data.mentions as ReadonlyArray<ProviderMentionReference>)
-    : [];
-  const dispatchMode =
-    data?.dispatchMode === "queue" || data?.dispatchMode === "steer"
-      ? data.dispatchMode
-      : undefined;
-  const dispatchOrigin =
-    data?.dispatchOrigin === "user" ||
-    data?.dispatchOrigin === "automation" ||
-    data?.dispatchOrigin === "agent"
-      ? data.dispatchOrigin
-      : undefined;
-  const senderThreadId =
-    typeof data?.senderThreadId === "string" && data.senderThreadId.length > 0
-      ? ThreadId.makeUnsafe(data.senderThreadId)
-      : undefined;
+  if (item.kind !== "user")
+    return { text: item.text ?? "", attachments: [], skills: [], mentions: [] };
+  const data = decodeUserItemData(item.data === null ? null : JSON.parse(item.data));
   return {
     text: item.text ?? "",
-    attachments,
-    skills,
-    mentions,
-    ...(dispatchMode ? { dispatchMode } : {}),
-    ...(dispatchOrigin ? { dispatchOrigin } : {}),
-    ...(senderThreadId ? { senderThreadId } : {}),
+    ...data,
+    skills: data.skills ?? [],
+    mentions: data.mentions ?? [],
   };
 }
 
@@ -186,9 +162,8 @@ export function threadItemToChatMessage(item: CleanCoreThreadItem): ChatMessage 
     attachments: [...content.attachments],
     skills: [...content.skills],
     mentions: [...content.mentions],
-    ...(content.dispatchMode ? { dispatchMode: content.dispatchMode } : {}),
-    ...(content.dispatchOrigin ? { dispatchOrigin: content.dispatchOrigin } : {}),
-    ...(content.senderThreadId ? { senderThreadId: content.senderThreadId } : {}),
+    ...(content.origin === undefined ? {} : { origin: content.origin }),
+    ...(content.steered ? { steered: content.steered } : {}),
     sequence: item.seq,
     turnId: item.turnId === null ? null : TurnId.makeUnsafe(item.turnId),
     createdAt: item.createdAt,

@@ -12,7 +12,7 @@ import { Effect } from "effect";
 import * as SqlClient from "effect/unstable/sql/SqlClient";
 
 import type { CleanCoreProviderEvent } from "./providerStreamConsumer.ts";
-import { capThreadItemData } from "./threadItemData.ts";
+import { capThreadItemData, THREAD_ITEM_DATA_LIMIT_BYTES } from "./threadItemData.ts";
 
 export type ThreadItemKind =
   | "user"
@@ -54,6 +54,14 @@ export interface ThreadPublisher {
   readonly publishSidebar: (change: CleanCoreSidebarChange) => void;
 }
 
+// Callbacks may synchronously resume fibers that replace their subscription.
+// New subscriptions belong to the next notification, not the current iteration.
+const notifyListeners = <T>(listeners: Set<(value: T) => void> | undefined, value: T): void => {
+  for (const listener of [...(listeners ?? [])]) {
+    if (listeners?.has(listener)) listener(value);
+  }
+};
+
 export const makeThreadPublisher = (): ThreadPublisher => {
   const byThread = new Map<string, Set<(change: ThreadChange) => void>>();
   const all = new Set<(change: ThreadChange) => void>();
@@ -67,7 +75,7 @@ export const makeThreadPublisher = (): ThreadPublisher => {
       };
     },
     publishProvider: (event) => {
-      for (const listener of provider) listener(event);
+      notifyListeners(provider, event);
     },
     subscribeSidebar: (listener) => {
       sidebar.add(listener);
@@ -76,7 +84,7 @@ export const makeThreadPublisher = (): ThreadPublisher => {
       };
     },
     publishSidebar: (change) => {
-      for (const listener of sidebar) listener(change);
+      notifyListeners(sidebar, change);
     },
     subscribe: (threadId, listener) => {
       const listeners = byThread.get(threadId) ?? new Set();
@@ -84,7 +92,7 @@ export const makeThreadPublisher = (): ThreadPublisher => {
       byThread.set(threadId, listeners);
       return () => {
         listeners.delete(listener);
-        if (listeners.size === 0) byThread.delete(threadId);
+        if (listeners.size === 0 && byThread.get(threadId) === listeners) byThread.delete(threadId);
       };
     },
     subscribeAll: (listener) => {
@@ -92,16 +100,17 @@ export const makeThreadPublisher = (): ThreadPublisher => {
       return () => all.delete(listener);
     },
     publishCreated: (change) => {
-      for (const listener of byThread.get(change.threadId) ?? []) listener(change);
-      for (const listener of all) listener(change);
-      for (const listener of sidebar)
-        listener({ kind: "thread.created", threadId: ThreadId.makeUnsafe(change.threadId) });
+      notifyListeners(byThread.get(change.threadId), change);
+      notifyListeners(all, change);
+      notifyListeners(sidebar, {
+        kind: "thread.created",
+        threadId: ThreadId.makeUnsafe(change.threadId),
+      });
     },
     publish: (change) => {
-      for (const listener of byThread.get(change.threadId) ?? []) listener(change);
-      for (const listener of all) listener(change);
-      for (const listener of sidebar)
-        listener({ kind: "thread", threadId: ThreadId.makeUnsafe(change.threadId) });
+      notifyListeners(byThread.get(change.threadId), change);
+      notifyListeners(all, change);
+      notifyListeners(sidebar, { kind: "thread", threadId: ThreadId.makeUnsafe(change.threadId) });
     },
   };
 };
@@ -114,7 +123,13 @@ export const makeThreadPublisher = (): ThreadPublisher => {
 export const upsertThreadItem = (input: ThreadItemInput) =>
   Effect.gen(function* () {
     const sql = yield* SqlClient.SqlClient;
-    const data = capThreadItemData(input.data ?? null);
+    if (
+      input.kind === "user" &&
+      Buffer.byteLength(input.data ?? "", "utf8") > THREAD_ITEM_DATA_LIMIT_BYTES
+    )
+      return yield* Effect.fail(new Error("A user item exceeded its admitted metadata size."));
+    const data =
+      input.kind === "user" ? (input.data ?? null) : capThreadItemData(input.data ?? null);
     yield* sql.withTransaction(
       Effect.gen(function* () {
         yield* sql`
@@ -128,7 +143,7 @@ export const upsertThreadItem = (input: ThreadItemInput) =>
           )
           ON CONFLICT (thread_id, source_id) DO UPDATE SET
             status = excluded.status,
-            text = excluded.text,
+            text = CASE WHEN ${input.text === undefined ? 0 : 1}=1 THEN excluded.text ELSE thread_items.text END,
             data = excluded.data,
             send_payload = CASE WHEN ${input.sendPayload === undefined ? 0 : 1}=1 THEN excluded.send_payload ELSE thread_items.send_payload END,
             admission_plan = CASE WHEN ${input.admissionPlan === undefined ? 0 : 1}=1 THEN excluded.admission_plan ELSE thread_items.admission_plan END,
@@ -139,7 +154,9 @@ export const upsertThreadItem = (input: ThreadItemInput) =>
           UPDATE threads SET
             last_activity_at = ${input.updatedAt},
             last_message_preview = CASE
-              WHEN ${input.kind} IN ('user', 'text') THEN ${input.text ?? null}
+              WHEN ${input.kind} IN ('user', 'text') THEN (
+                SELECT text FROM thread_items WHERE thread_id=${input.threadId} AND source_id=${input.sourceId}
+              )
               ELSE last_message_preview END,
             last_user_message_at = CASE
               WHEN ${input.kind} = 'user' THEN ${input.updatedAt}

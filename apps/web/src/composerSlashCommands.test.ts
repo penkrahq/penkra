@@ -19,7 +19,6 @@ describe("composerSlashCommands", () => {
   it("recognizes built-in slash commands", () => {
     expect(isBuiltInComposerSlashCommand("review")).toBe(true);
     expect(isBuiltInComposerSlashCommand("fast")).toBe(true);
-    expect(isBuiltInComposerSlashCommand("automation")).toBe(false);
     expect(isBuiltInComposerSlashCommand("export")).toBe(true);
     expect(isBuiltInComposerSlashCommand("feedback")).toBe(true);
     expect(isBuiltInComposerSlashCommand("unknown")).toBe(false);

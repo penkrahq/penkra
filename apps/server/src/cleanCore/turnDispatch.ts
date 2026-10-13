@@ -114,8 +114,7 @@ export const TurnDispatchLive = Layer.effect(
           const context = yield* resolveProviderTurnContext(
             {
               messageText: command.message.text,
-              dispatchOrigin: command.dispatchOrigin,
-              senderThreadId: command.senderThreadId,
+              origin: command.origin,
               mentions: command.message.mentions,
               maxContextChars: Math.max(
                 0,

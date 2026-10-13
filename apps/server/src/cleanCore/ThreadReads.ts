@@ -1,4 +1,5 @@
 import { threadShellFromRow } from "@penkra/shared/threadView";
+import { decodeUserItemData } from "@penkra/shared/userItemData";
 export type * from "./threadReadTypes.ts";
 // FILE: ThreadReads.ts
 // Purpose: Indexed canonical thread and navigation reads for gateway and view consumers.
@@ -67,15 +68,7 @@ function transcriptRows(items: ReadonlyArray<ThreadItemRecord>) {
         updatedAt: item.updatedAt,
         streaming: item.status === "streaming",
         source: "native",
-        ...(item.kind === "user"
-          ? {
-              attachments: data.attachments ?? [],
-              skills: data.skills,
-              mentions: data.mentions,
-              dispatchOrigin: data.dispatchOrigin,
-              senderThreadId: data.senderThreadId,
-            }
-          : {}),
+        ...(item.kind === "user" ? decodeUserItemData(data) : {}),
       });
     } else if (item.kind !== "turn") {
       activities.push(

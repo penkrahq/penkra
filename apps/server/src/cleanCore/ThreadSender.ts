@@ -159,10 +159,7 @@ export const makeThreadSender = Effect.gen(function* () {
                 ...(input.mentions === undefined ? {} : { mentions: input.mentions }),
               },
               dispatchMode: mode === "deliver" ? "queue" : "steer",
-              dispatchOrigin: input.message.dispatchOrigin,
-              ...(input.message.senderThreadId === null
-                ? {}
-                : { senderThreadId: input.message.senderThreadId }),
+              origin: input.message.origin,
               modelSelection,
               connectionId,
               runtimeMode,

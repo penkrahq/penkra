@@ -3,10 +3,12 @@ import type { CleanCoreCreateAndSendThreadInput } from "@penkra/contracts";
 import { Effect } from "effect";
 import { ThreadSender } from "./ThreadSender.ts";
 import { createThreadFromClient } from "./threadLifecycle.ts";
+import { encodeUserItemAdmission } from "./userItemAdmission.ts";
 
 export const createAndSendThread = (input: CleanCoreCreateAndSendThreadInput) =>
   Effect.gen(function* () {
     const { thread, ...send } = input;
+    yield* encodeUserItemAdmission(send, send.dispatchMode === "steer");
     const created = yield* createThreadFromClient(thread);
     const sender = yield* ThreadSender;
     const sendResult = yield* sender.send({ ...send, threadId: thread.threadId });

@@ -190,8 +190,7 @@ describe("MessagesTimeline", () => {
         id: messageId,
         role: "user" as const,
         text: "hello from another agent",
-        dispatchOrigin: "agent" as const,
-        senderThreadId,
+        origin: { _tag: "agent" as const, senderThreadId },
         turnId: null,
         streaming: false,
         source: "native" as const,
@@ -207,11 +206,16 @@ describe("MessagesTimeline", () => {
         kind: "user",
         status: "sent",
         text: message.text,
-        data: JSON.stringify({ dispatchOrigin: "agent", senderThreadId, attachments: [] }),
+        data: JSON.stringify({
+          origin: { _tag: "agent" as const, senderThreadId },
+          attachments: [],
+        }),
         createdAt,
         updatedAt: createdAt,
       });
-      expect(storedMessage.senderThreadId).toBe(senderThreadId);
+      expect(
+        storedMessage.origin?._tag === "agent" ? storedMessage.origin.senderThreadId : undefined,
+      ).toBe(senderThreadId);
       const initialStoreState = useStore.getInitialState();
       const initialShells = initialStoreState.threadShellById;
       const threadShellById = {
@@ -492,7 +496,10 @@ describe("MessagesTimeline", () => {
               id: MessageId.makeUnsafe("first-user-message"),
               role: "user",
               text: "Inspect the repository",
-              dispatchOrigin: "agent",
+              origin: {
+                _tag: "agent" as const,
+                senderThreadId: ThreadId.makeUnsafe("sender-thread"),
+              },
               createdAt: "2026-03-17T19:12:28.000Z",
               streaming: false,
             },
@@ -603,7 +610,7 @@ describe("MessagesTimeline", () => {
               id: MessageId.makeUnsafe("message-steered-user"),
               role: "user",
               text: "hello",
-              dispatchMode: "steer",
+              steered: true,
               createdAt: "2026-03-17T19:12:28.000Z",
               streaming: false,
             },
@@ -660,9 +667,8 @@ describe("MessagesTimeline", () => {
               id: MessageId.makeUnsafe("message-agent-user"),
               role: "user",
               text: "status check from the coordinator",
-              dispatchOrigin: "agent",
-              senderThreadId,
-              dispatchMode: "steer",
+              origin: { _tag: "agent" as const, senderThreadId },
+              steered: true,
               delivery: { state: "queued", queued: true, sequence: 1 },
               createdAt: "2026-03-17T19:12:28.000Z",
               streaming: false,
@@ -724,8 +730,10 @@ describe("MessagesTimeline", () => {
                 id: MessageId.makeUnsafe(`message-${id}`),
                 role: "user",
                 text: "hello",
-                dispatchOrigin: "agent",
-                ...(senderId ? { senderThreadId: senderId } : {}),
+                origin: {
+                  _tag: "agent",
+                  senderThreadId: senderId ?? ThreadId.makeUnsafe("unknown-sender"),
+                },
                 createdAt: "2026-03-17T19:12:28.000Z",
                 streaming: false,
               },
@@ -783,9 +791,8 @@ describe("MessagesTimeline", () => {
               id: MessageId.makeUnsafe("message-edited-agent"),
               role: "user",
               text: "edited by user",
-              dispatchOrigin: "user",
-              senderThreadId: ThreadId.makeUnsafe("stale-sender"),
-              dispatchMode: "queue",
+              origin: { _tag: "user" },
+
               createdAt: "2026-03-17T19:12:28.000Z",
               streaming: false,
             },
@@ -822,7 +829,7 @@ describe("MessagesTimeline", () => {
               id: MessageId.makeUnsafe("message-steered-user-media"),
               role: "user",
               text: "hello",
-              dispatchMode: "steer",
+              steered: true,
               attachments: [
                 {
                   id: "assistant-selection-1",

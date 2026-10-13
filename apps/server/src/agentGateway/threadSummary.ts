@@ -9,11 +9,19 @@
  * @module agentGateway/threadSummary
  */
 import type {
+  MessageOrigin,
   OrchestrationMessage,
   OrchestrationThread,
   OrchestrationThreadActivity,
   OrchestrationThreadShell,
 } from "@penkra/contracts";
+import { decodeUserItemData } from "@penkra/shared/userItemData";
+
+function userMessageAttribution(message: OrchestrationMessage) {
+  if (message.role !== "user") return {};
+  const data = decodeUserItemData({ ...message, attachments: message.attachments ?? [] });
+  return { origin: data.origin, ...(data.steered ? { steered: data.steered } : {}) };
+}
 
 export type AgentThreadStatus =
   | "working"
@@ -180,7 +188,8 @@ export interface AgentTranscriptMessageItem extends AgentTranscriptItemBase {
   readonly streaming: boolean;
   readonly delivery: "queued" | "sending" | "delivered" | "failed";
   readonly position?: number;
-  readonly dispatchOrigin?: string;
+  readonly origin?: MessageOrigin;
+  readonly steered?: true;
 }
 
 export interface AgentTranscriptActivityItem extends AgentTranscriptItemBase {
@@ -355,9 +364,7 @@ export function packAgentTranscriptPage(input: {
         ...(queuedPositions.has(item.message.id)
           ? { position: queuedPositions.get(item.message.id)! }
           : {}),
-        ...(item.message.dispatchOrigin !== undefined
-          ? { dispatchOrigin: item.message.dispatchOrigin }
-          : {}),
+        ...userMessageAttribution(item.message),
         createdAt: item.message.createdAt,
       });
       messageCount += 1;
@@ -418,7 +425,8 @@ export interface AgentThreadMessageSummary {
   readonly role: string;
   readonly text: string;
   readonly truncated: boolean;
-  readonly dispatchOrigin?: string;
+  readonly origin?: MessageOrigin;
+  readonly steered?: true;
   readonly delivery: "queued" | "delivered" | "failed";
   readonly position?: number;
   readonly createdAt: string;
@@ -497,7 +505,7 @@ export function paginateThreadMessages(input: {
       truncated,
       delivery: summarizeMessageDelivery(message),
       ...(queuedPositions.has(message.id) ? { position: queuedPositions.get(message.id)! } : {}),
-      ...(message.dispatchOrigin !== undefined ? { dispatchOrigin: message.dispatchOrigin } : {}),
+      ...userMessageAttribution(message),
       createdAt: message.createdAt,
     } satisfies AgentThreadMessageSummary;
   });

@@ -34,8 +34,7 @@ const input = {
     messageId: MessageId.makeUnsafe("message"),
     text: "Original text",
     attachments: [],
-    senderThreadId: null,
-    dispatchOrigin: "user" as const,
+    origin: { _tag: "user" as const },
     queuedAt: at,
   },
   dispatchMode: "queue" as const,
@@ -309,7 +308,10 @@ it.effect("an agent send retains its failed row without changing the composer", 
       const { draftUpdatedAt: _sentAt, ...agent } = input;
       yield* sendMessage(publisher, driver, {
         ...agent,
-        message: { ...agent.message, dispatchOrigin: "agent" },
+        message: {
+          ...agent.message,
+          origin: { _tag: "agent", senderThreadId: ThreadId.makeUnsafe("agent-sender") },
+        },
       });
       yield* settleMessage(
         publisher,

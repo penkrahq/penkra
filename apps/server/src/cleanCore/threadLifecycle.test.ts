@@ -74,8 +74,7 @@ it.effect("web creation is idempotent and a send on its running thread is queued
         messageId: MessageId.makeUnsafe("queued-message"),
         text: "next",
         attachments: [],
-        senderThreadId: null,
-        dispatchOrigin: "user",
+        origin: { _tag: "user" as const },
         queuedAt: at,
       },
     });

@@ -1,4 +1,5 @@
 import { CleanCoreThreadSummary } from "./threadSummary";
+import { MessageOrigin } from "./messageOrigin";
 import { Option, Schema, SchemaIssue } from "effect";
 import { ClaudeModelOptions, CodexModelOptions, OpenCodeModelOptions } from "./model";
 import { ProviderMentionReference, ProviderSkillReference } from "./providerDiscovery";
@@ -105,11 +106,6 @@ export type AssistantDeliveryMode = typeof AssistantDeliveryMode.Type;
 export const TurnDispatchMode = Schema.Literals(["queue", "steer"]);
 export type TurnDispatchMode = typeof TurnDispatchMode.Type;
 export const DEFAULT_TURN_DISPATCH_MODE: TurnDispatchMode = "queue";
-// Marks who dispatched a user turn. The legacy "automation" value remains solely
-// for decoding existing Penkra data; no Penkra Automation runtime is retained.
-// Absent is treated as "user"; only trusted server paths can carry the flag.
-export const MessageDispatchOrigin = Schema.Literals(["user", "automation", "agent"]);
-export type MessageDispatchOrigin = typeof MessageDispatchOrigin.Type;
 
 /**
  * Server-owned delivery lifecycle for one user message. This is deliberately
@@ -354,9 +350,8 @@ export const OrchestrationMessage = Schema.Struct({
   attachments: Schema.optional(Schema.Array(ChatAttachment)),
   skills: Schema.optional(Schema.Array(ProviderSkillReference)),
   mentions: Schema.optional(Schema.Array(ProviderMentionReference)),
-  dispatchMode: Schema.optional(TurnDispatchMode),
-  dispatchOrigin: Schema.optional(MessageDispatchOrigin),
-  senderThreadId: Schema.optional(ThreadId),
+  origin: Schema.optionalKey(MessageOrigin),
+  steered: Schema.optionalKey(Schema.Literal(true)),
   delivery: Schema.optional(MessageDelivery),
   /** First durable message event sequence. Delivery sequence may supersede it for presentation. */
   sequence: Schema.optional(NonNegativeInt),
