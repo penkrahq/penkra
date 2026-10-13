@@ -44,7 +44,6 @@ import { ProviderConnectionRepository } from "./persistence/Services/ProviderCon
 import { ProviderInstallationRepository } from "./persistence/Services/ProviderInstallations";
 import { ProviderCredentialBroker } from "./provider/providerCredentialBroker";
 import { ProviderSessionDirectoryLive } from "./provider/Layers/ProviderSessionDirectory";
-import { ProviderSessionRuntimeRepositoryLive } from "./persistence/Layers/ProviderSessionRuntime";
 import { AnalyticsService } from "./telemetry/Services/AnalyticsService";
 import { runAutomaticProviderUpdateCycle } from "./provider/providerUpdateCoordinator";
 import type { ProviderHealthShape } from "./provider/Services/ProviderHealth";
@@ -759,9 +758,7 @@ it.each(["codex", "opencode"] as const)(
         Layer.provide(ConnectionRateLimitsLive),
         Layer.provide(ProviderAuthCircuitsLive),
         Layer.provideMerge(registryLayer),
-        Layer.provide(
-          ProviderSessionDirectoryLive.pipe(Layer.provide(ProviderSessionRuntimeRepositoryLive)),
-        ),
+        Layer.provide(ProviderSessionDirectoryLive),
         Layer.provide(resolverLayer),
         Layer.provide(AnalyticsService.layerTest),
         Layer.provide(Layer.succeed(ThreadPublisher, makeThreadPublisher())),

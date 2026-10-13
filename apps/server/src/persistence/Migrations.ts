@@ -1,3 +1,4 @@
+import Migration0202 from "./Migrations/202_FoldProviderState.ts";
 import Migration0201 from "./Migrations/201_DropLegacyPipeline.ts";
 /**
  * MigrationsLive - Migration runner with inline loader
@@ -417,6 +418,7 @@ export const migrationEntries = [
   [199, "IndexOpenQuestions", Migration0199],
   [200, "FailedSendPayload", Migration0200],
   [201, "DropLegacyPipeline", Migration0201],
+  [202, "FoldProviderState", Migration0202],
 ] as const;
 
 export const makeMigrationLoader = (throughId?: number) =>

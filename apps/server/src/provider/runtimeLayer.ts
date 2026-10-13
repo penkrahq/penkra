@@ -13,7 +13,6 @@ import { ProviderAdapterRegistryLive } from "./Layers/ProviderAdapterRegistry";
 import { ProviderDiscoveryServiceLive } from "./Layers/ProviderDiscoveryService";
 import { makeManagedProviderServiceLive } from "./Layers/ProviderService";
 import { ProviderSessionDirectoryLive } from "./Layers/ProviderSessionDirectory";
-import { ProviderSessionRuntimeRepositoryLive } from "../persistence/Layers/ProviderSessionRuntime";
 import { ProviderConnectionRepositoryLive } from "../persistence/Layers/ProviderConnections";
 import { ProviderInstallationRepositoryLive } from "../persistence/Layers/ProviderInstallations";
 import { ProviderCredentialBrokerLive } from "./providerCredentialBroker";
@@ -36,9 +35,7 @@ export function makeServerProviderLayer(
           stream: "canonical",
         })
       : undefined;
-    const providerSessionDirectoryLayer = ProviderSessionDirectoryLive.pipe(
-      Layer.provide(ProviderSessionRuntimeRepositoryLive),
-    );
+    const providerSessionDirectoryLayer = ProviderSessionDirectoryLive;
     // Gives gateway-capable sessions their thread-scoped penkra_* credentials.
     // OpenCode isolates its managed server before installing MCP.
     const agentGatewayCredentialsLayer =

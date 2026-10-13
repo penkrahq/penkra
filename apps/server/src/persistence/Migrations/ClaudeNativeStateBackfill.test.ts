@@ -1,4 +1,4 @@
-import { seedHistoricalFolderFixture } from "./Migrations/historicalFolderFixture.ts";
+import { seedHistoricalFolderFixture } from "./historicalFolderFixture.ts";
 import { assert, it } from "@effect/vitest";
 import { access, mkdtemp, mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -10,14 +10,14 @@ import {
   claudeNativeProjectRoot,
   claudeThreadHasConversation,
   claudeThreadProjectName,
-} from "../provider/claudeThreadNativeState.ts";
+} from "../../provider/claudeThreadNativeState.ts";
 import {
   providerNativeStateRoot,
   providerOpaquePathKey,
-} from "../provider/providerNativeStatePaths.ts";
-import { withClaudeNativeStateBackfill } from "./ClaudeNativeStateBackfill.ts";
-import * as NodeSqliteClient from "./NodeSqliteClient.ts";
-import { runMigrations } from "./Migrations.ts";
+} from "../../provider/providerNativeStatePaths.ts";
+import { withClaudeNativeStateBackfill } from "../ClaudeNativeStateBackfill.ts";
+import * as NodeSqliteClient from "../NodeSqliteClient.ts";
+import { runMigrations } from "../Migrations.ts";
 
 const fixture = Effect.gen(function* () {
   const stateDir = yield* Effect.acquireRelease(

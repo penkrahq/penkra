@@ -47,12 +47,11 @@ function completedTurnTokenUsage(
 const resolveEventConnectionId = (event: ProviderRuntimeEvent) =>
   Effect.gen(function* () {
     const sql = yield* SqlClient.SqlClient;
-    // Pending reconnect decision: ProviderConnections.ts:358-365/433-443.
-    // Preserve binding attribution until that decision and item B's table drop.
+    // Composer picks never change the owning account; the turn-start switch does.
     return yield* sql<{ readonly connectionId: string }>`
       SELECT connection_id AS "connectionId"
-      FROM thread_runtime_bindings
-      WHERE thread_id = ${event.threadId} AND connection_id IS NOT NULL
+      FROM threads
+      WHERE id = ${event.threadId} AND connection_id IS NOT NULL
       LIMIT 1
     `.pipe(Effect.map((rows) => rows[0]?.connectionId));
   });

@@ -131,26 +131,7 @@ layer("ProviderConnectionRepository", (it) => {
           'codex-app-server-v2', 'active', '2026-08-08T00:00:00.000Z',
           '2026-08-08T00:00:00.000Z')
       `;
-      yield* sql`
-        INSERT INTO provider_native_state_generations (
-          native_state_generation_id, harness_kind, adapter_schema_version,
-          state_manifest_json, lifecycle, created_at, owner_thread_id
-        ) VALUES ('identity-generation', 'codex', '1', '{}', 'active',
-          '2026-08-08T00:00:00.000Z', 'identity-thread')
-      `;
-      yield* sql`
-        INSERT INTO thread_harness_states (
-          thread_id, harness_kind, native_state_generation_id, provider_session_id,
-          native_state_locator_json, created_at, updated_at
-        ) VALUES ('identity-thread', 'codex', 'identity-generation', NULL, '{}',
-          '2026-08-08T00:00:00.000Z', '2026-08-08T00:00:00.000Z')
-      `;
-      yield* sql`
-        INSERT INTO thread_runtime_bindings (
-          thread_id, connection_id, installation_id, created_at, updated_at
-        ) VALUES ('identity-thread', ${duplicateId}, 'identity-installation',
-          '2026-08-08T00:00:00.000Z', '2026-08-08T00:00:00.000Z')
-      `;
+      yield* sql`UPDATE threads SET connection_id=${duplicateId},native_state_id='identity-generation' WHERE id='identity-thread'`;
       const reactivated = yield* repository.reactivateIdentity({
         id: historicalId,
         harness: "codex",
@@ -172,7 +153,7 @@ layer("ProviderConnectionRepository", (it) => {
         readonly connectionId: string;
       }>`
         SELECT connection_id AS "connectionId"
-        FROM thread_runtime_bindings WHERE thread_id = 'identity-thread'
+        FROM threads WHERE id = 'identity-thread'
       `;
       assert.deepStrictEqual(bindings, [{ connectionId: duplicateId }]);
       assert.deepStrictEqual(
@@ -216,7 +197,7 @@ layer("ProviderConnectionRepository", (it) => {
       assert.deepStrictEqual(
         yield* sql<{ readonly connectionId: string }>`
           SELECT connection_id AS "connectionId"
-          FROM thread_runtime_bindings WHERE thread_id = 'identity-thread'
+          FROM threads WHERE id = 'identity-thread'
         `,
         [{ connectionId: duplicateId }],
       );

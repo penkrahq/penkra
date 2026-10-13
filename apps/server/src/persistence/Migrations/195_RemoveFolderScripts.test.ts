@@ -28,6 +28,7 @@ it.effect("drops script metadata and preserves folder rows", () =>
       [199, "IndexOpenQuestions"],
       [200, "FailedSendPayload"],
       [201, "DropLegacyPipeline"],
+      [202, "FoldProviderState"],
     ]);
     assert.deepStrictEqual(
       yield* sql`SELECT folder_id, title, workspace_root, created_at, updated_at FROM projection_folders`,
