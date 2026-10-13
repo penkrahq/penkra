@@ -9,6 +9,7 @@ import type { OperationCancellationCode } from "@penkra/sdk";
 export const APP_RENDERER_RPC_METHODS = [
   "controller.invoke",
   "controller.internal.invoke",
+  "controller.internal.subscribe",
   "tab.invoke",
   "tab.navigate",
   "tab.navigate-for-result",
@@ -57,7 +58,12 @@ export type AppRendererRpcHostMessage =
   | AppRendererRpcCancelMessage
   | AppRendererRpcContextResponseMessage;
 
+export type AppRendererSubscriptionResponse =
+  | { type: "subscription-message"; id: string; value: unknown }
+  | { type: "subscription-end"; id: string };
+
 export type AppRendererRpcResponseMessage =
+  | AppRendererSubscriptionResponse
   | { type: "result"; id: string; result: unknown }
   | { type: "error"; id: string; code: string; message: string };
 
@@ -137,6 +143,14 @@ interface PendingRequest {
   seenContextCalls: Set<string>;
 }
 
+interface PendingSubscription {
+  targetId: number;
+  message(value: unknown): void;
+  end(error?: Error): void;
+  signal?: AbortSignal;
+  abortListener?: () => void;
+}
+
 const DEFAULT_MAX_PAYLOAD_BYTES = 1024 * 1024;
 const DEFAULT_MAX_RESULT_PAYLOAD_BYTES = 24 * 1024 * 1024;
 const DEFAULT_MAX_PENDING_PER_TARGET = 128;
@@ -147,6 +161,7 @@ const MAX_TOTAL_CONTEXT_CALLS_PER_REQUEST = 1_024;
 export class AppRendererRpcHost {
   readonly #targets = new Map<number, AppRendererRpcTarget>();
   readonly #pending = new Map<string, PendingRequest>();
+  readonly #subscriptions = new Map<string, PendingSubscription>();
   readonly #maxPayloadBytes: number;
   readonly #maxResultPayloadBytes: number;
   readonly #maxPendingPerTarget: number;
@@ -262,8 +277,83 @@ export class AppRendererRpcHost {
     });
   }
 
+  /** Persistent stream: no timer or request deadline. Target retirement cancels it. */
+  subscribe(
+    targetId: number,
+    input: unknown,
+    callbacks: { message(value: unknown): void; end(error?: Error): void },
+    options: Pick<AppRendererRpcRequestOptions, "signal" | "targetLabel"> = {},
+  ): () => void {
+    if (this.#stopped)
+      throw new AppRendererRpcError("host-stopped", "App renderer RPC host is stopped.");
+    const target = this.#targets.get(targetId);
+    if (!target)
+      throw new AppRendererRpcError(
+        "renderer-unavailable",
+        `${targetLabel(options.targetLabel)} is unavailable.`,
+      );
+    assertPayloadSize(input, this.#maxPayloadBytes);
+    if (this.#pendingCount(targetId) >= this.#maxPendingPerTarget)
+      throw new AppRendererRpcError("target-overloaded", "Too many pending App calls.");
+    if (options.signal?.aborted) throw abortError(options.signal.reason);
+    const id = this.#mintUniqueRequestId();
+    const pending: PendingSubscription = {
+      targetId,
+      ...callbacks,
+      ...(options.signal ? { signal: options.signal } : {}),
+    };
+    const stop = () => this.#endSubscription(id, undefined, true);
+    if (options.signal) {
+      pending.abortListener = () =>
+        this.#endSubscription(id, abortError(options.signal?.reason), true);
+      options.signal.addEventListener("abort", pending.abortListener, { once: true });
+    }
+    this.#subscriptions.set(id, pending);
+    try {
+      target.send({ type: "request", id, method: "controller.internal.subscribe", input });
+    } catch (error) {
+      this.#endSubscription(id, toError(error), true);
+    }
+    return stop;
+  }
+
+  #endSubscription(id: string, error?: Error, cancel = false): void {
+    const pending = this.#subscriptions.get(id);
+    if (!pending) return;
+    this.#subscriptions.delete(id);
+    if (pending.signal && pending.abortListener)
+      pending.signal.removeEventListener("abort", pending.abortListener);
+    try {
+      if (cancel)
+        this.#targets
+          .get(pending.targetId)
+          ?.send({ type: "cancel", id, reason: "operation-cancelled" });
+    } finally {
+      pending.end(error);
+    }
+  }
+
   acceptResponse(senderTargetId: number, candidate: unknown): boolean {
     const response = parseResponse(candidate, this.#maxResultPayloadBytes);
+    const subscription = this.#subscriptions.get(response.id);
+    if (subscription && subscription.targetId === senderTargetId) {
+      if (response.type === "subscription-message") subscription.message(response.value);
+      else if (response.type === "subscription-end") this.#endSubscription(response.id);
+      else if (response.type === "error")
+        this.#endSubscription(
+          response.id,
+          new AppRendererRpcError("app-error", response.message, response.code),
+          true,
+        );
+      else
+        throw new AppRendererRpcError(
+          "invalid-message",
+          "A subscription returned a one-off result.",
+        );
+      return true;
+    }
+    if (response.type === "subscription-message" || response.type === "subscription-end")
+      return false;
     const pending = this.#pending.get(response.id);
     if (!pending || pending.targetId !== senderTargetId) return false;
     this.#settle(response.id);
@@ -361,6 +451,17 @@ export class AppRendererRpcHost {
   }
 
   #cancelTarget(targetId: number, reason: OperationCancellationCode, message: string): void {
+    for (const [id, subscription] of this.#subscriptions) {
+      if (subscription.targetId === targetId)
+        this.#endSubscription(
+          id,
+          new AppRendererRpcError(
+            reason === "host-stopped" ? "host-stopped" : "renderer-outcome-unknown",
+            message,
+          ),
+          true,
+        );
+    }
     for (const [id, pending] of this.#pending) {
       if (pending.targetId !== targetId) continue;
       this.#cancelRequest(
@@ -392,12 +493,20 @@ export class AppRendererRpcHost {
     for (const pending of this.#pending.values()) {
       if (pending.targetId === targetId) count += 1;
     }
+    for (const subscription of this.#subscriptions.values())
+      if (subscription.targetId === targetId) count += 1;
     return count;
   }
 
   #mintUniqueRequestId(): string {
     const id = this.#mintRequestId();
-    if (typeof id !== "string" || id.length === 0 || id.length > 128 || this.#pending.has(id)) {
+    if (
+      typeof id !== "string" ||
+      id.length === 0 ||
+      id.length > 128 ||
+      this.#pending.has(id) ||
+      this.#subscriptions.has(id)
+    ) {
       throw new AppRendererRpcError(
         "invalid-message",
         "RPC request ID generator returned an invalid ID.",
@@ -438,12 +547,22 @@ function targetLabel(label: string | undefined): string {
 }
 
 function parseResponse(candidate: unknown, maxPayloadBytes: number): AppRendererRpcResponseMessage {
-  if (!isRecord(candidate) || (candidate.type !== "result" && candidate.type !== "error")) {
+  if (
+    !isRecord(candidate) ||
+    !["result", "error", "subscription-message", "subscription-end"].includes(
+      candidate.type as string,
+    )
+  ) {
     throw new AppRendererRpcError("invalid-message", "App renderer response is invalid.");
   }
   if (typeof candidate.id !== "string" || candidate.id.length === 0 || candidate.id.length > 128) {
     throw new AppRendererRpcError("invalid-message", "App renderer response ID is invalid.");
   }
+  if (candidate.type === "subscription-message") {
+    assertPayloadSize(candidate.value, maxPayloadBytes);
+    return { type: "subscription-message", id: candidate.id, value: candidate.value };
+  }
+  if (candidate.type === "subscription-end") return { type: "subscription-end", id: candidate.id };
   if (candidate.type === "result") {
     assertPayloadSize(candidate.result, maxPayloadBytes);
     return { type: "result", id: candidate.id, result: candidate.result };

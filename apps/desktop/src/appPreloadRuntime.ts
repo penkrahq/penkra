@@ -80,6 +80,7 @@ export class AppPreloadRuntime {
   readonly #transport: AppPreloadTransport;
   readonly #tabHandlers = new Map<string, AppTabOperationHandler>();
   readonly #active = new Map<string, ActiveRequest>();
+  readonly #subscriptions = new Set<() => void>();
   #navigationHandler: AppTabNavigationHandler<unknown> | null = null;
   readonly #navigationHandlerWaiters = new Set<{
     resolve(handler: AppTabNavigationHandler<unknown>): void;
@@ -116,6 +117,39 @@ export class AppPreloadRuntime {
       },
       controller: {
         invoke: (handler, input) => this.#runtimeV2Call("controller.invoke", { handler, input }),
+        subscribe: (handler, input, callbacks) => {
+          if (!this.#transport.onEvent)
+            throw new Error("Controller subscriptions require the App event transport.");
+          const id = globalThis.crypto.randomUUID();
+          let ended = false;
+          const finish = (error?: Error) => {
+            if (ended) return;
+            ended = true;
+            unlisten();
+            this.#subscriptions.delete(stop);
+            callbacks.end(error);
+          };
+          const unlisten = this.#transport.onEvent(`controller.subscription:${id}`, (payload) => {
+            if (ended || !isRecord(payload)) return;
+            if (payload.type === "message") callbacks.message(payload.value as never);
+            else if (payload.type === "end")
+              finish(
+                isRecord(payload.error) && typeof payload.error.message === "string"
+                  ? new Error(payload.error.message)
+                  : undefined,
+              );
+          });
+          const stop = () => {
+            if (ended) return;
+            finish();
+            void this.#runtimeV2Call("controller.unsubscribe", { id }).catch(() => undefined);
+          };
+          this.#subscriptions.add(stop);
+          void this.#runtimeV2Call("controller.subscribe", { id, handler, input }).catch((error) =>
+            finish(error instanceof Error ? error : new Error(String(error))),
+          );
+          return stop;
+        },
       },
       files: {
         list: () => this.#runtimeV2Call("files.list"),
@@ -462,6 +496,7 @@ export class AppPreloadRuntime {
   }
 
   dispose(): void {
+    for (const stop of this.#subscriptions) stop();
     this.#unsubscribe?.();
     this.#unsubscribe = null;
     this.#ready = false;

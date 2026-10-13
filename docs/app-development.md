@@ -463,6 +463,13 @@ File and directory handlers receive scoped handles by default. An App with a tru
 controller may instead declare `input: "path"`; its manifest-declared operation then receives the
 validated absolute path as `{ path }`. The controller can use ordinary Node filesystem APIs and a
 visual tab can call private controller handlers through `controller.invoke(...)`.
+For a persistent stream, register `runtime.controller.subscription(name, handler)` in the
+controller and call `penkra.controller.subscribe(name, input, { message, end })` in the tab.
+The tab receives a synchronous `stop()` function. The handler gets its tab context plus
+`send(value)`, `end()` and `signal`. It stays subscribed after the handler finishes setup;
+stop, tab/App close, controller exit or `end()` aborts the signal. Release native resources
+when that signal aborts. Streams have no deadline; one-off calls keep their request deadline.
+The `end` callback runs once and receives an optional error when the stream fails.
 
 Do not substitute `window.showOpenFilePicker()` or `window.showSaveFilePicker()`. Apps run in a
 cross-origin child frame, and Chromium rejects File System Access API pickers from that frame with

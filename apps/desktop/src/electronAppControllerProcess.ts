@@ -115,7 +115,12 @@ export class ElectronAppControllerProcessFactory implements AppControllerProcess
                     : `${input.installedApp.name} operation controller failed to start.`,
                 ),
               );
-            } else if (message.type === "result" || message.type === "error") {
+            } else if (
+              message.type === "result" ||
+              message.type === "error" ||
+              message.type === "subscription-message" ||
+              message.type === "subscription-end"
+            ) {
               try {
                 this.#options.rpc.acceptResponse(id, message);
               } catch (error) {

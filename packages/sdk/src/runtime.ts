@@ -186,6 +186,22 @@ export type AppControllerRequestHandler<Input = unknown, Result = unknown> = (
   context: AppControllerRequestContext,
 ) => Promise<Result> | Result;
 
+/** Stream callbacks. end runs once, optionally with the error that ended the stream. */
+export interface AppControllerSubscriptionCallbacks<Message = unknown> {
+  message(value: Message): void;
+  end(error?: Error): void;
+}
+export interface AppControllerSubscriptionContext<
+  Message = unknown,
+> extends AppControllerRequestContext {
+  send(value: Message): void;
+  end(): void;
+}
+export type AppControllerSubscriptionHandler<Input = unknown, Message = unknown> = (
+  input: Input,
+  context: AppControllerSubscriptionContext<Message>,
+) => void | Promise<void>;
+
 export interface AppShellOpenExternalOptions {
   activate?: boolean;
   logUsage?: boolean;
@@ -343,6 +359,12 @@ export interface PenkraTabRuntimeApi {
   /** Private calls to this App's Space-scoped Node controller. */
   controller: {
     invoke<Input = unknown, Result = unknown>(handler: string, input: Input): Promise<Result>;
+    /** No deadline. Stop explicitly when this stream is no longer needed. */
+    subscribe<Input = unknown, Message = unknown>(
+      name: string,
+      input: Input,
+      callbacks: AppControllerSubscriptionCallbacks<Message>,
+    ): () => void;
   };
   /** Visual-tab only. User-selected or host-handed-off files scoped to this App and Space. */
   files: {
@@ -646,6 +668,10 @@ export type PenkraControllerRuntimeApi = Pick<
     ): () => void;
   };
   controller: {
+    subscription<Input = unknown, Message = unknown>(
+      name: string,
+      handler: AppControllerSubscriptionHandler<Input, Message>,
+    ): () => void;
     handle<Input = unknown, Result = unknown>(
       handler: string,
       callback: AppControllerRequestHandler<Input, Result>,
@@ -694,6 +720,7 @@ export const shell: PenkraTabRuntimeApi["shell"] = {
 
 export const controller: PenkraTabRuntimeApi["controller"] = {
   invoke: (handler, input) => runtime().controller.invoke(handler, input),
+  subscribe: (name, input, callbacks) => runtime().controller.subscribe(name, input, callbacks),
 };
 
 export const files: PenkraTabRuntimeApi["files"] = {

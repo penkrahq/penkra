@@ -37,6 +37,10 @@ export class AppNodeControllerRuntime {
   readonly #transport: AppNodeControllerTransport;
   readonly #handlers = new Map<string, RegisteredOperationHandler>();
   readonly #controllerHandlers = new Map<string, RegisteredControllerHandler>();
+  readonly #subscriptionHandlers = new Map<
+    string,
+    import("@penkra/sdk").AppControllerSubscriptionHandler
+  >();
   readonly #active = new Map<string, ActiveRequest>();
   #nextContextCallId = 0;
   #unsubscribe: (() => void) | null = null;
@@ -95,6 +99,12 @@ export class AppNodeControllerRuntime {
           registerUnique(this.#handlers, key, handler as RegisteredOperationHandler),
       },
       controller: {
+        subscription: (key, handler) =>
+          registerUnique(
+            this.#subscriptionHandlers,
+            key,
+            handler as import("@penkra/sdk").AppControllerSubscriptionHandler,
+          ),
         handle: (key, handler) =>
           registerUnique(this.#controllerHandlers, key, handler as RegisteredControllerHandler),
       },
@@ -156,7 +166,38 @@ export class AppNodeControllerRuntime {
       contextCalls: new Map(),
     };
     this.#active.set(id, request);
+    let persistent = false;
     try {
+      if (message.method === "controller.internal.subscribe") {
+        const input = requireRecord(message.input);
+        const key = requireString(input.handler, "handler");
+        const handler = this.#subscriptionHandlers.get(key);
+        if (!handler)
+          throw runtimeError(
+            "HANDLER_NOT_REGISTERED",
+            `Controller subscription ${key} is not registered.`,
+          );
+        const context = requireRecord(input.context);
+        const end = () => {
+          if (this.#active.get(id) !== request) return;
+          this.#active.delete(id);
+          request.controller.abort(new Error("App subscription ended."));
+          this.#transport.send({ type: "subscription-end", id });
+        };
+        persistent = true;
+        await handler(input.input, {
+          folderId: requireString(context.folderId, "folderId"),
+          threadId: requireString(context.threadId, "threadId"),
+          tabId: requireString(context.tabId, "tabId"),
+          signal: request.controller.signal,
+          send: (value) => {
+            if (this.#active.get(id) === request && !request.controller.signal.aborted)
+              this.#transport.send({ type: "subscription-message", id, value });
+          },
+          end,
+        });
+        return;
+      }
       if (message.method === "controller.internal.invoke") {
         const input = requireRecord(message.input);
         const handlerKey = requireString(input.handler, "handler");
@@ -203,12 +244,16 @@ export class AppNodeControllerRuntime {
         this.#transport.send({ type: "result", id, result: result ?? null });
       }
     } catch (error) {
+      persistent = false;
       if (!request.controller.signal.aborted) {
         this.#transport.send({ type: "error", id, ...serializeError(error) });
       }
     } finally {
       rejectContextCalls(request, new Error("Parent App request settled."));
-      if (this.#active.get(id) === request) this.#active.delete(id);
+      if (!persistent && this.#active.get(id) === request) {
+        this.#active.delete(id);
+        request.controller.abort(new Error("App request ended."));
+      }
     }
   }
 

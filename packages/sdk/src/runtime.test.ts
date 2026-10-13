@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
   identity,
+  controller,
   files,
   account,
   browser,
@@ -144,13 +145,25 @@ function createShellMock(): PenkraTabRuntimeApi["shell"] {
   };
 }
 
+it("forwards controller subscriptions and their stop function unchanged", () => {
+  const stop = vi.fn();
+  const subscribe = vi.fn(() => stop);
+  const callbacks = { message: vi.fn(), end: vi.fn() };
+  (globalThis as { penkra?: unknown }).penkra = {
+    runtime: { kind: "tab" },
+    controller: { subscribe },
+  };
+  expect(controller.subscribe("watch", { path: "/tmp" }, callbacks)).toBe(stop);
+  expect(subscribe).toHaveBeenCalledExactlyOnceWith("watch", { path: "/tmp" }, callbacks);
+});
+
 describe("framework-neutral App runtime exports", () => {
   it("forwards visual tab registration to the preload-owned global API", async () => {
     const runtime: PenkraTabRuntimeApi = {
       runtime: { kind: "tab" },
       contextMenu: { show: vi.fn(async () => null) },
       shell: createShellMock(),
-      controller: { invoke: vi.fn() },
+      controller: { invoke: vi.fn(), subscribe: vi.fn() },
       files: createFilesMock(),
       storage: createStorageMock(),
       transfer: createTransferMock(),
@@ -253,7 +266,7 @@ describe("framework-neutral App runtime exports", () => {
       runtime: { kind: "tab" },
       contextMenu: { show: vi.fn(async () => null) },
       shell: createShellMock(),
-      controller: { invoke: vi.fn() },
+      controller: { invoke: vi.fn(), subscribe: vi.fn() },
       files: createFilesMock(),
       storage: createStorageMock(),
       transfer: createTransferMock(),
