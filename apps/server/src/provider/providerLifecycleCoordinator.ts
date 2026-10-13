@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 
 import type { ThreadId } from "@penkra/contracts";
-import { Duration, Effect, Option } from "effect";
+import { Effect } from "effect";
 import * as Semaphore from "effect/Semaphore";
 
 export interface ProviderLifecycleLease {
@@ -32,13 +32,7 @@ export interface ProviderLifecycleCoordinator {
     threadId: ThreadId,
     operation: (generation: string | undefined) => Effect.Effect<A, E, R>,
   ) => Effect.Effect<A, E, R>;
-  /**
-   * Control-plane variant of {@link ProviderLifecycleCoordinator.runCurrent}:
-   * waits a bounded time for the per-thread lock and then proceeds without it.
-   * A wedged lifecycle mutation (a provider start that never returns) must not
-   * be able to hold an interrupt hostage forever; the operation still validates
-   * the current generation, so a racing replacement is rejected downstream.
-   */
+  /** Control-plane operations await the same per-thread ownership release. */
   readonly runCurrentUrgent: <A, E, R>(
     threadId: ThreadId,
     operation: (generation: string | undefined) => Effect.Effect<A, E, R>,
@@ -46,13 +40,6 @@ export interface ProviderLifecycleCoordinator {
   readonly adoptCurrent: (threadId: ThreadId, generation: string) => void;
   readonly currentGeneration: (threadId: ThreadId) => string | undefined;
 }
-
-/** How long an urgent control-plane operation waits for the per-thread lock. */
-// A stop is direct user control. Give an uncontended lifecycle mutation one
-// short scheduling window to finish, then use the existing generation-checked
-// bypass instead of making the user wait seconds behind provider startup.
-const URGENT_LOCK_WAIT = Duration.millis(100);
-const URGENT_LOCK_POLL = Duration.millis(25);
 
 /** Serializes provider lifecycle mutations per thread and gives each mutation a unique epoch. */
 export function makeProviderLifecycleCoordinator(): ProviderLifecycleCoordinator {
@@ -88,35 +75,6 @@ export function makeProviderLifecycleCoordinator(): ProviderLifecycleCoordinator
       return entry.semaphore
         .withPermits(1)(effect)
         .pipe(Effect.ensuring(releaseEntry(threadId, entry)));
-    });
-
-  const withThreadLockOrBypass = <A, E, R>(
-    threadId: ThreadId,
-    effect: Effect.Effect<A, E, R>,
-  ): Effect.Effect<A, E, R> =>
-    Effect.suspend(() => {
-      const entry = referenceEntry(threadId);
-      const deadlineMs = Date.now() + Duration.toMillis(URGENT_LOCK_WAIT);
-      // Polling `withPermitsIfAvailable` instead of racing a timeout against a
-      // pending acquisition: a timed-out `take` can strand a permit and wedge
-      // the thread's lifecycle for the life of the process.
-      const attempt: Effect.Effect<A, E, R> = Effect.suspend(() =>
-        entry.semaphore
-          .withPermitsIfAvailable(1)(effect)
-          .pipe(
-            Effect.flatMap((result) => {
-              if (Option.isSome(result)) return Effect.succeed(result.value);
-              if (Date.now() < deadlineMs) {
-                return Effect.sleep(URGENT_LOCK_POLL).pipe(Effect.andThen(attempt));
-              }
-              return Effect.logWarning(
-                "provider lifecycle lock bypassed for an urgent control-plane operation",
-                { threadId, waitedMs: Duration.toMillis(URGENT_LOCK_WAIT) },
-              ).pipe(Effect.andThen(effect));
-            }),
-          ),
-      );
-      return attempt.pipe(Effect.ensuring(releaseEntry(threadId, entry)));
     });
 
   const run: ProviderLifecycleCoordinator["run"] = (threadId, operation) =>
@@ -182,7 +140,7 @@ export function makeProviderLifecycleCoordinator(): ProviderLifecycleCoordinator
         Effect.suspend(() => operation(currentGenerations.get(threadId))),
       ),
     runCurrentUrgent: (threadId, operation) =>
-      withThreadLockOrBypass(
+      withThreadLock(
         threadId,
         Effect.suspend(() => operation(currentGenerations.get(threadId))),
       ),
