@@ -17,7 +17,6 @@ import {
   type OrchestrationThread as ContractThread,
   EventId,
   MessageId,
-  ORCHESTRATION_WS_METHODS,
   ProviderConnectionId,
   type FolderId,
   type ServerConfig,
@@ -69,7 +68,6 @@ import {
   sendEffectRpcExit,
 } from "../test/effectRpcWebSocketMock";
 import { createBrowserTestServerConfig, createFullscreenTestHost } from "../test/browserHarness";
-import { resetRetainedThreadDetailSubscriptionsForTests } from "../threadDetailSubscriptionRetention";
 import { useWorkspacePathsStore } from "../workspacePathsStore";
 import { resetWsNativeApiForTest } from "../wsNativeApi";
 import { useVoiceSessionCoordinatorStore } from "../voiceSessionCoordinator";
@@ -684,18 +682,63 @@ function publishThreadToFixture(): void {
   };
 }
 
-/** Read-model sync for item-sourced tests: publish to the fixture, sync, push items. */
+/** Publish canonical fixture data through the same item reads as the renderer. */
 function syncReadModelForTest(snapshot: OrchestrationReadModel): void {
   fixture = { ...fixture, snapshot };
-  useStore.getState().syncServerReadModel(snapshot);
-  pushCleanCoreThreadChange(THREAD_ID);
+  for (const thread of snapshot.threads) {
+    useStore.getState().syncServerThreadShell(thread.id, createThreadShellFromReadModel(thread));
+    pushCleanCoreThreadChange(thread.id);
+  }
 }
-
-/** Apply orchestration events, publish the resulting thread to the fixture, push items. */
 function applyEventsForTest(events: OrchestrationEvent[]): void {
-  useStore.getState().applyOrchestrationEvents(events);
-  publishThreadToFixture();
-  pushCleanCoreThreadChange(THREAD_ID);
+  let snapshot = fixture.snapshot;
+  for (const event of events) {
+    const payload = event.payload;
+    snapshot = {
+      ...snapshot,
+      threads: snapshot.threads.map((thread) => {
+        if (thread.id !== payload.threadId) return thread;
+        if (event.type === "thread.message-sent") {
+          const message = {
+            id: payload.messageId,
+            role: payload.role,
+            text: payload.text,
+            turnId: payload.turnId,
+            streaming: payload.streaming,
+            source: payload.source,
+            createdAt: payload.createdAt,
+            updatedAt: payload.updatedAt,
+            attachments: payload.attachments ?? [],
+            dispatchOrigin: payload.dispatchOrigin,
+            senderThreadId: payload.senderThreadId,
+          };
+          return {
+            ...thread,
+            messages: thread.messages.some((row) => row.id === message.id)
+              ? thread.messages.map((row) => (row.id === message.id ? message : row))
+              : [...thread.messages, message],
+          };
+        }
+        if (event.type === "thread.activity-appended")
+          return { ...thread, activities: [...thread.activities, payload.activity] };
+        if (event.type === "thread.session-set")
+          return {
+            ...thread,
+            session: payload.session,
+            latestTurn:
+              thread.latestTurn && payload.session?.status === "interrupted"
+                ? {
+                    ...thread.latestTurn,
+                    state: "interrupted",
+                    completedAt: payload.session.updatedAt,
+                  }
+                : thread.latestTurn,
+          };
+        return thread;
+      }),
+    };
+  }
+  syncReadModelForTest(snapshot);
 }
 
 async function promoteDraftThreadForTest(threadId: ThreadId, title: string): Promise<void> {
@@ -1819,17 +1862,9 @@ function resolveWsRpc(body: WsRequestEnvelope["body"]): unknown {
     pushCleanCoreThreadChange(input.threadId);
     return null;
   }
-  if (tag === ORCHESTRATION_WS_METHODS.getSnapshot) {
-    return fixture.snapshot;
-  }
-  if (tag === ORCHESTRATION_WS_METHODS.getThreadTurnsPage && typeof body.threadId === "string") {
-    return createThreadTurnsPageFromFixtureSnapshot(ThreadId.makeUnsafe(body.threadId));
-  }
-  if (tag === ORCHESTRATION_WS_METHODS.acknowledgeSync) {
-    // Effect RPC encodes Schema.Void as null on the wire; returning undefined
-    // would omit the success value from the serialized Exit.
-    return null;
-  }
+  {}
+  {}
+  {}
   if (tag === WS_METHODS.cleanCoreGetNavigation) {
     const { spaces, folders } = createStartupSnapshotFromReadModel(fixture.snapshot, []);
     return { spaces, folders };
@@ -1861,9 +1896,13 @@ function resolveWsRpc(body: WsRequestEnvelope["body"]): unknown {
     const navigation = createStartupSnapshotFromReadModel(fixture.snapshot, []);
     return { spaces: navigation.spaces, folders: navigation.folders };
   }
-  if (tag === ORCHESTRATION_WS_METHODS.dispatchCommand) {
-    return { sequence: fixture.snapshot.snapshotSequence + 1 };
-  }
+  {}
+  if (tag === WS_METHODS.cleanCoreGetBootstrap)
+    return {
+      runningThreads: fixture.snapshot.threads
+        .filter((thread) => thread.session?.status === "running")
+        .map(summarizeFixtureThread),
+    };
   if (tag === WS_METHODS.serverGetConfig) {
     return fixture.serverConfig;
   }
@@ -2098,30 +2137,6 @@ function installDeterministicSendNativeApi(options?: {
           >;
         },
       },
-      orchestration: {
-        ...wsNativeApi.orchestration,
-        getPendingStartOutcome: async (
-          input: Parameters<typeof wsNativeApi.orchestration.getPendingStartOutcome>[0],
-        ) => ({
-          threadId: input.threadId,
-          messageId: input.messageId,
-          threadExists: true,
-          projectionSequence: input.minimumSequence,
-          outcome: options?.pendingStartOutcome ?? "unknown",
-        }),
-        dispatchCommand: async (
-          command: Parameters<typeof wsNativeApi.orchestration.dispatchCommand>[0],
-        ) => {
-          wsRequests.push(
-            flattenEffectRpcRequestPayload(ORCHESTRATION_WS_METHODS.dispatchCommand, command),
-          );
-          if (command.type === "thread.turn.start" || command.type === "thread.turn.recover") {
-            await options?.dispatchGate;
-          }
-          if (options?.dispatchError) throw options.dispatchError;
-          return { sequence: fixture.snapshot.snapshotSequence + 1 };
-        },
-      },
     },
   });
 
@@ -2174,52 +2189,9 @@ const worker = setupWorker(
         });
         return;
       }
-      if (method === ORCHESTRATION_WS_METHODS.subscribeShell) {
-        sendEffectRpcChunk(client, parsed.request.id, {
-          kind: "snapshot",
-          snapshot: createStartupSnapshotFromReadModel(
-            fixture.snapshot,
-            fixture.snapshot.threads
-              .map(summarizeFixtureThread)
-              .filter((row) => row.state === "running"),
-          ),
-        });
-        return;
-      }
-      if (method === ORCHESTRATION_WS_METHODS.subscribeSync) {
-        emitSyncDomainEvent = (event) =>
-          sendEffectRpcChunk(client, parsed.request.id, {
-            kind: "event",
-            deliveryId: `fixture-sync-event-${event.sequence}`,
-            event,
-          });
-        sendEffectRpcChunk(client, parsed.request.id, {
-          kind: "snapshot",
-          deliveryId: `fixture-sync-${fixture.snapshot.snapshotSequence}`,
-          snapshot: createStartupSnapshotFromReadModel(
-            fixture.snapshot,
-            fixture.snapshot.threads
-              .map(summarizeFixtureThread)
-              .filter((row) => row.state === "running"),
-          ),
-        });
-        return;
-      }
-      if (method === ORCHESTRATION_WS_METHODS.subscribeThread && "threadId" in requestBody) {
-        const threadId = requestBody.threadId as ThreadId;
-        const thread = findThreadDetailFromFixtureSnapshot(threadId);
-        if (!thread) {
-          return;
-        }
-        sendEffectRpcChunk(client, parsed.request.id, {
-          kind: "snapshot",
-          snapshot: {
-            snapshotSequence: fixture.snapshot.snapshotSequence,
-            thread,
-          },
-        });
-        return;
-      }
+      {}
+      {}
+      {}
       if (method === WS_METHODS.cleanCoreSubscribeSidebar) {
         cleanCoreNavigationChangeEmitters.add(() =>
           sendEffectRpcChunk(client, parsed.request.id, { kind: "navigation" }),
@@ -2236,17 +2208,7 @@ const worker = setupWorker(
         );
         return;
       }
-      if (
-        method === WS_METHODS.subscribeServerProviderStatuses ||
-        method === WS_METHODS.subscribeServerSettings ||
-        method === WS_METHODS.subscribeOrchestrationDomainEvents ||
-        method === WS_METHODS.subscribeProjectWorkspaceChanges
-      ) {
-        if (method === WS_METHODS.subscribeOrchestrationDomainEvents) {
-          emitDomainEvent = (event) => sendEffectRpcChunk(client, parsed.request.id, event);
-        }
-        return;
-      }
+      {}
       if (method === WS_METHODS.providerGetConnections && providerConnectionsResponseGate) {
         void providerConnectionsResponseGate.then(() => {
           providerConnectionsReleasedResponses += 1;
@@ -2551,8 +2513,8 @@ function readDispatchedCommand(request: WsRequestEnvelope["body"]): Record<strin
       createdAt: input.message.queuedAt,
     };
   }
-  if (request._tag !== ORCHESTRATION_WS_METHODS.dispatchCommand) return null;
-  return request as Record<string, unknown>;
+  {}
+  return null;
 }
 
 function readCleanCoreUpdate(request: WsRequestEnvelope["body"]): Record<string, unknown> | null {
@@ -3142,9 +3104,7 @@ describe("ChatView timeline estimator parity (full app)", () => {
       });
       transitionObserver.observe(document.body, { childList: true, subtree: true });
 
-      useStore
-        .getState()
-        .syncServerReadModel(createSnapshotWithInlineToolOverflow({ active: false }));
+      syncReadModelForTest(createSnapshotWithInlineToolOverflow({ active: false }));
 
       // Settlement has one owner: the terminal assistant row. The live work
       // rows must not survive as a timed visual clone beside the settled row.
@@ -3542,13 +3502,12 @@ describe("ChatView timeline estimator parity (full app)", () => {
     });
     await resetWsNativeApiForTest();
     resetThreadListForTests();
-    resetRetainedThreadDetailSubscriptionsForTests();
     await setViewport(DEFAULT_VIEWPORT);
     attachmentResponseDelayMs = 0;
     attachmentUploadSequence = 0;
     attachmentUploadFailureStatus = null;
-    emitDomainEvent = null;
-    emitSyncDomainEvent = null;
+    emitDomainEvent = (event) => applyEventsForTest([event]);
+    emitSyncDomainEvent = (event) => applyEventsForTest([event]);
     providerConnectionsResponseGate = null;
     providerConnectionsReleasedResponses = 0;
     fixtureHasAlternateCodexConnection = false;
@@ -3577,7 +3536,6 @@ describe("ChatView timeline estimator parity (full app)", () => {
   afterEach(async () => {
     unsubscribeCoreFixtureStore?.();
     unsubscribeCoreFixtureStore = undefined;
-    resetRetainedThreadDetailSubscriptionsForTests();
     document.body.innerHTML = "";
   });
 
@@ -3978,16 +3936,13 @@ describe("ChatView timeline estimator parity (full app)", () => {
 
     try {
       expect(
-        wsRequests.filter(
-          (request) => request._tag === ORCHESTRATION_WS_METHODS.getThreadTurnsPage,
-        ),
+        wsRequests.filter((request) => request._tag === WS_METHODS.cleanCoreListThreadItemsPage),
       ).toEqual([
         {
-          _tag: ORCHESTRATION_WS_METHODS.getThreadTurnsPage,
+          _tag: WS_METHODS.cleanCoreListThreadItemsPage,
           threadId: THREAD_ID,
         },
       ]);
-      expect(useStore.getState().threadDetailSyncById?.[THREAD_ID]).toBe("synced");
       await vi.waitFor(
         () => {
           expect(document.body.textContent).toContain(THREAD_TITLE);
@@ -4371,7 +4326,7 @@ describe("ChatView timeline estimator parity (full app)", () => {
           wsRequests.some((request) => request._tag === WS_METHODS.cleanCoreInterruptThread),
         ).toBe(true),
       );
-      useStore.getState().applyOrchestrationEvents([
+      applyEventsForTest([
         makeDomainEvent(
           "thread.turn-interrupt-requested",
           {
@@ -5535,24 +5490,6 @@ describe("ChatView timeline estimator parity (full app)", () => {
               throw new Error("fixture uncertain start transport failure");
             },
           ),
-        },
-        orchestration: {
-          ...nativeApi.orchestration,
-          dispatchCommand: vi.fn(async (command: unknown) => {
-            wsRequests.push({
-              _tag: ORCHESTRATION_WS_METHODS.dispatchCommand,
-              command,
-            });
-            if (
-              command &&
-              typeof command === "object" &&
-              "type" in command &&
-              command.type === "thread.turn.start"
-            ) {
-              throw new Error("fixture uncertain start transport failure");
-            }
-            return { sequence: fixture.snapshot.snapshotSequence };
-          }),
         },
       },
     });
@@ -6764,7 +6701,7 @@ describe("ChatView timeline estimator parity (full app)", () => {
         ),
       };
       fixture = { ...fixture, snapshot: currentSnapshot };
-      useStore.getState().syncServerReadModel(currentSnapshot);
+      syncReadModelForTest(currentSnapshot);
 
       // The drag gesture has already settled above. Dispatch the folder toggle directly so
       // Playwright's actionability wait cannot re-enter the stale drag target while React commits
@@ -6817,7 +6754,7 @@ describe("ChatView timeline estimator parity (full app)", () => {
         ),
       };
       fixture = { ...fixture, snapshot: currentSnapshot };
-      useStore.getState().syncServerReadModel(currentSnapshot);
+      syncReadModelForTest(currentSnapshot);
 
       await vi.waitFor(
         () => {

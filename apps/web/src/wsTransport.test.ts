@@ -8,8 +8,7 @@ import { RpcClientError } from "effect/unstable/rpc";
 import * as Socket from "effect/unstable/socket/Socket";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
-  ORCHESTRATION_WS_CHANNELS,
-  ORCHESTRATION_WS_METHODS,
+  CLEAN_CORE_WS_CHANNELS,
   WS_METHODS,
   WS_CHANNELS,
   WS_COMPATIBILITY_QUERY,
@@ -177,7 +176,7 @@ afterEach(() => {
 describe("WsTransport", () => {
   it("returns an unexpected final RPC failure without reconnecting", async () => {
     const transport = new WsTransport("ws://localhost:3020/ws");
-    const method = ORCHESTRATION_WS_METHODS.dispatchCommand;
+    const method = WS_METHODS.cleanCoreSendMessage;
     const client = { [method]: vi.fn(() => ({})) };
     const failure = new Error("unexpected transport failure");
     const runtime = { runPromise: vi.fn().mockRejectedValue(failure) };
@@ -382,35 +381,6 @@ describe("WsTransport", () => {
     expect(listener).toHaveBeenCalledTimes(1);
   });
 
-  it("waits for a thread stream to settle before resolving unsubscribe", async () => {
-    const { transport, internals } = makeBareTransport();
-    const threadId = "thread-release-order";
-    const key = `orchestration.thread:${threadId}`;
-    let settleStream: () => void = () => undefined;
-    const settled = new Promise<void>((resolve) => {
-      settleStream = resolve;
-    });
-    const cleanup = vi.fn();
-    internals.threadSubscriptions.set(threadId, { threadId });
-    internals.streamCleanups.set(key, cleanup);
-    internals.streamSettled.set(key, settled);
-
-    let unsubscribeResolved = false;
-    const unsubscribe = transport
-      .request(ORCHESTRATION_WS_METHODS.unsubscribeThread, { threadId })
-      .then(() => {
-        unsubscribeResolved = true;
-      });
-    await Promise.resolve();
-
-    expect(cleanup).toHaveBeenCalledTimes(1);
-    expect(unsubscribeResolved).toBe(false);
-
-    settleStream();
-    await unsubscribe;
-    expect(unsubscribeResolved).toBe(true);
-  });
-
   it("settles a stream that exits synchronously during callback registration", async () => {
     const { internals } = makeBareTransport();
     const key = "server.synchronous-exit";
@@ -456,29 +426,6 @@ describe("WsTransport", () => {
     expect(restart).not.toHaveBeenCalled();
   });
 
-  it("cancels owned capacity retry timers when a stream stops", async () => {
-    vi.useFakeTimers();
-    try {
-      const { transport, internals } = makeBareTransport();
-      const key = "orchestration.thread:thread-cancel-retry";
-      const retry = vi.fn();
-      const timeoutId = window.setTimeout(retry, 1_000);
-      internals.streamCapacityRetries.set(key, 2);
-      internals.streamCapacityRetryTimers.set(key, timeoutId);
-
-      await transport.request(ORCHESTRATION_WS_METHODS.unsubscribeThread, {
-        threadId: "thread-cancel-retry",
-      });
-      await vi.advanceTimersByTimeAsync(1_000);
-
-      expect(retry).not.toHaveBeenCalled();
-      expect(internals.streamCapacityRetryTimers.has(key)).toBe(false);
-      expect(internals.streamCapacityRetries.has(key)).toBe(false);
-    } finally {
-      vi.useRealTimers();
-    }
-  });
-
   it("does not let stale or duplicate thread restarts replace the active stream", async () => {
     const { internals } = makeBareTransport();
     const threadId = "thread-current-generation";
@@ -495,64 +442,6 @@ describe("WsTransport", () => {
 
     expect(cleanup).not.toHaveBeenCalled();
     expect(internals.streamCleanups.get(key)).toBe(cleanup);
-  });
-
-  it("force-restarts an identical live thread stream for a fresh snapshot", async () => {
-    const { internals } = makeBareTransport();
-    const threadId = "thread-force-snapshot";
-    const key = `orchestration.thread:${threadId}`;
-    const input = { threadId };
-    const cleanup = vi.fn();
-    const subscribeThread = vi.fn(() => ({}));
-    const stopStream = vi.fn(async () => {
-      internals.streamCleanups.delete(key);
-      internals.activeThreadStreamInputs.delete(key);
-    });
-    const startStream = vi.fn();
-    Object.assign(internals, {
-      disposed: false,
-      sessionVersion: 7,
-      stopStream,
-      startStream,
-    });
-    internals.threadSubscriptions.set(threadId, input);
-    internals.streamCleanups.set(key, cleanup);
-    internals.activeThreadStreamInputs.set(key, input);
-
-    await internals.startThreadStream(
-      { [ORCHESTRATION_WS_METHODS.subscribeThread]: subscribeThread },
-      threadId,
-      input,
-      true,
-    );
-
-    expect(stopStream).toHaveBeenCalledWith(key, { resetCapacityRetry: false });
-    expect(subscribeThread).toHaveBeenCalledWith(input);
-    expect(startStream).toHaveBeenCalledWith(
-      expect.anything(),
-      key,
-      {},
-      expect.any(Function),
-      expect.any(Function),
-    );
-  });
-
-  it("treats an explicit identical thread subscribe as an idempotent ownership request", async () => {
-    const { transport, internals } = makeBareTransport();
-    const threadId = "thread-explicit-snapshot";
-    const input = { threadId };
-    const client = {};
-    const startThreadStream = vi.fn(async () => undefined);
-    Object.assign(internals, {
-      disposed: false,
-      getClient: vi.fn(async () => client),
-      startThreadStream,
-    });
-    internals.threadSubscriptions.set(threadId, input);
-
-    await transport.request(ORCHESTRATION_WS_METHODS.subscribeThread, { threadId });
-
-    expect(startThreadStream).toHaveBeenCalledWith(client, threadId, input);
   });
 
   it("starts a clean-core thread stream for a subscribeThread request", async () => {
@@ -739,7 +628,7 @@ describe("WsTransport", () => {
 
   it("retries an idempotent orchestration command after reconnect", async () => {
     const transport = new WsTransport();
-    const method = ORCHESTRATION_WS_METHODS.dispatchCommand;
+    const method = WS_METHODS.cleanCoreSendMessage;
     const firstClient = { [method]: vi.fn((_input: unknown) => ({ attempt: 1 })) };
     const secondClient = { [method]: vi.fn((_input: unknown) => ({ attempt: 2 })) };
     const firstRuntime = {
@@ -800,113 +689,6 @@ describe("WsTransport", () => {
       ),
     ).toBe(false);
     expect(shouldReconnectAfterRequestFailure(new Error("invalid payload"))).toBe(false);
-  });
-
-  it("advances the synchronization resume cursor only after the acknowledgement succeeds", async () => {
-    const transport = new WsTransport();
-    const method = ORCHESTRATION_WS_METHODS.acknowledgeSync;
-    const client = { [method]: vi.fn(() => ({})) };
-    const runtime = { runPromise: vi.fn() };
-    const internals = transport as unknown as WsTransportInternals & {
-      getClient: () => Promise<typeof client>;
-      getClientRuntime: () => typeof runtime;
-    };
-    internals.getClient = vi.fn().mockResolvedValue(client);
-    internals.getClientRuntime = vi.fn(() => runtime);
-    internals.syncDeliveryId = "delivery-1";
-    runtime.runPromise.mockRejectedValueOnce(new Error("ack failed"));
-
-    await expect(
-      transport.request(method, { deliveryId: "delivery-1", appliedSequence: 17 }),
-    ).rejects.toThrow("ack failed");
-    expect(internals.syncAppliedSequence).toBeUndefined();
-
-    runtime.runPromise.mockResolvedValueOnce(undefined);
-    await expect(
-      transport.request(method, { deliveryId: "delivery-1", appliedSequence: 17 }),
-    ).resolves.toBeUndefined();
-    expect(internals.syncAppliedSequence).toBe(17);
-    await transport.dispose();
-  });
-
-  it("does not let an old lease acknowledgement overwrite a newer snapshot cursor", async () => {
-    const transport = new WsTransport();
-    const method = ORCHESTRATION_WS_METHODS.acknowledgeSync;
-    const client = { [method]: vi.fn(() => ({})) };
-    let resolveOldAcknowledgement!: (value: undefined) => void;
-    const oldAcknowledgement = new Promise<undefined>((resolve) => {
-      resolveOldAcknowledgement = resolve;
-    });
-    const runtime = { runPromise: vi.fn(() => oldAcknowledgement) };
-    const internals = transport as unknown as WsTransportInternals & {
-      getClient: () => Promise<typeof client>;
-      getClientRuntime: () => typeof runtime;
-    };
-    internals.getClient = vi.fn().mockResolvedValue(client);
-    internals.getClientRuntime = vi.fn(() => runtime);
-    internals.syncDeliveryId = "old-lease";
-
-    const request = transport.request(method, {
-      deliveryId: "old-lease",
-      appliedSequence: 41,
-    });
-    await Promise.resolve();
-    internals.syncDeliveryId = "new-lease";
-    internals.syncAppliedSequence = undefined;
-    resolveOldAcknowledgement(undefined);
-    await request;
-
-    expect(internals.syncDeliveryId).toBe("new-lease");
-    expect(internals.syncAppliedSequence).toBeUndefined();
-    await transport.dispose();
-  });
-
-  it("drops an old acknowledgement when the transport changes leases before dispatch", async () => {
-    const transport = new WsTransport();
-    const method = ORCHESTRATION_WS_METHODS.acknowledgeSync;
-    const client = { [method]: vi.fn(() => ({})) };
-    let releaseClient!: (value: typeof client) => void;
-    const clientReady = new Promise<typeof client>((resolve) => {
-      releaseClient = resolve;
-    });
-    const internals = transport as unknown as WsTransportInternals & {
-      getClient: () => Promise<typeof client>;
-    };
-    internals.getClient = vi.fn(() => clientReady);
-    internals.syncDeliveryId = "old-lease";
-
-    const pending = transport.request(method, { deliveryId: "old-lease", appliedSequence: 8 });
-    internals.syncDeliveryId = undefined;
-    releaseClient(client);
-    await expect(pending).resolves.toBeUndefined();
-    expect(client[method]).not.toHaveBeenCalled();
-    await transport.dispose();
-  });
-
-  it("resumes the unified stream from the acknowledged cursor and resets it on a snapshot", async () => {
-    const { internals } = makeBareTransport();
-    const subscribeSync = vi.fn(() => ({ stream: true }));
-    const client = { [ORCHESTRATION_WS_METHODS.subscribeSync]: subscribeSync };
-    let onEvent: ((event: { kind: string; deliveryId: string }) => void) | undefined;
-    Object.assign(internals, {
-      syncAppliedSequence: 23,
-      getClient: vi.fn().mockResolvedValue(client),
-      startStream: vi.fn(
-        (_client: unknown, _key: unknown, _stream: unknown, callback: typeof onEvent) => {
-          onEvent = callback;
-        },
-      ),
-    });
-
-    internals.startChannelStream(ORCHESTRATION_WS_CHANNELS.syncEvent);
-    await Promise.resolve();
-    await Promise.resolve();
-
-    expect(subscribeSync).toHaveBeenCalledWith({ afterSequenceExclusive: 23 });
-    expect(onEvent).toBeDefined();
-    onEvent?.({ kind: "snapshot", deliveryId: "new-lease" });
-    expect(internals.syncAppliedSequence).toBeUndefined();
-    expect(internals.syncDeliveryId).toBe("new-lease");
   });
 
   it("joins an active reconnect instead of returning the retired client", async () => {
@@ -1165,7 +947,7 @@ describe("WsTransport", () => {
 
   it("does not retry an explicit orchestration rejection", async () => {
     const transport = new WsTransport();
-    const method = ORCHESTRATION_WS_METHODS.dispatchCommand;
+    const method = WS_METHODS.cleanCoreSendMessage;
     const client = { [method]: vi.fn(() => ({})) };
     const rejection = new WsRpcError({ message: "command rejected", retryable: false });
     const runtime = { runPromise: vi.fn().mockRejectedValue(rejection) };

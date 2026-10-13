@@ -7,7 +7,6 @@ import type { TestProviderUpdate as OrchestrationEvent } from "./storeTestFixtur
 import {
   type ContextMenuItem,
   EventId,
-  ORCHESTRATION_WS_CHANNELS,
   FolderId,
   SpaceId,
   ThreadId,
@@ -325,35 +324,6 @@ describe("wsNativeApi", () => {
     onServerSettingsUpdated(lateListener);
     expect(lateListener).toHaveBeenCalledTimes(1);
     expect(lateListener).toHaveBeenCalledWith(payload);
-  });
-
-  it("forwards valid orchestration events", async () => {
-    const { createWsNativeApi } = await import("./wsNativeApi");
-
-    const api = createWsNativeApi();
-    const onDomainEvent = vi.fn();
-    expect(channelListeners.has(ORCHESTRATION_WS_CHANNELS.domainEvent)).toBe(false);
-    const unsubscribeDomainEvent = api.orchestration.onDomainEvent(onDomainEvent);
-    expect(channelListeners.get(ORCHESTRATION_WS_CHANNELS.domainEvent)?.size).toBe(1);
-
-    const orchestrationEvent = {
-      sequence: 1,
-      eventId: EventId.makeUnsafe("event-1"),
-      aggregateKind: "thread",
-      aggregateId: ThreadId.makeUnsafe("thread-1"),
-      occurredAt: "2026-02-24T00:00:00.000Z",
-      commandId: null,
-      causationEventId: null,
-      correlationId: null,
-      metadata: {},
-      type: "thread.session-stop-requested",
-      payload: { threadId: ThreadId.makeUnsafe("thread-1"), createdAt: "2026-02-24T00:00:00.000Z" },
-    } satisfies Extract<OrchestrationEvent, { type: "thread.session-stop-requested" }>;
-    emitPush(ORCHESTRATION_WS_CHANNELS.domainEvent, orchestrationEvent);
-    expect(onDomainEvent).toHaveBeenCalledTimes(1);
-    expect(onDomainEvent).toHaveBeenCalledWith(orchestrationEvent);
-    unsubscribeDomainEvent();
-    expect(channelListeners.has(ORCHESTRATION_WS_CHANNELS.domainEvent)).toBe(false);
   });
 
   it("sends canonical navigation updates and returns committed rows", async () => {

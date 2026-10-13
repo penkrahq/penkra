@@ -349,7 +349,7 @@ export function syncServerThreadShell(
 ): AppState {
   if (thread === null) return removeThreadState(state, threadId);
   const previous = getThreadFromState(state, threadId);
-  if (previous && previous.updatedAt > thread.updatedAt) return state;
+  if (previous?.updatedAt !== undefined && previous.updatedAt > thread.updatedAt) return state;
   return commitThreadProjection(
     writeThreadShellProjection(state, normalizeThreadShellSnapshot(thread, previous)),
     threadId,

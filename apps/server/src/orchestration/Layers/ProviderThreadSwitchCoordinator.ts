@@ -256,7 +256,8 @@ export const makeProviderThreadSwitchCoordinator = Effect.gen(function* () {
   });
 
   return {
-    dispatchTurnStart: dispatchTurnAdmission,
+    dispatchTurnStart: (input) =>
+      dispatchTurnAdmission(input).pipe(Effect.provideService(SqlClient.SqlClient, sql)),
   } satisfies ProviderThreadSwitchCoordinatorShape;
 });
 

@@ -120,9 +120,8 @@ it.effect("delivers a queued message on model B after the composer changes from 
               },
               new Date().toISOString(),
             );
-            return { sequence: 1 };
+            return { turnId: TurnId.makeUnsafe("fixture-turn") };
           }).pipe(Effect.provideService(SqlClient.SqlClient, sql), Effect.orDie),
-        dispatchQueuedTurn: () => Effect.die("No legacy queue"),
       }),
       Effect.provideService(ProviderService, {} as typeof ProviderService.Service),
     );
@@ -214,8 +213,9 @@ for (const workspaceRoot of [null, "/repo"]) {
         });
         const publisher = makeThreadPublisher();
         let dispatchCount = 0;
-        const completions = new Map<string, Deferred.Deferred<void>>();
-        for (const id of ["m1", "m2", "m3"]) completions.set(id, yield* Deferred.make<void>());
+        const completions = new Map<string, Deferred.Deferred<void, unknown>>();
+        for (const id of ["m1", "m2", "m3"])
+          completions.set(id, yield* Deferred.make<void, unknown>());
         let expectedCwd =
           workspaceRoot ??
           ensureDurableThreadWorkspace(ThreadId.makeUnsafe("thread-1"), senderStateDir);
@@ -228,7 +228,6 @@ for (const workspaceRoot of [null, "/repo"]) {
               if (cwd === undefined) throw new Error("The turn must have a directory.");
               dispatchedCwds.push(cwd);
               assert.equal(command.connectionId, null);
-              assert.isTrue(command.commandId.length > 0);
               publisher.publishProvider({
                 type: "turn.started",
                 threadId: command.threadId,
@@ -246,9 +245,14 @@ for (const workspaceRoot of [null, "/repo"]) {
                 new Date().toISOString(),
               );
               yield* Deferred.succeed(completions.get(command.message.messageId)!, undefined);
-              return { sequence: 1 };
-            }).pipe(Effect.provideService(SqlClient.SqlClient, folderSql), Effect.orDie),
-          dispatchQueuedTurn: () => Effect.die("no old queue"),
+              return { turnId: TurnId.makeUnsafe("fixture-turn") };
+            }).pipe(
+              Effect.provideService(SqlClient.SqlClient, folderSql),
+              Effect.onError((cause) =>
+                Deferred.failCause(completions.get(command.message.messageId)!, cause),
+              ),
+              Effect.orDie,
+            ),
         };
         const sender = yield* makeThreadSender.pipe(
           Effect.provideService(ServerConfig, {
@@ -471,14 +475,13 @@ for (const release of ["next-send", "remove-head", "edit-head"] as const) {
               new Date().toISOString(),
             );
             yield* Deferred.succeed(delivered, undefined);
-            return { sequence: 1 };
+            return { turnId: TurnId.makeUnsafe("fixture-turn") };
           }).pipe(
             Effect.provideService(SqlClient.SqlClient, folderSql),
             Effect.mapError(
               (cause) => new ProviderThreadSwitchCoordinatorError({ detail: cause.message }),
             ),
           ),
-        dispatchQueuedTurn: () => Effect.die("No legacy queue"),
       } satisfies typeof ProviderThreadSwitchCoordinator.Service;
       const sender = yield* makeThreadSender.pipe(
         Effect.provideService(ServerConfig, {
@@ -640,9 +643,8 @@ it.effect("claims queued attachments atomically and delivers them with their ori
             },
             new Date().toISOString(),
           );
-          return { sequence: 1 };
+          return { turnId: TurnId.makeUnsafe("fixture-turn") };
         }).pipe(Effect.provideService(SqlClient.SqlClient, sql), Effect.orDie),
-      dispatchQueuedTurn: () => Effect.die("no legacy queue"),
     };
     const sender = yield* makeThreadSender.pipe(
       Effect.provideService(ServerConfig, {
@@ -1002,9 +1004,8 @@ for (const provider of ["codex", "claudeAgent"] as const) {
                     new Date().toISOString(),
                   );
                   yield* Deferred.succeed(dispatched, undefined);
-                  return { sequence: 1 };
+                  return { turnId: TurnId.makeUnsafe("fixture-turn") };
                 }).pipe(Effect.provideService(SqlClient.SqlClient, sql), Effect.orDie),
-              dispatchQueuedTurn: () => Effect.die("No legacy queue"),
             }),
           );
           const result = yield* sender.send({

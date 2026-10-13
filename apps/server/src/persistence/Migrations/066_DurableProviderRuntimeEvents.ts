@@ -1,7 +1,8 @@
 import * as Effect from "effect/Effect";
 import * as SqlClient from "effect/unstable/sql/SqlClient";
 
-import { PROVIDER_RUNTIME_INGESTION_CONSUMER } from "../Services/ProviderRuntimeEvents.ts";
+// Frozen historical consumer identity; no live journal service remains.
+const PROVIDER_RUNTIME_INGESTION_CONSUMER = "provider-runtime-ingestion.v1";
 
 // Provider output is journaled before live publication. The consumer cursor is
 // intentionally independent from orchestration event sequences: it advances

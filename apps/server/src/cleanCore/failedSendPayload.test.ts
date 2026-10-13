@@ -46,7 +46,7 @@ it.effect(
         yield* repository.reserve({
           attachmentId: id!,
           ownerThreadId: "thread",
-          ownerKind: "session",
+          ownerKind: "session" as const,
           ownerId: ownerId!,
           kind: "image",
           originalName: id!,
@@ -58,7 +58,7 @@ it.effect(
         yield* repository.finalizeStaged({
           attachmentId: id!,
           ownerThreadId: "thread",
-          ownerKind: "session",
+          ownerKind: "session" as const,
           ownerId: ownerId!,
           sizeBytes: 4,
           sha256: "a".repeat(64),
@@ -110,7 +110,7 @@ it.effect(
       };
       yield* sendMessage(publisher, driver, request("a", "file-a")).pipe(
         Effect.provideService(CurrentManagedAttachmentPrincipal, {
-          ownerKind: "session",
+          ownerKind: "session" as const,
           ownerId: "first-owner",
         }),
       );
@@ -121,7 +121,7 @@ it.effect(
       );
       yield* sendMessage(publisher, driver, request("b", "file-b")).pipe(
         Effect.provideService(CurrentManagedAttachmentPrincipal, {
-          ownerKind: "session",
+          ownerKind: "session" as const,
           ownerId: "second-owner",
         }),
       );
@@ -148,7 +148,7 @@ it.effect(
               const claim = yield* repository.claimForAcceptedTurn({
                 attachmentIds: ["file-a", "file-b"],
                 ownerThreadId: "thread",
-                ownerKind: "session",
+                ownerKind: "session" as const,
                 ownerId: "second-owner",
                 commandId: "native-command",
                 messageId: "b",

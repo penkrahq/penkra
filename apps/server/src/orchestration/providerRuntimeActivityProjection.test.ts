@@ -1,8 +1,8 @@
-import type { OrchestrationThreadActivity, ProviderRuntimeEvent } from "@penkra/contracts";
+import type { ProviderRuntimeEvent } from "@penkra/contracts";
 import {
   CommandId,
   EventId,
-  OrchestrationCommand,
+  OrchestrationThreadActivity,
   RuntimeItemId,
   ThreadId,
   TurnId,
@@ -37,13 +37,7 @@ function runtimeEvent(input: Record<string, unknown> & { eventId: string }): Pro
  * refinements (`TrimmedNonEmptyString`, `Schema.Json`) that TypeScript cannot express.
  */
 function decodeActivityAppendCommand(activity: OrchestrationThreadActivity): unknown {
-  return Schema.decodeUnknownSync(OrchestrationCommand)({
-    type: "thread.activity.append",
-    commandId: CommandId.makeUnsafe("cmd-activity-append"),
-    threadId: THREAD_ID,
-    activity,
-    createdAt: CREATED_AT,
-  });
+  return Schema.decodeUnknownSync(OrchestrationThreadActivity)(activity);
 }
 
 function expectSchemaValidActivities(event: ProviderRuntimeEvent): void {
@@ -54,7 +48,7 @@ function expectSchemaValidActivities(event: ProviderRuntimeEvent): void {
   }
 }
 
-describe("projected activities satisfy the orchestration command schema", () => {
+describe("provider activities satisfy the canonical activity schema", () => {
   it.each([
     ["codex", "01a0-codex-native"],
     ["claudeAgent", "01a00000-0000-4000-8000-000000000001"],

@@ -1,3 +1,11 @@
+interface TestTurnCommand {
+  type: string;
+  threadId: ThreadId;
+  commandId: string;
+  message: any;
+  [key: string]: any;
+}
+type OrchestrationCommand = TestTurnCommand;
 import * as NodeSqliteClient from "../../persistence/NodeSqliteClient.ts";
 import { ThreadPublisherLive } from "../../cleanCore/ThreadPublisher.ts";
 import { makeAgentCreationIds, stableGatewayDigest } from "../creationUtils.ts";
@@ -6,7 +14,6 @@ import { ThreadLifecycle } from "../../cleanCore/threadLifecycle.ts";
 import { ThreadSender, type ThreadSendInput } from "../../cleanCore/ThreadSender.ts";
 import { assert, describe, it } from "@effect/vitest";
 import type {
-  OrchestrationCommand,
   OrchestrationFolderShell,
   OrchestrationThread,
   OrchestrationThreadShell as ContractThreadShell,
@@ -245,7 +252,7 @@ function makeHarnessLayer(
       readonly release: Deferred.Deferred<void>;
     };
     readonly advanceParentTurnAfterDispatch?: {
-      readonly operation: OrchestrationCommand["type"];
+      readonly commandType: OrchestrationCommand["type"];
       readonly turnId: string;
       readonly state?: "running" | "completed" | "interrupted";
     };
@@ -927,6 +934,7 @@ function makeHarnessLayer(
   ).pipe(
     Layer.provide(
       Layer.succeed(ThreadSender, {
+        resumeQueuedForConnection: () => Effect.void,
         runExclusive: (_threadId, action) => action,
         getRuntime: () => Effect.succeed({ state: "idle", activeTurnId: null }),
         editQueued: () => Effect.die("Gateway does not edit composer drafts"),

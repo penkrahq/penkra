@@ -8,6 +8,7 @@ import { Schema } from "effect";
 type CanonicalShellRow = Pick<
   CleanCoreThreadSummary,
   | "id"
+  | "spaceId"
   | "folderId"
   | "title"
   | "connectionId"
@@ -27,6 +28,7 @@ type CanonicalShellRow = Pick<
 export const threadShellFromRow = (row: CanonicalShellRow): OrchestrationThreadShell =>
   Schema.decodeUnknownSync(OrchestrationThreadShell)({
     id: row.id,
+    spaceId: row.spaceId,
     folderId: row.folderId,
     title: row.title,
     modelSelection: Schema.decodeUnknownSync(ModelSelection)({
@@ -47,7 +49,7 @@ export const threadShellFromRow = (row: CanonicalShellRow): OrchestrationThreadS
         ? null
         : {
             turnId: row.latestTurn.turnId,
-            providerTurnId: row.latestTurn.turnId,
+            providerTurnId: null,
             state: row.latestTurn.status === "done" ? "completed" : row.latestTurn.status,
             requestedAt: row.latestTurn.startedAt,
             startedAt: row.latestTurn.startedAt,

@@ -512,6 +512,7 @@ export type OrchestrationThread = typeof OrchestrationThread.Type;
 export const OrchestrationThreadShell = Schema.Struct({
   id: ThreadId,
   folderId: FolderId,
+  spaceId: Schema.optional(Schema.NullOr(SpaceId)),
   title: TrimmedNonEmptyString,
   modelSelection: ModelSelection,
   connectionId: Schema.optional(Schema.NullOr(ProviderConnectionId)),

@@ -1,9 +1,4 @@
-import type {
-  ProviderKind,
-  ProviderSessionRuntimeStatus,
-  RuntimeMode,
-  ThreadId,
-} from "@penkra/contracts";
+import type { ProviderKind, RuntimeMode, ThreadId } from "@penkra/contracts";
 import { Option, ServiceMap } from "effect";
 import type { Effect } from "effect";
 
@@ -16,7 +11,7 @@ export interface ProviderRuntimeBinding {
   readonly threadId: ThreadId;
   readonly provider: ProviderKind;
   readonly adapterKey?: string;
-  readonly status?: ProviderSessionRuntimeStatus;
+  readonly status?: "starting" | "running" | "interrupted" | "stopped" | "error";
   readonly lifecycleGeneration?: string;
   readonly lastSeenAt?: string;
   readonly resumeCursor?: unknown | null;

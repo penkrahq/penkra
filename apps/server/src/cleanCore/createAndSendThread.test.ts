@@ -1,3 +1,4 @@
+import { TurnId } from "@penkra/contracts";
 import { settleMessage } from "./sendMessage";
 import { ensureDurableThreadWorkspace } from "../scratchWorkspaces.ts";
 import { mkdtempSync, rmSync } from "node:fs";
@@ -55,7 +56,6 @@ for (const nativeFails of [false, true]) {
               assert.equal(cwd, expectedCwd);
               if (cwd === undefined) throw new Error("The turn must have a directory.");
               assert.equal(command.connectionId, null);
-              assert.isTrue(command.commandId.length > 0);
               if (nativeFails) {
                 yield* settleMessage(
                   publisher,
@@ -68,7 +68,7 @@ for (const nativeFails of [false, true]) {
                   new Date().toISOString(),
                 );
                 yield* Deferred.succeed(dispatched, undefined);
-                return { sequence: 1 };
+                return { turnId: TurnId.makeUnsafe("fixture-turn") };
               }
               publisher.publishProvider({
                 type: "turn.started",
@@ -87,9 +87,8 @@ for (const nativeFails of [false, true]) {
                 new Date().toISOString(),
               );
               yield* Deferred.succeed(dispatched, undefined);
-              return { sequence: 1 };
+              return { turnId: TurnId.makeUnsafe("fixture-turn") };
             }).pipe(Effect.provideService(SqlClient.SqlClient, sql), Effect.orDie),
-          dispatchQueuedTurn: () => Effect.die("no old queue"),
         };
         const sender = yield* makeThreadSender.pipe(
           Effect.provideService(ServerConfig, {

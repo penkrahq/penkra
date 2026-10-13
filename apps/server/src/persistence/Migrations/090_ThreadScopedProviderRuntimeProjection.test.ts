@@ -4,7 +4,8 @@ import * as SqlClient from "effect/unstable/sql/SqlClient";
 
 import { runMigrations } from "../Migrations.ts";
 import * as NodeSqliteClient from "../NodeSqliteClient.ts";
-import { PROVIDER_RUNTIME_INGESTION_CONSUMER } from "../Services/ProviderRuntimeEvents.ts";
+// Frozen historical consumer identity; no live journal service remains.
+const PROVIDER_RUNTIME_INGESTION_CONSUMER = "provider-runtime-ingestion.v1";
 
 const layer = it.layer(Layer.mergeAll(NodeSqliteClient.layerMemory()));
 

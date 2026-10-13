@@ -1,3 +1,5 @@
+import foldProviderState from "./Migrations/202_FoldProviderState.ts";
+import { seedThreadFolderFixture } from "../cleanCore/threadFixtures.ts";
 import { seedHistoricalProjectFixture } from "./Migrations/historicalFolderFixture.ts";
 import { assert, it } from "@effect/vitest";
 import { Effect, Layer } from "effect";
@@ -33,7 +35,7 @@ layer("provider intent outbox cutover", (it) => {
       const highWater = yield* sql<{ readonly sequence: number }>`
         SELECT sequence FROM orchestration_events WHERE event_id = 'legacy-intent-cutover'
       `;
-      yield* runMigrations();
+      yield* runMigrations({ toMigrationInclusive: 200 });
       const marker = yield* sql<{
         readonly throughSequence: number;
         readonly drainedAt: string | null;
@@ -147,15 +149,15 @@ layer("removed provider data migration", (it) => {
         [199, "IndexOpenQuestions"],
         [200, "FailedSendPayload"],
         [201, "DropLegacyPipeline"],
-      [202, "FoldProviderState"],
+        [202, "FoldProviderState"],
       ]);
 
       const threads = yield* sql<{ readonly threadId: string }>`
-        SELECT thread_id AS "threadId" FROM projection_threads ORDER BY thread_id
+        SELECT id AS "threadId" FROM threads ORDER BY id
       `;
       assert.deepStrictEqual(threads, [{ threadId: "thread-live" }]);
       const messages = yield* sql<{ readonly messageId: string }>`
-        SELECT message_id AS "messageId" FROM projection_thread_messages ORDER BY message_id
+        SELECT source_id AS "messageId" FROM thread_items WHERE kind='user' ORDER BY source_id
       `;
       assert.deepStrictEqual(messages, [{ messageId: "message-live" }]);
       const connections = yield* sql<{ readonly connectionId: string }>`
@@ -295,7 +297,7 @@ queuedTurnEditActionLayer("queued turn edit action migration", (it) => {
         )
       `;
 
-      const executed = yield* runMigrations();
+      const executed = yield* runMigrations({ toMigrationInclusive: 200 });
       assert.deepStrictEqual(executed.slice(0, 9), [
         [113, "QueuedTurnEditAction"],
         [114, "MessageDeliveryLifecycle"],
@@ -383,7 +385,9 @@ layer("reconcileMigrationLineage", (it) => {
         migrationEntries.map(([id]) => id).filter((id) => id >= 17),
       );
 
-      const afterColumns = yield* projectionThreadsColumnNames(sql);
+      const afterColumns = (yield* sql<{
+        name: string;
+      }>`SELECT name FROM pragma_table_info('threads')`).map((row) => row.name);
       assert.notInclude(afterColumns, "env_mode");
       assert.include(afterColumns, "archived_at");
 
@@ -558,7 +562,7 @@ managedAttachmentsFreshLayer("managed attachment migration on a fresh database",
         WHERE type = 'table'
           AND name IN ('orchestration_consumer_state', 'orchestration_event_deliveries')
       `;
-      assert.strictEqual(providerDeliveryTables[0]?.count, 2);
+      assert.strictEqual(providerDeliveryTables[0]?.count, 0);
     }),
   );
 });
@@ -576,7 +580,7 @@ managedAttachmentsLegacyLayer("managed attachment migration after private migrat
         VALUES (54, 'DurableProviderCommandDelivery')
       `;
 
-      const executed = yield* runMigrations();
+      const executed = yield* runMigrations({ toMigrationInclusive: 200 });
       assert.deepStrictEqual(executed.slice(0, 57), [
         [55, "ManagedAttachments"],
         [56, "CommandReceiptFingerprints"],
@@ -1055,7 +1059,7 @@ previousSpacesMigrationLayer("previous Spaces lineage", (it) => {
         [199, "IndexOpenQuestions"],
         [200, "FailedSendPayload"],
         [201, "DropLegacyPipeline"],
-      [202, "FoldProviderState"],
+        [202, "FoldProviderState"],
       ]);
 
       const tracker = yield* trackerRows(sql);
@@ -1378,7 +1382,7 @@ reservedProductionIdentitiesLayer("reserved Production migration identities", (i
           [199, "IndexOpenQuestions"],
           [200, "FailedSendPayload"],
           [201, "DropLegacyPipeline"],
-      [202, "FoldProviderState"],
+          [202, "FoldProviderState"],
         ],
       );
       // A database already at the reserved identities is not "too new": the
@@ -1388,3 +1392,55 @@ reservedProductionIdentitiesLayer("reserved Production migration identities", (i
     }),
   );
 });
+
+const nativeFoldAt = "2026-10-13T00:00:00.000Z";
+const nativeFoldSetup = Effect.gen(function* () {
+  const sql = yield* SqlClient.SqlClient;
+  yield* runMigrations({ toMigrationInclusive: 201 });
+  yield* seedThreadFolderFixture("folder", "space");
+  for (const id of ["owner", "composer"])
+    yield* sql`INSERT INTO provider_connections (connection_id,harness_kind,authentication_target_id,authentication_method_id,label,profile_ref,health_status,lifecycle,created_at,updated_at) VALUES (${id},'claudeAgent','anthropic-first-party','claude-account',${id},${"profile:" + id},'ready','active',${nativeFoldAt},${nativeFoldAt})`;
+  yield* sql`INSERT INTO provider_installations (installation_id,harness_kind,version,platform,architecture,executable_path,artifact_source,artifact_url,artifact_sha256,adapter_version,protocol_version,lifecycle,installed_at,activated_at) VALUES ('installation','claudeAgent','1','test','test','/test/claude','test','test://claude',${"a".repeat(64)},'1','1','active',${nativeFoldAt},${nativeFoldAt})`;
+  yield* sql`INSERT INTO threads (id,space_id,folder_id,title,provider,connection_id,model,runtime_mode,state,native_state_id,created_by,created_at,updated_at) VALUES ('thread','space','folder','Thread','claudeAgent','composer','sonnet','full-access','idle','native','user',${nativeFoldAt},${nativeFoldAt})`;
+  yield* sql`INSERT INTO provider_native_state_generations (native_state_generation_id,owner_thread_id,harness_kind,adapter_schema_version,state_manifest_json,lifecycle,created_at) VALUES ('native','thread','claudeAgent','1','{}','active',${nativeFoldAt})`;
+  yield* sql`INSERT INTO thread_harness_states (thread_id,harness_kind,native_state_generation_id,provider_session_id,native_state_locator_json,created_at,updated_at) VALUES ('thread','claudeAgent','native','exact-session','{}',${nativeFoldAt},${nativeFoldAt})`;
+  yield* sql`INSERT INTO thread_runtime_bindings (thread_id,connection_id,installation_id,created_at,updated_at) VALUES ('thread','owner','installation',${nativeFoldAt},${nativeFoldAt})`;
+});
+it.effect("uses the native owner and preserves identities, with rollback on failure", () =>
+  Effect.gen(function* () {
+    const sql = yield* SqlClient.SqlClient;
+    yield* nativeFoldSetup;
+    const before = yield* sql`SELECT * FROM threads`;
+    const result = yield* Effect.exit(
+      sql.withTransaction(
+        foldProviderState.pipe(Effect.andThen(Effect.fail(new Error("injected")))),
+      ),
+    );
+    assert.equal(result._tag, "Failure");
+    assert.deepStrictEqual(yield* sql`SELECT * FROM threads`, before);
+    assert.equal((yield* sql`SELECT * FROM thread_runtime_bindings`).length, 1);
+    yield* runMigrations();
+    assert.deepStrictEqual(
+      yield* sql`SELECT id,connection_id,provider_session_id,native_state_id FROM threads`,
+      [
+        {
+          id: "thread",
+          connection_id: "owner",
+          provider_session_id: "exact-session",
+          native_state_id: "native",
+        },
+      ],
+    );
+    assert.deepStrictEqual(yield* sql`PRAGMA foreign_key_check`, []);
+    for (const name of [
+      "thread_runtime_bindings",
+      "thread_harness_states",
+      "provider_session_runtime",
+      "provider_native_state_generations",
+    ])
+      assert.equal(
+        (yield* sql`SELECT name FROM sqlite_master WHERE type='table' AND name=${name}`).length,
+        0,
+      );
+  }).pipe(Effect.provide(NodeSqliteClient.layerMemory())),
+);

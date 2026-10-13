@@ -167,7 +167,7 @@ export const TurnDispatchLive = Layer.effect(
             ? provider.steerTurn(request)
             : command.reviewTarget === undefined
               ? provider.sendTurn(request)
-              : provider.startReview({ ...request, reviewTarget: command.reviewTarget });
+              : provider.startReview({ threadId, target: command.reviewTarget });
           yield* settleMessage(
             publisher,
             {

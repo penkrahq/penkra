@@ -63,6 +63,7 @@ function transcriptRows(items: ReadonlyArray<ThreadItemRecord>) {
         createdAt: item.createdAt,
         updatedAt: item.updatedAt,
         streaming: item.status === "streaming",
+        source: "native",
         ...(item.kind === "user"
           ? {
               attachments: data.attachments ?? [],

@@ -145,23 +145,6 @@ export interface ProviderServiceLiveOptions {
 // Claude owns one process per thread; idle conversations resume after a 30-minute stop.
 export const THREAD_SESSION_IDLE_MS = 30 * 60 * 1000;
 export const PROVIDER_RUNTIME_EVENT_BUFFER_CAPACITY = 2_048;
-{
-  const encoded = Buffer.from(cause, "utf8");
-  if (encoded.byteLength <= PROVIDER_RUNTIME_QUARANTINE_CAUSE_MAX_BYTES) {
-    return { cause };
-  }
-  let prefixEnd = PROVIDER_RUNTIME_QUARANTINE_CAUSE_MAX_BYTES;
-  while (prefixEnd > 0 && ((encoded[prefixEnd] ?? 0) & 0xc0) === 0x80) {
-    prefixEnd -= 1;
-  }
-  return {
-    cause: encoded.subarray(0, prefixEnd).toString("utf8"),
-    causeTruncated: true,
-    causeOriginalBytes: encoded.byteLength,
-    causeSha256: createHash("sha256").update(encoded).digest("hex"),
-  };
-}
-
 const ProviderRollbackConversationInput = Schema.Struct({
   threadId: ThreadId,
   numTurns: NonNegativeInt,

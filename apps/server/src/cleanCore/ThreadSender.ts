@@ -482,7 +482,7 @@ export const ThreadSenderLive = Layer.effect(
     const sql = yield* SqlClient.SqlClient;
     const publisher = yield* ThreadPublisher;
     const releases = yield* circuits.subscribeReleases;
-    yield* Stream.runForEach(Stream.fromQueue(releases), (circuit) =>
+    yield* Stream.runForEach(Stream.fromSubscription(releases), (circuit) =>
       Effect.gen(function* () {
         const changed =
           yield* sql`UPDATE threads SET state=CASE WHEN state='error' THEN 'idle' ELSE state END,last_error=NULL
