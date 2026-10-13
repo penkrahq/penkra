@@ -605,3 +605,59 @@ it.effect("startup fails every member of a pending cohort and keeps each payload
     }),
   ),
 );
+
+it.effect(
+  "a background dispatch defect settles the admitted user row instead of leaving sending",
+  () =>
+    withDb(
+      Effect.gen(function* () {
+        const publisher = yield* setup;
+        yield* sendMessage(publisher, driver, input);
+        yield* Effect.exit(
+          deliverMessage(
+            publisher,
+            {
+              ...driver,
+              dispatch: () => Effect.die(new Error("dispatch initialization broke")),
+            },
+            input,
+            "deliver",
+          ),
+        );
+        const sql = yield* SqlClient.SqlClient;
+        assert.deepStrictEqual(yield* sql`SELECT status FROM thread_items WHERE kind='user'`, [
+          { status: "failed" },
+        ]);
+      }),
+    ),
+);
+
+it.effect("shutdown interruption leaves admission for startup settlement", () =>
+  withDb(
+    Effect.gen(function* () {
+      const publisher = yield* setup;
+      yield* sendMessage(publisher, driver, input);
+      const exit = yield* Effect.exit(
+        deliverMessage(
+          publisher,
+          {
+            ...driver,
+            dispatch: () => Effect.interrupt,
+          },
+          input,
+          "deliver",
+        ),
+      );
+      assert.isTrue(Exit.isFailure(exit));
+      if (Exit.isFailure(exit)) assert.isTrue(Cause.hasInterruptsOnly(exit.cause));
+      const sql = yield* SqlClient.SqlClient;
+      assert.deepStrictEqual(yield* sql`SELECT status FROM thread_items WHERE kind='user'`, [
+        { status: "sending" },
+      ]);
+      yield* settleRunningThreadsOnStartup(publisher, at);
+      assert.deepStrictEqual(yield* sql`SELECT status FROM thread_items WHERE kind='user'`, [
+        { status: "failed" },
+      ]);
+    }),
+  ),
+);
