@@ -284,6 +284,7 @@ interface MessagesTimelineProps {
   onToggleWorkGroup?: (groupId: string) => void;
   onOpenAgentActivity?: (activityId: string) => void;
   onOpenThread?: (threadId: ThreadId) => void;
+  onRemoveFailedMessage?: ((messageId: MessageId) => void) | undefined;
   /** Recent child-thread tool calls rendered under subagent rows, keyed by child thread id. */
   activeTurnId?: TurnId | null;
   onImageExpand: (preview: ExpandedImagePreview) => void;
@@ -328,6 +329,7 @@ export const MessagesTimeline = memo(function MessagesTimeline({
   onToggleWorkGroup,
   onOpenAgentActivity,
   onOpenThread,
+  onRemoveFailedMessage,
   activeTurnId,
   onImageExpand,
   onIsAtEndChange,
@@ -1239,15 +1241,24 @@ export const MessagesTimeline = memo(function MessagesTimeline({
                           ) + 1}
                       </div>
                     )}
-                    {row.message.delivery?.state === "failed" &&
-                      row.message.delivery.failurePhase === "before-provider-dispatch" && (
-                        <div
-                          className="mb-1.5 self-end text-[length:var(--app-font-size-ui-sm,11px)] text-destructive"
-                          data-testid="failed-message-status"
-                        >
-                          Failed · not delivered
-                        </div>
-                      )}
+                    {row.message.sendStatus === "failed" && (
+                      <div
+                        className="mb-1.5 self-end text-[length:var(--app-font-size-ui-sm,11px)] text-destructive"
+                        data-testid="failed-message-status"
+                      >
+                        Failed · not delivered
+                        {onRemoveFailedMessage && (
+                          <button
+                            type="button"
+                            className="ml-2 underline underline-offset-2"
+                            aria-label="Remove failed message"
+                            onClick={() => onRemoveFailedMessage(row.message.id)}
+                          >
+                            Remove
+                          </button>
+                        )}
+                      </div>
+                    )}
                     {renderedAssistantSelections.length > 0 && (
                       <div className="mb-1 flex max-w-[240px] flex-wrap justify-end gap-1.5 self-end">
                         <AssistantSelectionsSummaryChip selections={renderedAssistantSelections} />

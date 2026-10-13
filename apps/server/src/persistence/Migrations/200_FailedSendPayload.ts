@@ -1,0 +1,30 @@
+// FILE: 200_FailedSendPayload.ts
+// Purpose: Replace dev-only draft recovery with complete private failed-send payloads.
+import { Effect } from "effect";
+import * as SqlClient from "effect/unstable/sql/SqlClient";
+export default Effect.gen(function* () {
+  const sql = yield* SqlClient.SqlClient;
+  yield* sql`ALTER TABLE thread_items ADD COLUMN send_payload TEXT`;
+  // A failed-send cohort transfers the claim principal within its owning thread.
+  // File identity and thread ownership remain immutable.
+  yield* sql`DROP TRIGGER trg_managed_attachment_blobs_immutable_metadata`;
+  yield* sql`CREATE TRIGGER trg_managed_attachment_blobs_immutable_metadata
+    BEFORE UPDATE OF owner_thread_id,kind,original_name,mime_type,reserved_bytes,relative_path
+    ON managed_attachment_blobs BEGIN
+      SELECT RAISE(ABORT,'managed attachment metadata is immutable'); END`;
+  yield* sql`CREATE TRIGGER trg_managed_attachment_blobs_claim_owner
+    BEFORE UPDATE OF owner_kind,owner_id ON managed_attachment_blobs
+    WHEN NOT (
+      OLD.state='claimed' AND NEW.state='claimed' AND NEW.owner_thread_id=OLD.owner_thread_id
+      AND EXISTS (SELECT 1 FROM thread_items AS item
+        WHERE item.thread_id=OLD.owner_thread_id AND item.source_id=OLD.claim_message_id
+          AND item.kind='user' AND item.status='failed' AND item.send_payload IS NOT NULL
+          AND EXISTS (SELECT 1 FROM json_each(item.send_payload,'$.message.attachments') AS attachment
+            WHERE json_extract(attachment.value,'$.id')=OLD.attachment_id))
+    ) BEGIN SELECT RAISE(ABORT,'managed attachment claim owner is immutable'); END`;
+
+  // Only dev builds ran 197. Their outstanding rows have no complete native input.
+  yield* sql`DELETE FROM thread_items WHERE kind='user' AND status IN ('sending','failed') AND send_payload IS NULL`;
+  yield* sql`ALTER TABLE thread_items DROP COLUMN recovery_draft`;
+  yield* sql`CREATE INDEX idx_thread_items_failed_send ON thread_items(thread_id,seq) WHERE kind='user' AND status='failed'`;
+});

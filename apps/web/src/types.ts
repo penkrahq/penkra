@@ -71,6 +71,8 @@ export interface ChatMessage {
   dispatchOrigin?: MessageDispatchOrigin;
   senderThreadId?: ThreadId;
   delivery?: MessageDelivery;
+  /** Persisted clean-core user item status. */
+  sendStatus?: "sending" | "sent" | "failed";
   /** First durable message event sequence, used with delivery.sequence for causal placement. */
   sequence?: number;
   turnId?: TurnId | null;

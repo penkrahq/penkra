@@ -193,6 +193,9 @@ export function threadItemToChatMessage(item: CleanCoreThreadItem): ChatMessage 
     turnId: item.turnId === null ? null : TurnId.makeUnsafe(item.turnId),
     createdAt: item.createdAt,
     ...(item.status === "done" ? { completedAt: item.updatedAt } : {}),
+    ...(isUser && (item.status === "sending" || item.status === "sent" || item.status === "failed")
+      ? { sendStatus: item.status }
+      : {}),
     streaming: item.status === "streaming",
   };
 }

@@ -27,7 +27,7 @@ import {
 } from "../managedAttachmentPrincipal.ts";
 import { ThreadPublisher } from "./ThreadPublisher.ts";
 import { nextCommittedDraftTimestamp } from "./threadDraftTimestamp.ts";
-import { resolveDraftSendSelection, DraftSelection } from "./threadDraft.ts";
+import { resolveDraftSendSelection } from "./threadDraft.ts";
 import {
   deliverMessage,
   sendMessage,
@@ -271,7 +271,7 @@ export const makeThreadSender = Effect.gen(function* () {
               supportsSteer: providerSupportsNativeTurnSteering(thread.provider),
               ...resolveDraftSendSelection(thread),
             };
-            yield* writeSendingMessage(input, "deliver");
+            yield* writeSendingMessage(input, "deliver", yield* attachmentPrincipal(input));
             return input;
           }),
         ),
@@ -296,7 +296,17 @@ export const makeThreadSender = Effect.gen(function* () {
           Effect.gen(function* () {
             const queue = yield* readThreadQueue(input.threadId);
             const message = queue.find((message) => message.messageId === input.messageId);
-            if (message === undefined) return null;
+            if (message === undefined) {
+              if (draftUpdatedAt !== null) return null;
+              const deleted = yield* sql`DELETE FROM thread_items WHERE thread_id=${input.threadId}
+                AND source_id=${input.messageId} AND kind='user' AND status='failed' RETURNING seq`;
+              if (deleted.length === 0) return null;
+              yield* sql`UPDATE threads SET last_message_preview=(SELECT text FROM thread_items WHERE thread_id=${input.threadId}
+                AND kind IN ('user','text') ORDER BY seq DESC LIMIT 1),
+                last_user_message_at=(SELECT created_at FROM thread_items WHERE thread_id=${input.threadId} AND kind='user' ORDER BY seq DESC LIMIT 1),
+                updated_at=${new Date().toISOString()} WHERE id=${input.threadId}`;
+              return { wasHead: false };
+            }
             const remaining = queue.filter((message) => message.messageId !== input.messageId);
             if (draftUpdatedAt === null)
               yield* sql`UPDATE threads SET queue = ${JSON.stringify(remaining)}, updated_at = ${new Date().toISOString()} WHERE id = ${input.threadId}`;
@@ -379,6 +389,9 @@ export const makeThreadSender = Effect.gen(function* () {
               decodeQueue(JSON.parse(row.queue)).some((message) => message.messageId === messageId)
             )
               return ThreadId.makeUnsafe(row.id);
+            const failed =
+              yield* sql`SELECT 1 FROM thread_items WHERE thread_id=${row.id} AND source_id=${messageId} AND kind='user' AND status='failed'`;
+            if (failed.length) return ThreadId.makeUnsafe(row.id);
           }
           if (page.length < 50) return null;
           after = page[page.length - 1]!.id;
@@ -418,16 +431,7 @@ export const makeThreadSender = Effect.gen(function* () {
         draft,state,active_turn_id AS "activeTurnId" FROM threads WHERE id=${input.threadId}`;
           if (current === undefined)
             return yield* Effect.fail(new Error("The thread does not exist."));
-          const capturedDraft =
-            input.draft === undefined
-              ? {}
-              : Schema.decodeUnknownSync(DraftSelection)(JSON.parse(input.draft));
-          const selection = resolveDraftSendSelection(current, {
-            ...input,
-            ...(capturedDraft.runtimeMode === undefined
-              ? {}
-              : { runtimeMode: capturedDraft.runtimeMode }),
-          });
+          const selection = resolveDraftSendSelection(current, input);
           const [existing] = yield* sql`SELECT 1 FROM thread_items WHERE thread_id=${input.threadId}
         AND source_id=${input.message.messageId} AND kind='user'`;
           const request = {

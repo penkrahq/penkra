@@ -32,7 +32,7 @@ afterAll(() => rmSync(senderStateDir, { recursive: true, force: true }));
 for (const nativeFails of [false, true]) {
   it.effect(
     nativeFails
-      ? "first + send restores its serialized draft on native failure"
+      ? "first + send retains its failed transcript row without restoring the draft"
       : "first send creates one thread and one message, including on retry",
     () =>
       Effect.gen(function* () {
@@ -110,7 +110,6 @@ for (const nativeFails of [false, true]) {
           pastedTexts: [{ id: "first-paste", createdAt: at, text: "first context".repeat(10_000) }],
         });
         const input = {
-          draft: originalDraft,
           thread: {
             threadId: ThreadId.makeUnsafe("thread-1"),
             folderId: FolderId.makeUnsafe("sender-folder"),
@@ -145,9 +144,11 @@ for (const nativeFails of [false, true]) {
           assert.isTrue(first.created);
           assert.equal(first.sendResult.plan, "deliver");
           assert.deepStrictEqual(yield* sql`SELECT draft,last_error FROM threads`, [
-            { draft: originalDraft, last_error: "First send refused" },
+            { draft: null, last_error: "First send refused" },
           ]);
-          assert.deepStrictEqual(yield* sql`SELECT * FROM thread_items WHERE kind='user'`, []);
+          assert.deepStrictEqual(yield* sql`SELECT status FROM thread_items WHERE kind='user'`, [
+            { status: "failed" },
+          ]);
           return;
         }
         const repeated = yield* send();

@@ -69,6 +69,7 @@ interface ChatTranscriptPaneProps {
   onCloseAgentActivityDetail?: () => void;
   onOpenAgentActivity?: ComponentProps<typeof MessagesTimeline>["onOpenAgentActivity"];
   onOpenThread: (threadId: ThreadId) => void;
+  onRemoveFailedMessage?: ComponentProps<typeof MessagesTimeline>["onRemoveFailedMessage"];
   onScrollToBottom: () => void;
   onToggleWorkGroup?: (groupId: string) => void;
   resolvedTheme: "light" | "dark";
@@ -110,6 +111,7 @@ function ChatTranscriptPaneImpl({
   onCloseAgentActivityDetail,
   onOpenAgentActivity,
   onOpenThread,
+  onRemoveFailedMessage,
   onScrollToBottom,
   onToggleWorkGroup,
   resolvedTheme,
@@ -241,6 +243,7 @@ function ChatTranscriptPaneImpl({
             timelineEntries={timelineEntries}
             turns={turns}
             onOpenThread={onOpenThread}
+            onRemoveFailedMessage={onRemoveFailedMessage}
             onImageExpand={onExpandTimelineImage}
             onIsAtEndChange={onIsAtEndChange}
             onMessagesScroll={onMessagesScroll}

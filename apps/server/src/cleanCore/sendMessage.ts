@@ -1,24 +1,24 @@
 // Persist send admission before provider work; settle outcomes in canonical rows.
 import {
   MessageId,
-  RuntimeMode,
   ThreadId,
   type CleanCoreSendAdmission,
   type CleanCoreSendMessageInput,
 } from "@penkra/contracts";
 import { Effect } from "effect";
 import * as SqlClient from "effect/unstable/sql/SqlClient";
+import { admitSendingPayload, readSendCohort, readSendDispatch } from "./sendPayload.ts";
 import { nextCommittedDraftTimestamp } from "./threadDraftTimestamp.ts";
-import { draftAfterSend, isThreadDraftEmpty } from "./threadDraft.ts";
+import { draftAfterSend } from "./threadDraft.ts";
 import { enqueueMessage, planSend, readThreadQueue, type QueuedMessage } from "./threadQueue.ts";
-import { upsertThreadItem, type ThreadPublisher } from "./threadStore.ts";
+import { type ThreadPublisher } from "./threadStore.ts";
 
 export const PLAY_TURN_RECOVERY_PROMPT =
   "The previous turn did not finish. Continue the existing task from the current state. Verify the current state before repeating any action whose outcome may be uncertain.";
 
 export interface SendMessageInput extends Pick<
   CleanCoreSendMessageInput,
-  | "draft"
+  | "runtimeMode"
   | "draftUpdatedAt"
   | "providerOptions"
   | "assistantDeliveryMode"
@@ -27,7 +27,6 @@ export interface SendMessageInput extends Pick<
   | "modelSelection"
   | "connectionId"
 > {
-  readonly runtimeMode?: typeof RuntimeMode.Type;
   readonly threadId: string;
   readonly message: QueuedMessage;
   readonly dispatchMode: "queue" | "steer";
@@ -108,7 +107,6 @@ export const sendMessage = (
             input.threadId,
             input.message,
             input,
-            input.draft,
             input.draftUpdatedAt,
           );
           return {
@@ -120,7 +118,7 @@ export const sendMessage = (
           } satisfies CleanCoreSendAdmission;
         }
         yield* writeSendingMessage(input, plan);
-        if (input.draft !== undefined && thread.draftUpdatedAt === (input.draftUpdatedAt ?? null)) {
+        if (input.draftUpdatedAt !== undefined && thread.draftUpdatedAt === input.draftUpdatedAt) {
           const draft = draftAfterSend(thread.draft, thread.provider, input);
           const draftUpdatedAt = nextCommittedDraftTimestamp(
             thread.draftUpdatedAt,
@@ -143,22 +141,7 @@ export const sendMessage = (
   });
 
 /** Also used when a queued head begins delivery; its selection is read then. */
-export const writeSendingMessage = (input: SendMessageInput, plan: DeliveryPlan) =>
-  upsertThreadItem({
-    threadId: input.threadId,
-    sourceId: input.message.messageId,
-    kind: "user",
-    status: "sending",
-    text: input.message.text,
-    recoveryDraft: input.draft ?? null,
-    admissionPlan: plan,
-    data: JSON.stringify({
-      attachments: input.message.attachments,
-      senderThreadId: input.message.senderThreadId,
-    }),
-    createdAt: input.message.queuedAt,
-    updatedAt: input.message.queuedAt,
-  });
+export const writeSendingMessage = admitSendingPayload;
 
 /** Scoped background dispatch; the coordinator owns steering and interruption. */
 export const deliverMessage = (
@@ -167,7 +150,10 @@ export const deliverMessage = (
   input: SendMessageInput,
   plan: DeliveryPlan,
 ) =>
-  driver.dispatch(input, plan).pipe(
+  Effect.gen(function* () {
+    const dispatch = yield* readSendDispatch(input);
+    if (dispatch !== null) yield* driver.dispatch(dispatch, plan);
+  }).pipe(
     Effect.catch((error) =>
       settleMessage(
         publisher,
@@ -193,34 +179,35 @@ export const settleMessage = (publisher: ThreadPublisher, outcome: MessageOutcom
     const sql = yield* SqlClient.SqlClient;
     const changed = yield* sql.withTransaction(
       Effect.gen(function* () {
-        const [row] = yield* sql<{
-          recoveryDraft: string | null;
-        }>`SELECT recovery_draft AS "recoveryDraft" FROM thread_items
-        WHERE thread_id=${outcome.threadId} AND source_id=${outcome.messageId} AND kind='user' AND status='sending'`;
-        if (row === undefined) return false;
+        const cohort = yield* readSendCohort(outcome.threadId, outcome.messageId);
+        if (cohort === null) return false;
         const [thread] = yield* sql<{
           queue: string;
-          draft: string | null;
-          draftUpdatedAt: string | null;
-        }>`SELECT queue,draft,draft_updated_at AS "draftUpdatedAt" FROM threads WHERE id=${outcome.threadId}`;
+        }>`SELECT queue FROM threads WHERE id=${outcome.threadId}`;
         const queue = JSON.parse(thread!.queue) as QueuedMessage[];
-        const queued = queue.some((message) => message.messageId === outcome.messageId);
+        const queued = queue.some((message) => message.messageId === cohort.leaderId);
         if (outcome.type === "acknowledged") {
-          yield* sql`UPDATE thread_items SET status='sent',recovery_draft=NULL,turn_id=${outcome.turnId},updated_at=${at}
-          WHERE thread_id=${outcome.threadId} AND source_id=${outcome.messageId}`;
+          yield* sql`UPDATE thread_items SET status='sent',send_payload=NULL,turn_id=${outcome.turnId},updated_at=${at}
+            WHERE thread_id=${outcome.threadId} AND source_id IN (SELECT value FROM json_each(${JSON.stringify(cohort.ids)}))`;
+          yield* sql`UPDATE threads SET last_error=NULL WHERE id=${outcome.threadId}`;
           if (queued)
-            yield* sql`UPDATE threads SET queue=${JSON.stringify(queue.filter((message) => message.messageId !== outcome.messageId))},updated_at=${at} WHERE id=${outcome.threadId}`;
+            yield* sql`UPDATE threads SET queue=${JSON.stringify(queue.filter((message) => message.messageId !== cohort.leaderId))},updated_at=${at} WHERE id=${outcome.threadId}`;
         } else {
-          yield* sql`DELETE FROM thread_items WHERE thread_id=${outcome.threadId} AND source_id=${outcome.messageId}`;
-          if (queued) {
-            yield* sql`UPDATE threads SET state='error',active_turn_id=NULL,last_error=${outcome.error},updated_at=${at} WHERE id=${outcome.threadId}`;
-          } else if (row.recoveryDraft !== null && isThreadDraftEmpty(thread!.draft)) {
-            const draftUpdatedAt = nextCommittedDraftTimestamp(thread!.draftUpdatedAt, at);
-            yield* sql`UPDATE threads SET last_error=${outcome.error},draft=${row.recoveryDraft},
-              draft_updated_at=${draftUpdatedAt},updated_at=${at} WHERE id=${outcome.threadId}`;
-          } else {
-            yield* sql`UPDATE threads SET last_error=${outcome.error},updated_at=${at} WHERE id=${outcome.threadId}`;
+          for (const row of cohort.rows) {
+            const ids = row.payload.message.attachments
+              .filter((attachment) => attachment.type !== "assistant-selection")
+              .map((attachment) => attachment.id);
+            if (ids.length)
+              yield* sql`UPDATE managed_attachment_blobs SET claim_message_id=${row.sourceId}
+              WHERE owner_thread_id=${outcome.threadId} AND state='claimed' AND claim_message_id=${cohort.leaderId} AND attachment_id IN ${sql.in(ids)}`;
           }
+          yield* sql`UPDATE thread_items SET status='failed',updated_at=${at}
+            WHERE thread_id=${outcome.threadId} AND source_id IN (SELECT value FROM json_each(${JSON.stringify(cohort.ids)}))`;
+          if (queued) {
+            yield* sql`DELETE FROM thread_items WHERE thread_id=${outcome.threadId} AND source_id=${cohort.leaderId}`;
+            yield* sql`UPDATE threads SET state='error',active_turn_id=NULL,last_error=${outcome.error},updated_at=${at} WHERE id=${outcome.threadId}`;
+          } else
+            yield* sql`UPDATE threads SET last_error=${outcome.error},updated_at=${at} WHERE id=${outcome.threadId}`;
         }
         return true;
       }),
@@ -228,7 +215,7 @@ export const settleMessage = (publisher: ThreadPublisher, outcome: MessageOutcom
     if (changed) publisher.publish({ threadId: outcome.threadId });
   });
 
-/** A restart cannot resume an unacknowledged admission; restore it as a failure. */
+/** A restart cannot resume an unacknowledged admission; retain it as a failure. */
 export const failSendingMessagesOnStartup = (
   publisher: ThreadPublisher,
   at: string,

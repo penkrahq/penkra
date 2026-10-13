@@ -141,6 +141,11 @@ describe("threadItemToPendingUserInput", () => {
 });
 
 describe("threadItemToChatMessage", () => {
+  it("keeps persisted user send states for failure and removal controls", () => {
+    for (const status of ["sending", "failed", "sent"] as const)
+      expect(threadItemToChatMessage(item("user", { status })).sendStatus).toBe(status);
+  });
+
   it("maps a user item to a user ChatMessage with its attachments and seq", () => {
     const message = threadItemToChatMessage(
       item("user", {

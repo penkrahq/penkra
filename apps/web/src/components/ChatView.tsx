@@ -1,4 +1,3 @@
-import { serializeComposerThreadDraft } from "../composerDraftPersistence";
 import { Schema } from "effect";
 import { loadThread, useThreadList, getThreadListById, useThreadSummary } from "../threadListStore";
 import { useThreadStop } from "../hooks/useThreadStop";
@@ -3934,7 +3933,7 @@ function ChatViewContent({
   >(async () => false);
 
   const cancelQueuedMessage = useCallback(
-    async (message: CleanCoreQueuedMessage) => {
+    async (message: Pick<CleanCoreQueuedMessage, "messageId">) => {
       const api = readNativeApi();
       if (!api) return false;
       try {
@@ -3947,7 +3946,7 @@ function ChatViewContent({
       } catch (error) {
         setThreadError(
           threadId,
-          error instanceof Error ? error.message : "Failed to remove the queued message.",
+          error instanceof Error ? error.message : "Failed to remove the message.",
         );
         return false;
       }
@@ -3959,6 +3958,13 @@ function ChatViewContent({
       void runQueuedActionWhilePending(message, "delete", () => cancelQueuedMessage(message));
     },
     [runQueuedActionWhilePending, cancelQueuedMessage],
+  );
+
+  const removeFailedMessage = useCallback(
+    (messageId: MessageId) => {
+      void cancelQueuedMessage({ messageId });
+    },
+    [cancelQueuedMessage],
   );
 
   // These handlers are declared later because they depend on composer controls
@@ -4258,47 +4264,6 @@ function ChatViewContent({
         composerPastedTextsSnapshot,
       );
 
-      // Recovery uses the existing draft format and the same durable asset ids.
-      const persistedImages = await Promise.all(
-        composerImagesSnapshot.map(async (image) => ({
-          id: image.id,
-          name: image.name,
-          mimeType: image.mimeType,
-          sizeBytes: image.sizeBytes,
-          blobKey: await persistComposerAsset({
-            threadId: threadIdForSend,
-            assetId: image.id,
-            file: image.file,
-          }),
-        })),
-      );
-      const persistedFiles = await Promise.all(
-        composerFilesSnapshot.map(async (file) => ({
-          ...file,
-          assetKey:
-            file.assetKey ??
-            (await persistComposerAsset({
-              threadId: threadIdForSend,
-              assetId: file.id,
-              file: file.file,
-            })),
-        })),
-      );
-      const serializedDraft = serializeComposerThreadDraft({
-        ...capturedDraft,
-        prompt: promptForSend,
-        images: composerImagesSnapshot,
-        persistedAttachments: persistedImages,
-        files: persistedFiles,
-        assistantSelections: composerAssistantSelectionsSnapshot,
-        fileComments: composerFileCommentsSnapshot,
-        terminalContexts: composerTerminalContextsSnapshot,
-        pastedTexts: composerPastedTextsSnapshot,
-        skills: composerSkillsSnapshot,
-        mentions: composerMentionsSnapshot,
-        runtimeMode: runtimeModeForSend,
-      });
-      const recoveryDraft = JSON.stringify(serializedDraft);
       const outgoingTextSeed =
         messageTextForSend ||
         (composerImagesSnapshot.length > 0 ? IMAGE_ONLY_BOOTSTRAP_PROMPT : "");
@@ -4352,8 +4317,8 @@ function ChatViewContent({
       });
       await stagedTurnAttachments.runWithDispatch(async (attachments) => {
         const send: Omit<CleanCoreSendMessageInput, "threadId"> = {
-          draft: recoveryDraft,
           draftUpdatedAt: sentDraftUpdatedAt,
+          runtimeMode: runtimeModeForSend,
           message: {
             messageId: messageIdForSend,
             text: outgoingMessageText,
@@ -4404,7 +4369,7 @@ function ChatViewContent({
         return result.sendResult;
       });
 
-      // Re-read the committed admission or recovery through the draft controller.
+      // Re-read the committed compare-and-clear through the draft controller.
       if (promptRefThreadId.current === threadIdForSend) await refreshCommittedDraft();
       if (promptRefThreadId.current === threadIdForSend) scheduleComposerFocus();
       return true;
@@ -6155,6 +6120,7 @@ function ChatViewContent({
                         timelineEntries={visibleTimelineEntries}
                         turns={threadItemsState.turns}
                         onOpenThread={onNavigateToThread}
+                        onRemoveFailedMessage={removeFailedMessage}
                         onExpandTimelineImage={onExpandTimelineImage}
                         onIsAtEndChange={onIsAtEndChange}
                         markdownCwd={workspaceCwd ?? undefined}

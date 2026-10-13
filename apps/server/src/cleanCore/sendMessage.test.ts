@@ -13,7 +13,13 @@ import {
   settleRunningThreadsOnStartup,
   PROVIDER_CUTOFF_NOTICE,
 } from "./providerStreamConsumer";
-import { sendMessage, settleMessage, writeSendingMessage, type SendDriver } from "./sendMessage";
+import {
+  sendMessage,
+  settleMessage,
+  writeSendingMessage,
+  deliverMessage,
+  type SendDriver,
+} from "./sendMessage";
 import { seedThreadFolderFixture } from "./threadFixtures";
 import { listThreadItemsPage } from "./threadItemsPage.ts";
 import { findThread } from "./threadList.ts";
@@ -23,7 +29,6 @@ import { createThread, makeThreadPublisher } from "./threadStore";
 const at = "2026-10-09T00:00:01.000Z";
 const input = {
   threadId: "thread",
-  draft: JSON.stringify({ prompt: "Original text", attachments: [], files: [] }),
   draftUpdatedAt: at,
   message: {
     messageId: MessageId.makeUnsafe("message"),
@@ -154,26 +159,30 @@ it.effect("native success settles the same row without changing its seq", () =>
     }),
   ),
 );
-it.effect("native failure removes the row and restores text and last_error", () =>
-  withDb(
-    Effect.gen(function* () {
-      const publisher = yield* setup;
-      yield* sendMessage(publisher, driver, input);
-      yield* settleMessage(
-        publisher,
-        { type: "failed", threadId: "thread", messageId: "message", error: "Provider refused" },
-        at,
-      );
-      const sql = yield* SqlClient.SqlClient;
-      assert.deepStrictEqual(yield* sql`SELECT * FROM thread_items WHERE kind='user'`, []);
-      const [thread] = yield* sql<{
-        draft: string;
-        lastError: string;
-      }>`SELECT draft,last_error AS "lastError" FROM threads`;
-      assert.equal(JSON.parse(thread!.draft).prompt, input.message.text);
-      assert.equal(thread!.lastError, "Provider refused");
-    }),
-  ),
+it.effect(
+  "native failure keeps a failed row and records last_error without touching the composer",
+  () =>
+    withDb(
+      Effect.gen(function* () {
+        const publisher = yield* setup;
+        yield* sendMessage(publisher, driver, input);
+        yield* settleMessage(
+          publisher,
+          { type: "failed", threadId: "thread", messageId: "message", error: "Provider refused" },
+          at,
+        );
+        const sql = yield* SqlClient.SqlClient;
+        assert.deepStrictEqual(yield* sql`SELECT status FROM thread_items WHERE kind='user'`, [
+          { status: "failed" },
+        ]);
+        const [thread] = yield* sql<{
+          draft: string;
+          lastError: string;
+        }>`SELECT draft,last_error AS "lastError" FROM threads`;
+        assert.equal(thread!.draft, null);
+        assert.equal(thread!.lastError, "Provider refused");
+      }),
+    ),
 );
 it.effect("a pre-write attachment rejection is an error and preserves the draft", () =>
   withDb(
@@ -213,7 +222,7 @@ it.effect("a draft-clear failure rolls back admission and publishes nothing", ()
     }),
   ),
 );
-it.effect("restart before native ack removes admitted row and restores failed data shape", () =>
+it.effect("restart before native ack retains the failed row and its complete payload", () =>
   Effect.scoped(
     Effect.gen(function* () {
       const directory = yield* Effect.acquireRelease(
@@ -234,83 +243,22 @@ it.effect("restart before native ack removes admitted row and restores failed da
       yield* Effect.gen(function* () {
         yield* settleRunningThreadsOnStartup(makeThreadPublisher(), at);
         const sql = yield* SqlClient.SqlClient;
-        assert.deepStrictEqual(yield* sql`SELECT * FROM thread_items WHERE kind='user'`, []);
+        assert.deepStrictEqual(yield* sql`SELECT status FROM thread_items WHERE kind='user'`, [
+          { status: "failed" },
+        ]);
         const [thread] = yield* sql<{ draft: string; lastError: string }>`
           SELECT draft,last_error AS "lastError" FROM threads`;
-        assert.equal(JSON.parse(thread!.draft).prompt, input.message.text);
+        assert.equal(thread!.draft, null);
         assert.equal(thread!.lastError, PROVIDER_CUTOFF_NOTICE);
       }).pipe(Effect.provide(NodeSqliteClient.layer({ filename })));
     }),
   ),
 );
-
-it.effect("clear and restore strictly advance the committed draft timestamp", () =>
+it.effect("clears private send payload when the native send is acknowledged", () =>
   withDb(
     Effect.gen(function* () {
       const publisher = yield* setup;
-      const sql = yield* SqlClient.SqlClient;
-      const sameMillisecond = "2099-10-09T00:00:01.000Z";
-      yield* sql`UPDATE threads SET draft_updated_at=${sameMillisecond} WHERE id='thread'`;
-      yield* sendMessage(publisher, driver, { ...input, draftUpdatedAt: sameMillisecond });
-      const [cleared] = yield* sql<{
-        draft_updated_at: string;
-      }>`SELECT draft_updated_at FROM threads WHERE id='thread'`;
-      assert.isAbove(Date.parse(cleared!.draft_updated_at), Date.parse(sameMillisecond));
-      yield* settleMessage(
-        publisher,
-        { type: "failed", threadId: "thread", messageId: "message", error: "Rejected" },
-        cleared!.draft_updated_at,
-      );
-      const [restored] = yield* sql<{
-        draft: string;
-        draft_updated_at: string;
-      }>`SELECT draft,draft_updated_at FROM threads WHERE id='thread'`;
-      assert.isAbove(Date.parse(restored!.draft_updated_at), Date.parse(cleared!.draft_updated_at));
-      assert.equal(JSON.parse(restored!.draft).prompt, input.message.text);
-    }),
-  ),
-);
-
-const largeStructuredDraft = JSON.stringify({
-  prompt: "raw prompt",
-  attachments: [],
-  files: [],
-  fileComments: [
-    { id: "comment", path: "code.ts", startLine: 1, endLine: 1, text: "detail".repeat(20_000) },
-  ],
-  pastedTexts: [{ id: "paste", createdAt: at, text: "pasted".repeat(20_000) }],
-});
-it.effect("restores a structured draft beyond the data cap without exposing recovery storage", () =>
-  withDb(
-    Effect.gen(function* () {
-      const publisher = yield* setup;
-      const sql = yield* SqlClient.SqlClient;
-      yield* sendMessage(publisher, driver, { ...input, draft: largeStructuredDraft });
-      const [stored] = yield* sql<{
-        recovery_draft: string;
-        data: string;
-      }>`SELECT recovery_draft,data FROM thread_items WHERE kind='user'`;
-      assert.equal(stored!.recovery_draft, largeStructuredDraft);
-      assert.isBelow(new TextEncoder().encode(stored!.data).length, 64 * 1024);
-      const page = yield* listThreadItemsPage({ threadId: ThreadId.makeUnsafe("thread") });
-      assert.isFalse("recovery_draft" in page.items[0]!);
-      assert.isFalse("admission_plan" in page.items[0]!);
-      yield* settleMessage(
-        publisher,
-        { type: "failed", threadId: "thread", messageId: "message", error: "Rejected" },
-        at,
-      );
-      assert.deepStrictEqual(yield* sql`SELECT draft,last_error FROM threads`, [
-        { draft: largeStructuredDraft, last_error: "Rejected" },
-      ]);
-    }),
-  ),
-);
-it.effect("clears private recovery storage when the native send is acknowledged", () =>
-  withDb(
-    Effect.gen(function* () {
-      const publisher = yield* setup;
-      yield* sendMessage(publisher, driver, { ...input, draft: largeStructuredDraft });
+      yield* sendMessage(publisher, driver, input);
       yield* settleMessage(
         publisher,
         { type: "acknowledged", threadId: "thread", messageId: "message", turnId: "native" },
@@ -318,8 +266,8 @@ it.effect("clears private recovery storage when the native send is acknowledged"
       );
       const sql = yield* SqlClient.SqlClient;
       assert.deepStrictEqual(
-        yield* sql`SELECT status,recovery_draft FROM thread_items WHERE kind='user'`,
-        [{ status: "sent", recovery_draft: null }],
+        yield* sql`SELECT status,send_payload FROM thread_items WHERE kind='user'`,
+        [{ status: "sent", send_payload: null }],
       );
     }),
   ),
@@ -330,15 +278,15 @@ it.effect("a failed queued head remains editable without restoring a draft", () 
       const publisher = yield* setup;
       const sql = yield* SqlClient.SqlClient;
       yield* sql`UPDATE threads SET state='running',active_turn_id='current' WHERE id='thread'`;
-      yield* sendMessage(publisher, driver, { ...input, draft: largeStructuredDraft });
+      yield* sendMessage(publisher, driver, input);
       const head = (yield* readThreadQueue("thread"))[0]!;
-      assert.isFalse("recovery_draft" in head);
+      assert.isFalse("send_payload" in head);
       const summary = yield* findThread(ThreadId.makeUnsafe("thread"));
       assert.deepStrictEqual(JSON.parse(summary!.queue), [head]);
       yield* sql.withTransaction(
         Effect.gen(function* () {
           yield* sql`UPDATE threads SET state='idle',active_turn_id=NULL WHERE id='thread'`;
-          const { draft: _draft, ...queuedInput } = input;
+          const queuedInput = input;
           yield* writeSendingMessage({ ...queuedInput, message: head }, "deliver");
         }),
       );
@@ -354,11 +302,11 @@ it.effect("a failed queued head remains editable without restoring a draft", () 
     }),
   ),
 );
-it.effect("an agent send without a recovery draft records only the failure", () =>
+it.effect("an agent send retains its failed row without changing the composer", () =>
   withDb(
     Effect.gen(function* () {
       const publisher = yield* setup;
-      const { draft: _draft, ...agent } = input;
+      const { draftUpdatedAt: _sentAt, ...agent } = input;
       yield* sendMessage(publisher, driver, {
         ...agent,
         message: { ...agent.message, dispatchOrigin: "agent" },
@@ -370,7 +318,10 @@ it.effect("an agent send without a recovery draft records only the failure", () 
       );
       const sql = yield* SqlClient.SqlClient;
       assert.deepStrictEqual(yield* sql`SELECT draft,last_error FROM threads`, [
-        { draft: input.draft, last_error: "Agent rejected" },
+        {
+          draft: JSON.stringify({ prompt: input.message.text, attachments: [], files: [] }),
+          last_error: "Agent rejected",
+        },
       ]);
     }),
   ),
@@ -423,7 +374,7 @@ it.effect("a queued selection payload beyond the item-data cap stays at the head
       const head = (yield* readThreadQueue("thread"))[0]!;
       yield* sql.withTransaction(
         Effect.gen(function* () {
-          const { draft: _draft, ...queuedInput } = request;
+          const queuedInput = request;
           yield* writeSendingMessage({ ...queuedInput, message: head }, "deliver");
           yield* sql`UPDATE threads SET state='idle',active_turn_id=NULL WHERE id='thread'`;
         }),
@@ -440,7 +391,7 @@ it.effect("a queued selection payload beyond the item-data cap stays at the head
 
 for (const plan of ["deliver", "steer", "interrupt-deliver"] as const) {
   it.effect(
-    `${plan} retries keep their recorded admission before ack and after sent; failure permits fresh admission`,
+    `${plan} retries keep their recorded admission before ack, after sent and after failure remain recorded admissions`,
     () =>
       withDb(
         Effect.gen(function* () {
@@ -479,8 +430,178 @@ for (const plan of ["deliver", "steer", "interrupt-deliver"] as const) {
           );
           yield* sql`UPDATE threads SET state='idle',active_turn_id=NULL WHERE id='thread'`;
           const fresh = yield* sendMessage(publisher, driver, { ...second, dispatchMode: "queue" });
-          assert.equal(fresh.plan, "deliver");
+          assert.deepStrictEqual(fresh, yield* sendMessage(publisher, driver, second));
+          assert.equal(
+            (yield* sql<{
+              status: string;
+            }>`SELECT status FROM thread_items WHERE source_id='second'`)[0]!.status,
+            "failed",
+          );
         }),
       ),
   );
 }
+
+it.effect("a rejected admitted user row remains failed without touching newer composer text", () =>
+  withDb(
+    Effect.gen(function* () {
+      const publisher = yield* setup;
+      const sql = yield* SqlClient.SqlClient;
+      yield* sendMessage(publisher, driver, input);
+      yield* sql`UPDATE threads SET draft='{"prompt":"new text","attachments":[],"files":[]}' WHERE id='thread'`;
+      yield* settleMessage(
+        publisher,
+        { type: "failed", threadId: "thread", messageId: "message", error: "Rejected" },
+        at,
+      );
+      assert.deepStrictEqual(yield* sql`SELECT text,status FROM thread_items WHERE kind='user'`, [
+        { text: "Original text", status: "failed" },
+      ]);
+      assert.equal(
+        (yield* sql<{ draft: string }>`SELECT draft FROM threads`)[0]!.draft,
+        '{"prompt":"new text","attachments":[],"files":[]}',
+      );
+    }),
+  ),
+);
+
+for (const succeeds of [true, false]) {
+  it.effect(
+    `one user send combines all failed inputs in order and ${succeeds ? "acknowledges" : "fails"} the cohort atomically`,
+    () =>
+      withDb(
+        Effect.gen(function* () {
+          const publisher = yield* setup;
+          const sql = yield* SqlClient.SqlClient;
+          yield* sendMessage(publisher, driver, input);
+          yield* settleMessage(
+            publisher,
+            { type: "failed", threadId: "thread", messageId: "message", error: "first failed" },
+            at,
+          );
+          const next = {
+            ...input,
+            message: {
+              ...input.message,
+              messageId: MessageId.makeUnsafe("next"),
+              text: "New text",
+            },
+          };
+          yield* sendMessage(publisher, driver, next);
+          const observed: string[] = [];
+          yield* deliverMessage(
+            publisher,
+            {
+              claimAttachments: () => Effect.void,
+              dispatch: (sent) =>
+                Effect.gen(function* () {
+                  observed.push(sent.message.text);
+                  if (!succeeds) return yield* Effect.fail(new Error("combined failed"));
+                  yield* settleMessage(
+                    publisher,
+                    {
+                      type: "acknowledged",
+                      threadId: "thread",
+                      messageId: "next",
+                      turnId: "native",
+                    },
+                    at,
+                  );
+                }).pipe(Effect.provideService(SqlClient.SqlClient, sql)),
+            },
+            next,
+            "deliver",
+          );
+          assert.deepStrictEqual(observed, ["Original text\n\nNew text"]);
+          const rows = yield* sql<{
+            source_id: string;
+            status: string;
+            send_payload: string | null;
+          }>`SELECT source_id,status,send_payload FROM thread_items WHERE kind='user' ORDER BY seq`;
+          assert.deepStrictEqual(
+            rows.map((row) => [row.source_id, row.status]),
+            [
+              ["message", succeeds ? "sent" : "failed"],
+              ["next", succeeds ? "sent" : "failed"],
+            ],
+          );
+          assert.isTrue(
+            rows.every((row) => (succeeds ? row.send_payload === null : row.send_payload !== null)),
+          );
+          assert.equal(
+            (yield* sql<{ draft: string | null }>`SELECT draft FROM threads`)[0]!.draft,
+            null,
+          );
+        }),
+      ),
+  );
+}
+
+it.effect("retains an uncapped full payload privately while item reads show display only", () =>
+  withDb(
+    Effect.gen(function* () {
+      const publisher = yield* setup;
+      const sql = yield* SqlClient.SqlClient;
+      const large = "original".repeat(20_000);
+      const request = { ...input, message: { ...input.message, text: large } };
+      yield* sendMessage(publisher, driver, request);
+      yield* settleMessage(
+        publisher,
+        { type: "failed", threadId: "thread", messageId: "message", error: "refused" },
+        at,
+      );
+      const [row] = yield* sql<{
+        send_payload: string;
+      }>`SELECT send_payload FROM thread_items WHERE source_id='message'`;
+      assert.equal(JSON.parse(row!.send_payload).message.text, large);
+      const page = yield* listThreadItemsPage({ threadId: ThreadId.makeUnsafe("thread") });
+      assert.isFalse("send_payload" in page.items[0]!);
+      assert.isFalse("admission_plan" in page.items[0]!);
+    }),
+  ),
+);
+
+it.effect("startup fails every member of a pending cohort and keeps each payload", () =>
+  Effect.scoped(
+    Effect.gen(function* () {
+      const directory = yield* Effect.acquireRelease(
+        Effect.promise(() => fs.mkdtemp(path.join(os.tmpdir(), "penkra-failed-cohort-"))),
+        (directory) => Effect.promise(() => fs.rm(directory, { recursive: true, force: true })),
+      );
+      const filename = path.join(directory, "state.sqlite");
+      yield* Effect.gen(function* () {
+        const publisher = yield* setup;
+        yield* sendMessage(publisher, driver, input);
+        yield* settleMessage(
+          publisher,
+          { type: "failed", threadId: "thread", messageId: "message", error: "rejected" },
+          at,
+        );
+        yield* sendMessage(publisher, driver, {
+          ...input,
+          message: { ...input.message, messageId: MessageId.makeUnsafe("next"), text: "Next" },
+        });
+      }).pipe(Effect.provide(NodeSqliteClient.layer({ filename })));
+      yield* Effect.gen(function* () {
+        yield* settleRunningThreadsOnStartup(makeThreadPublisher(), at);
+        const sql = yield* SqlClient.SqlClient;
+        const rows = yield* sql<{
+          source_id: string;
+          status: string;
+          send_payload: string;
+        }>`SELECT source_id,status,send_payload FROM thread_items WHERE kind='user' ORDER BY seq`;
+        assert.deepStrictEqual(
+          rows.map((row) => [row.source_id, row.status]),
+          [
+            ["message", "failed"],
+            ["next", "failed"],
+          ],
+        );
+        assert.deepStrictEqual(
+          rows.map((row) => JSON.parse(row.send_payload).message.text),
+          ["Original text", "Next"],
+        );
+      }).pipe(Effect.provide(NodeSqliteClient.layer({ filename })));
+    }),
+  ),
+);

@@ -48,6 +48,7 @@ it.effect(
         [197, "SendRecoveryDraft"],
         [198, "IndexLatestTurn"],
         [199, "IndexOpenQuestions"],
+        [200, "FailedSendPayload"],
       ]);
       assert.deepStrictEqual(yield* sql`SELECT * FROM projection_spaces`, spaces);
       assert.deepStrictEqual(yield* sql`SELECT * FROM projection_folders`, folders);

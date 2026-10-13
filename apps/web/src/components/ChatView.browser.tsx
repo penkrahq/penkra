@@ -527,6 +527,8 @@ function createThreadTurnsPageFromFixtureSnapshot(threadId: ThreadId) {
   };
 }
 
+const fixtureSendStatuses = new Map<MessageId, "sent" | "sending" | "failed">();
+
 function createThreadItemsPageFromFixtureSnapshot(threadId: ThreadId) {
   const thread = findThreadDetailFromFixtureSnapshot(threadId);
   if (!thread) {
@@ -541,7 +543,12 @@ function createThreadItemsPageFromFixtureSnapshot(threadId: ThreadId) {
         sourceId: message.id,
         turnId: message.turnId ?? null,
         kind: message.role === "user" ? "user" : "text",
-        status: message.streaming ? "streaming" : message.role === "user" ? "sent" : "done",
+        status:
+          message.role === "user"
+            ? (fixtureSendStatuses.get(message.id) ?? "sent")
+            : message.streaming
+              ? "streaming"
+              : "done",
         text: message.text,
         data:
           message.role === "user" &&
@@ -1648,6 +1655,28 @@ function resolveWsRpc(body: WsRequestEnvelope["body"]): unknown {
     tag === WS_METHODS.cleanCoreEditQueuedMessage
   ) {
     const thread = fixture.snapshot.threads.find((thread) => thread.id === body.threadId);
+    if (
+      tag === WS_METHODS.cleanCoreCancelQueuedMessage &&
+      fixtureSendStatuses.get(body.messageId as MessageId) === "failed"
+    ) {
+      fixtureSendStatuses.delete(body.messageId as MessageId);
+      fixture = {
+        ...fixture,
+        snapshot: {
+          ...fixture.snapshot,
+          threads: fixture.snapshot.threads.map((row) =>
+            row.id === body.threadId
+              ? {
+                  ...row,
+                  messages: row.messages.filter((message) => message.id !== body.messageId),
+                }
+              : row,
+          ),
+        },
+      };
+      pushCleanCoreThreadChange(body.threadId as ThreadId);
+      return { threadId: body.threadId, messageId: body.messageId, removed: true };
+    }
     const removed = thread?.queuedMessageIds?.includes(body.messageId as MessageId) === true;
     if (removed) {
       if (tag === WS_METHODS.cleanCoreEditQueuedMessage) {
@@ -6983,6 +7012,48 @@ describe("ChatView timeline estimator parity (full app)", () => {
       // The empty thread view and composer should still be visible.
       await expect.element(page.getByTestId("composer-editor")).toBeInTheDocument();
     } finally {
+      await mounted.cleanup();
+    }
+  });
+
+  it("loads a persisted failed message and removes it without touching the composer", async () => {
+    const id = MessageId.makeUnsafe("failed-user-visible");
+    fixtureSendStatuses.set(id, "failed");
+    const base = createSnapshotForTargetUser({
+      targetMessageId: id,
+      targetText: "Provider refused this text",
+    });
+    const snapshot = {
+      ...base,
+      threads: base.threads.map((thread) => ({
+        ...thread,
+        messages: thread.messages.filter((message) => message.id === id),
+      })),
+    };
+    const mounted = await mountChatView({ viewport: DEFAULT_VIEWPORT, snapshot });
+    try {
+      await expect
+        .element(page.getByRole("button", { name: "Remove failed message" }))
+        .toBeVisible();
+      const editor =
+        document.querySelector<HTMLElement>('[data-testid="composer-editor"]') ??
+        document.querySelector<HTMLElement>('[contenteditable="true"]');
+      if (!editor) throw new Error("Composer editor missing");
+      editor.focus();
+      await userEvent.keyboard("New text stays here");
+      await page.getByRole("button", { name: "Remove failed message" }).click();
+      await vi.waitFor(() =>
+        expect(document.querySelector('[data-testid="failed-message-status"]')).toBeNull(),
+      );
+      expect(editor.textContent).toContain("New text stays here");
+      expect(
+        wsRequests.some(
+          (request) =>
+            request._tag === WS_METHODS.cleanCoreCancelQueuedMessage && request.messageId === id,
+        ),
+      ).toBe(true);
+    } finally {
+      fixtureSendStatuses.clear();
       await mounted.cleanup();
     }
   });

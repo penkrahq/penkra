@@ -109,8 +109,8 @@ export const CleanCoreQueuedMessage = Schema.Struct({
 export type CleanCoreQueuedMessage = typeof CleanCoreQueuedMessage.Type;
 export const CleanCoreSendMessageInput = Schema.Struct({
   threadId: ThreadId,
-  draft: Schema.optional(Schema.String),
   draftUpdatedAt: Schema.optional(Schema.NullOr(IsoDateTime)),
+  runtimeMode: Schema.optional(RuntimeMode),
   message: CleanCoreQueuedMessage,
   dispatchMode: Schema.Literals(["queue", "steer"]),
   modelSelection: Schema.optional(ModelSelection),
@@ -438,8 +438,8 @@ export type CleanCoreSendAdmission = typeof CleanCoreSendAdmission.Type;
 
 export const CleanCoreCreateAndSendThreadInput = Schema.Struct({
   thread: CleanCoreCreateThreadInput,
-  draft: CleanCoreSendMessageInput.fields.draft,
   draftUpdatedAt: CleanCoreSendMessageInput.fields.draftUpdatedAt,
+  runtimeMode: CleanCoreSendMessageInput.fields.runtimeMode,
   message: CleanCoreSendMessageInput.fields.message,
   dispatchMode: CleanCoreSendMessageInput.fields.dispatchMode,
   modelSelection: CleanCoreSendMessageInput.fields.modelSelection,
