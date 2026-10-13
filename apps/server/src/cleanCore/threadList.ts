@@ -8,6 +8,7 @@
 import type {
   CleanCoreSearchThreadsInput,
   CleanCoreLatestTurn,
+  CleanCoreOpenQuestion,
   CleanCoreThreadSearchCursor,
   FolderId,
   ProviderConnectionId,
@@ -42,19 +43,28 @@ export interface ThreadSummaryRecord {
   readonly lastUserMessageAt: string | null;
   readonly lastVisitedAt: string | null;
   readonly openQuestionCount: number;
+  readonly latestOpenQuestion: CleanCoreOpenQuestion | null;
   readonly archivedAt: string | null;
   readonly deletedAt: string | null;
   readonly createdAt: string;
   readonly updatedAt: string;
 }
 
-interface RawThreadSummaryRecord extends Omit<ThreadSummaryRecord, "latestTurn"> {
+interface RawThreadSummaryRecord extends Omit<
+  ThreadSummaryRecord,
+  "latestTurn" | "latestOpenQuestion"
+> {
   readonly latestTurnJson: string | null;
+  readonly latestOpenQuestionJson: string | null;
 }
 const decodeSummary = (row: RawThreadSummaryRecord): ThreadSummaryRecord => {
-  const { latestTurnJson, ...rest } = row;
+  const { latestTurnJson, latestOpenQuestionJson, ...rest } = row;
   return {
     ...rest,
+    latestOpenQuestion:
+      latestOpenQuestionJson === null
+        ? null
+        : (JSON.parse(latestOpenQuestionJson) as CleanCoreOpenQuestion),
     latestTurn:
       latestTurnJson === null ? null : (JSON.parse(latestTurnJson) as CleanCoreLatestTurn),
   };
@@ -86,6 +96,9 @@ export const THREAD_SUMMARY_COLUMNS = `
         last_user_message_at AS "lastUserMessageAt",
         last_visited_at AS "lastVisitedAt",
         open_question_count AS "openQuestionCount",
+        (SELECT json_object('id', question.source_id, 'summary', question.text, 'createdAt', question.created_at)
+          FROM thread_items question WHERE question.thread_id=id AND question.kind='question' AND question.status='open'
+          ORDER BY question.seq DESC LIMIT 1) AS "latestOpenQuestionJson",
         archived_at AS "archivedAt",
         deleted_at AS "deletedAt",
         created_at AS "createdAt",
@@ -199,7 +212,10 @@ export const searchThreads = (input: CleanCoreSearchThreadsInput) =>
     // Quote the user's text as an FTS phrase, rather than interpreting FTS operators.
     const phrase = '"' + input.query.replaceAll('"', '""') + '"';
     const rows = yield* sql<
-      Omit<ThreadSearchMatch, "latestTurn"> & { latestTurnJson: string | null }
+      Omit<ThreadSearchMatch, "latestTurn" | "latestOpenQuestion"> & {
+        latestTurnJson: string | null;
+        latestOpenQuestionJson: string | null;
+      }
     >`
       WITH message_hits AS (
         SELECT i.thread_id, i.source_id, i.text,

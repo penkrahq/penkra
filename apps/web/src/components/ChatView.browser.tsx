@@ -9,6 +9,7 @@ import "../index.css";
 import {
   QueuedEditDraftNotEmptyError,
   type CleanCoreThreadItem,
+  type CleanCoreOpenQuestion,
   type CleanCoreQueuedMessage,
   type CleanCoreCreateThreadInput,
   type CleanCoreThreadUpdate,
@@ -1429,6 +1430,8 @@ function recordSpaceCreateUpdate(command: unknown): boolean {
   return true;
 }
 
+const fixtureOpenQuestions = new Map<ThreadId, CleanCoreOpenQuestion>();
+
 function summarizeFixtureThread(
   thread: OrchestrationThread,
 ): import("@penkra/contracts").CleanCoreThreadSummary {
@@ -1481,6 +1484,7 @@ function summarizeFixtureThread(
     lastUserMessageAt: thread.latestUserMessageAt ?? null,
     lastVisitedAt: thread.lastVisitedAt ?? null,
     openQuestionCount: 0,
+    latestOpenQuestion: fixtureOpenQuestions.get(thread.id) ?? null,
     archivedAt: thread.archivedAt ?? null,
     deletedAt: thread.deletedAt,
     createdAt: thread.createdAt,
@@ -7031,6 +7035,57 @@ describe("ChatView timeline estimator parity (full app)", () => {
       await mounted.cleanup();
       if (previousNativeApi) window.nativeApi = previousNativeApi;
       else Reflect.deleteProperty(window, "nativeApi");
+    }
+  });
+
+  it("baselines open questions and notifies a new hidden question once across duplicate pushes", async () => {
+    const snapshot = addThreadToSnapshot(
+      createSnapshotForTargetUser({
+        targetMessageId: MessageId.makeUnsafe("visible-question-target"),
+        targetText: "Visible thread",
+      }),
+      OTHER_THREAD_ID,
+    );
+    fixtureOpenQuestions.set(OTHER_THREAD_ID, {
+      id: "old-question",
+      summary: "Old",
+      createdAt: "2020-01-01T00:00:00.000Z",
+    });
+    const spy = vi.spyOn(toastManager, "add");
+    const mounted = await mountChatView({ viewport: DEFAULT_VIEWPORT, snapshot });
+    try {
+      await vi.waitFor(() =>
+        expect(getThreadListById().get(OTHER_THREAD_ID)?.latestOpenQuestion?.id).toBe(
+          "old-question",
+        ),
+      );
+      const warnings = () =>
+        spy.mock.calls.filter(
+          ([toast]) => toast.type === "warning" && toast.data?.threadId === OTHER_THREAD_ID,
+        );
+      expect(warnings()).toHaveLength(0);
+      fixtureOpenQuestions.set(OTHER_THREAD_ID, {
+        id: "new-question",
+        summary: "New",
+        createdAt: "2020-01-01T00:00:00.000Z",
+      });
+      pushCleanCoreThreadChange(OTHER_THREAD_ID);
+      pushCleanCoreThreadChange(OTHER_THREAD_ID);
+      await vi.waitFor(() => expect(warnings()).toHaveLength(1));
+      await vi.waitFor(() =>
+        expect(
+          wsRequests.filter(
+            (request) =>
+              request._tag === WS_METHODS.cleanCoreGetThread &&
+              request.threadId === OTHER_THREAD_ID,
+          ),
+        ).toHaveLength(2),
+      );
+      expect(warnings()).toHaveLength(1);
+    } finally {
+      fixtureOpenQuestions.clear();
+      spy.mockRestore();
+      await mounted.cleanup();
     }
   });
 

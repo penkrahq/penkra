@@ -20,6 +20,13 @@ export const CleanCoreLatestTurn = Schema.Struct({
 });
 export type CleanCoreLatestTurn = typeof CleanCoreLatestTurn.Type;
 
+export const CleanCoreOpenQuestion = Schema.Struct({
+  id: Schema.String,
+  summary: Schema.NullOr(Schema.String),
+  createdAt: IsoDateTime,
+});
+export type CleanCoreOpenQuestion = typeof CleanCoreOpenQuestion.Type;
+
 export const CleanCoreThreadSummary = Schema.Struct({
   id: ThreadId,
   spaceId: SpaceId,
@@ -43,6 +50,7 @@ export const CleanCoreThreadSummary = Schema.Struct({
   lastUserMessageAt: Schema.NullOr(IsoDateTime),
   lastVisitedAt: Schema.NullOr(IsoDateTime),
   openQuestionCount: NonNegativeInt,
+  latestOpenQuestion: Schema.NullOr(CleanCoreOpenQuestion),
   archivedAt: Schema.NullOr(IsoDateTime),
   deletedAt: Schema.NullOr(IsoDateTime),
   createdAt: IsoDateTime,

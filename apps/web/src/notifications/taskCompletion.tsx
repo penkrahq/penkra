@@ -5,13 +5,12 @@
 
 import { ThreadId } from "@penkra/contracts";
 import { useNavigate, useParams } from "@tanstack/react-router";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef } from "react";
 import { toastManager } from "../components/ui/toast";
 import { resolveVisibleToastThreadIds } from "../components/ui/toastRouteVisibility";
 import { useAppSettings } from "../appSettings";
 import { isElectron } from "../env";
 import { useStore } from "../store";
-import { createAllThreadsSelector } from "../storeSelectors";
 import type { Thread } from "../types";
 import {
   getThreadList,
@@ -22,10 +21,8 @@ import {
   buildInputNeededCopy,
   buildTaskCompletionCopy,
   createCompletedThreadTracker,
-  collectInputNeededThreadCandidates,
+  createOpenQuestionTracker,
   focusAvailableNotificationThread,
-  isNotificationRuntimeFreshTimestamp,
-  shouldShowThreadNotificationToast,
 } from "./taskCompletion.logic";
 
 export type BrowserNotificationPermissionState =
@@ -151,15 +148,8 @@ export function TaskCompletionNotifications() {
     select: (params) =>
       typeof params.threadId === "string" ? ThreadId.makeUnsafe(params.threadId) : null,
   });
-  const [allThreadsSelector] = useState(() => createAllThreadsSelector());
-  const threads = useStore(allThreadsSelector);
   const threadsHydrated = useStore((store) => store.threadsHydrated);
   const visibleThreadIds = resolveVisibleToastThreadIds({ activeThreadId });
-  const previousThreadsRef = useRef<readonly Thread[]>([]);
-  // Lazy state init: evaluated once, keeping the impure Date.now() call out
-  // of re-renders (useRef(Date.now()) re-evaluates its argument every render).
-  const [runtimeStartedAtMs] = useState(() => Date.now());
-  const readyRef = useRef(false);
 
   useEffect(() => {
     const onMenuAction = window.desktopBridge?.onMenuAction;
@@ -189,11 +179,26 @@ export function TaskCompletionNotifications() {
   useEffect(() => {
     if (!threadsHydrated) return;
     const tracker = createCompletedThreadTracker(getThreadList());
-    const stopBaseline = subscribeThreadPageReads(tracker.observeBaseline);
+    const questions = createOpenQuestionTracker(getThreadList());
+    const stopBaseline = subscribeThreadPageReads((rows) => {
+      tracker.observeBaseline(rows);
+      questions.observeBaseline(rows);
+    });
     const stopChanges = subscribeThreadRowChanges(
       (_change, row) => {
         if (row === null) return;
         const options = completionOptionsRef.current;
+        const question = questions.consume(row, options.visibleThreadIds);
+        if (question) {
+          const copy = buildInputNeededCopy(question);
+          if (options.settings.enableTaskCompletionToasts)
+            showThreadToast(copy, question.threadId, "warning", options.navigate);
+          if (
+            options.settings.enableSystemTaskCompletionNotifications &&
+            (window.desktopBridge || !isWindowForeground())
+          )
+            void showSystemThreadNotification(copy, question.threadId, options.navigate);
+        }
         const completion = tracker.consume(row, options.visibleThreadIds);
         if (completion === null) return;
         const copy = buildTaskCompletionCopy(completion);
@@ -214,59 +219,6 @@ export function TaskCompletionNotifications() {
       stopChanges();
     };
   }, [threadsHydrated]);
-
-  useEffect(() => {
-    if (!threadsHydrated) {
-      return;
-    }
-
-    if (!readyRef.current) {
-      previousThreadsRef.current = threads;
-      readyRef.current = true;
-      return;
-    }
-
-    const inputNeededCandidates = collectInputNeededThreadCandidates(
-      previousThreadsRef.current,
-      threads,
-    ).filter((candidate) =>
-      isNotificationRuntimeFreshTimestamp(candidate.createdAt, runtimeStartedAtMs),
-    );
-    previousThreadsRef.current = threads;
-
-    if (inputNeededCandidates.length === 0) {
-      return;
-    }
-
-    const shouldAttemptSystemNotification =
-      settings.enableSystemTaskCompletionNotifications &&
-      (window.desktopBridge ? true : !isWindowForeground());
-
-    for (const candidate of inputNeededCandidates) {
-      const copy = buildInputNeededCopy(candidate);
-      if (
-        settings.enableTaskCompletionToasts &&
-        shouldShowThreadNotificationToast({
-          threadId: candidate.threadId,
-          visibleThreadIds,
-        })
-      ) {
-        showThreadToast(copy, candidate.threadId, "warning", navigate);
-      }
-
-      if (shouldAttemptSystemNotification) {
-        void showSystemThreadNotification(copy, candidate.threadId, navigate);
-      }
-    }
-  }, [
-    navigate,
-    runtimeStartedAtMs,
-    settings.enableSystemTaskCompletionNotifications,
-    settings.enableTaskCompletionToasts,
-    threads,
-    threadsHydrated,
-    visibleThreadIds,
-  ]);
 
   return null;
 }
