@@ -76,7 +76,7 @@ import { POSSIBLE_MODEL_CATALOG } from "@penkra/shared/possibleModels";
 import { applyShellEnvironmentHydrationMarker } from "@penkra/shared/shell";
 import { ProcessLogFile } from "@penkra/shared/logging";
 import { ensureStaticSnapshot, findAsarArchivePath } from "@penkra/shared/staticSnapshot";
-import { isBackendReadinessAborted, waitForHttpReady } from "./backendReadiness";
+import { BackendReadinessAbortedError, isBackendReadinessAborted } from "./backendReadiness";
 import { queryAppPermission } from "./appPermissionQuery";
 import { prepareAppBrowserDownload } from "./appBrowserDownload";
 import { requestAppIdentityToken } from "./appIdentityToken";
@@ -118,7 +118,6 @@ import {
   isWatchableBundlePath,
   type BundleSignature,
 } from "./bundleSwapDetection";
-import { waitForBackendStartupReady } from "./backendStartupReadiness";
 import { showDesktopConfirmDialog } from "./confirmDialog";
 import { normalizeDesktopSpacesMenuInput, shouldPromoteDesktopSpacesMenuState } from "./spacesMenu";
 import {
@@ -1533,7 +1532,6 @@ async function showPenkraResourceContextMenu(input: {
 let backendAuthToken = "";
 let backendHttpUrl = "";
 let backendWsUrl = "";
-let backendReadinessAbortController: AbortController | null = null;
 let backendInitialWindowOpenInFlight: Promise<void> | null = null;
 // Guards every blocking backend-lifecycle dialog (startup block, give-up) so a
 // crash loop can never stack modal windows on top of each other.
@@ -2085,29 +2083,8 @@ function isSaveFileInput(input: unknown): input is {
   });
 }
 
-async function waitForBackendHttpReady(
-  baseUrl: string,
-  options?: Parameters<typeof waitForHttpReady>[1],
-): Promise<void> {
-  cancelBackendReadinessWait();
-  const controller = new AbortController();
-  backendReadinessAbortController = controller;
-
-  try {
-    await waitForHttpReady(baseUrl, {
-      ...options,
-      signal: controller.signal,
-    });
-  } finally {
-    if (backendReadinessAbortController === controller) {
-      backendReadinessAbortController = null;
-    }
-  }
-}
-
 function cancelBackendReadinessWait(): void {
-  backendReadinessAbortController?.abort();
-  backendReadinessAbortController = null;
+  backendListeningDetector?.fail(new BackendReadinessAbortedError());
 }
 
 async function reserveBackendEndpoint(reason: string): Promise<void> {
@@ -2122,29 +2099,12 @@ async function reserveBackendEndpoint(reason: string): Promise<void> {
   writeDesktopLogHeader(`${reason} resolved backend endpoint port=${backendPort}`);
 }
 
-async function waitForBackendWindowReady(baseUrl: string): Promise<"listening" | "http"> {
-  return await waitForBackendStartupReady({
-    listeningPromise: backendListeningDetector?.promise ?? null,
-    waitForHttpReady: () =>
-      waitForBackendHttpReady(baseUrl, {
-        path: "/health",
-        timeoutMs: 60_000,
-        isReady: async (response) => {
-          if (!response.ok) {
-            return false;
-          }
-          try {
-            const payload = (await response.json()) as {
-              startupReady?: unknown;
-            };
-            return payload.startupReady === true;
-          } catch {
-            return false;
-          }
-        },
-      }),
-    cancelHttpWait: cancelBackendReadinessWait,
-  });
+async function waitForBackendWindowReady(): Promise<"listening"> {
+  const detector = backendListeningDetector;
+  if (!detector) throw new Error("Backend readiness detector is unavailable.");
+  // The backend emits readiness after its data upgrade; process exit rejects this promise.
+  await detector.promise;
+  return "listening";
 }
 
 function ensureInitialBackendWindowOpen(baseUrl: string): void {
@@ -8392,7 +8352,7 @@ async function bootstrap(): Promise<void> {
   writeDesktopLogHeader("bootstrap backend start requested");
 
   if (isDevelopment) {
-    void waitForBackendWindowReady(backendHttpUrl)
+    void waitForBackendWindowReady()
       .then((source) => {
         writeDesktopLogHeader(`bootstrap backend ready source=${source}`);
         if (!mainWindow) {
@@ -8408,7 +8368,7 @@ async function bootstrap(): Promise<void> {
         writeDesktopLogHeader(
           `bootstrap backend readiness warning message=${formatErrorMessage(error)}`,
         );
-        console.warn("[desktop] backend readiness check timed out during dev bootstrap", error);
+        console.warn("[desktop] backend readiness wait failed during dev bootstrap", error);
         if (!mainWindow) {
           mainWindow = createWindow();
           writeDesktopLogHeader("bootstrap main window created after readiness warning");
@@ -8521,15 +8481,12 @@ if (hasSingleInstanceLock) {
             ensureInitialBackendWindowOpen(backendHttpUrl);
             return;
           }
-          void waitForBackendWindowReady(backendHttpUrl)
+          void waitForBackendWindowReady()
             .catch((error) => {
               if (isBackendReadinessAborted(error)) {
                 return;
               }
-              console.warn(
-                "[desktop] backend readiness check timed out during dev activate",
-                error,
-              );
+              console.warn("[desktop] backend readiness wait failed during dev activate", error);
             })
             .finally(() => {
               if (!mainWindow) {

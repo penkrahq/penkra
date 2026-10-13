@@ -45,7 +45,7 @@ export function openInitialBackendWindow(options: InitialBackendWindowOpenOption
       options.writeLog(
         `bootstrap backend readiness warning message=${options.formatErrorMessage(error)}`,
       );
-      options.warn("[desktop] backend readiness check timed out during packaged bootstrap", error);
+      options.warn("[desktop] backend readiness wait failed during packaged bootstrap", error);
     })
     .finally(() => {
       if (options.getReadinessInFlight() === nextOpen) {
