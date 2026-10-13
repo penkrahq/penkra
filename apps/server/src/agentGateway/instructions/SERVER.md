@@ -208,8 +208,12 @@ Send returns `threadId`, `messageId`, and a committed admission:
 - `plan: queue` includes `position` (1 = next) and `queueLength`.
 
 The reply confirms persistence. Read the thread for the outcome: the message becomes
-sent, or it is removed with an error and the draft restored. A rejection before admission
-is an error and writes nothing. Use `penkra threads read --thread-id <id>` for output.
+delivered, or remains failed in the transcript with the thread error. The composer is
+untouched. The next send includes failed messages in order with the new message;
+they become delivered together only after provider acceptance. A failed queued head
+stays at position 1 until the user edits, removes or resends it. There is no automatic
+retry. A rejection before admission is an error and writes nothing. Use
+`penkra threads read --thread-id <id>` for output.
 
 Read ordinary conversational history with `penkra threads read`: it returns messages and selected
 conversational activity as typed transcript items. For discovery, pass one literal `query` or a
