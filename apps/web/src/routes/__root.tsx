@@ -67,9 +67,8 @@ import { useTheme } from "../hooks/useTheme";
 import { useNativeFontSmoothing } from "../hooks/useNativeFontSmoothing";
 import { invalidateProviderData } from "../lib/providerDataRefresh";
 import { providerModelDiscoveryInvalidationFingerprint } from "../lib/providerDiscoveryInvalidation";
+import { INITIAL_STARTUP_STATUS_MESSAGE, SplashScreen } from "../components/SplashScreen";
 import { ConnectionDefaultsMigration } from "../components/ConnectionDefaultsMigration";
-const ORCHESTRATION_SYNC_PUBLICATION_INTERVAL_MS = 50;
-const ORCHESTRATION_SYNC_APPLICATION_RECOVERY_DELAYS_MS = [0, 250, 1_000] as const;
 
 interface ThreadStartedState {
   readonly latestTurn: unknown | null;
@@ -107,6 +106,7 @@ export const Route = createRootRouteWithContext<{
 });
 
 function RootRouteView() {
+  const threadsHydrated = useStore((store) => store.threadsHydrated);
   useAppTypography();
   useAppDensity();
   usePreloadRouteChunks();
@@ -180,7 +180,13 @@ function RootRouteView() {
               <GlobalWhatsNewSurface />
               <TaskCompletionNotifications />
               <ConnectionDefaultsMigration />
-              <Outlet />
+              {threadsHydrated ? (
+                <Outlet />
+              ) : (
+                <div className="flex min-h-screen bg-background" role="status" aria-busy="true">
+                  <SplashScreen statusMessage={INITIAL_STARTUP_STATUS_MESSAGE} />
+                </div>
+              )}
             </AnchoredToastProvider>
           </VoiceSessionCoordinatorProvider>
         </ToastProvider>

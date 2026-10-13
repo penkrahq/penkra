@@ -4,13 +4,19 @@
 
 import { PenkraMark } from "~/components/foundations/penkra-mark-shared/PenkraMark";
 
+export const INITIAL_STARTUP_STATUS_MESSAGE =
+  "Starting Penkra… Upgrading your data if needed. This can take several minutes.";
+
 export function SplashScreen({
   errorMessage,
+  statusMessage,
   onRetry,
 }: {
   errorMessage?: string | null;
+  statusMessage?: string | null;
   onRetry?: (() => void) | null;
 }) {
+  const message = errorMessage ?? statusMessage;
   const showRetry = Boolean(errorMessage && onRetry);
 
   return (
@@ -18,10 +24,10 @@ export function SplashScreen({
       <div className="flex flex-col items-center gap-5 select-none">
         <PenkraMark aria-label="Penkra" className="size-24" />
 
-        {errorMessage ? (
+        {message ? (
           <div className="flex max-w-sm flex-col items-center gap-3 px-6 text-center">
             <span className="text-[length:calc(var(--app-font-size-base,12px)*1.1667)] text-muted-foreground/75">
-              {errorMessage}
+              {message}
             </span>
             {showRetry ? (
               <button

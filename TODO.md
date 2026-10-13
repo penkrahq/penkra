@@ -93,7 +93,7 @@ These are built. Step C and later must not reintroduce anything they forbid; the
 ## 3. Migration of Production (in place, keep every chat)
 
 0. **Rehearsal copies:** only `sqlite3 'file:<Production>?mode=ro' "VACUUM INTO '<dest>'"`, only while Penkra is quit (it holds an exclusive lock; no busy timeout). Ask the operator to quit Penkra, copy, require `PRAGMA integrity_check` = `ok`, then tell the operator it can be reopened.
-1. At startup under `DatabaseLifecycleLock`: if free disk < `state.sqlite` size, do not migrate (banner "not enough free disk space (need <n> GB)"); else `VACUUM INTO state.pre-0.14.4.sqlite` and require `integrity_check` = `ok`.
+1. At startup under `DatabaseLifecycleLock`: require free disk >= 4 × logical live database bytes (`(page_count - freelist_count) × page_size`, measured rehearsal TEMP/growth plus snapshot/WAL allowance); otherwise do not migrate (banner "not enough free disk space (need <n> GB)"); else `VACUUM INTO state.pre-0.14.4.sqlite` and require `integrity_check` = `ok`.
 2. One transaction: create and fill the new tables; verify thread counts, user + text item counts per thread, open questions; any mismatch rolls back with the banner naming it.
 3. After commit: drop every table in 4.1 that is replaced, folded or dropped, then `VACUUM`. Keep `state.pre-0.14.4.sqlite` until the operator deletes it.
 
@@ -117,12 +117,12 @@ Open in the mapping (item B):
 First review and report what is wrong or missing in: `docs/release.md`, `docs/release-0.14.3-notes.md`, `docs/npm-package-release.md`, `scripts/penkra-release-verify.mjs`, `scripts/release-smoke.ts`, `scripts/verify-release-source-provenance.ts`, `scripts/write-release-artifact-provenance.ts`, `scripts/update-release-package-versions.ts`, `githubUpdateFeed.ts` and the updater setup in `main.ts`. Then replace them with one `docs/release.md` in which every step is a script or command, and delete what it replaces.
 
 **A. Update Production on this Mac (`scripts/update-production.sh <path-to-new-Penkra.app>`).** Runnable from a Penkra thread, although quitting Penkra ends that thread's turn:
-1. Verify the new app first: `codesign --verify --deep --strict` and `spctl --assess --type execute` must pass; otherwise exit non-zero and change nothing.
-2. Start a detached updater with `launchctl submit -l com.penkra.updater -- <updater script> ...`, then return. The thread reports "Updater started; Penkra will quit and relaunch."
+1. Verify the locally built new app first: `codesign --verify --deep --strict` must pass with a Developer ID signature; otherwise exit non-zero and change nothing. For this local non-quarantined 5A install, `spctl --assess --type execute` is informational; notarization belongs to 5B.
+2. Start a one-shot detached Codex outside Penkra with a written 5A prompt, using a double fork (`scripts/update-production.sh`); never use `launchctl submit`. The agent owns the update, reports failures and rolls back; helpers are tools only. Then return and report "Updater started; Penkra will quit and relaunch."
 3. The updater asks Penkra to quit (`osascript -e 'quit app "Penkra"'`) and waits for the process to exit (driven by process exit, not a sleep).
 4. Move `/Applications/Penkra.app` to `~/Penkra/.penkra/updates/<timestamp>/Penkra.app` and copy the new app into `/Applications`. The app makes the database copy itself at first start (3.1).
 5. Launch the new app and check that the local status endpoint reports the new version and the migration result is `ok` (from `server.log`). The check ends when the server answers or the app process exits.
-6. On any failure: quit the new app, move the old app back, relaunch it, record "rolled back: <reason>".
+6. On failure: quit the new app and wait for all owners to exit. If migration committed, move current `state.sqlite` and its `-wal`/`-shm` into `updates/<ts>/failed-db/`, copy the verified `state.pre-0.14.4.sqlite` into place and require `integrity_check=ok`; never delete or edit either database. Restore and relaunch the old app and record the outcome. The detached agent must leave a working old or new Penkra in `/Applications`.
 7. Append every step to `~/Penkra/.penkra/updates/<timestamp>/update.log`. After relaunch the operator asks the thread to read the newest `update.log`.
 8. Test the rollback once with a deliberately broken build (server exits at start) and attach the log to the step commit.
 

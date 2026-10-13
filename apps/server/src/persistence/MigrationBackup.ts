@@ -87,6 +87,13 @@ export class InsufficientMigrationBackupSpaceError extends Error {
 }
 
 const MIGRATION_BACKUP_FREE_SPACE_FACTOR = 2;
+// Run 7 TEMP (1.285x) + run 8 growth (0.352x) + snapshot (1x)
+// + a full post-migration WAL allowance (1.352x), rounded up: 4x live pages.
+const CLEAN_CORE_UPGRADE_SPACE_MULTIPLIER = 4;
+const isCleanCoreUpgrade = (plan: MigrationBackupPlan | null): boolean => {
+  const source = plan?.sourceVersion.match(/^v(\d+)$/u)?.[1];
+  return source !== undefined && Number(source) < 176 && plan!.targetVersion >= 176;
+};
 
 const logicalDatabaseSizeBytes = Effect.gen(function* () {
   const sql = yield* SqlClient.SqlClient;
@@ -95,9 +102,9 @@ const logicalDatabaseSizeBytes = Effect.gen(function* () {
     readonly pageSize: number;
   }>`
     SELECT
-      page_count AS "pageCount",
+      (page_count - freelist_count) AS "pageCount",
       page_size AS "pageSize"
-    FROM pragma_page_count(), pragma_page_size()
+    FROM pragma_page_count(), pragma_freelist_count(), pragma_page_size()
   `;
   const pageCount = Number(rows[0]?.pageCount);
   const pageSize = Number(rows[0]?.pageSize);
@@ -107,7 +114,7 @@ const logicalDatabaseSizeBytes = Effect.gen(function* () {
 
 /**
  * Estimates the largest useful SQLite snapshot before applying a safety
- * factor. `page_count * page_size` describes the connection's logical database
+ * factor. `(page_count - freelist_count) * page_size` describes its live logical pages
  * and therefore includes committed pages that are still only in the WAL.
  *
  * If the PRAGMAs are unavailable, the main file plus the physical WAL is a
@@ -115,7 +122,10 @@ const logicalDatabaseSizeBytes = Effect.gen(function* () {
  * represented as `null`; an indeterminate estimate must not block a legitimate
  * upgrade.
  */
-export const estimateMigrationBackupRequiredBytes = (dbPath: string) =>
+export const estimateMigrationBackupRequiredBytes = (
+  dbPath: string,
+  plan: MigrationBackupPlan | null = null,
+) =>
   Effect.gen(function* () {
     const logicalBytes = yield* logicalDatabaseSizeBytes.pipe(
       Effect.matchCause({
@@ -133,7 +143,9 @@ export const estimateMigrationBackupRequiredBytes = (dbPath: string) =>
 
       let snapshotBytes: number;
       if (logicalBytes !== null) {
-        snapshotBytes = Math.max(mainFileBytes, logicalBytes);
+        snapshotBytes = isCleanCoreUpgrade(plan)
+          ? logicalBytes
+          : Math.max(mainFileBytes, logicalBytes);
       } else {
         let walBytes = 0;
         try {
@@ -145,7 +157,11 @@ export const estimateMigrationBackupRequiredBytes = (dbPath: string) =>
         snapshotBytes = mainFileBytes + walBytes;
       }
 
-      const requiredBytes = snapshotBytes * MIGRATION_BACKUP_FREE_SPACE_FACTOR;
+      const requiredBytes =
+        snapshotBytes *
+        (isCleanCoreUpgrade(plan)
+          ? CLEAN_CORE_UPGRADE_SPACE_MULTIPLIER
+          : MIGRATION_BACKUP_FREE_SPACE_FACTOR);
       return Number.isFinite(requiredBytes) && requiredBytes >= 0 ? requiredBytes : null;
     });
   });
@@ -715,7 +731,7 @@ export const createMigrationBackup = (
     yield* attemptPromise(() =>
       removeRegularFiles(backupDirectory, isMigrationBackupPartial(basename)),
     );
-    const requiredBytes = yield* estimateMigrationBackupRequiredBytes(dbPath);
+    const requiredBytes = yield* estimateMigrationBackupRequiredBytes(dbPath, plan);
     yield* attemptPromise(() =>
       assertBackupSpaceAvailable(
         requiredBytes,
@@ -733,6 +749,7 @@ export const createMigrationBackup = (
       yield* attemptPromise(async () => {
         await ensurePrivateRegularFile(temporaryPath);
         await syncRegularFile(temporaryPath);
+        await validateSqliteMigrationBackup(temporaryPath);
         await fs.rename(temporaryPath, backupPath);
         await syncDirectory(backupDirectory);
       });
@@ -793,6 +810,20 @@ export const runWithPreMigrationBackup = <A, E, R>(
 ) =>
   Effect.gen(function* () {
     const plan = yield* inspectMigrationBackupPlan;
+    const cleanCoreUpgrade = isCleanCoreUpgrade(plan);
+    const preservedBackup = path.join(path.dirname(dbPath), "state.pre-0.14.4.sqlite");
+    if (cleanCoreUpgrade)
+      yield* attemptPromise(async () => {
+        try {
+          await fs.lstat(preservedBackup);
+        } catch (cause) {
+          if ((cause as NodeJS.ErrnoException).code === "ENOENT") return;
+          throw cause;
+        }
+        throw new Error(
+          `Preserved pre-0.14.4 backup already exists: ${preservedBackup}. An operator must resolve it before a new upgrade; it will not be overwritten.`,
+        );
+      });
     // The ordinary migrator owns one SQLite transaction, so a failed or
     // interrupted canonical forward migration rolls back safely. Imported,
     // legacy, untracked, and malformed trackers can require destructive schema
@@ -802,6 +833,7 @@ export const runWithPreMigrationBackup = <A, E, R>(
           Effect.catchIf(
             (cause): cause is InsufficientMigrationBackupSpaceError =>
               plan.kind === "canonical-forward" &&
+              !cleanCoreUpgrade &&
               cause instanceof InsufficientMigrationBackupSpaceError,
             (cause) =>
               Effect.logWarning(
@@ -822,6 +854,12 @@ export const runWithPreMigrationBackup = <A, E, R>(
         )
       : null;
     if (backup) {
+      if (cleanCoreUpgrade)
+        yield* attemptPromise(async () => {
+          // Preserve the verified immutable snapshot without a second DB-sized copy.
+          await fs.link(backup.backupPath, preservedBackup);
+          await syncDirectory(path.dirname(preservedBackup));
+        });
       // This write-ahead marker must be durable before migrations can mutate
       // the live database. A later startup will fail closed until an operator
       // explicitly restores the known-good snapshot.
