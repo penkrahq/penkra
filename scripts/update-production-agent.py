@@ -62,7 +62,7 @@ Write report.md beginning UPDATE OK or ROLLED BACK, or PREFLIGHT FAILED if nothi
 """
     (folder / "prompt.md").write_text(prompt)
     command = [codex, "-a", "never", "exec", "--skip-git-repo-check", "-C", str(folder),
-               "-s", "danger-full-access", "-c", "mcp_servers.penkra.enabled=false",
+               "-s", "danger-full-access", "-c", 'mcp_servers.penkra={url="http://127.0.0.1/unused",enabled=false}',
                "-o", str(folder / "codex-last-message.md"), "-"]
     pid = os.fork()
     if pid:
