@@ -70,6 +70,10 @@ The detached agent performs the written transaction, logging each command and re
 
 1. Verify the candidate again; record its version and the current log boundaries.
 2. Register native process-exit watchers, ask Penkra to quit, and wait for exit without sleeps.
+   Confirm with `lsof` that no process owns the database or sidecars. Before swapping the app,
+   require `PRAGMA integrity_check=ok` using `mode=ro` (without `immutable`, so SQLite reads WAL).
+   On failure, swap nothing, relaunch 0.14.3, and report the first 50 errors. Never edit/delete the
+   database or historical backups.
 3. Move `/Applications/Penkra.app` to the update directory, then install with `ditto` and verify.
 4. Launch the installed executable as an owned child. Watch new log writes and process exit.
 5. Request the new local `/status` after its listening event. It waits for server readiness and
