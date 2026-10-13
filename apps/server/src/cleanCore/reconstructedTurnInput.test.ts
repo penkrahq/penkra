@@ -71,7 +71,37 @@ it.effect(
           yield* item(`message-${index}`, index % 2 === 0 ? "user" : "text", `Exact text ${index}`);
         }
         yield* item("current", "user", "Current request already stored");
-        const result = yield* buildReconstructedTurnInput(input);
+        for (const [sourceId, status, text] of [
+          ["failed-member", "failed", "Failed input admitted once"],
+          ["sending-member", "sending", "Pending input admitted once"],
+        ] as const) {
+          yield* upsertThreadItem({
+            threadId,
+            sourceId,
+            kind: "user",
+            status,
+            text,
+            admissionPlan: "deliver",
+            sendPayload: JSON.stringify({
+              message: {
+                messageId: sourceId,
+                text,
+                attachments: [],
+                senderThreadId: null,
+                dispatchOrigin: "user",
+                queuedAt: at,
+              },
+              deliveryMessageId: sourceId,
+              batchMessageIds: [sourceId],
+            }),
+            createdAt: at,
+            updatedAt: at,
+          });
+        }
+        const result = yield* buildReconstructedTurnInput({
+          ...input,
+          currentInput: "Failed input admitted once\nPending input admitted once\nContinue",
+        });
         const retained = transcript(result);
         assert.deepStrictEqual(retained.boundary, { kind: "thread-start" });
         assert.deepStrictEqual(
@@ -81,6 +111,8 @@ it.effect(
         assert.equal(retained.messages[0]!.text, "Exact text 0");
         assert.notInclude(result!, "Current request already stored");
         assert.include(result!, "penkra threads read --thread-id thread");
+        assert.equal(result!.split("Failed input admitted once").length - 1, 1);
+        assert.equal(result!.split("Pending input admitted once").length - 1, 1);
       }),
     ),
 );
