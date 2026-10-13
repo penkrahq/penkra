@@ -4024,7 +4024,7 @@ function ChatViewContent({
     setAdmittingThreadIds(new Set(admittingThreadsRef.current));
     let sentComposerDraft: typeof composerDraft | undefined;
     let composerCleared = false;
-    try {
+    return (async () => {
       flushPendingPromptPersistence(threadIdForSend);
       const liveComposerSnapshot = composerEditorRef.current?.readSnapshot() ?? null;
       const promptForSend = liveComposerSnapshot?.value ?? promptRef.current;
@@ -4073,18 +4073,19 @@ function ChatViewContent({
         selectedComposerMentionsForSend.length === 0;
       if (initialHasNoStructuredComposerContext) {
         if (initialSendState.trimmedPrompt.startsWith("/")) {
-          try {
-            const handledSlashCommand = await lateSendHandlers.handleStandaloneSlashCommand(
-              initialSendState.trimmedPrompt,
-            );
-            if (handledSlashCommand) return true;
-          } catch (error) {
-            setThreadError(
-              activeThread.id,
-              error instanceof Error ? error.message : "Failed to run the command.",
-            );
-            return false;
-          }
+          let slashCommandFailed = false;
+          const handledSlashCommand = await lateSendHandlers
+            .handleStandaloneSlashCommand(initialSendState.trimmedPrompt)
+            .catch((error) => {
+              setThreadError(
+                activeThread.id,
+                error instanceof Error ? error.message : "Failed to run the command.",
+              );
+              slashCommandFailed = true;
+              return false;
+            });
+          if (slashCommandFailed) return false;
+          if (handledSlashCommand) return true;
         }
       }
       if (!initialSendState.hasSendableContent) {
@@ -4132,44 +4133,45 @@ function ChatViewContent({
         const startedThreadBindingLoaded = context.kind === "persisted";
         const startedThreadBindingConnectionId =
           context.kind === "persisted" ? context.row.connectionId : undefined;
-        try {
-          selectedConnectionIdForSend = await resolveComposerConnectionAtAdmission({
-            snapshot: providerConnectionsQuery.data,
-            refreshSnapshot: async () => (await providerConnectionsQuery.refetch()).data,
-            refreshAvailableConnectionIds: async () =>
-              (
-                await api.provider.listModels({
-                  provider: selectedModelSelectionForSend.provider,
-                  ...(selectedModelSelectionForSend.provider === "opencode" &&
-                  providerModelDiscoveryCwd
-                    ? { cwd: providerModelDiscoveryCwd }
-                    : {}),
-                })
-              ).models.find((model) => model.slug === selectedModelSelectionForSend.model)
-                ?.availableConnectionIds,
-            provider: selectedModelSelectionForSend.provider,
-            model: selectedModelSelectionForSend.model,
-            ...availableConnectionOptions,
-            explicitSelection: {
-              specified: Object.prototype.hasOwnProperty.call(
-                selectedConnectionByProvider,
-                selectedModelSelectionForSend.provider,
-              ),
-              connectionId: selectedConnectionByProvider[selectedModelSelectionForSend.provider],
-            },
-            startedThreadBinding: {
-              loaded: startedThreadBindingLoaded,
-              connectionId: startedThreadBindingConnectionId,
-            },
-            hasThreadStarted,
-          });
-        } catch (error) {
+        let connectionResolutionFailed = false;
+        selectedConnectionIdForSend = await resolveComposerConnectionAtAdmission({
+          snapshot: providerConnectionsQuery.data,
+          refreshSnapshot: async () => (await providerConnectionsQuery.refetch()).data,
+          refreshAvailableConnectionIds: async () =>
+            (
+              await api.provider.listModels({
+                provider: selectedModelSelectionForSend.provider,
+                ...(selectedModelSelectionForSend.provider === "opencode" &&
+                providerModelDiscoveryCwd
+                  ? { cwd: providerModelDiscoveryCwd }
+                  : {}),
+              })
+            ).models.find((model) => model.slug === selectedModelSelectionForSend.model)
+              ?.availableConnectionIds,
+          provider: selectedModelSelectionForSend.provider,
+          model: selectedModelSelectionForSend.model,
+          ...availableConnectionOptions,
+          explicitSelection: {
+            specified: Object.prototype.hasOwnProperty.call(
+              selectedConnectionByProvider,
+              selectedModelSelectionForSend.provider,
+            ),
+            connectionId: selectedConnectionByProvider[selectedModelSelectionForSend.provider],
+          },
+          startedThreadBinding: {
+            loaded: startedThreadBindingLoaded,
+            connectionId: startedThreadBindingConnectionId,
+          },
+          hasThreadStarted,
+        }).catch((error) => {
           setThreadError(
             activeThread.id,
             error instanceof Error ? error.message : "Failed to resolve the Connection.",
           );
-          return false;
-        }
+          connectionResolutionFailed = true;
+          return undefined;
+        });
+        if (connectionResolutionFailed) return false;
       }
       // A first turn may omit the Connection and let the server resolve the
       // Space's persisted default (or declared anonymous route). Once a harness
@@ -4375,35 +4377,37 @@ function ChatViewContent({
       if (promptRefThreadId.current === threadIdForSend) await refreshCommittedDraft();
       if (promptRefThreadId.current === threadIdForSend) scheduleComposerFocus();
       return true;
-    } catch (error) {
-      const currentDraft = useComposerDraftStore.getState().draftsByThreadId[threadIdForSend];
-      if (
-        composerCleared &&
-        sentComposerDraft &&
-        (!currentDraft ||
-          (currentDraft.prompt.length === 0 &&
-            [
-              currentDraft.images,
-              currentDraft.persistedAttachments,
-              currentDraft.files,
-              currentDraft.assistantSelections,
-              currentDraft.fileComments,
-              currentDraft.pastedTexts,
-              currentDraft.terminalContexts,
-              currentDraft.skills,
-              currentDraft.mentions,
-            ].every((entries) => entries.length === 0)))
-      )
-        applyServerThreadDraft(threadIdForSend, sentComposerDraft);
-      setThreadError(
-        threadIdForSend,
-        error instanceof Error ? error.message : "Failed to send message.",
-      );
-      return false;
-    } finally {
-      admittingThreadsRef.current.delete(threadIdForSend);
-      setAdmittingThreadIds(new Set(admittingThreadsRef.current));
-    }
+    })()
+      .catch((error) => {
+        const currentDraft = useComposerDraftStore.getState().draftsByThreadId[threadIdForSend];
+        if (
+          composerCleared &&
+          sentComposerDraft &&
+          (!currentDraft ||
+            (currentDraft.prompt.length === 0 &&
+              [
+                currentDraft.images,
+                currentDraft.persistedAttachments,
+                currentDraft.files,
+                currentDraft.assistantSelections,
+                currentDraft.fileComments,
+                currentDraft.pastedTexts,
+                currentDraft.terminalContexts,
+                currentDraft.skills,
+                currentDraft.mentions,
+              ].every((entries) => entries.length === 0)))
+        )
+          applyServerThreadDraft(threadIdForSend, sentComposerDraft);
+        setThreadError(
+          threadIdForSend,
+          error instanceof Error ? error.message : "Failed to send message.",
+        );
+        return false;
+      })
+      .finally(() => {
+        admittingThreadsRef.current.delete(threadIdForSend);
+        setAdmittingThreadIds(new Set(admittingThreadsRef.current));
+      });
   };
 
   const onRespondToUserInput = useCallback(
