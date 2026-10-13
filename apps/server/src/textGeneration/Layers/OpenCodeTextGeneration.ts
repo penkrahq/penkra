@@ -3,7 +3,7 @@
 // Layer: Server text-generation adapter
 // Depends on: OpenCode SDK runtime, prompt builders, attachment projection, and server config.
 
-import { Effect, Exit, Fiber, Layer, Schema, Scope } from "effect";
+import { Effect, Exit, Layer, Schema, Scope } from "effect";
 import * as Semaphore from "effect/Semaphore";
 
 import type {
@@ -40,8 +40,6 @@ import {
   decodeStructuredTextGenerationOutput,
   type RawTextFallback,
 } from "../textGenerationShared.ts";
-
-const OPENCODE_TEXT_GENERATION_IDLE_TTL = "30 seconds";
 
 function getOpenCodePromptErrorMessage(error: unknown): string | null {
   if (!error || typeof error !== "object") {
@@ -93,7 +91,6 @@ interface SharedOpenCodeTextGenerationServerState {
   cwd: string | null;
   isolationKey: string | null;
   activeRequests: number;
-  idleCloseFiber: Fiber.Fiber<void, never> | null;
 }
 
 interface AcquiredOpenCodeTextGenerationServer {
@@ -141,9 +138,6 @@ const makeOpenCodeCompatibleTextGeneration = (config: OpenCodeCompatibleTextGene
   Effect.gen(function* () {
     const serverConfig = yield* ServerConfig;
     const openCodeRuntime = yield* OpenCodeRuntime;
-    const idleFiberScope = yield* Effect.acquireRelease(Scope.make(), (scope) =>
-      Scope.close(scope, Exit.void),
-    );
     const sharedServerMutex = yield* Semaphore.make(1);
     const sharedServerState: SharedOpenCodeTextGenerationServerState = {
       server: null,
@@ -152,7 +146,6 @@ const makeOpenCodeCompatibleTextGeneration = (config: OpenCodeCompatibleTextGene
       cwd: null,
       isolationKey: null,
       activeRequests: 0,
-      idleCloseFiber: null,
     };
 
     const closeSharedServer = Effect.fn("closeSharedServer")(function* () {
@@ -165,35 +158,6 @@ const makeOpenCodeCompatibleTextGeneration = (config: OpenCodeCompatibleTextGene
       if (scope !== null) {
         yield* Scope.close(scope, Exit.void).pipe(Effect.ignore);
       }
-    });
-
-    const cancelIdleCloseFiber = Effect.fn("cancelIdleCloseFiber")(function* () {
-      const idleCloseFiber = sharedServerState.idleCloseFiber;
-      sharedServerState.idleCloseFiber = null;
-      if (idleCloseFiber !== null) {
-        yield* Fiber.interrupt(idleCloseFiber).pipe(Effect.ignore);
-      }
-    });
-
-    const scheduleIdleClose = Effect.fn("scheduleIdleClose")(function* (
-      server: OpenCodeServerProcess,
-    ) {
-      yield* cancelIdleCloseFiber();
-      const fiber = yield* Effect.sleep(OPENCODE_TEXT_GENERATION_IDLE_TTL).pipe(
-        Effect.andThen(
-          sharedServerMutex.withPermit(
-            Effect.gen(function* () {
-              if (sharedServerState.server !== server || sharedServerState.activeRequests > 0) {
-                return;
-              }
-              sharedServerState.idleCloseFiber = null;
-              yield* closeSharedServer();
-            }),
-          ),
-        ),
-        Effect.forkIn(idleFiberScope),
-      );
-      sharedServerState.idleCloseFiber = fiber;
     });
 
     const acquireSharedServer = (input: {
@@ -251,7 +215,6 @@ const makeOpenCodeCompatibleTextGeneration = (config: OpenCodeCompatibleTextGene
             } satisfies AcquiredOpenCodeTextGenerationServer;
           }
 
-          yield* cancelIdleCloseFiber();
           const existingServer = sharedServerState.server;
           if (existingServer !== null) {
             const sameConfigScope =
@@ -321,16 +284,12 @@ const makeOpenCodeCompatibleTextGeneration = (config: OpenCodeCompatibleTextGene
             return;
           }
           sharedServerState.activeRequests = Math.max(0, sharedServerState.activeRequests - 1);
-          if (sharedServerState.activeRequests === 0) {
-            yield* scheduleIdleClose(acquired.server);
-          }
         }),
       );
 
     yield* Effect.addFinalizer(() =>
       sharedServerMutex.withPermit(
         Effect.gen(function* () {
-          yield* cancelIdleCloseFiber();
           sharedServerState.activeRequests = 0;
           yield* closeSharedServer();
         }),
