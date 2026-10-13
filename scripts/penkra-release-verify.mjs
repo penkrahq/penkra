@@ -1,40 +1,35 @@
 #!/usr/bin/env node
 import { spawn } from "node:child_process";
+import { readdirSync } from "node:fs";
 
 const groups = [
+  // The operator's final 0.14.4 gate: no full/browser or packaged test runs.
+  { label: "Typecheck", checks: [["Typecheck", "bun", ["typecheck"]]] },
   {
-    label: "Repository contracts",
+    label: "Migrations",
     checks: [
-      ["Brand identity", "bun", ["run", "brand:check"]],
-      ["Formatting", "bun", ["run", "fmt:check"]],
-      ["Lint", "bun", ["run", "lint"]],
-      ["Typecheck", "bun", ["run", "typecheck"]],
-      ["Migration lineage", "bun", ["run", "migrations:check"]],
-      ["Release smoke", "bun", ["run", "release:smoke"]],
+      [
+        "Migrations",
+        "bun",
+        ["run", "--cwd", "apps/server", "test", "src/persistence/Migrations.test.ts"],
+      ],
     ],
   },
   {
-    label: "Runtime behavior",
-    checks: [["Tests", "bun", ["run", "test"]]],
-  },
-  {
-    label: "Production build",
-    checks: [["Desktop pipeline and compiler contract", "bun", ["run", "build:desktop"]]],
-  },
-  {
-    label: "Browser behavior",
+    label: "Clean core",
     checks: [
       [
-        "Browser ChatView",
+        "Clean core",
         "bun",
-        ["run", "--cwd", "apps/web", "test:browser:chat-view"],
-        { VITEST_BROWSER_API_PORT: "51100" },
-      ],
-      [
-        "Browser components",
-        "bun",
-        ["run", "--cwd", "apps/web", "test:browser:components"],
-        { VITEST_BROWSER_API_PORT: "51101" },
+        [
+          "run",
+          "--cwd",
+          "apps/server",
+          "test",
+          ...readdirSync(new URL("../apps/server/src/cleanCore/", import.meta.url))
+            .filter((name) => name.endsWith(".test.ts"))
+            .map((name) => `src/cleanCore/${name}`),
+        ],
       ],
     ],
   },

@@ -1,3 +1,4 @@
+import { readMigrationStartupResult } from "./persistence/migrationStartupResult.ts";
 import { toPersistenceSqlError } from "./persistence/Errors.ts";
 import { RuntimeMode } from "@penkra/contracts";
 import { ThreadLifecycle } from "./cleanCore/threadLifecycle.ts";
@@ -267,7 +268,7 @@ export function makeDesktopShutdownEffectRouteLayer(shutdownController: ServerSh
 }
 
 export function makeHealthEffectRouteLayer(readiness: ServerReadiness) {
-  return HttpRouter.add(
+  const health = HttpRouter.add(
     "GET",
     "/health",
     readiness.getSnapshot.pipe(
@@ -286,6 +287,33 @@ export function makeHealthEffectRouteLayer(readiness: ServerReadiness) {
       ),
     ),
   );
+  const status = HttpRouter.add(
+    "GET",
+    "/status",
+    Effect.gen(function* () {
+      const request = yield* HttpServerRequest.HttpServerRequest;
+      const config = yield* ServerConfig;
+      const address = request.remoteAddress?.replace(/^::ffff:/u, "");
+      if (!address || !isLoopbackHost(address) || !isLoopbackHost(config.host) || config.publicUrl)
+        return HttpServerResponse.empty({ status: 403 });
+      const origin = request.headers.origin;
+      if (origin !== undefined) {
+        let localOrigin = false;
+        try {
+          localOrigin = isLoopbackHost(new URL(origin).hostname);
+        } catch {
+          /* Invalid origins are refused. */
+        }
+        if (!localOrigin) return HttpServerResponse.empty({ status: 403 });
+      }
+      yield* readiness.awaitServerReady;
+      return HttpServerResponse.jsonUnsafe({
+        version: process.env.PENKRA_APP_VERSION ?? null,
+        migration: readMigrationStartupResult(),
+      });
+    }),
+  );
+  return Layer.merge(health, status);
 }
 
 const requireAuthenticatedRequest = Effect.gen(function* () {

@@ -1,258 +1,134 @@
-# Penkra Desktop Releases
+# Penkra release and local Production update
 
-Penkra publishes its public desktop application through GitHub Releases. Stable releases are built
-only by the protected GitHub workflow from an explicitly selected version and exact `main` commit.
-The workflow validates every native artifact before it creates the immutable semantic-version tag,
-then assembles one release and publishes those same bytes. Published update-capable artifacts are
-then visible to `electron-updater`; the initial unsigned Windows installer remains manual-only.
+Work from the approved `main` commit. Do not bump versions, tag, push or publish without the
+operator's approval for that exact action and version. Desktop releases do not publish registry
+Apps, npm packages or the hosted backend.
 
-The current release matrix is macOS arm64, macOS x64, Linux x64, and Windows x64. Each macOS
-architecture uses a signed/notarized DMG plus update ZIP; release assembly merges both ZIP entries
-into one architecture-aware updater manifest. Linux uses AppImage, and Windows initially uses an
-explicitly unsigned NSIS installer. The Windows installer is a manual download: the release
-deliberately omits `latest.yml` and the NSIS blockmap so unsigned builds cannot enter Penkra's
-signature-verified auto-update path. Windows displays an Unknown publisher/SmartScreen warning until
-a signing identity is provisioned.
-
-Runtime OS behavior is selected once through `apps/desktop/src/desktopPlatform.ts`. That adapter is
-the authority for application identity, profile paths, shutdown semantics, encrypted credential
-requirements, deep-link delivery and file-handler policy, browser permission prompts, notification and
-icon behavior, window chrome, installer trust, and updater availability. Release packaging has a
-separate build-time adapter in `scripts/lib/desktop-platform-build-config.ts`; both describe the
-same three supported targets. Windows remains `manual-only` at runtime until the deferred Azure
-signing work is deliberately activated with native signed-update evidence.
-
-The initial desktop registers no operating-system file association. File and directory routing is
-the explicit in-product App-intent/Open With flow, and an unresolved intent is handed to the
-operating system. In particular, Canvas does not claim `.pen` files at the OS boundary.
-
-The public desktop package does not contain the private Penkra backend or CLI. Account and hosted
-service requests use the authenticated Penkra API. The desktop's local application runtime is built
-from this repository at the same certified commit as the Electron application.
-
-This release workflow versions and publishes only the Penkra desktop product in this repository. It
-does not publish registry Apps and does not version or deploy the Penkra backend. Registry Apps use
-their own manifest versions and release process; backend deployments use their own source and
-deployment process. An App compatibility range or a required backend deployment order may constrain
-compatibility, but neither creates a shared release version.
-
-One artifact dependency is deliberately pinned across those independent release lifecycles:
-`com.penkra.apps` is required infrastructure and its approved registry archive is embedded in
-Penkra. `required-apps.lock.json` records the exact App version, deterministic package digest,
-and `penkrahq/penkra-apps` source commit. Desktop CI checks out that commit, rebuilds the archive,
-and refuses packaging unless every locked identity and digest matches. This does not publish or
-version Apps as part of the desktop release; the approved Apps version must already be public in
-the production registry with the same digest before the desktop release is cut.
-
-## Release channel and cadence
-
-Penkra has one published channel: `stable`.
-
-- Patch releases are made at most once per day and only when releasable fixes exist.
-- Minor releases are made at most once per week and represent a coherent product milestone.
-- Security or updater recovery releases may bypass the normal cadence.
-- Releases are never created automatically from a schedule.
-- `Penkra Dev` and its numbered local instances are development applications, not release channels.
-- The GitHub workflow uses a draft only as an atomic staging boundary while it combines the native
-  artifacts. It publishes that draft in the same successful run; drafts are not a manual release
-  queue or a separately installable channel.
-- Penkra has no separate Canary app or data profile.
-
-## Version authority
-
-The Git tag, GitHub Release, Electron version, workspace product-package versions, and updater
-manifest must all use the same `MAJOR.MINOR.PATCH` version. Penkra remains on the `0.x` development
-line until the user explicitly approves a different exact version.
-
-Never infer a version from release cadence, repository history, change scope, or instructions such
-as “release,” “clean cut,” or “proceed.” The user must explicitly approve the exact version before
-changing a package manifest or lockfile, creating a tag, or publishing a GitHub Release.
-
-Before describing a version as published or unpublished, query the canonical GitHub Release rather
-than relying on local tags or package manifests. Local refs may be stale, and an installed version
-does not by itself prove that its release remains public. Use `gh release view v<version>
---repo penkrahq/penkra` and record whether the release is a public stable release, draft, or
-prerelease.
-
-After the exact version is approved, prepare it with:
+## Verify the source
 
 ```sh
-approved_version="<exact version approved by the user>"
-node scripts/update-release-package-versions.ts "$approved_version"
-bun install --lockfile-only --ignore-scripts
+bun typecheck
+(cd apps/server && bun run test src/persistence/Migrations.test.ts)
+(cd apps/server && bun run test src/cleanCore/*.test.ts)
+git rev-parse HEAD
+git status --short
 ```
 
-The version updater is authoritative for both the release package manifests and their matching
-`bun.lock` workspace importer metadata. The lockfile-only Bun install then verifies dependency
-consistency without owning release-version synchronization.
-
-Commit the resulting package manifests and lockfile before starting the release workflow. Do not
-create the matching tag manually: the workflow creates it only after every native artifact passes.
-
-## Creating a release
-
-1. Merge the intended release changes into `main` and confirm the fast aggregate CI gate passes for
-   the exact commit. Commit CI covers static contracts, the complete unit and integration suites,
-   deterministic browser partitions, the desktop build, and the React compiler hot-path contract.
-   Native installer construction is intentionally reserved for the one release-candidate run.
-2. Compare `required-apps.lock.json` with the previous stable release. When that lock changed, use a
-   dedicated signed-in Production Penkra release task and ask the agent to run the registered
-   command `penkra app status --app-id com.penkra.apps`. This is a Penkra host command available to
-   agents; it is not a command provided by the client-workspace `penkra` shell executable. Confirm
-   its result reports the lockfile's version and package digest as public on the production
-   registry target. Stop if the target, version, or digest differs. When the lock is unchanged,
-   record that comparison and skip the Production task; an unrelated desktop release does not need
-   to repeat the registry check.
-3. Update every product package to the intended version and commit the exact release source locally.
-4. Verify the affected user flows with focused tests and, when the change needs desktop behavior
-   evidence, an appropriate existing Penkra Dev instance or an isolated local production package.
-   A fresh desktop QA run is not a mandatory release gate. A local artifact is evidence, not
-   publication authority, and must not replace or quit the installed Production app. Record the
-   commands, timings, exercised flows, and result in the release handoff.
-5. Dispatch the protected workflow with the approved version and exact current `main` commit:
-
-   ```sh
-   release_commit="$(git rev-parse HEAD)"
-   gh workflow run release.yml --repo penkrahq/penkra \
-     -f release_version="$approved_version" \
-     -f source_commit="$release_commit"
-   ```
-
-6. The `Release Penkra Desktop` workflow:
-   - verifies the requested version, current `main` commit, and package versions;
-   - requires the aggregate Penkra CI quality gate to have passed for that exact commit;
-   - consumes that commit-bound result instead of repeating the same validation suite;
-   - builds each advertised platform on a native GitHub-hosted runner;
-   - installs the previous stable Windows NSIS package and upgrades it with the candidate,
-     verifying both installed versions launch and retain the isolated profile;
-   - exercises Linux's production updater against a loopback candidate feed, verifying the exact
-     AppImage bytes replace the previous image, the application restarts, and profile data remains;
-   - signs/notarizes macOS and emits Linux and explicitly unsigned Windows checksum/provenance
-     evidence;
-   - creates each installer, update payload, blockmap where applicable, and matching updater manifest
-     together;
-   - rejects any package containing the private `penkra-cli`;
-   - records SHA-256 checksums and GitHub artifact attestations;
-   - creates the immutable tag only after every native artifact passes;
-   - creates or refreshes a draft solely to assemble all native outputs atomically;
-   - publishes that exact draft as the latest stable release after every build and verification job
-     succeeds, without a second build or a local artifact upload.
-7. Query the canonical GitHub Release and verify that it is public stable, contains the complete
-   platform matrix, and points to the certified commit. Then verify the normal production update UI
-   discovers the published version. Installation and restart happen only when an operator chooses
-   the released update; the release procedure never replaces the Penkra instance hosting itself.
-
-If any platform fails, the workflow creates neither a tag nor a release. Fix the source, rerun source
-CI and local QA, and dispatch the same still-unpublished approved version against the new exact
-commit. Published assets are never replaced. A workflow retry is appropriate only when the source
-commit is unchanged and the failure was in release infrastructure.
-
-## Required GitHub configuration
-
-Create a GitHub environment named `desktop-release`. Store the following secrets in that
-environment:
-
-- `CSC_LINK`
-- `CSC_KEY_PASSWORD`
-- `APPLE_API_KEY`
-- `APPLE_API_KEY_ID`
-- `APPLE_API_ISSUER`
-- `APPLE_TEAM_ID`
-
-Store `PENKRA_REGISTRY_TRUSTED_KEYS` as an environment variable containing a JSON array of the
-production registry's Ed25519 public JWKs. The Desktop build pins these public keys and fails closed
-when the variable is missing or malformed. During key rotation, publish a Desktop release containing
-both the current and next public keys before the backend begins signing with the next private key.
-
-Azure Artifact Signing configuration is intentionally not part of the initial release
-implementation. When that deferred work is activated, its credentials, publisher-subject pinning,
-signed installer path, updater metadata, and native installed-update evidence must be implemented
-and reviewed together.
-
-Until then, Windows publication is limited to the
-explicitly unsigned manual NSIS installer. It must not include `latest.yml` or an NSIS blockmap, and
-release metadata must disclose the SmartScreen/Unknown publisher warning. Linux and Windows assets
-carry final checksums and provenance; neither may be confused with a signed macOS installer.
-
-The release workflow intentionally fails when required macOS signing/notarization is incomplete.
-Linux AppImages are explicitly unsigned at the OS package layer and rely on exact
-checksums plus GitHub build-provenance attestations; release metadata must not describe them as
-code-signed.
-
-Native upgrade checks run only on disposable GitHub runners. They use isolated profiles and retain
-`native-upgrade-linux.json` / `native-upgrade-win.json` as completed transaction evidence alongside
-the artifacts. The Linux test redirects only the updater feed; download, install, shutdown, and
-restart use the packaged application's production implementation. The Windows test invokes NSIS's
-silent per-user install path, not archive extraction and not Windows auto-update.
-The disposable Linux runner carries `ELECTRON_DISABLE_SANDBOX=1` across both launches, matching
-the startup smoke's test-only sandbox exception even though the updater relaunch has no CLI flags.
-This setting is not embedded in the application. Cleanup identifies relocated AppImage processes
-by the exact isolated profile marker and stops them before deleting test state.
-
-The workflow uses only the repository-scoped `GITHUB_TOKEN` to stage and publish the GitHub Release.
-It does not require AWS credentials, an update token, a private repository token, or a GitHub
-personal access token.
-
-## Release artifacts
-
-Each stable release contains the applicable artifacts for its advertised platforms:
-
-- `Penkra-<version>-arm64.dmg` for installation and recovery;
-- `Penkra-<version>-arm64.zip` for Electron auto-update;
-- `Penkra-<version>-x64.dmg` for installation and recovery on Intel Macs;
-- `Penkra-<version>-x64.zip` for Electron auto-update on Intel Macs;
-- both ZIP blockmaps used for differential downloads;
-- `latest-mac.yml`, merged from the two finalized architecture-specific ZIP manifests;
-- Linux AppImage with its compressed differential blockmap embedded at the end of the file, plus
-  `latest-linux.yml` whose `blockMapSize` tells the updater how many trailing bytes to read; unlike
-  macOS ZIP updates, Linux does not publish a separate `.AppImage.blockmap` sidecar;
-- `Penkra-<version>-x64.exe` as the explicitly unsigned manual Windows installer;
-- `SHA256SUMS.txt`;
-- GitHub build-provenance attestations.
-
-GitHub Actions artifacts are temporary workflow handoffs. GitHub Release assets are the durable
-distribution channel.
-
-## Local verification
-
-During implementation, run the commit-aware validation path to check only changed packages and
-their dependents:
+These are the operator's 0.14.4 verification gates. The operator performs manual verification.
+Record their results and the rehearsal report in `docs/clean-0144-notes.md`. Production must be
+quit only for a consistent read-only snapshot. Never copy a live SQLite file with a filesystem
+copy and never modify Production's database by hand.
 
 ```sh
-bun run verify:affected
+sqlite3 'file:<Production-state.sqlite>?mode=ro' "VACUUM INTO '<scratch>/state-copy.sqlite';"
+sqlite3 'file:<scratch>/state-copy.sqlite?mode=ro' 'PRAGMA integrity_check;'
 ```
 
-This is an iteration accelerator, not a release gate. The complete local quality pass remains
-mandatory before production-artifact QA:
+Reopen Penkra after the copy. Rehearse only on a fresh `VACUUM INTO` of that verified copy.
+Report threads, messages, children preserved, native owners, native-folder moves, retained-folder
+cleanup, foreign keys, rollback, duration, size and free pages. Stop on any preservation failure.
+
+## Build and sign without installing
+
+Use the existing package version until a version change is explicitly approved. The build pins
+registry trust keys and `required-apps.lock.json`; it fails if required signed App artifacts are
+missing or mismatched. For this local update, use the Mac
+Developer ID certificate and `--local-sign`; notarization is required only for publication.
 
 ```sh
-bun run release:verify
+bun scripts/build-desktop-artifact.ts --platform mac --target dmg --arch arm64 --local-sign \
+  --keep-stage --output-dir '<scratch>/release'
+# --keep-stage leaves the app under the penkra-desktop-mac-stage-* path logged by the build.
+find '<worktree-parent>/penkra-desktop-mac-stage-<id>/app/dist' -name Penkra.app -print
+codesign --verify --deep --strict '<path-to-new-Penkra.app>'
+spctl --assess --type execute '<path-to-new-Penkra.app>'
 ```
 
-Do not build or install a local artifact as release authority. In particular, release validation must
-never replace `/Applications/Penkra.app` or quit the Penkra instance coordinating the release. The
-tagged GitHub workflow is the sole source of production artifacts and performs native packaged
-startup checks on every advertised platform.
+The local build uses Developer ID signing without notarization; retain its staged app. `codesign`
+is mandatory. `spctl` is informational for this locally built app with no quarantine flag. Do
+not remove quarantine or change Gatekeeper settings. The publishing `--signed` path also requires
+notarization and stapling. The supported public matrix remains macOS arm64/x64, Linux x64 and
+Windows x64. Unsigned Windows installers stay manual-only.
 
-An already-built artifact can be validated with:
+## Update this Mac only after approval
+
+Confirm the rehearsal passed and the candidate has a verified Developer ID signature. Obtain the
+reviewer's final confirmation before invoking the updater. It does not publish anything.
 
 ```sh
-bun run release:smoke:mac-update -- --artifact-dir release
+PENKRA_UPDATE_CODEX_BIN='<standalone-codex-executable>' \
+  scripts/update-production.sh '<path-to-new-Penkra.app>'
 ```
 
-When updater or packaging behavior changes, test the update path with the workflow's mock-update or
-isolated native package harness before tagging. After publication, verify discovery from an existing
-production installation and let Penkra's normal update UI own the user-approved install/restart.
+The launcher verifies Developer ID `codesign` before changing anything (and records `spctl`
+informationally), writes a prompt under
+`~/Penkra/.penkra/updates/<timestamp>/`, and double-forks exactly one standalone Codex outside
+Penkra. It prints **Updater started; Penkra will quit and relaunch.** Do not use `launchctl submit`:
+it relaunches the updater when it exits.
 
-## Release invariants
+The detached agent performs the written transaction, logging each command and result:
 
-- A release is built from the exact certified commit and repository lockfile; its tag is created
-  only after the native artifacts pass.
-- Stable tags are exact `vMAJOR.MINOR.PATCH` values.
-- Public artifacts never contain the private Penkra backend or CLI.
-- macOS artifacts are Developer ID signed and Apple notarized.
-- Final verified update payloads are the source for updater hashes, manifests, and blockmaps.
-- Release builds and installed-App QA run natively on each advertised operating system.
-- A release is published only after every native build, verification, checksum, and provenance job
-  succeeds.
-- Published release assets are never replaced. A correction receives a newer patch version.
+1. Verify the candidate again; record its version and the current log boundaries.
+2. Register native process-exit watchers, ask Penkra to quit, and wait for exit without sleeps.
+3. Move `/Applications/Penkra.app` to the update directory, then install with `ditto` and verify.
+4. Launch the installed executable as an owned child. Watch new log writes and process exit.
+5. Request the new local `/status` after its listening event. It waits for server readiness and
+   reports the actual migration startup result plus `PENKRA_APP_VERSION`. Require the expected
+   version, migration status `ok`, and the new `server.log` migration-success entry.
+6. On failure, stop the candidate, restore and launch the old bundle, and record the result.
+   If migration committed, move the closed current `state.sqlite` and `-wal`/`-shm` into
+   `failed-db/`, copy `state.pre-0.14.4.sqlite` into place, and require read-only
+   `integrity_check=ok` before relaunching the old app. Never delete or edit either database or
+   backup. Keep both app bundles. Do not touch userdata's backup directory or `.corrupt` files.
+7. Write `update.log` and `report.md`, show a macOS notification, and exit after one attempt.
+
+Read the final report after Penkra reopens:
+
+```sh
+ls -dt ~/Penkra/.penkra/updates/*/ | head -1
+cat '<newest-update-directory>/report.md'
+cat '<newest-update-directory>/update.log'
+```
+
+The app owns its first-start database backup and migration. Keep the previous app and database
+backup until the operator chooses to delete them. A broken-build rollback exercise requires its
+own disposable instance; it must not deliberately break Production.
+
+## Publish a desktop release only when approved
+
+The protected workflow builds exact committed source and handles release assembly. Keep its
+live version/provenance tools; local installation is not publication.
+
+```sh
+node scripts/update-release-package-versions.ts '<approved-version>'
+git diff -- apps/server/package.json apps/desktop/package.json apps/web/package.json \
+  packages/contracts/package.json bun.lock
+# Commit the approved version changes before dispatching.
+release_commit="$(git rev-parse HEAD)"
+gh workflow run release.yml --repo penkrahq/penkra \
+  -f release_version='<approved-version>' -f source_commit="$release_commit"
+gh release view 'v<approved-version>' --repo penkrahq/penkra
+```
+
+`verify-release-source-provenance.ts` checks exact commit, clean source, aligned versions and
+lockfile hash. `write-release-artifact-provenance.ts` records the final native artifact trust
+proof. `release-smoke.ts` checks version/manifest packaging helpers; it is retained for release
+workflow use and is not an additional 0.14.4 local test gate. Follow the workflow's existing
+checksum, signing and update-feed verification before the operator publishes. GitHub update URLs
+and Electron's network updater remain distinct from the local detached transaction.
+
+## Public npm packages are separate releases
+
+Obtain explicit package/version approval first. The existing `npm-publish.yml` uses npm trusted
+publication with OIDC and provenance; no npm token belongs in this repository.
+
+```sh
+npm trust github @penkra/sdk --repo penkrahq/penkra --file npm-publish.yml --env npm --allow-publish --yes
+npm trust github @penkra/ui --repo penkrahq/penkra --file npm-publish.yml --env npm --allow-publish --yes
+# Commit only the approved package version and lockfile changes, then dispatch its existing workflow.
+gh workflow run npm-publish.yml --repo penkrahq/penkra --help
+```
+
+Configure the protected GitHub `npm` environment and trusted publisher before the first release.
+Approve its deployment only after reviewing the package and version. Confirm registry provenance
+and the exact immutable version afterward.

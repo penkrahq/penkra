@@ -1,8 +1,9 @@
 import { dirname } from "node:path";
-import { Effect, Layer, FileSystem, Path } from "effect";
+import { Cause, Exit, Effect, Layer, FileSystem, Path } from "effect";
 import * as SqlClient from "effect/unstable/sql/SqlClient";
 
 import { runMigrations } from "../Migrations.ts";
+import { recordMigrationStartupResult } from "../migrationStartupResult.ts";
 import { withClaudeNativeStateBackfill } from "../ClaudeNativeStateBackfill.ts";
 import {
   inspectPendingMigrationRecovery,
@@ -124,6 +125,11 @@ const makeSetup = (dbPath?: string, pendingRecovery: MigrationRecoveryMarker | n
       // Native folder moves share the migration's SQL transaction and rollback.
       const migration = dbPath
         ? withClaudeNativeStateBackfill(dirname(dbPath), runMigrations()).pipe(
+            Effect.tap((result) =>
+              result.migrations.some(([id]) => id >= 201)
+                ? sql`VACUUM`.pipe(Effect.asVoid)
+                : Effect.void,
+            ),
             Effect.map((result) => result.migrations),
           )
         : runMigrations();
@@ -133,7 +139,16 @@ const makeSetup = (dbPath?: string, pendingRecovery: MigrationRecoveryMarker | n
           : runWithPreMigrationBackup(dbPath, migration)
         : migration;
       yield* migrations;
-    }),
+      recordMigrationStartupResult({ status: "ok" });
+      yield* Effect.logInfo("Migration startup result", { status: "ok" });
+    }).pipe(
+      Effect.onExit((exit) =>
+        Effect.sync(() => {
+          if (Exit.isFailure(exit))
+            recordMigrationStartupResult({ status: "failed", reason: Cause.pretty(exit.cause) });
+        }),
+      ),
+    ),
   );
 };
 
