@@ -744,13 +744,10 @@ const makeCheckManagedProviderInstallationStatus = (
 
 // ── Claude Agent health check ───────────────────────────────────────
 
-const CLAUDE_AUTH_FALSE_NEGATIVE_RETRY_DELAY_MS = 1_000;
-
 export const makeCheckClaudeProviderStatus = (
   resolveSubscriptionType?: Effect.Effect<string | undefined>,
   binaryPath?: string,
   homeDir?: string,
-  options?: { readonly falseNegativeRetryDelayMs?: number },
 ): Effect.Effect<ServerProviderStatus, never, ChildProcessSpawner.ChildProcessSpawner> =>
   Effect.gen(function* () {
     const checkedAt = new Date().toISOString();
@@ -851,30 +848,11 @@ export const makeCheckClaudeProviderStatus = (
       };
     }
 
-    let authOutput = authProbe.success.value;
-    let parsed = parseClaudeAuthStatusFromOutput(authOutput);
+    const authOutput = authProbe.success.value;
+    const parsed = parseClaudeAuthStatusFromOutput(authOutput);
     const credentialSummary = readClaudeCliCredentialsSummary(
       homeDir ? { env: claudeEnv, homeDir } : { env: claudeEnv },
     );
-    // A structured `loggedIn:false` with a clean exit and no local credential
-    // record to rescue it (macOS keeps OAuth in the Keychain, not on disk) is
-    // the signature of a lost refresh-token rotation race with a concurrent
-    // `claude auth status` invocation. Re-probe once after the rotation settles.
-    if (
-      !credentialSummary.usable &&
-      isStructuredClaudeAuthFalseNegativeCandidate(authOutput, parsed)
-    ) {
-      const retryDelayMs =
-        options?.falseNegativeRetryDelayMs ?? CLAUDE_AUTH_FALSE_NEGATIVE_RETRY_DELAY_MS;
-      if (retryDelayMs > 0) {
-        yield* Effect.sleep(retryDelayMs);
-      }
-      const retryProbe = yield* runAuthStatusProbe;
-      if (Result.isSuccess(retryProbe) && Option.isSome(retryProbe.success)) {
-        authOutput = retryProbe.success.value;
-        parsed = parseClaudeAuthStatusFromOutput(authOutput);
-      }
-    }
     const structuredFalseNegative = isStructuredClaudeAuthFalseNegativeCandidate(
       authOutput,
       parsed,
