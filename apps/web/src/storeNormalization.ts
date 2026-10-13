@@ -1137,12 +1137,6 @@ export function createThreadActivityAccumulator(
   };
 }
 
-export function withOrchestrationEventSequence(
-  activity: OrchestrationThreadActivity,
-  sequence: number,
-): OrchestrationThreadActivity {
-  return { ...activity, sequence };
-}
 
 /**
  * Identifies a partially retained oldest turn that can be removed without
@@ -1597,53 +1591,31 @@ export function normalizeThreadFromReadModel(
 export function normalizeThreadShellSnapshot(
   incoming: ShellSnapshotThread,
   previous: Thread | undefined,
-): {
-  shell: ThreadShell;
-  session: ThreadSession | null;
-  turnState: ThreadTurnState;
-} {
-  const modelSelection = normalizeModelSelection(incoming.modelSelection, previous?.modelSelection);
-  const { session, latestTurn } = normalizeThreadLifecycle(incoming, previous);
-  const sessionError = normalizeThreadErrorMessage(incoming.session?.lastError);
-  const deliveryError = latestDeliveryFailureReason(previous?.messages ?? []);
-  const error = sessionError ?? deliveryError;
-  const errorSource = sessionError === null && deliveryError !== null ? "delivery" : undefined;
-  const sidebarRollups = resolveThreadSidebarRollups(incoming, previous);
-  const shell: ThreadShell = {
-    id: incoming.id,
-    codexThreadId: previous?.codexThreadId ?? null,
-    folderId: incoming.folderId,
-    spaceId: previous?.spaceId ?? null,
-    title: incoming.title,
-    modelSelection,
-    ...(incoming.connectionId !== undefined ? { connectionId: incoming.connectionId } : {}),
-    error,
-    ...(errorSource !== undefined ? { errorSource } : {}),
-    createdAt: incoming.createdAt,
-    archivedAt: incoming.archivedAt ?? null,
-    updatedAt: incoming.updatedAt,
-    creationSource: incoming.creationSource ?? null,
-    sourceThreadId: incoming.sourceThreadId ?? null,
-    subagentAgentId: incoming.subagentAgentId ?? null,
-    subagentNickname: incoming.subagentNickname ?? null,
-    subagentRole: incoming.subagentRole ?? null,
-    // The sidebar shell snapshot/event does not carry thread annotations, so keep the values
-    // resolved from the thread-detail path instead of clobbering them with `undefined`.
-    ...(incoming.hasPendingUserInput !== undefined
-      ? { hasPendingUserInput: incoming.hasPendingUserInput }
-      : {}),
-    ...sidebarRollups,
-    ...(previous?.pendingInteractions !== undefined
-      ? { pendingInteractions: previous.pendingInteractions }
-      : {}),
-  };
+): { shell: ThreadShell; session: ThreadSession | null; turnState: ThreadTurnState } {
+  const session = normalizeThreadSession(incoming.session, previous?.session);
   return {
-    shell,
+    shell: {
+      id: incoming.id,
+      codexThreadId: null,
+      folderId: incoming.folderId,
+      spaceId: incoming.spaceId ?? null,
+      title: incoming.title,
+      modelSelection: normalizeModelSelection(incoming.modelSelection, previous?.modelSelection),
+      connectionId: incoming.connectionId,
+      error: normalizeThreadErrorMessage(incoming.session?.lastError),
+      createdAt: incoming.createdAt,
+      archivedAt: incoming.archivedAt ?? null,
+      updatedAt: incoming.updatedAt,
+      creationSource: incoming.creationSource ?? null,
+      sourceThreadId: incoming.sourceThreadId ?? null,
+      hasPendingUserInput: incoming.hasPendingUserInput ?? false,
+      workStatus: incoming.workStatus,
+    },
     session,
     turnState: {
-      latestTurn,
-      pendingTurnStartMessageId: previous?.pendingTurnStartMessageId ?? null,
-      queuedMessageIds: previous?.queuedMessageIds ?? [],
+      latestTurn: incoming.latestTurn === null ? null : { ...incoming.latestTurn },
+      pendingTurnStartMessageId: null,
+      queuedMessageIds: [],
     },
   };
 }

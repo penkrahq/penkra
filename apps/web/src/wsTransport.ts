@@ -19,7 +19,6 @@ import {
   WsBootstrapRpcGroup,
   WsCompatibilityError,
   WsFeatureRpcGroup,
-  WsRpcError,
   type GetProviderConnectionLoginInput,
   type ProviderConnectionLoginSnapshot,
   type ProjectWorkspaceChangeEvent,

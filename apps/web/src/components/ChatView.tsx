@@ -11,7 +11,6 @@ import {
   DEFAULT_MODEL_BY_PROVIDER,
   MessageId,
   type ModelSelection,
-  type NativeApi,
   type ModelSlug,
   type ProviderKind,
   type ProviderConnectionId,
@@ -45,11 +44,10 @@ import {
   useMemo,
   useRef,
   useState,
-  useSyncExternalStore,
   type MouseEvent,
   type WheelEvent,
 } from "react";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Debouncer, useDebouncedValue } from "@tanstack/react-pacer";
 import { useNavigate } from "@tanstack/react-router";
 import { resolveProviderDiscoveryCwd } from "~/lib/providerDiscovery";
@@ -109,14 +107,13 @@ import {
   recordChatLifecycleDiagnostic,
   recordChatLifecycleUiDiagnostic,
 } from "../chatLifecycleDiagnostics";
-import { openThreadUrlReference, useThreadResourceOpener } from "../lib/threadResourceOpener";
-import { readActiveSpaceId, useSpacesUiStore } from "../spacesUiStore";
+import { useThreadResourceOpener } from "../lib/threadResourceOpener";
+import { useSpacesUiStore } from "../spacesUiStore";
 import { registerDesktopThreadLiveHandlers } from "../desktopThreadApiBroker";
 import {
   buildComposerFileAttachmentsFromFiles,
   buildComposerImageAttachmentsFromFiles,
   stageUploadComposerAttachments,
-  cloneComposerImageAttachment,
   effectiveComposerAttachmentCount,
   findPendingBlobComposerAttachments,
   formatOutgoingComposerPrompt,
@@ -134,7 +131,6 @@ import {
   resolveCommittedProviderModel,
   resolveCycledModelSlug,
   resolvePromptHistoryNavigation,
-  resolveThreadDetailHydration,
   shouldShowComposerContinue,
   shouldRenderTranscriptDuringHydration,
   shouldHandlePromptHistoryNavigationKey,
@@ -178,13 +174,12 @@ import {
 } from "../session-logic";
 import {
   buildPendingUserInputAnswers,
-  resolvePendingUserInputAnswer,
   derivePendingUserInputProgress,
   setPendingUserInputCustomAnswer,
   togglePendingUserInputOptionSelection,
   type PendingUserInputDraftAnswer,
 } from "../pendingUserInput";
-import { selectRightDockState, useRightDockStore } from "../rightDockStore";
+import {} from "../rightDockStore";
 import { useStore } from "../store";
 import { getThreadFromState } from "../threadDerivation";
 import { useWorkspacePathsStore } from "../workspacePathsStore";
@@ -206,10 +201,10 @@ import { ComposerQueuedHeader } from "./chat/ComposerQueuedHeader";
 import { Button } from "./ui/button";
 import { cn, isMacPlatform, randomUUID } from "~/lib/utils";
 import { toastManager } from "./ui/toast";
-import { newCommandId, newMessageId, newFolderId, newThreadId } from "~/lib/utils";
+import { newCommandId, newMessageId } from "~/lib/utils";
 import { readNativeApi, ensureNativeApi } from "~/nativeApi";
 import { applyThreadCreationResponse } from "~/lib/threadCreatePromotion";
-import { requireNewThreadSpaceId } from "~/lib/threadBootstrap";
+import {} from "~/lib/threadBootstrap";
 import { readFavoriteModelSlugs } from "~/lib/modelFavorites";
 import {
   getCustomBinaryPathForProvider,
@@ -219,7 +214,7 @@ import {
   useAppSettings,
 } from "../appSettings";
 import { toAttachmentPreviewUrl } from "../lib/wsHttpUrl";
-import { isEditableEventTarget } from "../lib/editableEventTarget";
+import {} from "../lib/editableEventTarget";
 import { useComposerDraftSync } from "../composerDraftSync";
 import { useThreadItems } from "../useThreadItems";
 import {

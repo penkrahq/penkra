@@ -1,6 +1,6 @@
+import { ThreadPolicyError } from "./threadErrors.ts";
 // Persist send admission before provider work; settle outcomes in canonical rows.
 import {
-  MessageId,
   ThreadId,
   type CleanCoreSendAdmission,
   type CleanCoreSendMessageInput,
@@ -63,7 +63,11 @@ export const sendMessage = (
           return yield* Effect.fail(new Error("The thread does not exist."));
         if (thread.archivedAt !== null)
           return yield* Effect.fail(
-            new Error("This thread is archived. Unarchive it to send messages."),
+            new ThreadPolicyError({
+              operation: "sendMessage",
+              code: "thread_archived",
+              detail: "This thread is archived. Unarchive it to send messages.",
+            }),
           );
         if (input.modelSelection !== undefined && input.modelSelection.provider !== thread.provider)
           return yield* Effect.fail(

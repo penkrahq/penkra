@@ -25,10 +25,9 @@ import {
   THREAD_SUMMARY_COLUMNS,
   decodeThreadSummary,
   type RawThreadSummaryRecord,
-  type ThreadSummaryRecord,
 } from "./threadList.ts";
 import { listThreadItemsPage, type ThreadItemRecord } from "./threadItemsPage.ts";
-import { getNavigation } from "./navigation.ts";
+import {} from "./navigation.ts";
 import type {
   ProjectionFolderPageCursor,
   ProjectionThreadShellPageInput,

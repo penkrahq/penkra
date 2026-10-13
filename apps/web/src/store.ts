@@ -5,38 +5,17 @@
 import { ensureNativeApi } from "./nativeApi";
 
 import { Fragment, type ReactNode, createElement, useEffect } from "react";
-import {
-  type MessageId,
-  type OrchestrationEvent,
-  type OrchestrationReadModel,
-  type OrchestrationStartupSnapshot,
-  type OrchestrationThreadShell,
-  type OrchestrationShellStreamEvent,
-  type OrchestrationGetThreadTurnsPageResult,
-  type SpaceId,
-  type ThreadId,
-} from "@penkra/contracts";
+import { type OrchestrationThreadShell, type ThreadId } from "@penkra/contracts";
 import { Debouncer } from "@tanstack/react-pacer";
 import { create } from "zustand";
 
 import {
   applySpaceOrder,
-  applyShellEvent,
   applyThreadUpdate,
-  clearThreadDetailSyncFailureInClientState,
-  evictThreadDetailFromClientState,
-  markThreadDetailKnownEmptyInClientState,
-  markThreadDetailSyncFailedInClientState,
   removeDeletedProjectFromClientState,
   removeDeletedThreadFromClientState,
-  syncServerReadModel,
-  syncServerStartupSnapshot,
   syncServerThreadShell,
-  syncServerThreadDetail,
-  syncServerThreadDetailHotPath,
-  syncServerThreadTurnsPage,
 } from "./storeProjection";
-import { applyOrchestrationEvents, applyOrchestrationEventsHotPath } from "./storeEventReducer";
 import {
   persistState,
   readPersistedState,
@@ -46,27 +25,14 @@ import {
 import { initialState, type AppState } from "./storeState";
 import type { Project } from "./types";
 
-type ReadModelThread = OrchestrationReadModel["threads"][number];
-
 export type { AppState } from "./storeState";
 export { EMPTY_THREAD_IDS } from "./storeState";
 export {
   applySpaceOrder,
-  applyShellEvent,
-  clearThreadDetailSyncFailureInClientState,
-  evictThreadDetailFromClientState,
-  markThreadDetailKnownEmptyInClientState,
-  markThreadDetailSyncFailedInClientState,
   removeDeletedProjectFromClientState,
   removeDeletedThreadFromClientState,
-  syncServerReadModel,
-  syncServerStartupSnapshot,
   syncServerThreadShell,
-  syncServerThreadDetail,
-  syncServerThreadDetailHotPath,
-  syncServerThreadTurnsPage,
 } from "./storeProjection";
-export { applyOrchestrationEvents, applyOrchestrationEventsHotPath } from "./storeEventReducer";
 
 const debouncedPersistState = new Debouncer(persistState, { wait: 500 });
 
@@ -177,20 +143,7 @@ export function setError(state: AppState, threadId: ThreadId, error: string | nu
 // ── Zustand store ────────────────────────────────────────────────────
 
 interface AppStore extends AppState {
-  syncServerStartupSnapshot: (snapshot: OrchestrationStartupSnapshot) => void;
   syncServerThreadShell: (threadId: ThreadId, thread: OrchestrationThreadShell | null) => void;
-  syncServerThreadDetail: (thread: ReadModelThread) => void;
-  syncServerThreadDetailHotPath: (thread: ReadModelThread) => void;
-  syncServerThreadTurnsPage: (page: OrchestrationGetThreadTurnsPageResult) => void;
-  syncServerReadModel: (readModel: OrchestrationReadModel) => void;
-  applyShellEvent: (event: OrchestrationShellStreamEvent) => void;
-  applyOrchestrationEvents: (events: ReadonlyArray<OrchestrationEvent>) => void;
-  applyOrchestrationEventsHotPath: (events: ReadonlyArray<OrchestrationEvent>) => void;
-  evictThreadDetail: (threadId: ThreadId) => void;
-  evictThreadDetails: (threadIds: readonly ThreadId[]) => void;
-  markThreadDetailSyncFailed: (threadId: ThreadId) => void;
-  markThreadDetailKnownEmpty: (threadId: ThreadId) => void;
-  clearThreadDetailSyncFailure: (threadId: ThreadId) => void;
   removeDeletedProjectFromClientState: (folderId: Project["id"]) => void;
   removeDeletedThreadFromClientState: (threadId: ThreadId) => void;
   markThreadVisited: (threadId: ThreadId, visitedAt: string) => Promise<void>;
@@ -205,42 +158,8 @@ interface AppStore extends AppState {
 
 export const useStore = create<AppStore>((set) => ({
   ...readPersistedState(initialState),
-  syncServerStartupSnapshot: (snapshot) =>
-    set((state) => syncServerStartupSnapshot(state, snapshot)),
   syncServerThreadShell: (threadId, thread) =>
     set((state) => syncServerThreadShell(state, threadId, thread)),
-  syncServerThreadDetail: (thread) => set((state) => syncServerThreadDetail(state, thread)),
-  syncServerThreadDetailHotPath: (thread) =>
-    set((state) => syncServerThreadDetailHotPath(state, thread)),
-  syncServerThreadTurnsPage: (page) => set((state) => syncServerThreadTurnsPage(state, page)),
-  syncServerReadModel: (readModel) => set((state) => syncServerReadModel(state, readModel)),
-  applyShellEvent: (event) => set((state) => applyShellEvent(state, event)),
-  applyOrchestrationEvents: (events) => set((state) => applyOrchestrationEvents(state, events)),
-  applyOrchestrationEventsHotPath: (events) =>
-    set((state) =>
-      applyOrchestrationEventsHotPath(state, events, {
-        updateSidebarSummary: false,
-      }),
-    ),
-  evictThreadDetail: (threadId) =>
-    set((state) => evictThreadDetailFromClientState(state, threadId)),
-  // Dropping a batch of leases evicts several threads at once. Every store update
-  // re-runs the retention reconcile, so folding them into one write keeps that at
-  // a single pass instead of one per thread.
-  evictThreadDetails: (threadIds) =>
-    set((state) => {
-      let nextState: AppState = state;
-      for (const threadId of threadIds) {
-        nextState = evictThreadDetailFromClientState(nextState, threadId);
-      }
-      return nextState;
-    }),
-  markThreadDetailSyncFailed: (threadId) =>
-    set((state) => markThreadDetailSyncFailedInClientState(state, threadId)),
-  markThreadDetailKnownEmpty: (threadId) =>
-    set((state) => markThreadDetailKnownEmptyInClientState(state, threadId)),
-  clearThreadDetailSyncFailure: (threadId) =>
-    set((state) => clearThreadDetailSyncFailureInClientState(state, threadId)),
   removeDeletedProjectFromClientState: (folderId) =>
     set((state) => removeDeletedProjectFromClientState(state, folderId)),
   removeDeletedThreadFromClientState: (threadId) =>

@@ -17,10 +17,8 @@ import { ThreadLifecycle } from "../../cleanCore/threadLifecycle.ts";
 import { randomUUID } from "node:crypto";
 
 import {
-  CommandId,
   MessageId,
   ThreadId,
-  TurnId,
   type ProviderKind,
   type ServerProviderStatus,
 } from "@penkra/contracts";
@@ -29,10 +27,7 @@ import { Effect, Layer, Option } from "effect";
 import { ServerConfig } from "../../config.ts";
 import * as SqlClient from "effect/unstable/sql/SqlClient";
 import { ThreadPublisher } from "../../cleanCore/ThreadPublisher.ts";
-import {
-  OrchestrationCommandInvariantError,
-  findThreadGuardInvariant,
-} from "../../orchestration/Errors.ts";
+import { findThreadPolicyError } from "../../cleanCore/threadErrors.ts";
 import { ThreadReads } from "../../cleanCore/ThreadReads.ts";
 import { AgentGateway, type AgentGatewayShape } from "../Services/AgentGateway.ts";
 import { AgentGatewayCredentials } from "../Services/AgentGatewayCredentials.ts";
@@ -131,7 +126,7 @@ function command(
 
 function sendMessageErrorResult(error: unknown) {
   if (error instanceof GatewayToolError) return gatewayToolErrorResult(error);
-  const threadGuard = findThreadGuardInvariant(error);
+  const threadGuard = findThreadPolicyError(error);
   if (threadGuard?.code === "thread_archived") {
     return gatewayToolErrorResult(new GatewayToolError(threadGuard.code, threadGuard.detail));
   }

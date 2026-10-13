@@ -1,4 +1,4 @@
-import { ORCHESTRATION_WS_METHODS, WS_METHODS } from "@penkra/contracts";
+import { WS_METHODS } from "@penkra/contracts";
 import { Deferred, Effect, Fiber } from "effect";
 import { describe, expect, it } from "vitest";
 
@@ -7,20 +7,18 @@ import { classifyWsRequest, makeWsRequestAdmission } from "./wsRequestAdmission"
 describe("WsRequestAdmission", () => {
   it("keeps bounded folder reads out of the expensive lane", () => {
     expect(classifyWsRequest(WS_METHODS.cleanCoreGetFolders)).toBe("standard");
-    expect(classifyWsRequest(ORCHESTRATION_WS_METHODS.getThreadDetailSnapshot)).toBe(
-      "expensive-read",
-    );
-    expect(classifyWsRequest(ORCHESTRATION_WS_METHODS.dispatchCommand)).toBe("control");
+    expect(classifyWsRequest(WS_METHODS.cleanCoreListThreadItemsPage)).toBe("expensive-read");
+    expect(classifyWsRequest(WS_METHODS.cleanCoreSendMessage)).toBe("control");
   });
 
   it("reserves independent capacity for control traffic during an expensive-read flood", async () => {
     await Effect.runPromise(
       Effect.gen(function* () {
         const admission = yield* makeWsRequestAdmission;
-        const first = yield* admission.acquire(1, ORCHESTRATION_WS_METHODS.getSnapshot);
+        const first = yield* admission.acquire(1, WS_METHODS.cleanCoreGetBootstrap);
         const second = yield* admission.acquire(1, WS_METHODS.projectsSearchEntries);
         const rejected = yield* admission
-          .acquire(1, ORCHESTRATION_WS_METHODS.getThreadDetailSnapshot)
+          .acquire(1, WS_METHODS.cleanCoreListThreadItemsPage)
           .pipe(Effect.exit);
 
         expect(rejected._tag).toBe("Failure");
@@ -28,7 +26,7 @@ describe("WsRequestAdmission", () => {
           expect(String(rejected.cause)).toContain("RPC_EXPENSIVE_READ_CAPACITY_EXCEEDED");
         }
 
-        const control = yield* admission.acquire(1, ORCHESTRATION_WS_METHODS.dispatchCommand);
+        const control = yield* admission.acquire(1, WS_METHODS.cleanCoreSendMessage);
         expect(control.requestClass).toBe("control");
         yield* admission.release(first);
         yield* admission.release(first);
@@ -48,8 +46,8 @@ describe("WsRequestAdmission", () => {
     await Effect.runPromise(
       Effect.gen(function* () {
         const admission = yield* makeWsRequestAdmission;
-        const clientOne = yield* admission.acquire(1, ORCHESTRATION_WS_METHODS.getSnapshot);
-        const clientTwo = yield* admission.acquire(2, ORCHESTRATION_WS_METHODS.getSnapshot);
+        const clientOne = yield* admission.acquire(1, WS_METHODS.cleanCoreGetBootstrap);
+        const clientTwo = yield* admission.acquire(2, WS_METHODS.cleanCoreGetBootstrap);
 
         const failed = yield* admission
           .guard(1, WS_METHODS.projectsListDirectories, Effect.fail("expected"))
@@ -76,7 +74,7 @@ describe("WsRequestAdmission", () => {
         const fiber = yield* admission
           .guard(
             1,
-            ORCHESTRATION_WS_METHODS.getSnapshot,
+            WS_METHODS.cleanCoreGetBootstrap,
             Deferred.succeed(started, undefined).pipe(Effect.andThen(Effect.never)),
           )
           .pipe(Effect.forkChild);

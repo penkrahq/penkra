@@ -4,11 +4,9 @@
 // Depends on: MessagesTimeline and ChatView's list-owned scroll contract.
 
 import type { CleanCoreThreadItem } from "@penkra/contracts";
-import { type MessageId, ThreadId, type TurnId } from "@penkra/contracts";
+import { ThreadId, type TurnId } from "@penkra/contracts";
 import {
   memo,
-  useCallback,
-  useRef,
   type ComponentProps,
   type CSSProperties,
   type MouseEventHandler,
@@ -20,11 +18,8 @@ import {
 } from "react";
 import { type TimestampFormat } from "../../appSettings";
 import { recordChatTranscriptPropChanges } from "../../chatPerformanceDiagnostics";
-import { recordChatPaginationDiagnostic } from "../../chatScrollDiagnostics";
-import {
-  readPaginationViewportAnchor,
-  summarizeThreadTurnsPage,
-} from "../../chatPaginationDiagnostics";
+import {} from "../../chatScrollDiagnostics";
+import {} from "../../chatPaginationDiagnostics";
 import { ArrowDownIcon } from "~/lib/icons";
 import { cn } from "~/lib/utils";
 import { DISCLOSURE_CONTENT_MOTION_CLASS } from "~/lib/disclosureMotion";
@@ -34,9 +29,9 @@ import { MessagesTimeline } from "./MessagesTimeline";
 import { AgentActivityDetailView } from "./AgentActivityDetailView";
 import type { AgentActivityDetail } from "./agentActivity.logic";
 import type { TranscriptVirtualListRef } from "./TranscriptVirtualList";
-import { useStore } from "../../store";
-import { readNativeApi } from "../../nativeApi";
-import { toastManager } from "../ui/toast";
+import {} from "../../store";
+import {} from "../../nativeApi";
+import {} from "../ui/toast";
 
 interface ChatTranscriptPaneProps {
   activeThreadId: string;

@@ -15,7 +15,6 @@ import {
   type OrchestrationFolderShell,
   type OrchestrationThreadShell,
   type PenkraCreateThreadInput,
-  type ProviderKind,
   type ProviderListModelsInput,
   type CleanCoreThreadSummary,
   type CleanCoreSendAdmission,

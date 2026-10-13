@@ -2,11 +2,9 @@ import { ProviderAuthCircuits } from "../provider/providerAuthCircuit.ts";
 import { ServerConfig } from "../config.ts";
 import { ensureDurableThreadWorkspace } from "../scratchWorkspaces.ts";
 import { ManagedAttachmentRepository } from "../persistence/Services/ManagedAttachments.ts";
-import { randomUUID } from "node:crypto";
+import {} from "node:crypto";
 import {
   MessageId,
-  ModelSelection,
-  RuntimeMode,
   ThreadId,
   CleanCoreThreadRuntime,
   QUEUED_MESSAGE_EDIT_NONEMPTY_DRAFT_ERROR,
@@ -15,7 +13,6 @@ import {
   type CleanCoreSendAdmission,
   ProviderConnectionId,
   type CleanCoreSendMessageInput,
-  ProviderKind,
 } from "@penkra/contracts";
 import { Deferred, Effect, Layer, Option, Schema, Semaphore, ServiceMap, Stream } from "effect";
 import * as SqlClient from "effect/unstable/sql/SqlClient";

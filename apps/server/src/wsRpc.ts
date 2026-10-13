@@ -3,15 +3,13 @@ import { PLAY_TURN_RECOVERY_PROMPT } from "./cleanCore/sendMessage.ts";
 import { getNavigation, updateNavigation } from "./cleanCore/navigation";
 import { getFolderAppTabs, updateFolderAppTabs } from "./cleanCore/folderAppTabs.ts";
 import { listArchivedNavigation, listArchivedThreads, restoreThread } from "./cleanCore/archive.ts";
-import { ensureDurableThreadWorkspace } from "./scratchWorkspaces.ts";
+import {} from "./scratchWorkspaces.ts";
 import { createAndSendThread } from "./cleanCore/createAndSendThread.ts";
 import { createThreadFromClient, ThreadLifecycle } from "./cleanCore/threadLifecycle.ts";
 import { ThreadSender } from "./cleanCore/ThreadSender.ts";
 
 import {
-  type ProviderConnectionId,
   ORCHESTRATION_WS_METHODS,
-  ThreadId,
   WS_BOOTSTRAP_METHOD,
   WS_BOOTSTRAP_PATH,
   WS_FEATURE_PATH,
@@ -20,14 +18,6 @@ import {
   WsFeatureRpcGroup,
   WsRpcError,
   QueuedEditDraftNotEmptyError,
-  type OrchestrationCommand,
-  type OrchestrationEvent,
-  type OrchestrationShellStreamEvent,
-  type OrchestrationShellStreamItem,
-  type OrchestrationStartupSnapshot,
-  type OrchestrationSyncStreamItem,
-  type OrchestrationThreadDetailSnapshot,
-  type OrchestrationThreadStreamItem,
   type ServerConfigStreamEvent,
   type ServerLifecycleStreamEvent,
 } from "@penkra/contracts";
@@ -52,14 +42,12 @@ import { Keybindings } from "./keybindings";
 import { createLocalPreviewGrant } from "./localImageFiles";
 import {
   attachmentPrincipalForSession,
-  CurrentManagedAttachmentPrincipal,
   LOCAL_LOOPBACK_ATTACHMENT_PRINCIPAL,
 } from "./managedAttachmentPrincipal";
 import { Open, resolveAvailableEditors } from "./open";
 import { makeImportThreadHandler } from "./orchestration/importThreadRoute";
-import { ProviderThreadSwitchCoordinator } from "./orchestration/Services/ProviderThreadSwitchCoordinator";
+import {} from "./orchestration/Services/ProviderThreadSwitchCoordinator";
 import { ThreadReads } from "./cleanCore/ThreadReads";
-import { shouldPublishThreadShellForEvent } from "./orchestration/threadShellEvents";
 import { listProviderConnectionManifests } from "./provider/providerConnectionManifests";
 import { ProviderDiscoveryService } from "./provider/Services/ProviderDiscoveryService";
 import { discoverSkillsCatalog, penkraSkillsDir } from "./provider/skillsCatalog";
@@ -111,11 +99,9 @@ import {
   shouldRejectUntrustedRequestOrigin,
 } from "./trustedOrigins";
 import { bufferLiveUiStream, type LiveUiStreamDropReport } from "./wsStreamBackpressure";
-import { makeDurableOrchestrationStream } from "./wsDurableOrchestrationStream";
-import { makeCursorSafeSnapshotLiveStream } from "./wsSnapshotLiveStream";
-import { makeSyncAcknowledgements } from "./wsSyncAcknowledgements";
+import {} from "./wsSyncAcknowledgements";
 import { wsRpcErrorCode } from "./wsRpcErrorMapping";
-import { findThreadGuardInvariant } from "./orchestration/Errors.ts";
+import { findThreadPolicyError } from "./cleanCore/threadErrors.ts";
 
 class WsRequestAdmissionMiddleware extends RpcMiddleware.Service<WsRequestAdmissionMiddleware>()(
   "penkra/WsRequestAdmissionMiddleware",
@@ -149,7 +135,7 @@ const CHAT_WORKSPACE_SUBDIRECTORIES = ["work", "outputs"] as const;
 
 function toWsRpcError(cause: unknown, fallbackMessage: string) {
   const code = wsRpcErrorCode(cause);
-  const threadGuard = findThreadGuardInvariant(cause);
+  const threadGuard = findThreadPolicyError(cause);
   return Schema.is(WsRpcError)(cause)
     ? cause
     : new WsRpcError({

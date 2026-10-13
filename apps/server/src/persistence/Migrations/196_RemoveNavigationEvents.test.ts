@@ -1,7 +1,7 @@
 import { getNavigation } from "../../cleanCore/navigation";
 import { assert, it } from "@effect/vitest";
-import { EventId, ThreadId } from "@penkra/contracts";
-import { Effect, Layer, Stream } from "effect";
+import {} from "@penkra/contracts";
+import { Effect } from "effect";
 import * as SqlClient from "effect/unstable/sql/SqlClient";
 import * as NodeSqliteClient from "../NodeSqliteClient";
 import { runMigrations } from "../Migrations";

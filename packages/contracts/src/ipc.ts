@@ -53,22 +53,8 @@ import type {
   ServerVoiceTranscriptionResult,
 } from "./server";
 import type {
-  ClientOrchestrationCommand,
-  OrchestrationAcknowledgeSyncInput,
-  OrchestrationGetThreadDetailSnapshotInput,
-  OrchestrationGetThreadDetailSnapshotResult,
-  OrchestrationGetThreadTurnsPageInput,
-  OrchestrationGetThreadTurnsPageResult,
-  OrchestrationGetPendingStartOutcomeInput,
-  OrchestrationGetPendingStartOutcomeResult,
   OrchestrationImportThreadInput,
   OrchestrationImportThreadResult,
-  OrchestrationEvent,
-  OrchestrationReadModel,
-  OrchestrationShellStreamItem,
-  OrchestrationSubscribeThreadInput,
-  OrchestrationSyncStreamItem,
-  OrchestrationThreadStreamItem,
 } from "./orchestration";
 import type {
   CleanCoreGetThreadDraftInput,

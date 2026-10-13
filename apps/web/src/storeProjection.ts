@@ -1,39 +1,16 @@
-import type { CleanCoreGetNavigationResult } from "@penkra/contracts";
-// FILE: storeProjection.ts
-// Purpose: Owns normalized slice writes, sidebar projections, and snapshot integration.
-// Exports: Pure projection transitions used by the facade and orchestration reducer.
-
-import {
-  type MessageId,
-  type OrchestrationReadModel,
-  type OrchestrationStartupSnapshot,
-  type OrchestrationShellStreamEvent,
-  type OrchestrationThreadShell,
-  type OrchestrationSpaceShell,
-  type OrchestrationGetThreadTurnsPageResult,
-  type ThreadId,
+// Purpose: Apply canonical navigation and thread shells to the window's presentation store.
+import type {
+  CleanCoreGetNavigationResult,
+  OrchestrationSpaceShell,
+  OrchestrationThreadShell,
+  ThreadId,
 } from "@penkra/contracts";
-import { deriveThreadSummaryMetadata } from "@penkra/shared/threadSummary";
-
-import { recordChatPaginationDiagnostic } from "./chatScrollDiagnostics";
-import { getThreadFromState, getThreadsFromState } from "./threadDerivation";
+import { getThreadFromState } from "./threadDerivation";
 import {
   arraysShallowEqual,
-  capThreadActivities,
-  compareChatMessagesForTranscript,
-  dedupeActivitiesById,
-  latestDeliveryFailureReason,
-  mapFolders,
-  mapSpaces,
-  mergeReadModelThreadDetailWithLiveHotPath,
-  normalizeActivities,
-  normalizeChatMessage,
-  normalizeThreadErrorMessage,
   normalizeProject,
   normalizeSpace,
-  normalizeThreadFromReadModel,
   normalizeThreadShellSnapshot,
-  recordsShallowEqual,
   resolveThreadSidebarMetadata,
   threadSessionsEqual,
   threadShellsEqual,
@@ -42,19 +19,13 @@ import {
 } from "./storeNormalization";
 import { rememberProjectLocalNames, rememberProjectUiState } from "./storePersistence";
 import {
-  EMPTY_ACTIVITY_BY_THREAD,
-  EMPTY_ACTIVITY_IDS_BY_THREAD,
-  EMPTY_MESSAGE_BY_THREAD,
-  EMPTY_MESSAGE_IDS_BY_THREAD,
   EMPTY_THREAD_IDS,
   EMPTY_THREAD_SESSION_BY_ID,
   EMPTY_THREAD_SHELL_BY_ID,
   EMPTY_THREAD_TURN_STATE_BY_ID,
   type AppState,
-  type ThreadDetailSyncState,
 } from "./storeState";
 import type {
-  ChatMessage,
   Project,
   Space,
   SidebarThreadSummary,
@@ -63,11 +34,7 @@ import type {
   ThreadShell,
   ThreadTurnState,
 } from "./types";
-
-type ReadModelThread = OrchestrationReadModel["threads"][number];
 export type ProjectMatchPolicy = "id-only";
-
-/** Project the canonical thread shell fields. */
 function toThreadShell(thread: Thread): ThreadShell {
   return {
     id: thread.id,
@@ -96,6 +63,7 @@ function toThreadShell(thread: Thread): ThreadShell {
       : {}),
   };
 }
+
 function toThreadTurnState(thread: Thread): ThreadTurnState {
   return {
     latestTurn: thread.latestTurn,
@@ -104,83 +72,6 @@ function toThreadTurnState(thread: Thread): ThreadTurnState {
   };
 }
 
-interface NormalizedSlice<TId extends string, TValue> {
-  readonly ids: TId[];
-  readonly byId: Record<TId, TValue>;
-}
-
-/**
- * Builds the `{ ids, byId }` pair for one thread-scoped detail slice, reusing the previous
- * containers by reference whenever they are still correct.
- *
- * Two things matter for the streaming hot path (a delta rewrites one of up to 2k messages):
- * - `ids` only changes when the order or membership changes, so it is reused by reference. That
- *   keeps the outer `...ByThreadId` record from being re-spread and keeps `collectByIds`' cache
- *   and every selector comparing slice identity from invalidating.
- * - `byId` is rebuilt in one keyed pass rather than copied from the previous record. Copying a
- *   ~2k-key dictionary object (`{ ...previous }`) measures ~5x slower in V8 than building a fresh
- *   object with the same keys, and ~4x slower than this loop.
- */
-function buildNormalizedSlice<TId extends string, TValue>(
-  items: readonly TValue[],
-  getId: (item: TValue) => TId,
-  previousItems: readonly TValue[] | undefined,
-  previousIds: TId[] | undefined,
-  previousById: Record<TId, TValue> | undefined,
-): NormalizedSlice<TId, TValue> {
-  let reusableIds: TId[] | undefined;
-  if (
-    previousItems !== undefined &&
-    previousIds !== undefined &&
-    previousById !== undefined &&
-    previousItems.length === items.length &&
-    previousIds.length === items.length
-  ) {
-    // Object identity proves a slot is untouched with a pointer compare, so a no-op rewrite of the
-    // array (same contents, new reference) costs a scan instead of a rebuild.
-    let firstChangedIndex = -1;
-    for (let index = 0; index < items.length; index += 1) {
-      if (previousItems[index] !== items[index]) {
-        firstChangedIndex = index;
-        break;
-      }
-    }
-    if (firstChangedIndex < 0) {
-      return { ids: previousIds, byId: previousById };
-    }
-    // Everything before the first changed slot is identical, so only the tail can have reordered.
-    reusableIds = previousIds;
-    for (let index = firstChangedIndex; index < items.length; index += 1) {
-      if (previousIds[index] !== getId(items[index]!)) {
-        reusableIds = undefined;
-        break;
-      }
-    }
-  }
-
-  const byId = {} as Record<TId, TValue>;
-  if (reusableIds !== undefined) {
-    for (let index = 0; index < items.length; index += 1) {
-      const item = items[index]!;
-      byId[getId(item)] = item;
-    }
-    return { ids: reusableIds, byId };
-  }
-
-  const ids: TId[] = new Array<TId>(items.length);
-  for (let index = 0; index < items.length; index += 1) {
-    const item = items[index]!;
-    const id = getId(item);
-    ids[index] = id;
-    byId[id] = item;
-  }
-  return { ids, byId };
-}
-
-const messageId = (message: ChatMessage): MessageId => message.id;
-const activityId = (activity: Thread["activities"][number]): string => activity.id;
-
-/** Replace navigation with the complete canonical read; thread detail is independent. */
 export function syncServerNavigation(
   state: AppState,
   navigation: CleanCoreGetNavigationResult,
@@ -193,13 +84,6 @@ export function syncServerNavigation(
     ...state,
     folders: state.folders.filter((folder) => folderIds.has(folder.id)),
     spaces: state.spaces.filter((space) => spaceIds.has(space.id)),
-    ...(state.deletedFolderIdsById === undefined
-      ? {}
-      : {
-          deletedFolderIdsById: Object.fromEntries(
-            Object.entries(state.deletedFolderIdsById).filter(([id]) => folderIds.has(id)),
-          ),
-        }),
   };
   for (const space of navigation.spaces) next = upsertSpace(next, space);
   for (const folder of navigation.folders) next = upsertProject(next, folder, "id-only");
@@ -211,9 +95,6 @@ export function upsertProject(
   incoming: ProjectNormalizationInput,
   _matchPolicy: ProjectMatchPolicy,
 ): AppState {
-  if (state.deletedFolderIdsById?.[incoming.id] !== undefined) {
-    return state;
-  }
   const existingProject = state.folders.find((project) => project.id === incoming.id);
   const nextProject = normalizeProject(incoming, existingProject);
   if (nextProject.archivedAt != null)
@@ -324,41 +205,6 @@ function buildSidebarThreadSummary(
   return nextSummary;
 }
 
-/**
- * The thread-id registry a full resync should install, reusing the previous array when it already
- * says the same thing.
- *
- * Both full-sync paths used to seed `threadIds: []` and let `ensureThreadRegistered` append id by
- * id. That copied the whole array once per thread — quadratic memory traffic in the thread count —
- * and, worse, guaranteed a brand-new array reference on every single snapshot even when not one id
- * had moved. Every consumer memoizing on `state.threadIds` therefore recomputed on each snapshot,
- * and the "nothing changed" fast path in `syncServerReadModel` could never fire, because its
- * identity check on this exact field always failed.
- *
- * Seeding the finished order up front makes the loop's `ensureThreadRegistered` calls no-ops, so
- * the reference survives whenever the set and the order of threads survive.
- */
-function reuseThreadIdRegistry(
-  previous: ThreadId[] | undefined,
-  nextThreadIds: ReadonlySet<ThreadId>,
-): ThreadId[] {
-  if (previous && previous.length === nextThreadIds.size) {
-    let index = 0;
-    let identical = true;
-    for (const threadId of nextThreadIds) {
-      if (previous[index] !== threadId) {
-        identical = false;
-        break;
-      }
-      index += 1;
-    }
-    if (identical) {
-      return previous;
-    }
-  }
-  return [...nextThreadIds];
-}
-
 function ensureThreadRegistered(state: AppState, threadId: ThreadId): AppState {
   const threadIds = state.threadIds ?? EMPTY_THREAD_IDS;
   if (threadIds.includes(threadId)) {
@@ -370,43 +216,10 @@ function ensureThreadRegistered(state: AppState, threadId: ThreadId): AppState {
   };
 }
 
-function retainThreadScopedRecord<T>(
-  record: Record<ThreadId, T> | undefined,
-  nextThreadIds: ReadonlySet<ThreadId>,
-): Record<ThreadId, T> {
-  if (!record) {
-    return {};
-  }
-  let changed = false;
-  const nextRecord: Record<ThreadId, T> = {};
-  for (const [threadId, value] of Object.entries(record) as [ThreadId, T][]) {
-    if (!nextThreadIds.has(threadId)) {
-      changed = true;
-      continue;
-    }
-    nextRecord[threadId] = value;
-  }
-  return changed ? nextRecord : record;
-}
-
-/**
- * The per-entry "keep the object already stored, or take the new one" rule for the three
- * thread-keyed shell slices.
- *
- * Single-thread updates retain references when the opened thread did not change.
- */
 function resolveShellEntry(previous: ThreadShell | undefined, next: ThreadShell): ThreadShell {
   return previous !== undefined && threadShellsEqual(previous, next) ? previous : next;
 }
 
-/**
- * `undefined` here means "store no key at all", not "store `undefined`".
- *
- * A thread without a session is represented by an absent key rather than an explicit `null`, so the
- * event path and the snapshot path agree on the record's shape and not just on what it says — two
- * records that differ only in that detail compare unequal and force a needless rebuild downstream.
- * `threadDerivation` reads both back as `null`.
- */
 function resolveSessionEntry(
   previous: ThreadSession | null | undefined,
   next: ThreadSession | null,
@@ -469,437 +282,6 @@ function writeThreadShellProjection(
   return nextState;
 }
 
-function writeThreadDetailSyncState(
-  state: AppState,
-  threadId: ThreadId,
-  syncState: ThreadDetailSyncState,
-): AppState {
-  if (state.threadDetailSyncById?.[threadId] === syncState) {
-    return state;
-  }
-  return {
-    ...state,
-    threadDetailSyncById: {
-      ...(state.threadDetailSyncById ?? {}),
-      [threadId]: syncState,
-    },
-  };
-}
-
-function clearThreadDetailSyncState(state: AppState, threadId: ThreadId): AppState {
-  if (
-    state.threadDetailSyncById === undefined ||
-    !Object.hasOwn(state.threadDetailSyncById, threadId)
-  ) {
-    return state;
-  }
-  const { [threadId]: _removed, ...threadDetailSyncById } = state.threadDetailSyncById;
-  return { ...state, threadDetailSyncById };
-}
-
-export function markThreadDetailSyncFailedInClientState(
-  state: AppState,
-  threadId: ThreadId,
-): AppState {
-  // An applied detail page or an accepted create baseline outranks a late
-  // reconciliation failure: keep rendering the authoritative data we have.
-  if (
-    state.threadDetailSyncById?.[threadId] === "synced" ||
-    state.threadDetailSyncById?.[threadId] === "known-empty"
-  ) {
-    return state;
-  }
-  return writeThreadDetailSyncState(state, threadId, "failed");
-}
-
-export function markThreadDetailKnownEmptyInClientState(
-  state: AppState,
-  threadId: ThreadId,
-): AppState {
-  // Never downgrade an already-applied detail page. This transition is only
-  // the authoritative empty baseline established by an clean-core creation.
-  if (state.threadDetailSyncById?.[threadId] === "synced") {
-    return state;
-  }
-  return writeThreadDetailSyncState(state, threadId, "known-empty");
-}
-
-export function clearThreadDetailSyncFailureInClientState(
-  state: AppState,
-  threadId: ThreadId,
-): AppState {
-  if (state.threadDetailSyncById?.[threadId] !== "failed") {
-    return state;
-  }
-  return clearThreadDetailSyncState(state, threadId);
-}
-
-function writeThreadState(
-  state: AppState,
-  nextThread: Thread,
-  previousThread?: Thread,
-  options: { readonly capActivities?: boolean } = {},
-): AppState {
-  const nextShell = toThreadShell(nextThread);
-  const nextTurnState = toThreadTurnState(nextThread);
-  const previousShell = state.threadShellById?.[nextThread.id];
-  const previousTurnState = state.threadTurnStateById?.[nextThread.id];
-
-  let nextState = ensureThreadRegistered(state, nextThread.id);
-
-  if (!threadShellsEqual(previousShell, nextShell)) {
-    nextState = {
-      ...nextState,
-      threadShellById: {
-        ...(nextState.threadShellById ?? EMPTY_THREAD_SHELL_BY_ID),
-        [nextThread.id]: nextShell,
-      },
-    };
-  }
-
-  if (!threadSessionsEqual(previousThread?.session ?? null, nextThread.session)) {
-    nextState = {
-      ...nextState,
-      threadSessionById: {
-        ...(nextState.threadSessionById ?? EMPTY_THREAD_SESSION_BY_ID),
-        [nextThread.id]: nextThread.session,
-      },
-    };
-  }
-
-  if (!threadTurnStatesEqual(previousTurnState, nextTurnState)) {
-    nextState = {
-      ...nextState,
-      threadTurnStateById: {
-        ...(nextState.threadTurnStateById ?? EMPTY_THREAD_TURN_STATE_BY_ID),
-        [nextThread.id]: nextTurnState,
-      },
-    };
-  }
-
-  if (previousThread?.messages !== nextThread.messages) {
-    const previousIds = nextState.messageIdsByThreadId?.[nextThread.id];
-    const previousById = nextState.messageByThreadId?.[nextThread.id];
-    const slice = buildNormalizedSlice(
-      nextThread.messages,
-      messageId,
-      previousThread?.messages,
-      previousIds,
-      previousById,
-    );
-    if (slice.ids !== previousIds) {
-      nextState = {
-        ...nextState,
-        messageIdsByThreadId: {
-          ...(nextState.messageIdsByThreadId ?? EMPTY_MESSAGE_IDS_BY_THREAD),
-          [nextThread.id]: slice.ids,
-        },
-      };
-    }
-    if (slice.byId !== previousById) {
-      nextState = {
-        ...nextState,
-        messageByThreadId: {
-          ...(nextState.messageByThreadId ?? EMPTY_MESSAGE_BY_THREAD),
-          [nextThread.id]: slice.byId,
-        },
-      };
-    }
-  }
-
-  if (previousThread?.activities !== nextThread.activities) {
-    const dedupedActivities = dedupeActivitiesById(nextThread.activities);
-    const activities =
-      options.capActivities === false ? dedupedActivities : capThreadActivities(dedupedActivities);
-    const previousIds = nextState.activityIdsByThreadId?.[nextThread.id];
-    const previousById = nextState.activityByThreadId?.[nextThread.id];
-    const slice = buildNormalizedSlice(
-      activities,
-      activityId,
-      previousThread?.activities,
-      previousIds,
-      previousById,
-    );
-    if (slice.ids !== previousIds) {
-      nextState = {
-        ...nextState,
-        activityIdsByThreadId: {
-          ...(nextState.activityIdsByThreadId ?? EMPTY_ACTIVITY_IDS_BY_THREAD),
-          [nextThread.id]: slice.ids,
-        },
-      };
-    }
-    if (slice.byId !== previousById) {
-      nextState = {
-        ...nextState,
-        activityByThreadId: {
-          ...(nextState.activityByThreadId ?? EMPTY_ACTIVITY_BY_THREAD),
-          [nextThread.id]: slice.byId,
-        },
-      };
-    }
-  }
-
-  return nextState;
-}
-
-function removeThreadState(state: AppState, threadId: ThreadId): AppState {
-  const { [threadId]: _removedShell, ...threadShellById } =
-    state.threadShellById ?? EMPTY_THREAD_SHELL_BY_ID;
-  const { [threadId]: _removedSession, ...threadSessionById } =
-    state.threadSessionById ?? EMPTY_THREAD_SESSION_BY_ID;
-  const { [threadId]: _removedTurnState, ...threadTurnStateById } =
-    state.threadTurnStateById ?? EMPTY_THREAD_TURN_STATE_BY_ID;
-  const { [threadId]: _removedMessageIds, ...messageIdsByThreadId } =
-    state.messageIdsByThreadId ?? EMPTY_MESSAGE_IDS_BY_THREAD;
-  const { [threadId]: _removedMessages, ...messageByThreadId } =
-    state.messageByThreadId ?? EMPTY_MESSAGE_BY_THREAD;
-  const { [threadId]: _removedActivityIds, ...activityIdsByThreadId } =
-    state.activityIdsByThreadId ?? EMPTY_ACTIVITY_IDS_BY_THREAD;
-  const { [threadId]: _removedActivities, ...activityByThreadId } =
-    state.activityByThreadId ?? EMPTY_ACTIVITY_BY_THREAD;
-  const { [threadId]: _removedPagination, ...threadTurnPaginationById } =
-    state.threadTurnPaginationById ?? {};
-  const { [threadId]: _removedSummary, ...sidebarThreadSummaryById } =
-    state.sidebarThreadSummaryById;
-  const nextThreadIds = (state.threadIds ?? EMPTY_THREAD_IDS).filter((id) => id !== threadId);
-
-  if (
-    nextThreadIds === state.threadIds &&
-    sidebarThreadSummaryById === state.sidebarThreadSummaryById
-  ) {
-    return clearThreadDetailSyncState(state, threadId);
-  }
-
-  return clearThreadDetailSyncState(
-    {
-      ...state,
-      threadIds: nextThreadIds,
-      threadShellById,
-      threadSessionById,
-      threadTurnStateById,
-      messageIdsByThreadId,
-      messageByThreadId,
-      activityIdsByThreadId,
-      activityByThreadId,
-      threadTurnPaginationById,
-      sidebarThreadSummaryById,
-    },
-    threadId,
-  );
-}
-
-export function evictThreadDetailFromClientState(state: AppState, threadId: ThreadId): AppState {
-  const detailRecords = [
-    state.messageIdsByThreadId,
-    state.messageByThreadId,
-    state.activityIdsByThreadId,
-    state.activityByThreadId,
-  ];
-  const hasNormalizedDetail = detailRecords.some(
-    (record) => record !== undefined && Object.hasOwn(record, threadId),
-  );
-  if (!hasNormalizedDetail) {
-    // A sync flag without normalized detail is stale; clear it so hydration restarts cleanly.
-    return clearThreadDetailSyncState(state, threadId);
-  }
-
-  const { [threadId]: _removedMessageIds, ...messageIdsByThreadId } =
-    state.messageIdsByThreadId ?? EMPTY_MESSAGE_IDS_BY_THREAD;
-  const { [threadId]: _removedMessages, ...messageByThreadId } =
-    state.messageByThreadId ?? EMPTY_MESSAGE_BY_THREAD;
-  const { [threadId]: _removedActivityIds, ...activityIdsByThreadId } =
-    state.activityIdsByThreadId ?? EMPTY_ACTIVITY_IDS_BY_THREAD;
-  const { [threadId]: _removedActivities, ...activityByThreadId } =
-    state.activityByThreadId ?? EMPTY_ACTIVITY_BY_THREAD;
-  const { [threadId]: _removedPagination, ...threadTurnPaginationById } =
-    state.threadTurnPaginationById ?? {};
-
-  return clearThreadDetailSyncState(
-    {
-      ...state,
-      messageIdsByThreadId,
-      messageByThreadId,
-      activityIdsByThreadId,
-      activityByThreadId,
-      threadTurnPaginationById,
-    },
-    threadId,
-  );
-}
-
-/**
- * Sequence at (or after) which a deletion is guaranteed to be reflected in server snapshots.
- * When the deletion arrives as a domain event we know it exactly; for optimistic client-side
- * deletes we only have a lower bound — the delete cannot have been recorded before the newest
- * snapshot we have already integrated, so `shellSnapshotSequence + 1` is safe. Re-deleting keeps
- * the highest known sequence, because retiring later is always the safe direction.
- */
-function nextTombstoneSequence<TId extends string>(
-  tombstones: Record<TId, number> | undefined,
-  id: TId,
-  state: AppState,
-  deletedAtSequence: number | undefined,
-): number {
-  const candidate = deletedAtSequence ?? (state.shellSnapshotSequence ?? 0) + 1;
-  const existing = tombstones?.[id];
-  return existing === undefined ? candidate : Math.max(existing, candidate);
-}
-
-/**
- * Retires tombstones the late-snapshot guard no longer needs.
- *
- * A tombstone only has to survive until an authoritative snapshot generated at or after the
- * deletion proves the row is gone. Snapshots older than that can still carry the deleted row, so
- * they must never retire it; that is what keeps the resurrection guard intact.
- */
-function retireDeletionTombstones<TId extends string>(
-  tombstones: Record<TId, number> | undefined,
-  snapshotSequence: number,
-  presentIds: ReadonlySet<string>,
-): Record<TId, number> | undefined {
-  if (tombstones === undefined) {
-    return tombstones;
-  }
-  let retiredAny = false;
-  const retained = {} as Record<TId, number>;
-  for (const [id, deletedAtSequence] of Object.entries(tombstones) as [TId, number][]) {
-    if (snapshotSequence >= deletedAtSequence && !presentIds.has(id)) {
-      retiredAny = true;
-      continue;
-    }
-    retained[id] = deletedAtSequence;
-  }
-  return retiredAny ? retained : tombstones;
-}
-
-/**
- * True when `snapshotSequence` predates the newest snapshot we have already integrated.
- *
- * Such a snapshot can still carry rows deleted after it was generated, and the tombstone that
- * would have filtered them may already have been retired by the newer snapshot — at which point
- * the row silently comes back. The tombstone map cannot tell "never deleted" from "deleted and
- * already confirmed gone", so the whole stale payload has to be rejected before it is merged.
- */
-function isStaleSnapshot(state: AppState, snapshotSequence: number): boolean {
-  return snapshotSequence < (state.shellSnapshotSequence ?? 0);
-}
-
-/**
- * Drops thread/project tombstones that `snapshot` has authoritatively confirmed absent.
- *
- * The sequence guard here only keeps retirement honest; it is not what stops a stale snapshot from
- * resurrecting a row. That is `isStaleSnapshot`, applied before any merge happens.
- */
-function retireConfirmedDeletionTombstones(
-  state: AppState,
-  snapshotSequence: number,
-  presentThreadIds: ReadonlySet<string>,
-  presentFolderIds?: ReadonlySet<string>,
-): AppState {
-  if (snapshotSequence < (state.shellSnapshotSequence ?? 0)) {
-    return state;
-  }
-  const deletedThreadIdsById = retireDeletionTombstones(
-    state.deletedThreadIdsById,
-    snapshotSequence,
-    presentThreadIds,
-  );
-  const deletedFolderIdsById =
-    presentFolderIds === undefined
-      ? state.deletedFolderIdsById
-      : retireDeletionTombstones(state.deletedFolderIdsById, snapshotSequence, presentFolderIds);
-  if (
-    deletedThreadIdsById === state.deletedThreadIdsById &&
-    deletedFolderIdsById === state.deletedFolderIdsById
-  ) {
-    return state;
-  }
-  return {
-    ...state,
-    ...(deletedThreadIdsById !== undefined ? { deletedThreadIdsById } : {}),
-    ...(deletedFolderIdsById !== undefined ? { deletedFolderIdsById } : {}),
-  };
-}
-
-export function removeDeletedThreadFromClientState(
-  state: AppState,
-  threadId: ThreadId,
-  deletedAtSequence?: number,
-): AppState {
-  const sequence = nextTombstoneSequence(
-    state.deletedThreadIdsById,
-    threadId,
-    state,
-    deletedAtSequence,
-  );
-  const deletedThreadIdsById =
-    state.deletedThreadIdsById?.[threadId] === sequence
-      ? state.deletedThreadIdsById
-      : {
-          ...(state.deletedThreadIdsById ?? {}),
-          [threadId]: sequence,
-        };
-  const nextState = removeThreadState(state, threadId);
-  return nextState.deletedThreadIdsById === deletedThreadIdsById
-    ? nextState
-    : {
-        ...nextState,
-        deletedThreadIdsById,
-      };
-}
-
-function removeProjectState(state: AppState, folderId: Project["id"]): AppState {
-  const threadIds = new Set<ThreadId>();
-  for (const shell of Object.values(state.threadShellById ?? EMPTY_THREAD_SHELL_BY_ID)) {
-    if (shell.folderId === folderId) {
-      threadIds.add(shell.id);
-    }
-  }
-
-  const nextFolders = state.folders.some((project) => project.id === folderId)
-    ? state.folders.filter((project) => project.id !== folderId)
-    : state.folders;
-  const nextState = [...threadIds].reduce((currentState, threadId) => {
-    return removeThreadState(currentState, threadId);
-  }, state);
-
-  if (nextFolders === state.folders && nextState === state) {
-    return state;
-  }
-  return {
-    ...nextState,
-    folders: nextFolders,
-  };
-}
-
-export function removeDeletedProjectFromClientState(
-  state: AppState,
-  folderId: Project["id"],
-  deletedAtSequence?: number,
-): AppState {
-  const sequence = nextTombstoneSequence(
-    state.deletedFolderIdsById,
-    folderId,
-    state,
-    deletedAtSequence,
-  );
-  const deletedFolderIdsById =
-    state.deletedFolderIdsById?.[folderId] === sequence
-      ? state.deletedFolderIdsById
-      : {
-          ...(state.deletedFolderIdsById ?? {}),
-          [folderId]: sequence,
-        };
-  const nextState = removeProjectState(state, folderId);
-  return nextState.deletedFolderIdsById === deletedFolderIdsById
-    ? nextState
-    : {
-        ...nextState,
-        deletedFolderIdsById,
-      };
-}
-
 function commitThreadProjection(
   state: AppState,
   threadId: ThreadId,
@@ -935,443 +317,59 @@ function commitThreadProjection(
           },
   };
 }
-
-function deriveThreadStateSignals(thread: Thread): Pick<Thread, "hasPendingUserInput"> {
-  const metadata = deriveThreadSummaryMetadata({
-    messages: thread.messages,
-    activities: thread.activities,
-  });
-  const actionableInteractions = thread.pendingInteractions?.filter(
-    (interaction) => interaction.status === "pending" || interaction.status === "retryable",
-  );
-  return {
-    hasPendingUserInput:
-      actionableInteractions?.some((interaction) => interaction.interactionKind === "userInput") ??
-      metadata.hasPendingUserInput,
-  };
-}
-
-function withDerivedThreadStateSignals(thread: Thread): Thread {
-  const nextSignals = deriveThreadStateSignals(thread);
-  if (thread.hasPendingUserInput === nextSignals.hasPendingUserInput) {
-    return thread;
-  }
-  return {
-    ...thread,
-    ...nextSignals,
-  };
-}
-
-export function applyThreadUpdate(
-  state: AppState,
-  threadId: ThreadId,
-  updater: (thread: Thread) => Thread,
-  options?: {
-    capActivities?: boolean;
-    recomputeSummarySignals?: boolean;
-    updateSidebarSummary?: boolean;
-  },
-): AppState {
-  const currentThread = getThreadFromState(state, threadId);
-  if (!currentThread) {
-    return state;
-  }
-  const updatedThread =
-    options?.recomputeSummarySignals === false
-      ? updater(currentThread)
-      : withDerivedThreadStateSignals(updater(currentThread));
-  if (updatedThread === currentThread) {
-    return state;
-  }
-  return commitThreadProjection(
-    writeThreadState(
-      state,
-      updatedThread,
-      currentThread,
-      options?.capActivities === undefined ? {} : { capActivities: options.capActivities },
-    ),
-    threadId,
-    {
-      updateSidebarSummary: options?.updateSidebarSummary ?? true,
-    },
-  );
-}
-
-export function syncServerStartupSnapshot(
-  state: AppState,
-  snapshot: OrchestrationStartupSnapshot,
-): AppState {
-  if (isStaleSnapshot(state, snapshot.snapshotSequence)) return state;
+function removeThreadState(state: AppState, threadId: ThreadId): AppState {
+  if (!state.threadShellById?.[threadId] && !state.sidebarThreadSummaryById[threadId]) return state;
+  const without = <T>(record: Record<string, T> | undefined) =>
+    Object.fromEntries(Object.entries(record ?? {}).filter(([id]) => id !== threadId));
   return {
     ...state,
-    shellSnapshotSequence: Math.max(state.shellSnapshotSequence ?? 0, snapshot.snapshotSequence),
-    threadsHydrated: true,
+    threadIds: (state.threadIds ?? []).filter((id) => id !== threadId),
+    threadShellById: without(state.threadShellById),
+    threadSessionById: without(state.threadSessionById),
+    threadTurnStateById: without(state.threadTurnStateById),
+    sidebarThreadSummaryById: without(state.sidebarThreadSummaryById),
   };
 }
-
-function syncServerThreadDetailWithOptions(
+export function removeDeletedThreadFromClientState(state: AppState, threadId: ThreadId): AppState {
+  return removeThreadState(state, threadId);
+}
+export function removeDeletedProjectFromClientState(
   state: AppState,
-  thread: ReadModelThread,
-  options?: {
-    mergeLiveHotPath?: boolean;
-    retainHydratedWindow?: boolean;
-  },
+  folderId: Project["id"],
 ): AppState {
-  const previousThread = getThreadFromState(state, thread.id);
-  const nextThreadDetail =
-    options?.mergeLiveHotPath === true
-      ? mergeReadModelThreadDetailWithLiveHotPath(
-          thread,
-          previousThread,
-          options.retainHydratedWindow === undefined
-            ? {}
-            : { retainHydratedWindow: options.retainHydratedWindow },
-        )
-      : thread;
-  return writeThreadDetailSyncState(
-    commitThreadProjection(
-      writeThreadState(
-        state,
-        normalizeThreadFromReadModel(
-          nextThreadDetail,
-          previousThread,
-          options?.retainHydratedWindow === true
-            ? { capMessages: false, capActivities: false }
-            : {},
-        ),
-        previousThread,
-        options?.retainHydratedWindow === true ? { capActivities: false } : undefined,
-      ),
-      thread.id,
-      {
-        updateSidebarSummary: false,
-      },
-    ),
-    thread.id,
-    "synced",
-  );
+  let next = state;
+  for (const shell of Object.values(state.threadShellById ?? {}))
+    if (shell.folderId === folderId) next = removeThreadState(next, shell.id);
+  return { ...next, folders: next.folders.filter((folder) => folder.id !== folderId) };
 }
-
-export function syncServerThreadDetail(state: AppState, thread: ReadModelThread): AppState {
-  if (
-    state.deletedFolderIdsById?.[thread.folderId] !== undefined ||
-    state.deletedThreadIdsById?.[thread.id] !== undefined
-  ) {
-    return removeThreadState(state, thread.id);
-  }
-  return syncServerThreadDetailWithOptions(state, thread);
-}
-
-export function syncServerThreadDetailHotPath(state: AppState, thread: ReadModelThread): AppState {
-  if (
-    state.deletedFolderIdsById?.[thread.folderId] !== undefined ||
-    state.deletedThreadIdsById?.[thread.id] !== undefined
-  ) {
-    return removeThreadState(state, thread.id);
-  }
-  const retainHydratedWindow = state.threadDetailSyncById?.[thread.id] === "synced";
-  const previousThread = getThreadFromState(state, thread.id);
-  const next = syncServerThreadDetailWithOptions(state, thread, {
-    mergeLiveHotPath: true,
-    retainHydratedWindow,
-  });
-  const nextThread = getThreadFromState(next, thread.id);
-  recordChatPaginationDiagnostic({
-    event: "detail-hot-path-merged",
-    threadId: thread.id,
-    dataCount: nextThread?.messages.length ?? 0,
-    detail: {
-      retainHydratedWindow,
-      previousMessageCount: previousThread?.messages.length ?? 0,
-      incomingMessageCount: thread.messages.length,
-      retainedMessageCount: nextThread?.messages.length ?? 0,
-      previousActivityCount: previousThread?.activities.length ?? 0,
-      incomingActivityCount: thread.activities.length,
-      retainedActivityCount: nextThread?.activities.length ?? 0,
-      firstRetainedMessageId: nextThread?.messages[0]?.id ?? null,
-      firstRetainedActivityId: nextThread?.activities[0]?.id ?? null,
-    },
-  });
-  return next;
-}
-
-export function syncServerThreadTurnsPage(
-  state: AppState,
-  page: OrchestrationGetThreadTurnsPageResult,
-): AppState {
-  const currentThread = getThreadFromState(state, page.threadId);
-  if (!currentThread) return state;
-
-  const incomingMessages = page.messages;
-  const previousMessageIds = new Set(currentThread.messages.map((message) => message.id));
-  const uniqueIncomingMessageIds = new Set(incomingMessages.map((message) => message.id));
-  const messageById = new Map(currentThread.messages.map((message) => [message.id, message]));
-  for (const incoming of incomingMessages) {
-    messageById.set(incoming.id, normalizeChatMessage(incoming, messageById.get(incoming.id)));
-  }
-  const messages = [...messageById.values()].toSorted(compareChatMessagesForTranscript);
-
-  const incomingActivities = page.activities;
-  const previousActivityIds = new Set(currentThread.activities.map((activity) => activity.id));
-  const uniqueIncomingActivityIds = new Set(incomingActivities.map((activity) => activity.id));
-  // Put the authoritative page rows last so a canonical operation replaces a
-  // provisional streamed row with the same operation identity. Re-sort after
-  // the merge because an older page is normally prepended to newer live work.
-  const activities = normalizeActivities(
-    [...currentThread.activities, ...incomingActivities],
-    currentThread.activities,
-    // A turn page is one causal transcript window. Independently truncating
-    // its activity half leaves assistant prose visible without the tools that
-    // occurred between those messages. Detail eviction owns the memory bound.
-    { cap: false },
-  ).toSorted((left, right) => {
-    const byCreatedAt = left.createdAt.localeCompare(right.createdAt);
-    if (byCreatedAt !== 0) return byCreatedAt;
-    const bySequence = (left.sequence ?? 0) - (right.sequence ?? 0);
-    return bySequence !== 0 ? bySequence : left.id.localeCompare(right.id);
-  });
-  const pendingInteractionById = new Map(
-    (currentThread.pendingInteractions ?? []).map((interaction) => [
-      `${interaction.interactionKind}:${interaction.requestId}`,
-      interaction,
-    ]),
-  );
-  for (const interaction of page.pendingInteractions) {
-    pendingInteractionById.set(
-      `${interaction.interactionKind}:${interaction.requestId}`,
-      interaction,
-    );
-  }
-
-  const withPage = applyThreadUpdate(
-    state,
-    page.threadId,
-    (thread) => {
-      const sessionError = normalizeThreadErrorMessage(thread.session?.lastError);
-      const deliveryError = latestDeliveryFailureReason(messages);
-      const preservesUnrelatedError = thread.error !== null && thread.errorSource !== "delivery";
-      return {
-        ...thread,
-        messages,
-        error: preservesUnrelatedError ? thread.error : (sessionError ?? deliveryError),
-        errorSource:
-          preservesUnrelatedError || sessionError !== null || deliveryError === null
-            ? undefined
-            : ("delivery" as const),
-        activities,
-        pendingInteractions: [...pendingInteractionById.values()],
-      };
-    },
-    { capActivities: false, updateSidebarSummary: false },
-  );
-  const storedThread = getThreadFromState(withPage, page.threadId);
-  recordChatPaginationDiagnostic({
-    event: "store-merged",
-    threadId: page.threadId,
-    dataCount: messages.length,
-    detail: {
-      conversationTurnCount: page.conversationTurnCount,
-      previousMessageCount: currentThread.messages.length,
-      incomingMessageCount: incomingMessages.length,
-      uniqueIncomingMessageCount: uniqueIncomingMessageIds.size,
-      insertedMessageCount: [...uniqueIncomingMessageIds].filter(
-        (messageId) => !previousMessageIds.has(messageId),
-      ).length,
-      replacedMessageCount: [...uniqueIncomingMessageIds].filter((messageId) =>
-        previousMessageIds.has(messageId),
-      ).length,
-      mergedMessageCount: messages.length,
-      storedMessageCount: storedThread?.messages.length ?? 0,
-      droppedMessageCount: Math.max(0, messages.length - (storedThread?.messages.length ?? 0)),
-      firstStoredMessageId: storedThread?.messages[0]?.id ?? null,
-      lastStoredMessageId: storedThread?.messages.at(-1)?.id ?? null,
-      previousActivityCount: currentThread.activities.length,
-      incomingActivityCount: incomingActivities.length,
-      uniqueIncomingActivityCount: uniqueIncomingActivityIds.size,
-      insertedActivityCount: [...uniqueIncomingActivityIds].filter(
-        (activityId) => !previousActivityIds.has(activityId),
-      ).length,
-      mergedActivityCount: activities.length,
-      storedActivityCount: storedThread?.activities.length ?? 0,
-      droppedActivityCount: Math.max(0, activities.length - (storedThread?.activities.length ?? 0)),
-      firstStoredActivityId: storedThread?.activities[0]?.id ?? null,
-      lastStoredActivityId: storedThread?.activities.at(-1)?.id ?? null,
-      pendingInteractionCount: pendingInteractionById.size,
-      hasOlder: page.hasOlder,
-      nextCursorPresent: page.nextCursor !== null,
-    },
-  });
-  return writeThreadDetailSyncState(
-    {
-      ...withPage,
-      threadTurnPaginationById: {
-        ...(withPage.threadTurnPaginationById ?? {}),
-        [page.threadId]: {
-          hasOlder: page.hasOlder,
-          nextCursor: page.nextCursor,
-        },
-      },
-    },
-    page.threadId,
-    "synced",
-  );
-}
-
-/** Replace a whole server thread row without an orchestration sequence or receipt. */
 export function syncServerThreadShell(
   state: AppState,
   threadId: ThreadId,
   thread: OrchestrationThreadShell | null,
 ): AppState {
-  if (thread === null)
-    return getThreadFromState(state, threadId) === undefined
-      ? state
-      : removeThreadState(state, threadId);
-  const stored = getThreadFromState(state, threadId);
-  if (stored?.updatedAt !== undefined && stored.updatedAt > thread.updatedAt) return state;
-  let nextState = state;
-  if (
-    state.deletedFolderIdsById?.[thread.folderId] !== undefined ||
-    state.deletedThreadIdsById?.[thread.id] !== undefined
-  ) {
-    nextState = removeThreadState(state, thread.id);
-    return nextState;
-  }
-  nextState = writeThreadShellProjection(
-    state,
-    normalizeThreadShellSnapshot(thread, getThreadFromState(state, thread.id)),
+  if (thread === null) return removeThreadState(state, threadId);
+  const previous = getThreadFromState(state, threadId);
+  if (previous && previous.updatedAt > thread.updatedAt) return state;
+  return commitThreadProjection(
+    writeThreadShellProjection(state, normalizeThreadShellSnapshot(thread, previous)),
+    threadId,
   );
-  nextState = commitThreadProjection(nextState, thread.id);
-  return nextState;
 }
-
-export function applyShellEvent(state: AppState, event: OrchestrationShellStreamEvent): AppState {
-  let nextState: AppState;
-  switch (event.kind) {
-    case "thread-upserted": {
-      nextState = syncServerThreadShell(state, event.thread.id, event.thread);
-      break;
-    }
-    case "thread-removed": {
-      // Shell removals can be retryable draft rollbacks; explicit delete reconciliation owns tombstones.
-      nextState = removeThreadState(state, event.threadId);
-      break;
-    }
-  }
-  const shellSnapshotSequence = Math.max(state.shellSnapshotSequence ?? 0, event.sequence);
-  return nextState.shellSnapshotSequence === shellSnapshotSequence
-    ? nextState
-    : { ...nextState, shellSnapshotSequence };
-}
-
-export function syncServerReadModel(state: AppState, readModel: OrchestrationReadModel): AppState {
-  if (isStaleSnapshot(state, readModel.snapshotSequence)) {
-    return state;
-  }
-  rememberProjectUiState(state.folders);
-  rememberProjectLocalNames(state.folders);
-  const deletedFolderIdsById = state.deletedFolderIdsById ?? {};
-  const deletedThreadIdsById = state.deletedThreadIdsById ?? {};
-  // Ids the server still reports as live at this snapshot sequence; anything else is either
-  // absent or server-side soft-deleted, which is what lets a tombstone retire safely.
-  const livePresentThreadIds = new Set<string>(
-    readModel.threads.filter((thread) => thread.deletedAt === null).map((thread) => thread.id),
-  );
-
-  const spaces = state.spaces;
-  const folders = state.folders;
-  const nextThreads = readModel.threads
-    .filter(
-      (thread) =>
-        thread.deletedAt === null &&
-        deletedFolderIdsById[thread.folderId] === undefined &&
-        deletedThreadIdsById[thread.id] === undefined,
-    )
-    .map((thread) => {
-      const existing = getThreadFromState(state, thread.id);
-      return existing?.updatedAt !== undefined && existing.updatedAt > thread.updatedAt
-        ? existing
-        : normalizeThreadFromReadModel(thread, existing);
-    });
-  const nextThreadIds = new Set(nextThreads.map((thread) => thread.id));
-  let normalizedState: AppState = {
-    ...state,
-    threadIds: reuseThreadIdRegistry(state.threadIds, nextThreadIds),
-    threadShellById: retainThreadScopedRecord(state.threadShellById, nextThreadIds),
-    threadSessionById: retainThreadScopedRecord(state.threadSessionById, nextThreadIds),
-    threadTurnStateById: retainThreadScopedRecord(state.threadTurnStateById, nextThreadIds),
-    messageIdsByThreadId: retainThreadScopedRecord(state.messageIdsByThreadId, nextThreadIds),
-    messageByThreadId: retainThreadScopedRecord(state.messageByThreadId, nextThreadIds),
-    activityIdsByThreadId: retainThreadScopedRecord(state.activityIdsByThreadId, nextThreadIds),
-    activityByThreadId: retainThreadScopedRecord(state.activityByThreadId, nextThreadIds),
-    threadDetailSyncById: retainThreadScopedRecord(state.threadDetailSyncById, nextThreadIds),
-    threadTurnPaginationById: retainThreadScopedRecord(
-      state.threadTurnPaginationById,
-      nextThreadIds,
-    ),
-  };
-  for (const thread of nextThreads) {
-    // Read-model threads carry full detail (messages, activities), so they are synced by definition.
-    // The previous thread is a cache hit here (it was already materialized above) and lets the
-    // slice writer reuse untouched ids/records instead of rebuilding them.
-    normalizedState = writeThreadDetailSyncState(
-      writeThreadState(normalizedState, thread, getThreadFromState(state, thread.id)),
-      thread.id,
-      "synced",
-    );
-  }
-  const threads = getThreadsFromState(normalizedState);
-  const nextSidebarThreadSummaryById = Object.fromEntries(
-    threads.map((thread) => [
-      thread.id,
-      buildSidebarThreadSummary(thread, state.sidebarThreadSummaryById[thread.id]),
-    ]),
-  ) as Record<string, SidebarThreadSummary>;
-  const sidebarThreadSummaryById = recordsShallowEqual(
-    state.sidebarThreadSummaryById,
-    nextSidebarThreadSummaryById,
-  )
-    ? state.sidebarThreadSummaryById
-    : nextSidebarThreadSummaryById;
-  if (
-    spaces === state.spaces &&
-    folders === state.folders &&
-    sidebarThreadSummaryById === state.sidebarThreadSummaryById &&
-    normalizedState.threadIds === state.threadIds &&
-    normalizedState.threadShellById === state.threadShellById &&
-    normalizedState.threadSessionById === state.threadSessionById &&
-    normalizedState.threadTurnStateById === state.threadTurnStateById &&
-    normalizedState.messageIdsByThreadId === state.messageIdsByThreadId &&
-    normalizedState.messageByThreadId === state.messageByThreadId &&
-    normalizedState.activityIdsByThreadId === state.activityIdsByThreadId &&
-    normalizedState.activityByThreadId === state.activityByThreadId &&
-    normalizedState.threadDetailSyncById === state.threadDetailSyncById &&
-    state.threadsHydrated
-  ) {
-    // Nothing to merge, but the snapshot is still authoritative at its own sequence. Recording it
-    // keeps `shellSnapshotSequence` honest, which is what later optimistic deletes derive their
-    // tombstone lower bound from — otherwise a tombstone created after this point could be retired
-    // by a snapshot that predates the deletion.
-    const advanced =
-      readModel.snapshotSequence > (state.shellSnapshotSequence ?? 0)
-        ? { ...state, shellSnapshotSequence: readModel.snapshotSequence }
-        : state;
-    return retireConfirmedDeletionTombstones(
-      advanced,
-      readModel.snapshotSequence,
-      livePresentThreadIds,
-    );
-  }
-  return retireConfirmedDeletionTombstones(
-    {
-      ...normalizedState,
-      shellSnapshotSequence: Math.max(state.shellSnapshotSequence ?? 0, readModel.snapshotSequence),
-      spaces,
-      folders,
-      sidebarThreadSummaryById,
-      threadsHydrated: true,
-    },
-    readModel.snapshotSequence,
-    livePresentThreadIds,
+export function applyThreadUpdate(
+  state: AppState,
+  threadId: ThreadId,
+  updater: (thread: Thread) => Thread,
+): AppState {
+  const previous = getThreadFromState(state, threadId);
+  if (!previous) return state;
+  const next = updater(previous);
+  if (next === previous) return state;
+  return commitThreadProjection(
+    writeThreadShellProjection(state, {
+      shell: toThreadShell(next),
+      session: next.session,
+      turnState: toThreadTurnState(next),
+    }),
+    threadId,
   );
 }

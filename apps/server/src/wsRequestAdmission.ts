@@ -1,6 +1,6 @@
 import * as Crypto from "node:crypto";
 
-import { ORCHESTRATION_WS_METHODS, WS_METHODS, WsRpcError } from "@penkra/contracts";
+import { WS_METHODS, WsRpcError } from "@penkra/contracts";
 import { Effect, Ref } from "effect";
 
 export type WsRequestClass = "control" | "standard" | "expensive-read";
@@ -11,11 +11,11 @@ export const WS_REQUEST_CLASS_LIMITS: Readonly<Record<WsRequestClass, number>> =
   "expensive-read": 2,
 };
 
-const CONTROL_METHODS = new Set<string>([ORCHESTRATION_WS_METHODS.dispatchCommand]);
+const CONTROL_METHODS = new Set<string>([WS_METHODS.cleanCoreSendMessage]);
 
 const EXPENSIVE_READ_METHODS = new Set<string>([
-  ORCHESTRATION_WS_METHODS.getSnapshot,
-  ORCHESTRATION_WS_METHODS.getThreadDetailSnapshot,
+  WS_METHODS.cleanCoreGetBootstrap,
+  WS_METHODS.cleanCoreListThreadItemsPage,
   WS_METHODS.projectsSearchEntries,
   WS_METHODS.projectsSearchLocalEntries,
   WS_METHODS.projectsReadFile,
