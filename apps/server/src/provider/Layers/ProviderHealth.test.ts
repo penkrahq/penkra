@@ -1447,93 +1447,85 @@ it.layer(NodeServices.layer)("ProviderHealth", (it) => {
         }),
     );
 
-    it.effect(
-      "re-probes auth status once when a structured false negative has no credential file to rescue it",
-      () =>
-        Effect.gen(function* () {
-          const fileSystem = yield* FileSystem.FileSystem;
-          const homeDir = yield* fileSystem.makeTempDirectoryScoped({
-            prefix: "provider-health-claude-auth-retry-",
-          });
+    it.effect("shows the first auth result without an automatic re-probe", () =>
+      Effect.gen(function* () {
+        const fileSystem = yield* FileSystem.FileSystem;
+        const homeDir = yield* fileSystem.makeTempDirectoryScoped({
+          prefix: "provider-health-claude-auth-retry-",
+        });
 
-          let authStatusCalls = 0;
-          const status = yield* makeCheckClaudeProviderStatus(undefined, "claude", homeDir, {
-            falseNegativeRetryDelayMs: 0,
-          }).pipe(
-            Effect.provide(
-              mockSpawnerLayer((args) => {
-                const joined = args.join(" ");
-                if (joined === "--version") {
-                  return { stdout: "2.1.197\n", stderr: "", code: 0 };
-                }
-                if (joined === "auth status") {
-                  authStatusCalls += 1;
-                  // First probe loses a refresh-token rotation race; the retry
-                  // observes the settled, rotated token.
-                  return authStatusCalls === 1
-                    ? {
-                        stdout: '{"loggedIn":false,"authMethod":"none"}\n',
-                        stderr: "",
-                        code: 0,
-                      }
-                    : {
-                        stdout:
-                          '{"loggedIn":true,"authMethod":"claude.ai","subscriptionType":"max"}\n',
-                        stderr: "",
-                        code: 0,
-                      };
-                }
-                throw new Error(`Unexpected args: ${joined}`);
-              }),
-            ),
-          );
+        let authStatusCalls = 0;
+        const status = yield* makeCheckClaudeProviderStatus(undefined, "claude", homeDir).pipe(
+          Effect.provide(
+            mockSpawnerLayer((args) => {
+              const joined = args.join(" ");
+              if (joined === "--version") {
+                return { stdout: "2.1.197\n", stderr: "", code: 0 };
+              }
+              if (joined === "auth status") {
+                authStatusCalls += 1;
+                // First probe loses a refresh-token rotation race; the retry
+                // observes the settled, rotated token.
+                return authStatusCalls === 1
+                  ? {
+                      stdout: '{"loggedIn":false,"authMethod":"none"}\n',
+                      stderr: "",
+                      code: 0,
+                    }
+                  : {
+                      stdout:
+                        '{"loggedIn":true,"authMethod":"claude.ai","subscriptionType":"max"}\n',
+                      stderr: "",
+                      code: 0,
+                    };
+              }
+              throw new Error(`Unexpected args: ${joined}`);
+            }),
+          ),
+        );
 
-          assert.strictEqual(authStatusCalls, 2);
-          assert.strictEqual(status.provider, "claudeAgent");
-          assert.strictEqual(status.status, "ready");
-          assert.strictEqual(status.authStatus, "authenticated");
-          assert.strictEqual(status.authType, "max");
-        }),
+        assert.strictEqual(authStatusCalls, 1);
+        assert.strictEqual(status.provider, "claudeAgent");
+        assert.strictEqual(status.status, "error");
+        assert.strictEqual(status.authStatus, "unauthenticated");
+        assert.strictEqual(status.authType, undefined);
+      }),
     );
 
-    it.effect(
-      "stays unauthenticated when the structured false negative persists across the retry",
-      () =>
-        Effect.gen(function* () {
-          const fileSystem = yield* FileSystem.FileSystem;
-          const homeDir = yield* fileSystem.makeTempDirectoryScoped({
-            prefix: "provider-health-claude-auth-retry-persist-",
-          });
+    it.effect("shows unauthenticated without retrying a structured false negative", () =>
+      Effect.gen(function* () {
+        const fileSystem = yield* FileSystem.FileSystem;
+        const homeDir = yield* fileSystem.makeTempDirectoryScoped({
+          prefix: "provider-health-claude-auth-retry-persist-",
+        });
 
-          let authStatusCalls = 0;
-          const status = yield* makeCheckClaudeProviderStatus(undefined, "claude", homeDir, {
-            falseNegativeRetryDelayMs: 0,
-          }).pipe(
-            Effect.provide(
-              mockSpawnerLayer((args) => {
-                const joined = args.join(" ");
-                if (joined === "--version") {
-                  return { stdout: "2.1.197\n", stderr: "", code: 0 };
-                }
-                if (joined === "auth status") {
-                  authStatusCalls += 1;
-                  return {
-                    stdout: '{"loggedIn":false,"authMethod":"none"}\n',
-                    stderr: "",
-                    code: 0,
-                  };
-                }
-                throw new Error(`Unexpected args: ${joined}`);
-              }),
-            ),
-          );
+        let authStatusCalls = 0;
+        const status = yield* makeCheckClaudeProviderStatus(undefined, "claude", homeDir).pipe(
+          Effect.provide(
+            mockSpawnerLayer((args) => {
+              const joined = args.join(" ");
+              if (joined === "--version") {
+                return { stdout: "2.1.197\n", stderr: "", code: 0 };
+              }
+              if (joined === "auth status") {
+                authStatusCalls += 1;
+                return {
+                  stdout: '{"loggedIn":false,"authMethod":"none"}\n',
+                  stderr: "",
+                  code: 0,
+                };
+              }
+              throw new Error(`Unexpected args: ${joined}`);
+            }),
+          ),
+        );
 
-          assert.strictEqual(authStatusCalls, 2);
-          assert.strictEqual(status.provider, "claudeAgent");
-          assert.strictEqual(status.status, "error");
-          assert.strictEqual(status.authStatus, "unauthenticated");
-          assert.match(status.message ?? "", /not authenticated/i);
-        }),
+        assert.strictEqual(authStatusCalls, 1);
+        assert.strictEqual(status.provider, "claudeAgent");
+        assert.strictEqual(status.status, "error");
+        assert.strictEqual(status.authStatus, "unauthenticated");
+        assert.match(status.message ?? "", /not authenticated/i);
+      }),
     );
 
     it.effect("returns unavailable when claude is missing", () =>
