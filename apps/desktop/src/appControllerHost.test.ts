@@ -72,6 +72,7 @@ function fixture(app = installedApp()) {
     }),
   };
   const rpc = {
+    subscribe: vi.fn(() => () => undefined),
     registerTarget: vi.fn(() => unregisterRpc),
     request: vi.fn(async (_id, _method, _input, options) => {
       rpcOptions = options;

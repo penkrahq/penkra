@@ -19,6 +19,7 @@ export const operations: PenkraControllerRuntimeApi["operations"] = {
 
 export const controller: PenkraControllerRuntimeApi["controller"] = {
   handle: (handler, callback) => runtime().controller.handle(handler, callback),
+  subscription: (name, handler) => runtime().controller.subscription(name, handler),
 };
 
 export const shell: PenkraControllerRuntimeApi["shell"] = {
@@ -72,6 +73,9 @@ export type { PenkraControllerRuntimeApi } from "./runtime";
 export type { AppOperationHandler } from "./runtime";
 export type {
   AppControllerRequestContext,
+  AppControllerSubscriptionContext,
+  AppControllerSubscriptionHandler,
+  AppControllerSubscriptionCallbacks,
   AppControllerRequestHandler,
   AppShellApi,
   AppShellOpenExternalOptions,

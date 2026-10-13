@@ -36,7 +36,7 @@ export interface AppControllerProcessFactory {
 
 export interface AppControllerHostDependencies {
   broker: Pick<AppOperationBroker, "registerController">;
-  rpc: Pick<AppRendererRpcHost, "registerTarget" | "request">;
+  rpc: Pick<AppRendererRpcHost, "registerTarget" | "request" | "subscribe">;
   processes: AppControllerProcessFactory;
 }
 
@@ -84,6 +84,35 @@ export class AppControllerHost {
         ...(input.signal ? { signal: input.signal } : {}),
         targetLabel: input.appId,
       },
+    );
+  }
+
+  subscribe(input: {
+    appId: string;
+    spaceId: string;
+    folderId: string;
+    threadId: string;
+    tabId: string;
+    handler: string;
+    value: unknown;
+    signal?: AbortSignal;
+    message(value: unknown): void;
+    end(error?: Error): void;
+  }): () => void {
+    const process = this.#active.get(controllerKey(input.appId, input.spaceId));
+    if (!process)
+      throw Object.assign(new Error("The App controller is not active."), {
+        code: "CONTROLLER_NOT_ACTIVE",
+      });
+    return this.#rpc.subscribe(
+      process.id,
+      {
+        handler: input.handler,
+        input: input.value,
+        context: { folderId: input.folderId, threadId: input.threadId, tabId: input.tabId },
+      },
+      { message: input.message, end: input.end },
+      { ...(input.signal ? { signal: input.signal } : {}), targetLabel: input.appId },
     );
   }
 

@@ -86,7 +86,12 @@ ordinary Node HTTP, filesystem, and stream APIs there.
 
 Tabs call private handlers in their own App×Space controller with `controller.invoke(...)`; Node
 controllers register those handlers with `controller.handle(...)`. This channel is separate from
-manifest-declared operations. Both runtimes expose Electron's `shell` method family through
+manifest-declared operations. Persistent streams use `controller.subscribe(name, input,
+{ message, end })`, which returns a synchronous `stop()` function. Controllers register them with
+`controller.subscription(name, handler)`. The handler receives `context.send(value)`,
+`context.end()` and `context.signal`; end, stop, tab/App close and controller exit abort the signal.
+Subscriptions have no deadline. One-off `invoke` calls keep their request deadline.
+Both runtimes expose Electron's `shell` method family through
 `shell`, using Electron's method names and serializable options.
 
 Privileged Penkra APIs require matching manifest declarations and per-Space grants. Hosted browser

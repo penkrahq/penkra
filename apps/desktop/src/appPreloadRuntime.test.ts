@@ -165,6 +165,43 @@ function fixture() {
 }
 
 describe("AppPreloadRuntime", () => {
+  it("installs stream listeners before registration and stops without awaiting admission", () => {
+    const test = fixture();
+    const message = vi.fn();
+    const end = vi.fn();
+    const stop = test.runtime.api.controller.subscribe("watch", { path: "/tmp" }, { message, end });
+    const [method, input] = test.calls[0]!;
+    expect(method).toBe("controller.subscribe");
+    const { id } = input as { id: string };
+    test.event(`controller.subscription:${id}`, { type: "message", value: "changed" });
+    expect(message).toHaveBeenCalledExactlyOnceWith("changed");
+    stop();
+    stop();
+    test.event(`controller.subscription:${id}`, { type: "message", value: "late" });
+    expect(message).toHaveBeenCalledOnce();
+    expect(end).toHaveBeenCalledOnce();
+    expect(test.calls.at(-1)).toEqual(["controller.unsubscribe", { id }]);
+    test.runtime.dispose();
+  });
+  it("ends subscriptions on host end or preload disposal exactly once", () => {
+    const test = fixture();
+    const end = vi.fn();
+    const stop = test.runtime.api.controller.subscribe("watch", {}, { message: vi.fn(), end });
+    const { id } = test.calls[0]![1] as { id: string };
+    test.event(`controller.subscription:${id}`, {
+      type: "end",
+      error: { message: "Controller stopped" },
+    });
+    expect(end).toHaveBeenCalledExactlyOnceWith(
+      expect.objectContaining({ message: "Controller stopped" }),
+    );
+    stop();
+    const disposed = vi.fn();
+    test.runtime.api.controller.subscribe("watch", {}, { message: vi.fn(), end: disposed });
+    test.runtime.dispose();
+    expect(disposed).toHaveBeenCalledOnce();
+  });
+
   it("records the current App route through the narrow preload transport", async () => {
     const test = fixture();
 

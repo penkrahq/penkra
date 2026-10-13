@@ -87,6 +87,18 @@ export interface DesktopAppRuntime {
     threadId?: string;
     tabId?: string;
   } | null;
+  subscribeController(input: {
+    appId: string;
+    spaceId: string;
+    folderId: string;
+    threadId: string;
+    tabId: string;
+    handler: string;
+    value: unknown;
+    signal?: AbortSignal;
+    message(value: unknown): void;
+    end(error?: Error): void;
+  }): Promise<() => void>;
   invokeController(input: {
     appId: string;
     spaceId: string;
@@ -559,6 +571,10 @@ export async function startDesktopAppRuntime(input: {
       return identity?.appId === "com.penkra.apps" ? identity.spaceId : null;
     },
     rendererIdentity: (rendererId) => rendererIdentities.get(rendererId),
+    subscribeController: async (request) => {
+      await ensureAppRuntimeActive(request.appId, request.spaceId);
+      return controllerHost.subscribe(request);
+    },
     invokeController: async (request) => {
       await ensureAppRuntimeActive(request.appId, request.spaceId);
       return controllerHost.invoke(request);

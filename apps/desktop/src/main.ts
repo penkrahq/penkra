@@ -94,6 +94,7 @@ import {
 } from "./appScopedFileHandleStore";
 import { AppScopedFileWriteStore } from "./appScopedFileWriteStore";
 import { appRuntimeFailure, appRuntimeFailureDto } from "./appRuntimeFailure";
+import { AppControllerSubscriptionStore } from "./appControllerSubscriptionStore";
 import {
   AppAccountSubscriptionStore,
   AppFileWatchStore,
@@ -1134,8 +1135,10 @@ const runtimeV2FileHandles = new AppScopedFileHandleStore();
 const runtimeV2FileWrites = new AppScopedFileWriteStore();
 let appStorage: AppStorageService | null = null;
 const runtimeV2FileWatches = new AppFileWatchStore();
+const controllerSubscriptions = new AppControllerSubscriptionStore();
 
 function revokeRuntimeV2FileScope(appId: string, spaceId: string): void {
+  controllerSubscriptions.closeScope(appId, spaceId);
   runtimeV2FileHandles.revokeScope(appId, spaceId);
   const blobs = desktopAppRuntime?.blobUrls.detachScope(appId, spaceId);
   if (blobs) desktopAppRuntime?.blobUrls.disposeDetached(blobs);
@@ -1161,6 +1164,7 @@ function retireAppGenerationAuthority(owner: {
   tabId: string;
   rendererId: number;
 }): void {
+  controllerSubscriptions.closeGeneration(owner);
   const watches = runtimeV2FileWatches.detachGeneration(owner);
   const subscriptions = appAccountSubscriptions.detachGeneration(owner);
   const writes = runtimeV2FileWrites.detachGeneration(owner);
@@ -1187,6 +1191,7 @@ function retireAppTabAuthority(owner: {
   threadId: string;
   tabId: string;
 }): void {
+  controllerSubscriptions.closeTab(owner);
   const watches = runtimeV2FileWatches.detachTab(owner);
   const subscriptions = appAccountSubscriptions.detachTab(owner);
   const writes = runtimeV2FileWrites.detachTab(owner);
@@ -4960,6 +4965,7 @@ async function stopAppRuntimeAndBackend(backendShutdownOptions?: {
 }): Promise<void> {
   const failures: unknown[] = [];
   try {
+    controllerSubscriptions.closeAll();
     await runtimeV2FileWrites.abortAll();
   } catch (error) {
     failures.push(error);
@@ -5571,6 +5577,64 @@ function registerIpcHandlers(): void {
           rendererId,
         });
         watcher?.close();
+        return;
+      }
+      case "controller.subscribe": {
+        if (!value || typeof value !== "object" || Array.isArray(value))
+          throw new Error("Invalid controller subscription.");
+        const request = value as Record<string, unknown>;
+        if (
+          typeof request.id !== "string" ||
+          !request.id ||
+          request.id.length > 128 ||
+          typeof request.handler !== "string" ||
+          !request.handler.trim()
+        )
+          throw new Error("Invalid controller subscription id or handler.");
+        const owner = { ...identity, rendererId };
+        const key = `${rendererId}:${request.id}`;
+        const controller = controllerSubscriptions.add(key, owner);
+        const send = (payload: unknown) => {
+          if (!event.sender.isDestroyed())
+            event.sender.send(IPC.appRuntime.event, {
+              name: `controller.subscription:${request.id}`,
+              payload,
+            });
+        };
+        try {
+          await runtime.subscribeController({
+            appId: identity.appId,
+            spaceId: identity.spaceId,
+            folderId,
+            threadId,
+            tabId,
+            handler: request.handler,
+            value: request.input,
+            signal: controller.signal,
+            message: (value) => {
+              if (!controller.signal.aborted) send({ type: "message", value });
+            },
+            end: (error) => {
+              controllerSubscriptions.take(key, owner);
+              controller.abort(new Error("App subscription ended."));
+              send({ type: "end", ...(error ? { error: { message: error.message } } : {}) });
+            },
+          });
+        } catch (error) {
+          controllerSubscriptions.take(key, owner);
+          controller.abort(error);
+          throw error;
+        }
+        return;
+      }
+      case "controller.unsubscribe": {
+        if (!value || typeof value !== "object" || Array.isArray(value))
+          throw new Error("Invalid controller subscription stop.");
+        const id = (value as Record<string, unknown>).id;
+        if (typeof id !== "string") throw new Error("Invalid controller subscription id.");
+        controllerSubscriptions
+          .take(`${rendererId}:${id}`, { ...identity, rendererId })
+          ?.abort(new Error("App subscription stopped."));
         return;
       }
       case "controller.invoke": {
