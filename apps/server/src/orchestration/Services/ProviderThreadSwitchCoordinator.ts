@@ -70,7 +70,7 @@ export interface ProviderThreadSwitchCoordinatorShape {
     readonly command: TurnAdmissionCommand;
     readonly attachmentPrincipal: ManagedAttachmentPrincipal;
     readonly cwd?: string;
-  }) => Effect.Effect<{ readonly turnId: TurnId }, ProviderThreadSwitchCoordinatorError>;
+  }) => Effect.Effect<{ readonly turnId: TurnId | null }, ProviderThreadSwitchCoordinatorError>;
 }
 
 export class ProviderThreadSwitchCoordinator extends ServiceMap.Service<

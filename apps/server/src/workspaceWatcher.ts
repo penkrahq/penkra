@@ -251,17 +251,8 @@ export const WorkspaceWatcherLive = Layer.effect(
       Effect.promise(() => manager.start()),
       () => Effect.promise(() => manager.close()),
     );
-    const navigationChanges = yield* Effect.acquireRelease(Queue.unbounded<void>(), Queue.shutdown);
-    const unsubscribe = yield* Effect.acquireRelease(
-      Effect.sync(() =>
-        publisher.subscribeSidebar((change) => {
-          if (change.kind === "navigation")
-            void Effect.runFork(Queue.offer(navigationChanges, undefined));
-        }),
-      ),
-      (unsubscribe) => Effect.sync(unsubscribe),
-    );
-    const navigationFiber = yield* Stream.fromQueue(navigationChanges).pipe(
+    const navigationFiber = yield* Stream.fromPubSub(publisher.sidebarChanges).pipe(
+      Stream.filter((change) => change.kind === "navigation"),
       Stream.runForEach(() =>
         Effect.promise(() => manager.reconcile()).pipe(
           Effect.catch((cause) =>
@@ -274,8 +265,7 @@ export const WorkspaceWatcherLive = Layer.effect(
 
     const close = yield* Effect.cached(
       Effect.uninterruptible(
-        Effect.sync(unsubscribe).pipe(
-          Effect.andThen(Fiber.interrupt(navigationFiber)),
+        Fiber.interrupt(navigationFiber).pipe(
           Effect.andThen(Effect.promise(() => manager.close())),
         ),
       ),

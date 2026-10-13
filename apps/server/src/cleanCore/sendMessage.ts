@@ -247,7 +247,10 @@ export const settleMessage = (publisher: ThreadPublisher, outcome: MessageOutcom
         return true;
       }),
     );
-    if (changed) publisher.publish({ threadId: outcome.threadId });
+    if (changed) {
+      publisher.publish({ threadId: outcome.threadId });
+      publisher.publishDeliveryReady({ threadId: outcome.threadId });
+    }
   });
 
 /** A restart cannot resume an unacknowledged admission; retain it as a failure. */

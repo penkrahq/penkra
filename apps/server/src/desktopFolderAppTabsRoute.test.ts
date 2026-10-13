@@ -1,3 +1,4 @@
+import { observePublisher } from "./cleanCore/threadPublisherTestHelpers.ts";
 import http from "node:http";
 import * as NodeHttpServer from "@effect/platform-node/NodeHttpServer";
 import * as NodeServices from "@effect/platform-node/NodeServices";
@@ -22,7 +23,9 @@ it.effect(
         yield* seedThreadFolderFixture("folder", "space");
         const publisher = yield* ThreadPublisher;
         const changes: unknown[] = [];
-        const unsubscribe = publisher.subscribeSidebar((change) => changes.push(change));
+        const unsubscribe = yield* observePublisher(publisher.sidebarChanges, (change) =>
+          changes.push(change),
+        );
         let nodeServer!: http.Server;
         const server = yield* NodeHttpServer.make(() => (nodeServer = http.createServer()), {
           port: 0,

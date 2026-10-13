@@ -1,3 +1,4 @@
+import { observePublisher } from "./threadPublisherTestHelpers.ts";
 import { afterAll } from "vitest";
 import { ManagedAttachmentRepositoryLive } from "../persistence/Layers/ManagedAttachments.ts";
 import { chmodSync, existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
@@ -31,9 +32,9 @@ it.effect("web creation is idempotent and a send on its running thread is queued
     const sql = yield* SqlClient.SqlClient;
     const publisher = makeThreadPublisher();
     const changes: string[] = [];
-    publisher.subscribeAll(({ threadId }) => changes.push(threadId));
+    yield* observePublisher(publisher.threadChanges, ({ threadId }) => changes.push(threadId));
     const sidebarChanges: import("@penkra/contracts").CleanCoreSidebarChange[] = [];
-    publisher.subscribeSidebar((change) => sidebarChanges.push(change));
+    yield* observePublisher(publisher.sidebarChanges, (change) => sidebarChanges.push(change));
     const at = "2026-10-10T00:00:00.000Z";
     yield* sql`INSERT INTO projection_folders (folder_id, space_id, title, workspace_root, default_model_selection_json, created_at, updated_at) VALUES ('folder', 'penkra-personal', 'Folder', NULL, NULL, ${at}, ${at})`;
     const input = {
@@ -137,7 +138,7 @@ it.effect(
         yield* sql`UPDATE threads SET native_state_id = ${nativeStateId} WHERE id = ${threadId}`;
         const publisher = makeThreadPublisher();
         const changes: string[] = [];
-        publisher.subscribeAll((change) => {
+        yield* observePublisher(publisher.threadChanges, (change) => {
           assert.isFalse(existsSync(nativePath));
           changes.push(change.threadId);
         });

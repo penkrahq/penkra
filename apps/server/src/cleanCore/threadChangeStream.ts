@@ -1,39 +1,13 @@
-// FILE: threadChangeStream.ts
-// Purpose: Bridge the in-memory ThreadPublisher to an Effect Stream for the ws
-// push channel (0.14.4 design 2.2).
-// Layer: Server clean core
-// Exports: threadChangeStream
-
-import {
-  ThreadId,
-  type CleanCoreSidebarChange,
-  type CleanCoreThreadChange,
-} from "@penkra/contracts";
-import { Effect, Queue, Stream } from "effect";
-
+// Purpose: Independent PubSub consumers for the WebSocket thread and sidebar channels.
+import { ThreadId } from "@penkra/contracts";
+import { Stream } from "effect";
 import type { ThreadPublisher } from "./threadStore.ts";
 
-/** A stream of `{ threadId }` changes for one thread, ending when unsubscribed. */
 export const threadChangeStream = (publisher: ThreadPublisher, threadId: string) =>
-  Stream.callback<CleanCoreThreadChange>((queue) =>
-    Effect.gen(function* () {
-      const unsubscribe = publisher.subscribe(threadId, (change) => {
-        Effect.runFork(
-          Queue.offer(queue, { threadId: ThreadId.makeUnsafe(change.threadId) }).pipe(
-            Effect.asVoid,
-          ),
-        );
-      });
-      yield* Effect.addFinalizer(() => Effect.sync(unsubscribe));
-    }),
+  Stream.fromPubSub(publisher.threadChanges).pipe(
+    Stream.filter((change) => change.threadId === threadId),
+    Stream.map((change) => ({ threadId: ThreadId.makeUnsafe(change.threadId) })),
   );
 
 export const sidebarChangeStream = (publisher: ThreadPublisher) =>
-  Stream.callback<CleanCoreSidebarChange>((queue) =>
-    Effect.gen(function* () {
-      const unsubscribe = publisher.subscribeSidebar((change) => {
-        Effect.runFork(Queue.offer(queue, change).pipe(Effect.asVoid));
-      });
-      yield* Effect.addFinalizer(() => Effect.sync(unsubscribe));
-    }),
-  );
+  Stream.fromPubSub(publisher.sidebarChanges);

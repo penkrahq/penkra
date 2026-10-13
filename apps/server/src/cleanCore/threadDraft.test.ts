@@ -1,3 +1,4 @@
+import { observePublisher } from "./threadPublisherTestHelpers.ts";
 import { seedThreadFolderFixture } from "./threadFixtures.ts";
 import { assert, it } from "@effect/vitest";
 import { MessageId, ProviderConnectionId, ThreadId } from "@penkra/contracts";
@@ -11,8 +12,9 @@ import { createThread } from "./threadStore.ts";
 import { runMigrations } from "../persistence/Migrations.ts";
 import * as NodeSqliteClient from "../persistence/NodeSqliteClient.ts";
 
-const withDb = <A, E>(effect: Effect.Effect<A, E, SqlClient.SqlClient>) =>
-  effect.pipe(Effect.provide(NodeSqliteClient.layerMemory()));
+const withDb = <A, E>(
+  effect: Effect.Effect<A, E, SqlClient.SqlClient | import("effect/Scope").Scope>,
+) => effect.pipe(Effect.provide(NodeSqliteClient.layerMemory()));
 
 const baseThread = {
   id: "thread-1",
@@ -35,7 +37,7 @@ it.effect("keeps one draft per thread, last write wins by draft_updated_at", () 
       const id = ThreadId.makeUnsafe("thread-1");
       const publisher = makeThreadPublisher();
       let changes = 0;
-      publisher.subscribe("thread-1", () => changes++);
+      yield* observePublisher(publisher.threadChanges, () => changes++);
 
       assert.deepStrictEqual(yield* getThreadDraft(id), { draft: null, draftUpdatedAt: null });
 

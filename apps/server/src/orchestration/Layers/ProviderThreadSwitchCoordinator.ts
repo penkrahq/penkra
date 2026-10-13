@@ -3,10 +3,11 @@
 
 import { randomUUID } from "node:crypto";
 import { providerSupportsNativeTurnSteering } from "@penkra/shared/providerMetadata";
-import { ModelSelection, ProviderConnectionId, ThreadId } from "@penkra/contracts";
-import { Deferred, Effect, Layer, Schema } from "effect";
+import { ModelSelection, ProviderConnectionId, ThreadId, TurnId } from "@penkra/contracts";
+import { Cause, Effect, Layer, PubSub, Schema, Semaphore, Stream } from "effect";
 import * as SqlClient from "effect/unstable/sql/SqlClient";
 
+import { settleMessage } from "../../cleanCore/sendMessage.ts";
 import { ThreadPublisher } from "../../cleanCore/ThreadPublisher.ts";
 import { ProviderNativeStateMaterializer } from "../../provider/Services/ProviderNativeStateMaterializer.ts";
 import { ProviderService } from "../../provider/Services/ProviderService.ts";
@@ -24,6 +25,7 @@ const failure = (detail: string, cause?: unknown) =>
   new ProviderThreadSwitchCoordinatorError({ detail, ...(cause === undefined ? {} : { cause }) });
 
 export const makeProviderThreadSwitchCoordinator = Effect.gen(function* () {
+  const scope = yield* Effect.scope;
   const dispatch = yield* TurnDispatch;
   const sql = yield* SqlClient.SqlClient;
   const publisher = yield* ThreadPublisher;
@@ -37,6 +39,7 @@ export const makeProviderThreadSwitchCoordinator = Effect.gen(function* () {
     nativeStateId: Schema.NullOr(Schema.String),
     providerSessionId: Schema.NullOr(Schema.String),
     state: Schema.Literals(["idle", "running", "error"]),
+    activeTurnId: Schema.NullOr(TurnId),
     model: Schema.String,
     modelOptions: Schema.NullOr(Schema.String),
   });
@@ -44,7 +47,7 @@ export const makeProviderThreadSwitchCoordinator = Effect.gen(function* () {
     Effect.gen(function* () {
       const rows = yield* sql`SELECT provider, connection_id AS "connectionId",
         native_state_id AS "nativeStateId", provider_session_id AS "providerSessionId",
-        state, model, model_options AS "modelOptions"
+        state, active_turn_id AS "activeTurnId", model, model_options AS "modelOptions"
         FROM threads WHERE id=${threadId} AND deleted_at IS NULL`;
       if (rows[0] === undefined) return yield* Effect.fail(failure("The thread does not exist."));
       return yield* Schema.decodeUnknownEffect(AdmissionThread)(rows[0]);
@@ -52,27 +55,27 @@ export const makeProviderThreadSwitchCoordinator = Effect.gen(function* () {
       Effect.mapError((cause) => failure("Could not read the thread before admission.", cause)),
     );
 
-  // Subscribe before reading so a turn end between the read and await cannot be lost.
-  const waitForIdle = (
-    threadId: ThreadId,
-  ): Effect.Effect<void, ProviderThreadSwitchCoordinatorError> =>
-    Effect.gen(function* () {
-      let running: boolean;
-      do {
-        running = yield* Effect.scoped(
-          Effect.gen(function* () {
-            const changed = yield* Deferred.make<void>();
-            const unsubscribe = publisher.subscribe(threadId, () =>
-              Effect.runSync(Deferred.succeed(changed, undefined)),
-            );
-            yield* Effect.addFinalizer(() => Effect.sync(unsubscribe));
-            const thread = yield* readThread(threadId);
-            if (thread.state !== "running") return false;
-            yield* Deferred.await(changed);
-            return true;
-          }),
+  type AdmissionInput = Parameters<ProviderThreadSwitchCoordinatorShape["dispatchTurnStart"]>[0];
+  const pending = new Map<ThreadId, Array<{ turnId: TurnId; input: AdmissionInput }>>();
+  const lanes = new Map<ThreadId, { semaphore: Semaphore.Semaphore; users: number }>();
+  const inLane = <A, E, R>(threadId: ThreadId, action: Effect.Effect<A, E, R>) =>
+    Effect.suspend(() => {
+      let lane = lanes.get(threadId);
+      if (!lane) {
+        lane = { semaphore: Semaphore.makeUnsafe(1), users: 0 };
+        lanes.set(threadId, lane);
+      }
+      const current = lane;
+      current.users++;
+      return current.semaphore
+        .withPermits(1)(action)
+        .pipe(
+          Effect.ensuring(
+            Effect.sync(() => {
+              if (--current.users === 0) lanes.delete(threadId);
+            }),
+          ),
         );
-      } while (running);
     });
 
   const dispatchTurnAdmission = Effect.fnUntraced(function* (input: {
@@ -82,7 +85,7 @@ export const makeProviderThreadSwitchCoordinator = Effect.gen(function* () {
     >[0]["attachmentPrincipal"];
     readonly cwd?: string;
   }) {
-    let thread = yield* readThread(input.command.threadId);
+    const thread = yield* readThread(input.command.threadId);
     const nativeSteer =
       input.command.dispatchMode === "steer" &&
       providerSupportsNativeTurnSteering(thread.provider) &&
@@ -120,17 +123,29 @@ export const makeProviderThreadSwitchCoordinator = Effect.gen(function* () {
           ),
         );
 
-      if (input.command.dispatchMode === "steer") {
-        yield* provider
-          .interruptTurn({ threadId: input.command.threadId })
-          .pipe(
-            Effect.mapError((cause) =>
-              failure("Could not interrupt the running turn before switching.", cause),
-            ),
-          );
-      }
-      yield* waitForIdle(input.command.threadId);
-      thread = yield* readThread(input.command.threadId);
+      const turnId = thread.activeTurnId;
+      if (turnId === null)
+        return yield* Effect.fail(failure("The running thread has no active turn."));
+      const entry = { turnId, input };
+      const entries = pending.get(input.command.threadId) ?? [];
+      entries.push(entry);
+      pending.set(input.command.threadId, entries);
+      // Record before interrupting: turn.ended may arrive during the provider call.
+      yield* provider.interruptTurn({ threadId: input.command.threadId, turnId }).pipe(
+        Effect.mapError((cause) =>
+          failure("Could not interrupt the running turn before switching.", cause),
+        ),
+        Effect.onError(() =>
+          Effect.sync(() => {
+            const remaining = (pending.get(input.command.threadId) ?? []).filter(
+              (item) => item !== entry,
+            );
+            if (remaining.length) pending.set(input.command.threadId, remaining);
+            else pending.delete(input.command.threadId);
+          }),
+        ),
+      );
+      return { turnId: null };
     }
 
     const selection = yield* resolver
@@ -255,9 +270,65 @@ export const makeProviderThreadSwitchCoordinator = Effect.gen(function* () {
     return { turnId: result.turnId };
   });
 
+  const events = yield* PubSub.subscribe(publisher.providerEvents);
+  const deliverPending = (threadId: ThreadId, turnId: string) =>
+    inLane(
+      threadId,
+      Effect.gen(function* () {
+        const entries = pending.get(threadId) ?? [];
+        const ready = entries.filter((entry) => entry.turnId === turnId);
+        const remaining = entries.filter((entry) => entry.turnId !== turnId);
+        if (remaining.length) pending.set(threadId, remaining);
+        else pending.delete(threadId);
+        for (const entry of ready) {
+          yield* dispatchTurnAdmission(entry.input).pipe(
+            Effect.catchCause((cause) => {
+              if (Cause.hasInterruptsOnly(cause)) return Effect.failCause(cause).pipe(Effect.orDie);
+              const failure = Cause.squash(cause);
+              const error = failure instanceof Error ? failure.message : String(failure);
+              return settleMessage(
+                publisher,
+                {
+                  type: "failed",
+                  threadId,
+                  messageId: entry.input.command.message.messageId,
+                  error,
+                },
+                new Date().toISOString(),
+              ).pipe(
+                Effect.andThen(
+                  Effect.logError("pending provider delivery failed", {
+                    threadId,
+                    messageId: entry.input.command.message.messageId,
+                    error,
+                  }),
+                ),
+              );
+            }),
+          );
+        }
+      }),
+    ).pipe(Effect.provideService(SqlClient.SqlClient, sql));
+  yield* Stream.fromEffectRepeat(PubSub.take(events)).pipe(
+    Stream.runForEach((event) => {
+      if (event.type === "turn.ended")
+        return Effect.forkIn(
+          deliverPending(ThreadId.makeUnsafe(event.threadId), event.turnId),
+          scope,
+        );
+      if (event.type === "provider.exited")
+        return Effect.sync(() => {
+          for (const id of event.threadIds) pending.delete(ThreadId.makeUnsafe(id));
+        });
+      return Effect.void;
+    }),
+    Effect.forkIn(scope),
+  );
   return {
     dispatchTurnStart: (input) =>
-      dispatchTurnAdmission(input).pipe(Effect.provideService(SqlClient.SqlClient, sql)),
+      inLane(input.command.threadId, dispatchTurnAdmission(input)).pipe(
+        Effect.provideService(SqlClient.SqlClient, sql),
+      ),
   } satisfies ProviderThreadSwitchCoordinatorShape;
 });
 

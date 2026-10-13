@@ -8,7 +8,7 @@
 
 import { ThreadId, type CleanCoreSidebarChange } from "@penkra/contracts";
 import { normalizeEntityName } from "@penkra/shared/entityNames";
-import { Effect } from "effect";
+import { Effect, PubSub } from "effect";
 import * as SqlClient from "effect/unstable/sql/SqlClient";
 
 import type { CleanCoreProviderEvent } from "./providerStreamConsumer.ts";
@@ -42,76 +42,58 @@ export interface ThreadChange {
 }
 
 export interface ThreadPublisher {
-  readonly subscribeProvider: (listener: (event: CleanCoreProviderEvent) => void) => () => void;
+  readonly threadChanges: PubSub.PubSub<ThreadChange>;
+  readonly sidebarChanges: PubSub.PubSub<CleanCoreSidebarChange>;
+  readonly providerEvents: PubSub.PubSub<CleanCoreProviderEvent>;
+  readonly deliveryReady: PubSub.PubSub<ThreadChange>;
   readonly publishProvider: (event: CleanCoreProviderEvent) => void;
-  /** Subscribe to one thread's changes. Returns an unsubscribe function. */
-  readonly subscribe: (threadId: string, listener: (change: ThreadChange) => void) => () => void;
-  /** Subscribe to every thread's changes. Returns an unsubscribe function. */
-  readonly subscribeAll: (listener: (change: ThreadChange) => void) => () => void;
   readonly publish: (change: ThreadChange) => void;
   readonly publishCreated: (change: ThreadChange) => void;
-  readonly subscribeSidebar: (listener: (change: CleanCoreSidebarChange) => void) => () => void;
   readonly publishSidebar: (change: CleanCoreSidebarChange) => void;
+  readonly publishDeliveryReady: (change: ThreadChange) => void;
+  readonly close: Effect.Effect<void>;
 }
 
-// Callbacks may synchronously resume fibers that replace their subscription.
-// New subscriptions belong to the next notification, not the current iteration.
-const notifyListeners = <T>(listeners: Set<(value: T) => void> | undefined, value: T): void => {
-  for (const listener of [...(listeners ?? [])]) {
-    if (listeners?.has(listener)) listener(value);
-  }
-};
-
 export const makeThreadPublisher = (): ThreadPublisher => {
-  const byThread = new Map<string, Set<(change: ThreadChange) => void>>();
-  const all = new Set<(change: ThreadChange) => void>();
-  const sidebar = new Set<(change: CleanCoreSidebarChange) => void>();
-  const provider = new Set<(event: CleanCoreProviderEvent) => void>();
+  const threadChanges = Effect.runSync(PubSub.unbounded<ThreadChange>());
+  const sidebarChanges = Effect.runSync(PubSub.unbounded<CleanCoreSidebarChange>());
+  const providerEvents = Effect.runSync(PubSub.unbounded<CleanCoreProviderEvent>());
+  const deliveryReady = Effect.runSync(PubSub.unbounded<ThreadChange>());
+  const publish = (change: ThreadChange) => {
+    PubSub.publishUnsafe(threadChanges, change);
+    PubSub.publishUnsafe(sidebarChanges, {
+      kind: "thread",
+      threadId: ThreadId.makeUnsafe(change.threadId),
+    });
+  };
   return {
-    subscribeProvider: (listener) => {
-      provider.add(listener);
-      return () => {
-        provider.delete(listener);
-      };
-    },
-    publishProvider: (event) => {
-      notifyListeners(provider, event);
-    },
-    subscribeSidebar: (listener) => {
-      sidebar.add(listener);
-      return () => {
-        sidebar.delete(listener);
-      };
-    },
-    publishSidebar: (change) => {
-      notifyListeners(sidebar, change);
-    },
-    subscribe: (threadId, listener) => {
-      const listeners = byThread.get(threadId) ?? new Set();
-      listeners.add(listener);
-      byThread.set(threadId, listeners);
-      return () => {
-        listeners.delete(listener);
-        if (listeners.size === 0 && byThread.get(threadId) === listeners) byThread.delete(threadId);
-      };
-    },
-    subscribeAll: (listener) => {
-      all.add(listener);
-      return () => all.delete(listener);
-    },
+    threadChanges,
+    sidebarChanges,
+    providerEvents,
+    deliveryReady,
+    publish,
     publishCreated: (change) => {
-      notifyListeners(byThread.get(change.threadId), change);
-      notifyListeners(all, change);
-      notifyListeners(sidebar, {
+      PubSub.publishUnsafe(threadChanges, change);
+      PubSub.publishUnsafe(sidebarChanges, {
         kind: "thread.created",
         threadId: ThreadId.makeUnsafe(change.threadId),
       });
     },
-    publish: (change) => {
-      notifyListeners(byThread.get(change.threadId), change);
-      notifyListeners(all, change);
-      notifyListeners(sidebar, { kind: "thread", threadId: ThreadId.makeUnsafe(change.threadId) });
+    publishProvider: (event) => {
+      PubSub.publishUnsafe(providerEvents, event);
     },
+    publishSidebar: (change) => {
+      PubSub.publishUnsafe(sidebarChanges, change);
+    },
+    publishDeliveryReady: (change) => {
+      PubSub.publishUnsafe(deliveryReady, change);
+    },
+    close: Effect.all([
+      PubSub.shutdown(threadChanges),
+      PubSub.shutdown(sidebarChanges),
+      PubSub.shutdown(providerEvents),
+      PubSub.shutdown(deliveryReady),
+    ]).pipe(Effect.asVoid),
   };
 };
 

@@ -1,3 +1,4 @@
+import { observePublisher } from "./threadPublisherTestHelpers.ts";
 import { assert, it } from "@effect/vitest";
 import { FolderId } from "@penkra/contracts";
 import { Effect } from "effect";
@@ -24,7 +25,13 @@ const fixture = Effect.gen(function* () {
   yield* runMigrations();
   yield* seedThreadFolderFixture(folderId, "space-1");
 });
-const withDb = <A, E>(program: Effect.Effect<A, E, SqlClient.SqlClient | ThreadPublisher>) =>
+const withDb = <A, E>(
+  program: Effect.Effect<
+    A,
+    E,
+    SqlClient.SqlClient | import("effect/Scope").Scope | ThreadPublisher
+  >,
+) =>
   program.pipe(
     Effect.provideService(ThreadPublisher, makeThreadPublisher()),
     Effect.provide(NodeSqliteClient.layerMemory()),
@@ -36,7 +43,9 @@ it.effect("opens, updates, reorders and closes App tabs with one broadcast per w
       yield* fixture;
       const publisher = yield* ThreadPublisher;
       const changes: unknown[] = [];
-      const unsubscribe = publisher.subscribeSidebar((change) => changes.push(change));
+      const unsubscribe = yield* observePublisher(publisher.sidebarChanges, (change) =>
+        changes.push(change),
+      );
       const write = (update: Parameters<typeof updateFolderAppTabs>[0]["update"]) =>
         updateFolderAppTabs({ folderId, updatedAt, update });
       assert.deepStrictEqual((yield* getFolderAppTabs({ folderId }))?.tabs, {
