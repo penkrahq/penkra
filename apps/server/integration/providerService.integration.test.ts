@@ -13,7 +13,6 @@ import {
 } from "../src/provider/Services/ProviderService.ts";
 import { AnalyticsService } from "../src/telemetry/Services/AnalyticsService.ts";
 import { SqlitePersistenceMemory } from "../src/persistence/Layers/Sqlite.ts";
-import { ProviderSessionRuntimeRepositoryLive } from "../src/persistence/Layers/ProviderSessionRuntime.ts";
 
 import {
   makeTestProviderAdapterHarness,
@@ -52,9 +51,7 @@ const makeIntegrationFixture = Effect.gen(function* () {
     listProviders: () => Effect.succeed(["codex"]),
   };
 
-  const directoryLayer = ProviderSessionDirectoryLive.pipe(
-    Layer.provide(ProviderSessionRuntimeRepositoryLive),
-  );
+  const directoryLayer = ProviderSessionDirectoryLive;
 
   const shared = Layer.mergeAll(
     directoryLayer,

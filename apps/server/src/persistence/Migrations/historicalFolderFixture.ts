@@ -25,3 +25,16 @@ export const seedHistoricalProjectFixture = (now: string) =>
     VALUES ('folder-removed-default', 'folder', 'space-migration-test', 'Folder', NULL,
       '{"provider":"cursor","model":"auto"}', '[]', ${now}, ${now})`;
   });
+
+// Historical Claude startup fixture before the canonical/provider-table folds.
+export const seedHistoricalClaudeNativeThread = (
+  threadId: string,
+  nativeId: string,
+  folderId: string,
+  at: string,
+) =>
+  Effect.gen(function* () {
+    const sql = yield* SqlClient.SqlClient;
+    yield* sql`INSERT INTO projection_threads (thread_id,folder_id,title,model_selection_json,created_at,updated_at) VALUES (${threadId},${folderId},'Chat','{"provider":"claudeAgent","model":"sonnet"}',${at},${at})`;
+    yield* sql`INSERT INTO provider_native_state_generations (native_state_generation_id,owner_thread_id,harness_kind,adapter_schema_version,state_manifest_json,lifecycle,created_at) VALUES (${nativeId},${threadId},'claudeAgent','managed-native-state-v1','{}','active',${at})`;
+  });

@@ -45,8 +45,6 @@ import {
 } from "./ProviderService.ts";
 import { ProviderSessionDirectoryLive } from "./ProviderSessionDirectory.ts";
 import * as NodeServices from "@effect/platform-node/NodeServices";
-import { ProviderSessionRuntimeRepositoryLive } from "../../persistence/Layers/ProviderSessionRuntime.ts";
-import { ProviderSessionRuntimeRepository } from "../../persistence/Services/ProviderSessionRuntime.ts";
 import {
   makeSqlitePersistenceLive,
   SqlitePersistenceMemory,
@@ -371,7 +369,7 @@ function makeProviderServiceLayer(
   };
 
   const providerAdapterLayer = Layer.succeed(ProviderAdapterRegistry, registry);
-  const runtimeRepositoryLayer = ProviderSessionRuntimeRepositoryLive.pipe(
+  const runtimeRepositoryLayer = ProviderSessionDirectoryLive.pipe(
     Layer.provide(SqlitePersistenceMemory),
   );
   const directoryLayer = ProviderSessionDirectoryLive.pipe(Layer.provide(runtimeRepositoryLayer));
@@ -654,7 +652,7 @@ it.effect("ProviderServiceLive keeps persisted resumable sessions on startup", (
     };
 
     const persistenceLayer = makeSqlitePersistenceLive(dbPath);
-    const runtimeRepositoryLayer = ProviderSessionRuntimeRepositoryLive.pipe(
+    const runtimeRepositoryLayer = ProviderSessionDirectoryLive.pipe(
       Layer.provide(persistenceLayer),
     );
     const directoryLayer = ProviderSessionDirectoryLive.pipe(Layer.provide(runtimeRepositoryLayer));
@@ -684,10 +682,8 @@ it.effect("ProviderServiceLive keeps persisted resumable sessions on startup", (
     assert.equal(persistedProvider, "codex");
 
     const runtime = yield* Effect.gen(function* () {
-      const repository = yield* ProviderSessionRuntimeRepository;
-      return yield* repository.getByThreadId({
-        threadId: asThreadId("thread-stale"),
-      });
+      const repository = yield* ProviderSessionDirectory;
+      return yield* repository.getBinding(asThreadId("thread-stale"));
     }).pipe(Effect.provide(runtimeRepositoryLayer));
     assert.equal(Option.isSome(runtime), true);
 
@@ -712,7 +708,7 @@ it.effect(
       const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "penkra-provider-service-stopall-"));
       const dbPath = path.join(tempDir, "orchestration.sqlite");
       const persistenceLayer = makeSqlitePersistenceLive(dbPath);
-      const runtimeRepositoryLayer = ProviderSessionRuntimeRepositoryLive.pipe(
+      const runtimeRepositoryLayer = ProviderSessionDirectoryLive.pipe(
         Layer.provide(persistenceLayer),
       );
 
@@ -764,8 +760,8 @@ it.effect(
       }).pipe(Effect.provide(providerLayer));
 
       const persisted = yield* Effect.gen(function* () {
-        const repository = yield* ProviderSessionRuntimeRepository;
-        return yield* repository.getByThreadId({ threadId });
+        const repository = yield* ProviderSessionDirectory;
+        return yield* repository.getBinding(threadId);
       }).pipe(Effect.provide(runtimeRepositoryLayer));
 
       assert.equal(Option.isSome(persisted), true);
@@ -788,7 +784,7 @@ it.effect(
       const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "penkra-provider-service-restart-"));
       const dbPath = path.join(tempDir, "orchestration.sqlite");
       const persistenceLayer = makeSqlitePersistenceLive(dbPath);
-      const runtimeRepositoryLayer = ProviderSessionRuntimeRepositoryLive.pipe(
+      const runtimeRepositoryLayer = ProviderSessionDirectoryLive.pipe(
         Layer.provide(persistenceLayer),
       );
 
@@ -835,10 +831,8 @@ it.effect(
       }).pipe(Effect.provide(firstProviderLayer));
 
       const persistedAfterStopAll = yield* Effect.gen(function* () {
-        const repository = yield* ProviderSessionRuntimeRepository;
-        return yield* repository.getByThreadId({
-          threadId: startedSession.threadId,
-        });
+        const repository = yield* ProviderSessionDirectory;
+        return yield* repository.getBinding(startedSession.threadId);
       }).pipe(Effect.provide(runtimeRepositoryLayer));
       assert.equal(Option.isSome(persistedAfterStopAll), true);
       if (Option.isSome(persistedAfterStopAll)) {
@@ -1596,10 +1590,10 @@ routing.layer("ProviderServiceLive routing", (it) => {
     }),
   );
 
-  it.effect("persists runtime status transitions in provider_session_runtime", () =>
+  it.effect("tracks runtime status transitions in the live session directory", () =>
     Effect.gen(function* () {
       const provider = yield* ProviderService;
-      const runtimeRepository = yield* ProviderSessionRuntimeRepository;
+      const runtimeRepository = yield* ProviderSessionDirectory;
 
       const session = yield* provider.startSession(asThreadId("thread-1"), {
         provider: "codex",
@@ -1612,9 +1606,7 @@ routing.layer("ProviderServiceLive routing", (it) => {
         attachments: [],
       });
 
-      const runningRuntime = yield* runtimeRepository.getByThreadId({
-        threadId: session.threadId,
-      });
+      const runningRuntime = yield* runtimeRepository.getBinding(session.threadId);
       assert.equal(Option.isSome(runningRuntime), true);
       if (Option.isSome(runningRuntime)) {
         assert.equal(runningRuntime.value.status, "running");
@@ -1642,7 +1634,7 @@ routing.layer("ProviderServiceLive routing", (it) => {
   it.effect("clears persisted active turn metadata when a runtime turn completes", () =>
     Effect.gen(function* () {
       const provider = yield* ProviderService;
-      const runtimeRepository = yield* ProviderSessionRuntimeRepository;
+      const runtimeRepository = yield* ProviderSessionDirectory;
 
       const session = yield* provider.startSession(asThreadId("thread-runtime-complete"), {
         provider: "codex",
@@ -1671,9 +1663,7 @@ routing.layer("ProviderServiceLive routing", (it) => {
       });
       yield* sleep(50);
 
-      const runtime = yield* runtimeRepository.getByThreadId({
-        threadId: session.threadId,
-      });
+      const runtime = yield* runtimeRepository.getBinding(session.threadId);
       assert.equal(Option.isSome(runtime), true);
       if (Option.isSome(runtime)) {
         assert.equal(runtime.value.status, "stopped");
@@ -2163,7 +2153,7 @@ routing.layer("ProviderServiceLive routing", (it) => {
   it.effect("refreshes persisted resume cursor immediately on model reroutes", () =>
     Effect.gen(function* () {
       const provider = yield* ProviderService;
-      const runtimeRepository = yield* ProviderSessionRuntimeRepository;
+      const runtimeRepository = yield* ProviderSessionDirectory;
 
       const session = yield* provider.startSession(asThreadId("thread-runtime-resume-refresh"), {
         provider: "claudeAgent",
@@ -2197,9 +2187,7 @@ routing.layer("ProviderServiceLive routing", (it) => {
       });
       yield* sleep(50);
 
-      const runtime = yield* runtimeRepository.getByThreadId({
-        threadId: session.threadId,
-      });
+      const runtime = yield* runtimeRepository.getBinding(session.threadId);
       assert.equal(Option.isSome(runtime), true);
       if (Option.isSome(runtime)) {
         assert.deepEqual(runtime.value.resumeCursor, updatedResumeCursor);
@@ -2210,7 +2198,7 @@ routing.layer("ProviderServiceLive routing", (it) => {
   it.effect("does not resurrect a cursor deliberately invalidated by the active adapter", () =>
     Effect.gen(function* () {
       const provider = yield* ProviderService;
-      const runtimeRepository = yield* ProviderSessionRuntimeRepository;
+      const runtimeRepository = yield* ProviderSessionDirectory;
       const threadId = asThreadId("thread-runtime-resume-invalidated");
 
       const session = yield* provider.startSession(threadId, {
@@ -2240,15 +2228,13 @@ routing.layer("ProviderServiceLive routing", (it) => {
       yield* waitUntilEffect(
         () =>
           runtimeRepository
-            .getByThreadId({ threadId })
+            .getBinding(threadId)
             .pipe(Effect.map(Option.exists((runtime) => runtime.resumeCursor === null))),
         500,
         20,
         "invalidated resume cursor persistence",
       );
-      const runtime = yield* runtimeRepository.getByThreadId({
-        threadId: session.threadId,
-      });
+      const runtime = yield* runtimeRepository.getBinding(session.threadId);
       assert.equal(Option.isSome(runtime), true);
       if (Option.isSome(runtime)) assert.equal(runtime.value.resumeCursor, null);
     }),
@@ -2257,7 +2243,7 @@ routing.layer("ProviderServiceLive routing", (it) => {
   it.effect("persists task-list resume state before the active turn completes", () =>
     Effect.gen(function* () {
       const provider = yield* ProviderService;
-      const runtimeRepository = yield* ProviderSessionRuntimeRepository;
+      const runtimeRepository = yield* ProviderSessionDirectory;
 
       const session = yield* provider.startSession(asThreadId("thread-task-resume-refresh"), {
         provider: "claudeAgent",
@@ -2301,7 +2287,7 @@ routing.layer("ProviderServiceLive routing", (it) => {
 
       yield* waitUntilEffect(
         () =>
-          runtimeRepository.getByThreadId({ threadId: session.threadId }).pipe(
+          runtimeRepository.getBinding(session.threadId).pipe(
             Effect.map(
               Option.exists((runtime) => {
                 const cursor = runtime.resumeCursor;
@@ -2314,9 +2300,7 @@ routing.layer("ProviderServiceLive routing", (it) => {
         "task resume cursor persistence",
       );
 
-      const runtime = yield* runtimeRepository.getByThreadId({
-        threadId: session.threadId,
-      });
+      const runtime = yield* runtimeRepository.getBinding(session.threadId);
       assert.equal(Option.isSome(runtime), true);
       if (Option.isSome(runtime)) {
         assert.deepEqual(runtime.value.resumeCursor, updatedResumeCursor);
@@ -2328,7 +2312,7 @@ routing.layer("ProviderServiceLive routing", (it) => {
   it.effect("marks persisted runtime bindings errored on runtime errors", () =>
     Effect.gen(function* () {
       const provider = yield* ProviderService;
-      const runtimeRepository = yield* ProviderSessionRuntimeRepository;
+      const runtimeRepository = yield* ProviderSessionDirectory;
 
       const session = yield* provider.startSession(asThreadId("thread-runtime-error"), {
         provider: "codex",
@@ -2352,9 +2336,7 @@ routing.layer("ProviderServiceLive routing", (it) => {
       });
       yield* sleep(50);
 
-      const runtime = yield* runtimeRepository.getByThreadId({
-        threadId: session.threadId,
-      });
+      const runtime = yield* runtimeRepository.getBinding(session.threadId);
       assert.equal(Option.isSome(runtime), true);
       if (Option.isSome(runtime)) {
         assert.equal(runtime.value.status, "error");
@@ -2377,7 +2359,7 @@ routing.layer("ProviderServiceLive routing", (it) => {
   it.effect("marks terminal thread state changes stopped or errored", () =>
     Effect.gen(function* () {
       const provider = yield* ProviderService;
-      const runtimeRepository = yield* ProviderSessionRuntimeRepository;
+      const runtimeRepository = yield* ProviderSessionDirectory;
 
       const session = yield* provider.startSession(asThreadId("thread-runtime-state-error"), {
         provider: "codex",
@@ -2395,9 +2377,7 @@ routing.layer("ProviderServiceLive routing", (it) => {
       });
       yield* sleep(50);
 
-      const runtime = yield* runtimeRepository.getByThreadId({
-        threadId: session.threadId,
-      });
+      const runtime = yield* runtimeRepository.getBinding(session.threadId);
       assert.equal(Option.isSome(runtime), true);
       if (Option.isSome(runtime)) {
         assert.equal(runtime.value.status, "error");
@@ -2417,7 +2397,7 @@ routing.layer("ProviderServiceLive routing", (it) => {
   it.effect("preserves active turns across compacted thread state boundaries", () =>
     Effect.gen(function* () {
       const provider = yield* ProviderService;
-      const runtimeRepository = yield* ProviderSessionRuntimeRepository;
+      const runtimeRepository = yield* ProviderSessionDirectory;
 
       const session = yield* provider.startSession(asThreadId("thread-runtime-compact-boundary"), {
         provider: "codex",
@@ -2440,9 +2420,7 @@ routing.layer("ProviderServiceLive routing", (it) => {
       });
       yield* sleep(50);
 
-      const runtime = yield* runtimeRepository.getByThreadId({
-        threadId: session.threadId,
-      });
+      const runtime = yield* runtimeRepository.getBinding(session.threadId);
       assert.equal(Option.isSome(runtime), true);
       if (Option.isSome(runtime)) {
         assert.equal(runtime.value.status, "running");
@@ -2464,7 +2442,7 @@ routing.layer("ProviderServiceLive routing", (it) => {
       const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "penkra-provider-service-start-"));
       const dbPath = path.join(tempDir, "orchestration.sqlite");
       const persistenceLayer = makeSqlitePersistenceLive(dbPath);
-      const runtimeRepositoryLayer = ProviderSessionRuntimeRepositoryLive.pipe(
+      const runtimeRepositoryLayer = ProviderSessionDirectoryLive.pipe(
         Layer.provide(persistenceLayer),
       );
 
@@ -2585,7 +2563,7 @@ routing.layer("ProviderServiceLive routing", (it) => {
       const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "penkra-provider-service-clear-"));
       const dbPath = path.join(tempDir, "orchestration.sqlite");
       const persistenceLayer = makeSqlitePersistenceLive(dbPath);
-      const runtimeRepositoryLayer = ProviderSessionRuntimeRepositoryLive.pipe(
+      const runtimeRepositoryLayer = ProviderSessionDirectoryLive.pipe(
         Layer.provide(persistenceLayer),
       );
       const providerOptions = {
@@ -2680,7 +2658,7 @@ routing.layer("ProviderServiceLive routing", (it) => {
       );
       const dbPath = path.join(tempDir, "orchestration.sqlite");
       const persistenceLayer = makeSqlitePersistenceLive(dbPath);
-      const runtimeRepositoryLayer = ProviderSessionRuntimeRepositoryLive.pipe(
+      const runtimeRepositoryLayer = ProviderSessionDirectoryLive.pipe(
         Layer.provide(persistenceLayer),
       );
       const providerOptions = {
@@ -2834,7 +2812,7 @@ idleCleanup.layer("ProviderServiceLive idle cleanup", (it) => {
   it.effect("keeps Claude alive without a saved resume cursor", () =>
     Effect.gen(function* () {
       const provider = yield* ProviderService;
-      const runtimeRepository = yield* ProviderSessionRuntimeRepository;
+      const runtimeRepository = yield* ProviderSessionDirectory;
       const threadId = asThreadId("idle-without-cursor");
       const otherId = asThreadId("idle-with-cursor-control");
       yield* provider.startSession(threadId, {
@@ -2848,7 +2826,7 @@ idleCleanup.layer("ProviderServiceLive idle cleanup", (it) => {
         runtimeMode: "full-access",
       });
       idleCleanup.claude.updateSession(threadId, withoutResumeCursor);
-      const runtime = yield* runtimeRepository.getByThreadId({ threadId });
+      const runtime = yield* runtimeRepository.getBinding(threadId);
       assert.equal(Option.isSome(runtime), true);
       if (Option.isSome(runtime))
         yield* runtimeRepository.upsert({ ...runtime.value, resumeCursor: null });
@@ -3018,7 +2996,7 @@ idleCleanup.layer("ProviderServiceLive idle cleanup", (it) => {
     () =>
       Effect.gen(function* () {
         const provider = yield* ProviderService;
-        const runtimeRepository = yield* ProviderSessionRuntimeRepository;
+        const runtimeRepository = yield* ProviderSessionDirectory;
 
         const session = yield* provider.startSession(asThreadId("thread-idle-persisted-cursor"), {
           provider: "claudeAgent",
@@ -3026,9 +3004,7 @@ idleCleanup.layer("ProviderServiceLive idle cleanup", (it) => {
           runtimeMode: "full-access",
         });
 
-        const persistedBefore = yield* runtimeRepository.getByThreadId({
-          threadId: session.threadId,
-        });
+        const persistedBefore = yield* runtimeRepository.getBinding(session.threadId);
         assert.equal(Option.isSome(persistedBefore), true);
         if (Option.isSome(persistedBefore)) {
           assert.deepEqual(persistedBefore.value.resumeCursor, session.resumeCursor);
@@ -3055,9 +3031,7 @@ idleCleanup.layer("ProviderServiceLive idle cleanup", (it) => {
         assert.equal(idleCleanup.claude.stopSession.mock.calls.length, 1);
         assert.deepEqual(idleCleanup.claude.stopSession.mock.calls[0]?.[0], session.threadId);
 
-        const persistedAfter = yield* runtimeRepository.getByThreadId({
-          threadId: session.threadId,
-        });
+        const persistedAfter = yield* runtimeRepository.getBinding(session.threadId);
         assert.equal(Option.isSome(persistedAfter), true);
         if (Option.isSome(persistedAfter)) {
           assert.equal(persistedAfter.value.status, "stopped");
@@ -3078,7 +3052,7 @@ idleCleanup.layer("ProviderServiceLive idle cleanup", (it) => {
   it.effect("clears a pending idle stop before dispatching new turn work", () =>
     Effect.gen(function* () {
       const provider = yield* ProviderService;
-      const runtimeRepository = yield* ProviderSessionRuntimeRepository;
+      const runtimeRepository = yield* ProviderSessionDirectory;
       const threadId = asThreadId("thread-idle-new-turn");
 
       idleCleanup.claude.stopSession.mockClear();
@@ -3100,7 +3074,7 @@ idleCleanup.layer("ProviderServiceLive idle cleanup", (it) => {
 
       yield* waitUntilEffect(
         () =>
-          runtimeRepository.getByThreadId({ threadId }).pipe(
+          runtimeRepository.getBinding(threadId).pipe(
             Effect.map((runtime) => {
               if (Option.isNone(runtime)) {
                 return false;
@@ -3133,7 +3107,7 @@ idleCleanup.layer("ProviderServiceLive idle cleanup", (it) => {
   it.effect("clears a pending idle stop when a runtime turn starts", () =>
     Effect.gen(function* () {
       const provider = yield* ProviderService;
-      const runtimeRepository = yield* ProviderSessionRuntimeRepository;
+      const runtimeRepository = yield* ProviderSessionDirectory;
       const threadId = asThreadId("thread-idle-runtime-turn-start");
 
       idleCleanup.claude.stopSession.mockClear();
@@ -3155,7 +3129,7 @@ idleCleanup.layer("ProviderServiceLive idle cleanup", (it) => {
 
       yield* waitUntilEffect(
         () =>
-          runtimeRepository.getByThreadId({ threadId }).pipe(
+          runtimeRepository.getBinding(threadId).pipe(
             Effect.map((runtime) => {
               if (Option.isNone(runtime)) {
                 return false;
@@ -3244,7 +3218,7 @@ idleCleanup.layer("ProviderServiceLive idle cleanup", (it) => {
     Effect.gen(function* () {
       const provider = yield* ProviderService;
       const directory = yield* ProviderSessionDirectory;
-      const runtimeRepository = yield* ProviderSessionRuntimeRepository;
+      const runtimeRepository = yield* ProviderSessionDirectory;
       const threadId = asThreadId("thread-idle-superseded-generation");
 
       idleCleanup.claude.stopSession.mockClear();
@@ -3327,7 +3301,7 @@ idleCleanup.layer("ProviderServiceLive idle cleanup", (it) => {
 
       yield* waitUntilEffect(
         () =>
-          runtimeRepository.getByThreadId({ threadId }).pipe(
+          runtimeRepository.getBinding(threadId).pipe(
             Effect.map((runtime) => {
               if (Option.isNone(runtime)) {
                 return false;
@@ -3347,7 +3321,7 @@ idleCleanup.layer("ProviderServiceLive idle cleanup", (it) => {
   it.effect("clears a stale cursor without stopping a runtime that owns live tasks", () =>
     Effect.gen(function* () {
       const provider = yield* ProviderService;
-      const runtimeRepository = yield* ProviderSessionRuntimeRepository;
+      const runtimeRepository = yield* ProviderSessionDirectory;
       const threadId = asThreadId("thread-clear-resume-live-task");
 
       idleCleanup.claude.stopSession.mockClear();
@@ -3385,7 +3359,7 @@ idleCleanup.layer("ProviderServiceLive idle cleanup", (it) => {
 
       assert.equal(idleCleanup.claude.stopSession.mock.calls.length, 0);
       assert.equal(yield* idleCleanup.claude.hasSession(threadId), true);
-      const runtime = yield* runtimeRepository.getByThreadId({ threadId });
+      const runtime = yield* runtimeRepository.getBinding(threadId);
       assert.equal(Option.isSome(runtime), true);
       if (Option.isSome(runtime)) {
         assert.equal(runtime.value.resumeCursor, null);
@@ -3456,7 +3430,7 @@ idleCleanup.layer("ProviderServiceLive idle cleanup", (it) => {
   it.effect("serializes a fired idle stop before starting new turn work", () =>
     Effect.gen(function* () {
       const provider = yield* ProviderService;
-      const runtimeRepository = yield* ProviderSessionRuntimeRepository;
+      const runtimeRepository = yield* ProviderSessionDirectory;
       const threadId = asThreadId("thread-idle-fired-new-turn");
       let listSessionsStarted = false;
       let releaseListSessions: ReleaseListSessions | undefined;
@@ -3493,7 +3467,7 @@ idleCleanup.layer("ProviderServiceLive idle cleanup", (it) => {
 
       yield* waitUntilEffect(
         () =>
-          runtimeRepository.getByThreadId({ threadId }).pipe(
+          runtimeRepository.getBinding(threadId).pipe(
             Effect.map((runtime) => {
               if (Option.isNone(runtime)) {
                 return false;
@@ -3527,9 +3501,7 @@ idleCleanup.layer("ProviderServiceLive idle cleanup", (it) => {
       yield* sleep(100);
 
       assert.equal(idleCleanup.claude.stopSession.mock.calls.length, 1);
-      const persistedAfter = yield* runtimeRepository.getByThreadId({
-        threadId,
-      });
+      const persistedAfter = yield* runtimeRepository.getBinding(threadId);
       assert.equal(Option.isSome(persistedAfter), true);
       if (Option.isSome(persistedAfter)) {
         assert.equal(persistedAfter.value.status, "running");
@@ -3548,7 +3520,7 @@ idleCleanup.layer("ProviderServiceLive idle cleanup", (it) => {
   it.effect("restores idle cleanup when new turn dispatch is interrupted", () =>
     Effect.gen(function* () {
       const provider = yield* ProviderService;
-      const runtimeRepository = yield* ProviderSessionRuntimeRepository;
+      const runtimeRepository = yield* ProviderSessionDirectory;
       const threadId = asThreadId("thread-idle-interrupted-dispatch");
 
       idleCleanup.claude.stopSession.mockClear();
@@ -3570,7 +3542,7 @@ idleCleanup.layer("ProviderServiceLive idle cleanup", (it) => {
 
       yield* waitUntilEffect(
         () =>
-          runtimeRepository.getByThreadId({ threadId }).pipe(
+          runtimeRepository.getBinding(threadId).pipe(
             Effect.map((runtime) => {
               if (Option.isNone(runtime)) {
                 return false;
@@ -3611,7 +3583,7 @@ idleCleanup.layer("ProviderServiceLive idle cleanup", (it) => {
   it.effect("reschedules idle cleanup after successful rollback work", () =>
     Effect.gen(function* () {
       const provider = yield* ProviderService;
-      const runtimeRepository = yield* ProviderSessionRuntimeRepository;
+      const runtimeRepository = yield* ProviderSessionDirectory;
       const threadId = asThreadId("thread-idle-rollback-success");
 
       yield* provider.startSession(threadId, {
@@ -3632,7 +3604,7 @@ idleCleanup.layer("ProviderServiceLive idle cleanup", (it) => {
 
       yield* waitUntilEffect(
         () =>
-          runtimeRepository.getByThreadId({ threadId }).pipe(
+          runtimeRepository.getBinding(threadId).pipe(
             Effect.map((runtime) => {
               if (Option.isNone(runtime)) {
                 return false;
@@ -3671,7 +3643,7 @@ idleCleanup.layer("ProviderServiceLive idle cleanup", (it) => {
     Effect.gen(function* () {
       const provider = yield* ProviderService;
       const directory = yield* ProviderSessionDirectory;
-      const runtimeRepository = yield* ProviderSessionRuntimeRepository;
+      const runtimeRepository = yield* ProviderSessionDirectory;
       const threadId = asThreadId("thread-idle-stop-remove-race");
       let listSessionsStarted = false;
       let releaseListSessions: ReleaseListSessions | undefined;
@@ -3705,7 +3677,7 @@ idleCleanup.layer("ProviderServiceLive idle cleanup", (it) => {
       });
       yield* waitUntilEffect(
         () =>
-          runtimeRepository.getByThreadId({ threadId }).pipe(
+          runtimeRepository.getBinding(threadId).pipe(
             Effect.map((runtime) => {
               if (Option.isNone(runtime)) {
                 return false;
@@ -3738,7 +3710,7 @@ idleCleanup.layer("ProviderServiceLive idle cleanup", (it) => {
   it.effect("waits for fired idle cleanup before explicit runtime stop", () =>
     Effect.gen(function* () {
       const provider = yield* ProviderService;
-      const runtimeRepository = yield* ProviderSessionRuntimeRepository;
+      const runtimeRepository = yield* ProviderSessionDirectory;
       const threadId = asThreadId("thread-idle-runtime-stop-race");
       let listSessionsStarted = false;
       let releaseListSessions: ReleaseListSessions | undefined;
@@ -3773,7 +3745,7 @@ idleCleanup.layer("ProviderServiceLive idle cleanup", (it) => {
       });
       yield* waitUntilEffect(
         () =>
-          runtimeRepository.getByThreadId({ threadId }).pipe(
+          runtimeRepository.getBinding(threadId).pipe(
             Effect.map((runtime) => {
               if (Option.isNone(runtime)) {
                 return false;
@@ -3810,7 +3782,7 @@ idleCleanup.layer("ProviderServiceLive idle cleanup", (it) => {
   it.effect("reschedules idle cleanup after successful compact work", () =>
     Effect.gen(function* () {
       const provider = yield* ProviderService;
-      const runtimeRepository = yield* ProviderSessionRuntimeRepository;
+      const runtimeRepository = yield* ProviderSessionDirectory;
       const threadId = asThreadId("thread-idle-compact-success");
 
       yield* provider.startSession(threadId, {
@@ -3831,7 +3803,7 @@ idleCleanup.layer("ProviderServiceLive idle cleanup", (it) => {
 
       yield* waitUntilEffect(
         () =>
-          runtimeRepository.getByThreadId({ threadId }).pipe(
+          runtimeRepository.getBinding(threadId).pipe(
             Effect.map((runtime) => {
               if (Option.isNone(runtime)) {
                 return false;
@@ -3942,7 +3914,7 @@ idleCleanup.layer("ProviderServiceLive idle cleanup", (it) => {
   it.effect("restores idle cleanup when new turn dispatch fails before runtime events", () =>
     Effect.gen(function* () {
       const provider = yield* ProviderService;
-      const runtimeRepository = yield* ProviderSessionRuntimeRepository;
+      const runtimeRepository = yield* ProviderSessionDirectory;
       const threadId = asThreadId("thread-idle-failed-dispatch");
       const dispatchFailure = new ProviderAdapterSessionNotFoundError({
         provider: "claudeAgent",
@@ -3968,7 +3940,7 @@ idleCleanup.layer("ProviderServiceLive idle cleanup", (it) => {
 
       yield* waitUntilEffect(
         () =>
-          runtimeRepository.getByThreadId({ threadId }).pipe(
+          runtimeRepository.getBinding(threadId).pipe(
             Effect.map((runtime) => {
               if (Option.isNone(runtime)) {
                 return false;
@@ -4359,7 +4331,7 @@ validation.layer("ProviderServiceLive validation", (it) => {
   it.effect("accepts startSession when adapter has not emitted provider thread id yet", () =>
     Effect.gen(function* () {
       const provider = yield* ProviderService;
-      const runtimeRepository = yield* ProviderSessionRuntimeRepository;
+      const runtimeRepository = yield* ProviderSessionDirectory;
 
       validation.codex.startSession.mockImplementationOnce((input: ProviderSessionStartInput) =>
         Effect.sync(() => {
@@ -4385,9 +4357,7 @@ validation.layer("ProviderServiceLive validation", (it) => {
 
       assert.equal(session.threadId, asThreadId("thread-missing"));
 
-      const runtime = yield* runtimeRepository.getByThreadId({
-        threadId: session.threadId,
-      });
+      const runtime = yield* runtimeRepository.getBinding(session.threadId);
       assert.equal(Option.isSome(runtime), true);
       if (Option.isSome(runtime)) {
         assert.equal(runtime.value.threadId, session.threadId);
