@@ -19,7 +19,6 @@ import {
   MessageId,
   FolderId,
   ProviderConnectionId,
-  ProviderInstallationId,
   SpaceId,
   ThreadId,
   TurnId,
@@ -30,7 +29,7 @@ import { homedir } from "node:os";
 import { Deferred, Effect, Layer, Logger, Option, Stream } from "effect";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 
-import { OrchestrationCommandInvariantError } from "../../orchestration/Errors.ts";
+import { ThreadPolicyError } from "../../cleanCore/threadErrors.ts";
 import { deriveAgentThreadStatus } from "../threadSummary.ts";
 import { THREADS_PAGE_SIZE } from "@penkra/contracts";
 import type {
@@ -246,7 +245,7 @@ function makeHarnessLayer(
       readonly release: Deferred.Deferred<void>;
     };
     readonly advanceParentTurnAfterDispatch?: {
-      readonly commandType: OrchestrationCommand["type"];
+      readonly operation: OrchestrationCommand["type"];
       readonly turnId: string;
       readonly state?: "running" | "completed" | "interrupted";
     };
@@ -731,8 +730,8 @@ function makeHarnessLayer(
           Effect.suspend(() => {
             if (options.rejectArchivedCommands && command.type === "thread.turn.start") {
               return Effect.fail(
-                new OrchestrationCommandInvariantError({
-                  commandType: command.type,
+                new ThreadPolicyError({
+                  operation: command.type,
                   code: "thread_archived",
                   detail: "This thread is archived. Unarchive it to send messages.",
                 }),

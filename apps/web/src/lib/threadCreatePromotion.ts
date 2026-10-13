@@ -16,7 +16,6 @@ export async function promoteThreadCreate(
   if (!api) return "unavailable";
   const result = await api.cleanCore.createThread(input);
   applyThreadCreationResponse(result);
-  if (result.created) useStore.getState().markThreadDetailKnownEmpty(result.thread.id);
   return result.created ? "created" : "exists";
 }
 

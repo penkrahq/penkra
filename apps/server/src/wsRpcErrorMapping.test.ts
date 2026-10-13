@@ -1,15 +1,15 @@
 import { describe, expect, it } from "vitest";
 
 import { ProviderThreadSwitchCoordinatorError } from "./orchestration/Services/ProviderThreadSwitchCoordinator.ts";
-import { OrchestrationCommandInvariantError } from "./orchestration/Errors.ts";
+import { ThreadPolicyError } from "./cleanCore/threadErrors.ts";
 import { wsRpcErrorCode } from "./wsRpcErrorMapping.ts";
 
 describe("wsRpcErrorCode", () => {
   it("maps a structured stale Play invariant to a WebSocket error code", () => {
     expect(
       wsRpcErrorCode(
-        new OrchestrationCommandInvariantError({
-          commandType: "thread.turn.recover",
+        new ThreadPolicyError({
+          operation: "thread.turn.recover",
           detail: "Thread changed before continuation.",
           code: "THREAD_CONTINUE_STALE",
         }),
@@ -23,8 +23,8 @@ describe("wsRpcErrorCode", () => {
         wsRpcErrorCode(
           new ProviderThreadSwitchCoordinatorError({
             detail: "wrapped",
-            cause: new OrchestrationCommandInvariantError({
-              commandType: "thread.turn.start",
+            cause: new ThreadPolicyError({
+              operation: "thread.turn.start",
               code,
               detail: "guard",
             }),

@@ -10,7 +10,6 @@ import { useVoiceSessionCoordinatorStore } from "../voiceSessionCoordinator";
 
 export function DesktopActiveWorkPowerSync() {
   const activeThreadIdsKey = useStore((state) => activeThreadExecutionIds(state).join("\n"));
-  const snapshotSequence = useStore((state) => state.shellSnapshotSequence ?? 0);
   const activeThreadIds = activeThreadIdsKey === "" ? [] : activeThreadIdsKey.split("\n");
   const threadExecution = activeThreadIds.length > 0;
   const voice = useVoiceSessionCoordinatorStore(
@@ -20,12 +19,10 @@ export function DesktopActiveWorkPowerSync() {
   useEffect(() => {
     const setActiveWork = window.desktopBridge?.power?.setActiveWork;
     if (!setActiveWork) return;
-    void setActiveWork({ threadExecution, voice, activeThreadIds, snapshotSequence }).catch(
-      (error: unknown) => {
-        console.warn("[desktop-power] Failed to synchronize active work.", error);
-      },
-    );
-  }, [activeThreadIdsKey, snapshotSequence, threadExecution, voice]);
+    void setActiveWork({ threadExecution, voice, activeThreadIds }).catch((error: unknown) => {
+      console.warn("[desktop-power] Failed to synchronize active work.", error);
+    });
+  }, [activeThreadIdsKey, threadExecution, voice]);
 
   useEffect(
     () => () => {

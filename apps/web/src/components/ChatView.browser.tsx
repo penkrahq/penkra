@@ -1,3 +1,4 @@
+import type { TestProviderUpdate as OrchestrationEvent } from "../storeTestFixtures";
 import type { FixtureReadModel as ContractReadModel } from "../test/effectRpcWebSocketMock.ts";
 import { Schema } from "effect";
 import { promoteThreadCreate } from "../lib/threadCreatePromotion";
@@ -18,7 +19,6 @@ import {
   MessageId,
   ORCHESTRATION_WS_METHODS,
   ProviderConnectionId,
-  type OrchestrationEvent,
   type FolderId,
   type ServerConfig,
   SpaceId,

@@ -2,8 +2,6 @@
 // Purpose: Captures the exact renderer inputs behind transcript working chrome.
 // Layer: Web chat diagnostics
 
-import type { OrchestrationEvent } from "@penkra/contracts";
-
 export interface ChatLifecycleDiagnosticState {
   readonly threadId: string;
   readonly isServerThread: boolean;
@@ -321,33 +319,6 @@ export function recordChatLifecycleUiDiagnostic(
   };
   state.nextSequence += 1;
   appendSample(sample);
-}
-
-/** Trace lifecycle delivery without retaining payloads or logging each text delta. */
-export function recordChatLifecycleSyncDiagnostic(
-  event: OrchestrationEvent,
-  stage: "received" | "applied",
-): void {
-  if (!diagnosticsAvailable() || event.aggregateKind !== "thread") return;
-  if (
-    event.type !== "thread.turn-interrupt-requested" &&
-    event.type !== "thread.turn-start-requested" &&
-    event.type !== "thread.session-set" &&
-    !(event.type === "thread.activity-appended" && event.payload.activity.kind === "turn.completed")
-  )
-    return;
-  appendSample({
-    event: stage === "received" ? "sync-lifecycle-received" : "sync-lifecycle-applied",
-    sequence: state.nextSequence++,
-    recordedAt: new Date().toISOString(),
-    performanceNow: performance.now(),
-    threadId: String(event.aggregateId),
-    orchestrationSequence: event.sequence,
-    orchestrationEventType: event.type,
-    occurredAt: event.occurredAt,
-    ingestedAt: event.metadata.ingestedAt ?? null,
-    commandId: event.commandId === null ? null : String(event.commandId),
-  });
 }
 
 /** Records renderer publication boundaries without retaining event payloads. */

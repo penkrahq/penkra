@@ -1,3 +1,4 @@
+import type { TestProviderUpdate as OrchestrationEvent } from "../storeTestFixtures";
 import type { FixtureReadModel as ContractReadModel } from "../test/effectRpcWebSocketMock.ts";
 import "../index.css";
 import { resetThreadListForTests } from "../threadListStore";
@@ -11,7 +12,6 @@ import {
   SpaceId,
   ThreadId,
   TurnId,
-  type OrchestrationEvent,
   type OrchestrationGetThreadTurnsPageResult,
   type OrchestrationSyncStreamItem,
   type OrchestrationThread as ContractThread,

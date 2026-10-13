@@ -13,16 +13,10 @@ import { OpenInEditorInput } from "./editor";
 import { FilesystemBrowseInput, FilesystemBrowseResult } from "./filesystem";
 import { KeybindingRule } from "./keybindings";
 import {
-  ClientOrchestrationCommand,
   ORCHESTRATION_WS_METHODS,
-  OrchestrationEvent,
   OrchestrationImportThreadInput,
   OrchestrationImportThreadResult,
-  OrchestrationRpcSchemas,
-  OrchestrationShellStreamItem,
   OrchestrationThreadShell,
-  OrchestrationSyncStreamItem,
-  OrchestrationThreadStreamItem,
 } from "./orchestration";
 import { ProviderCompactThreadInput } from "./provider";
 import {

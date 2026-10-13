@@ -6,7 +6,7 @@ import * as SqlClient from "effect/unstable/sql/SqlClient";
 
 import { SqlitePersistenceMemory } from "./Sqlite.ts";
 import { ProjectionFolderRepositoryLive } from "./ProjectionFolders.ts";
-import { createThread, setThreadDeleted } from "../../cleanCore/threadStore.ts";
+import { createThread } from "../../cleanCore/threadStore.ts";
 import { getThread } from "../../cleanCore/threadList.ts";
 import { ProjectionFolderRepository } from "../Services/ProjectionFolders.ts";
 

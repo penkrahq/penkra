@@ -8,7 +8,7 @@ import {
   type ThreadId,
 } from "@penkra/contracts";
 import { useCallback, useState } from "react";
-import { newCommandId, newMessageId, newThreadId } from "../lib/utils";
+import { newMessageId, newThreadId } from "../lib/utils";
 import { readNativeApi } from "../nativeApi";
 import type { Project, Thread } from "../types";
 import type { ComposerTrigger } from "../composer-logic";
@@ -21,7 +21,7 @@ import {
   parseComposerSlashInvocationForCommands,
   parseFastSlashCommandAction,
 } from "../composerSlashCommands";
-import { buildThreadImportedMessages } from "../lib/threadImport";
+import {} from "../lib/threadImport";
 import { toastManager } from "../components/ui/toast";
 import type { ComposerCommandItem } from "../components/chat/ComposerCommandMenu";
 import { buildNextProviderOptions } from "../providerModelOptions";

@@ -9,7 +9,6 @@ import {
   SpaceId,
   ThreadId,
   TurnId,
-  type OrchestrationEvent,
   type OrchestrationStartupSnapshot,
   type OrchestrationThreadActivity,
 } from "@penkra/contracts";
@@ -45,35 +44,36 @@ export function makeThread(overrides: Partial<Thread> = {}): Thread {
   }) as Thread;
 }
 
-export function makeDomainEvent<TType extends OrchestrationEvent["type"]>(
-  type: TType,
-  payload: Extract<OrchestrationEvent, { type: TType }>["payload"],
-  overrides: Partial<Omit<Extract<OrchestrationEvent, { type: TType }>, "type" | "payload">> = {},
-): Extract<OrchestrationEvent, { type: TType }> {
-  const aggregateId =
-    "threadId" in payload
-      ? payload.threadId
-      : "spaceId" in payload
-        ? payload.spaceId
-        : "folderId" in payload
-          ? payload.folderId
-          : FolderId.makeUnsafe("project-1");
-  const aggregateKind =
-    "threadId" in payload ? "thread" : "spaceId" in payload ? "space" : "folder";
+/** A test-only provider fixture update, never a production stream contract. */
+export interface TestProviderUpdate {
+  type: string;
+  payload: any;
+  sequence: number;
+  eventId: string;
+  aggregateKind: string;
+  aggregateId: string;
+  occurredAt: string;
+  commandId: string | null;
+  metadata: Record<string, unknown>;
+  [key: string]: any;
+}
+export function makeDomainEvent(
+  type: string,
+  payload: any,
+  overrides: Partial<TestProviderUpdate> = {},
+): TestProviderUpdate {
   return {
     type,
     payload,
-    sequence: overrides.sequence ?? 1,
-    eventId: overrides.eventId ?? EventId.makeUnsafe(`event-${crypto.randomUUID()}`),
-    aggregateKind: overrides.aggregateKind ?? aggregateKind,
-    aggregateId,
-    occurredAt: overrides.occurredAt ?? "2026-02-27T00:00:00.000Z",
-    commandId: overrides.commandId ?? null,
-    causationEventId: overrides.causationEventId ?? null,
-    correlationId: overrides.correlationId ?? null,
-    metadata: overrides.metadata ?? {},
+    sequence: 1,
+    eventId: `fixture:${crypto.randomUUID()}`,
+    aggregateKind: "thread",
+    aggregateId: payload.threadId ?? "thread-1",
+    occurredAt: "2026-02-27T00:00:00.000Z",
+    commandId: null,
+    metadata: {},
     ...overrides,
-  } as Extract<OrchestrationEvent, { type: TType }>;
+  };
 }
 
 export function makeActivity(overrides: {

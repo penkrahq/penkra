@@ -94,7 +94,6 @@ import { readNativeApi } from "../nativeApi";
 import { useSpacesUiStore } from "../spacesUiStore";
 import { useSidebarInlineRenameStore } from "../sidebarInlineRenameStore";
 import { persistAppStateNow, useStore } from "../store";
-import { retainThreadDetailSubscription } from "../threadDetailSubscriptionRetention";
 import { useThreadSelectionStore } from "../threadSelectionStore";
 import type { Space } from "../types";
 import { useWorkspacePathsStore } from "../workspacePathsStore";
@@ -108,7 +107,6 @@ import {
   deriveSidebarProjectData,
   getNextVisibleSidebarThreadId,
   getSidebarThreadLifecycleMenuItems,
-  getSidebarThreadIdsToPrewarm,
   groupSidebarThreadsByFolderId,
   isFoldersSidebarSurface,
   orderSidebarSpaceItems,
@@ -1933,22 +1931,6 @@ export default function Sidebar() {
   useEffect(() => {
     showThreadJumpHintsRef.current = showThreadJumpHints;
   }, [showThreadJumpHints]);
-
-  useEffect(() => {
-    const threadIdsToPrewarm = getSidebarThreadIdsToPrewarm({
-      visibleThreadIds: visibleSidebarThreadIds,
-      activeThreadId: activeSidebarThreadId,
-    });
-    const releaseCallbacks = threadIdsToPrewarm.map((threadId) =>
-      retainThreadDetailSubscription(threadId),
-    );
-
-    return () => {
-      for (const release of releaseCallbacks) {
-        release();
-      }
-    };
-  }, [activeSidebarThreadId, visibleSidebarThreadIds]);
 
   function renderPencilProjectItem(project: (typeof sortedFolders)[number], sortableIndex: number) {
     const projectSidebarData = standardProjectSidebarDataById.get(project.id);

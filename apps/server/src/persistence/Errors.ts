@@ -149,9 +149,6 @@ export type ProviderSessionRepositoryError =
   | ProviderSessionRepositoryValidationError
   | ProviderSessionRepositoryPersistenceError;
 
-export type OrchestrationCommandReceiptRepositoryError =
-  | PersistenceSqlError
-  | PersistenceDecodeError;
 
 export type ProviderSessionRuntimeRepositoryError = PersistenceSqlError | PersistenceDecodeError;
 

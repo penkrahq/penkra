@@ -1,3 +1,4 @@
+import type { TestProviderUpdate as OrchestrationEvent } from "./storeTestFixtures";
 // FILE: wsNativeApi.test.ts
 // Purpose: Verifies the WebSocket-backed NativeApi adapter and push listener fanout.
 // Layer: Web transport tests
@@ -7,7 +8,6 @@ import {
   type ContextMenuItem,
   EventId,
   ORCHESTRATION_WS_CHANNELS,
-  type OrchestrationEvent,
   FolderId,
   SpaceId,
   ThreadId,

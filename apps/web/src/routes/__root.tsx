@@ -4,12 +4,7 @@ import { applyFolderAppTabs } from "../rightDockStore";
 import { syncServerNavigation } from "../storeProjection";
 import { applyThreadRow, subscribeThreadRowChanges } from "../threadListStore";
 import { useThreadSummary } from "../threadListStore";
-import {
-  ThreadId,
-  type OrchestrationSyncStreamItem,
-  type ServerConfig,
-  type WsCompatibilityError,
-} from "@penkra/contracts";
+import { ThreadId, type ServerConfig, type WsCompatibilityError } from "@penkra/contracts";
 import {
   Outlet,
   createRootRouteWithContext,
@@ -18,7 +13,7 @@ import {
   useParams,
   useRouterState,
 } from "@tanstack/react-router";
-import { useMemo, useEffect, useLayoutEffect, useRef, useState } from "react";
+import { useMemo, useEffect, useRef, useState } from "react";
 import { QueryClient, useQuery, useQueryClient } from "@tanstack/react-query";
 
 import { APP_DISPLAY_NAME, APP_VERSION } from "../branding";
@@ -46,11 +41,8 @@ import {
 } from "../lib/serverReactQuery";
 import { ensureNativeApi, readNativeApi } from "../nativeApi";
 import { finalizePromotedDraftThreads, markPromotedDraftThreads } from "../composerDraftStore";
-import {
-  recordChatLifecycleSyncDiagnostic,
-  recordChatSyncPublicationDiagnostic,
-} from "../chatLifecycleDiagnostics";
-import { recordChatPaginationDiagnostic } from "../chatScrollDiagnostics";
+import {} from "../chatLifecycleDiagnostics";
+import {} from "../chatScrollDiagnostics";
 import { useStore } from "../store";
 import {
   onServerProviderStatusesUpdated,
@@ -66,8 +58,7 @@ import { invalidateProjectQueriesForWorkspaceChange } from "../lib/projectReactQ
 import { VoiceSessionCoordinatorProvider } from "../voiceSessionCoordinator";
 import { TaskCompletionNotifications } from "../notifications/taskCompletion";
 import { useWorkspacePathsStore } from "../workspacePathsStore";
-import { setVisibleThreadDetailIds } from "../threadDetailSubscriptionRetention";
-import { getThreadFromState } from "../threadDerivation";
+import {} from "../threadDerivation";
 import { useAppDensity } from "../hooks/useAppDensity";
 import { useAppTypography } from "../hooks/useAppTypography";
 import { usePreloadRouteChunks } from "../hooks/usePreloadRouteChunks";
@@ -491,7 +482,6 @@ function EventRouter() {
 
   useEffect(() => {
     pathnameRef.current = pathname;
-    setVisibleThreadDetailIds(visibleThreadIds);
   }, [pathname, visibleThreadIds]);
 
   useEffect(() => {
