@@ -41,9 +41,7 @@ import { ProviderService } from "../Services/ProviderService.ts";
 import { ProviderSessionDirectory } from "../Services/ProviderSessionDirectory.ts";
 import {
   makeProviderServiceLive,
-  PROVIDER_RUNTIME_QUARANTINE_CAUSE_MAX_BYTES,
   shouldRestartForManagedIsolationChange,
-  summarizeProviderRuntimeQuarantineCause,
 } from "./ProviderService.ts";
 import { ProviderSessionDirectoryLive } from "./ProviderSessionDirectory.ts";
 import * as NodeServices from "@effect/platform-node/NodeServices";
@@ -96,19 +94,6 @@ it("lets an active turn drain before adopting a new credential generation", () =
     }),
     false,
   );
-});
-
-it("bounds durable quarantine cause details while preserving diagnostics", () => {
-  const cause = "💥 failure ".repeat(PROVIDER_RUNTIME_QUARANTINE_CAUSE_MAX_BYTES);
-  const summary = summarizeProviderRuntimeQuarantineCause(cause);
-
-  assert.equal(summary.causeTruncated, true);
-  assert.equal(summary.causeOriginalBytes, Buffer.byteLength(cause, "utf8"));
-  assert.equal(summary.causeSha256?.length, 64);
-  assert.ok(
-    Buffer.byteLength(summary.cause, "utf8") <= PROVIDER_RUNTIME_QUARANTINE_CAUSE_MAX_BYTES,
-  );
-  assert.equal(summary.cause.includes("\uFFFD"), false);
 });
 
 // Converts deferred listSessions callbacks into typed release handles for race tests.

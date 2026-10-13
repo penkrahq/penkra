@@ -1,3 +1,5 @@
+import { ConnectionRateLimitsLive } from "../providerUsage/ConnectionRateLimits.ts";
+import { ProviderAuthCircuitsLive } from "./providerAuthCircuit.ts";
 import { Effect, Layer } from "effect";
 
 import { AgentGatewayCredentialsWithSecretsLive } from "../agentGateway/Layers/AgentGatewayCredentials";
@@ -9,10 +11,9 @@ import { makeEventNdjsonLogger } from "./Layers/EventNdjsonLogger";
 import { makeOpenCodeAdapterLive } from "./Layers/OpenCodeAdapter";
 import { ProviderAdapterRegistryLive } from "./Layers/ProviderAdapterRegistry";
 import { ProviderDiscoveryServiceLive } from "./Layers/ProviderDiscoveryService";
-import { makeManagedDurableProviderServiceLive } from "./Layers/ProviderService";
+import { makeManagedProviderServiceLive } from "./Layers/ProviderService";
 import { ProviderSessionDirectoryLive } from "./Layers/ProviderSessionDirectory";
 import { ProviderSessionRuntimeRepositoryLive } from "../persistence/Layers/ProviderSessionRuntime";
-import { ProviderRuntimeEventRepositoryLive } from "../persistence/Layers/ProviderRuntimeEvents";
 import { ProviderConnectionRepositoryLive } from "../persistence/Layers/ProviderConnections";
 import { ProviderInstallationRepositoryLive } from "../persistence/Layers/ProviderInstallations";
 import { ProviderCredentialBrokerLive } from "./providerCredentialBroker";
@@ -57,13 +58,14 @@ export function makeServerProviderLayer(
       Layer.provide(openCodeAdapterLayer),
       Layer.provideMerge(providerSessionDirectoryLayer),
     );
-    const providerServiceLayer = makeManagedDurableProviderServiceLive(
+    const providerServiceLayer = makeManagedProviderServiceLive(
       canonicalEventLogger ? { canonicalEventLogger } : undefined,
     ).pipe(
+      Layer.provide(ConnectionRateLimitsLive),
+      Layer.provide(ProviderAuthCircuitsLive),
       Layer.provide(adapterRegistryLayer),
       Layer.provide(agentGatewayCredentialsLayer),
       Layer.provide(providerSessionDirectoryLayer),
-      Layer.provide(ProviderRuntimeEventRepositoryLive),
       Layer.provide(
         ProviderLaunchResolverLive.pipe(
           Layer.provideMerge(ProviderConnectionRepositoryLive),

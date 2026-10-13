@@ -47,20 +47,6 @@ export type ProviderServiceSessionStartInput = ProviderSessionStartInput & {
   readonly resumePolicy?: "use-persisted" | "fresh";
 };
 
-export type ProviderRuntimeEventPumpStatus = "starting" | "healthy" | "recovering" | "degraded";
-
-export interface ProviderRuntimeEventPumpHealth {
-  readonly provider: ProviderKind;
-  readonly status: ProviderRuntimeEventPumpStatus;
-  readonly consecutiveFailures: number;
-  readonly updatedAt: string;
-  readonly lastEventAt?: string;
-  readonly lastError?: string;
-  readonly quarantinedEvents?: number;
-  readonly lastQuarantinedEventId?: string;
-  readonly lastQuarantinedAt?: string;
-}
-
 /**
  * ProviderServiceShape - Service API for provider session and turn orchestration.
  */
@@ -193,19 +179,10 @@ export interface ProviderServiceShape {
   readonly closeRuntimeEvents: Effect.Effect<void>;
 
   /**
-   * Snapshot the supervised runtime-event pumps. The state is operational
-   * evidence for reconciliation and diagnostics, not provider availability.
-   */
-  readonly getRuntimeEventPumpHealth?: () => Effect.Effect<
-    ReadonlyArray<ProviderRuntimeEventPumpHealth>
-  >;
-
-  /**
    * Canonical provider runtime event stream.
    *
    * Fan-out is owned by ProviderService (not by a standalone event-bus service).
-   * Production implementations durably admit each event before publishing it;
-   * subscribers must not perform a second journal append.
+   * The canonical consumer commits each event before publishing it.
    */
   readonly streamEvents: Stream.Stream<ProviderRuntimeEvent>;
 }

@@ -8,7 +8,6 @@ import { ThreadSenderLive } from "./cleanCore/ThreadSender.ts";
 import { AgentGatewayLive } from "./agentGateway/Layers/AgentGateway";
 import { AgentGatewayCredentialsWithSecretsLive } from "./agentGateway/Layers/AgentGatewayCredentials";
 import { ProviderCommandReactorLive } from "./orchestration/Layers/ProviderCommandReactor";
-import { ProviderRuntimeIngestionLive } from "./orchestration/Layers/ProviderRuntimeIngestion";
 import { OrchestrationLayerLive } from "./orchestration/runtimeLayer";
 import { KeybindingsLive } from "./keybindings";
 import { TextGenerationLayerLive } from "./textGeneration/runtimeLayer";
@@ -88,10 +87,6 @@ export function makeServerRuntimeServicesLayer(
   const managedAttachmentCleanupLayer = ManagedAttachmentCleanupLive.pipe(
     Layer.provideMerge(runtimeServicesLayer),
   );
-  const runtimeIngestionLayer = ProviderRuntimeIngestionLive.pipe(
-    Layer.provideMerge(providerConnectionPersistenceLayer),
-    Layer.provideMerge(runtimeServicesLayer),
-  );
   const turnDispatchLayer = TurnDispatchLive.pipe(
     Layer.provideMerge(runtimeServicesLayer),
     Layer.provideMerge(providerLaunchResolverLayer),
@@ -107,7 +102,6 @@ export function makeServerRuntimeServicesLayer(
     Layer.provideMerge(providerLaunchResolverLayer),
   );
   const providerCommandReactorLayer = ProviderCommandReactorLive.pipe(
-    Layer.provideMerge(runtimeIngestionLayer),
     Layer.provideMerge(runtimeServicesLayer),
     Layer.provideMerge(OrchestrationEventDeliveryRepositoryLive),
     Layer.provideMerge(TextGenerationLayerLive),
@@ -176,7 +170,6 @@ export function makeServerRuntimeServicesLayer(
     providerNativeStateMaterializerLayer,
     providerThreadSwitchCoordinatorLayer,
     providerHealthLayer,
-    runtimeIngestionLayer,
     providerCommandReactorLayer,
     TextGenerationLayerLive,
     KeybindingsLive,
