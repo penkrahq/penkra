@@ -381,7 +381,7 @@ interface ClaudeSessionContext {
   // Live transcript-directory pollers per workflow task id, plus the agent
   // labels seen so far (first-seen order from "<phase>: <label>" progress
   // descriptions) that the poller zips against journal start order.
-  readonly workflowRuntimePollers: Map<string, Fiber.Fiber<void>>;
+  readonly workflowRuntimePollers: Map<string, Fiber.Fiber<void, Error>>;
   readonly workflowAgentLabels: Map<string, Array<string>>;
   // Poller state per workflow task id, kept reachable so settle can backfill
   // runtime-only fields (effort) into the final output-file snapshots.
@@ -3259,11 +3259,13 @@ function makeClaudeAdapter(options?: ClaudeAdapterLiveOptions) {
       const changes = Stream.callback<void, Error>((queue) =>
         Effect.gen(function* () {
           const watcher = yield* Effect.acquireRelease(
-            Effect.try(() =>
-              watch(transcriptDir, { recursive: true }, () => {
-                Queue.offerUnsafe(queue, undefined);
-              }),
-            ),
+            Effect.try({
+              try: () =>
+                watch(transcriptDir, { recursive: true }, () => {
+                  Queue.offerUnsafe(queue, undefined);
+                }),
+              catch: (cause) => (cause instanceof Error ? cause : new Error(String(cause))),
+            }),
             (watcher) => Effect.sync(() => watcher.close()),
           );
           watcher.on("error", (cause) => Queue.failCauseUnsafe(queue, Cause.fail(cause)));
