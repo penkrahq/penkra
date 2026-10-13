@@ -1,3 +1,4 @@
+import { observePublisher } from "./threadPublisherTestHelpers.ts";
 import { toCleanCoreProviderEvents } from "./providerEventBridge.ts";
 import { listThreadItemsPage } from "./threadItemsPage.ts";
 import { seedThreadFolderFixture } from "./threadFixtures.ts";
@@ -17,8 +18,9 @@ import { createThread, makeThreadPublisher, upsertThreadItem } from "./threadSto
 import { runMigrations } from "../persistence/Migrations.ts";
 import * as NodeSqliteClient from "../persistence/NodeSqliteClient.ts";
 
-const withDb = <A, E>(effect: Effect.Effect<A, E, SqlClient.SqlClient>) =>
-  effect.pipe(Effect.provide(NodeSqliteClient.layerMemory()));
+const withDb = <A, E>(
+  effect: Effect.Effect<A, E, SqlClient.SqlClient | import("effect/Scope").Scope>,
+) => effect.pipe(Effect.provide(NodeSqliteClient.layerMemory()));
 
 const baseThread = {
   id: "thread-1",
@@ -457,8 +459,12 @@ it.effect("a failed turn settlement rolls back state and items and publishes not
       });
       const changes: unknown[] = [];
       const outcomes: unknown[] = [];
-      const unsubscribe = publisher.subscribe("thread-1", (change) => changes.push(change));
-      const unsubscribeProvider = publisher.subscribeProvider((event) => outcomes.push(event));
+      const unsubscribe = yield* observePublisher(publisher.threadChanges, (change) =>
+        changes.push(change),
+      );
+      const unsubscribeProvider = yield* observePublisher(publisher.providerEvents, (event) =>
+        outcomes.push(event),
+      );
       yield* sql`CREATE TEMP TRIGGER fail_settlement BEFORE UPDATE OF status ON thread_items
         WHEN NEW.source_id = 'running-tool'
         BEGIN SELECT RAISE(ABORT, 'injected settlement failure'); END`;
@@ -540,8 +546,12 @@ it.effect("a failed cutoff notice rolls back turn and item changes and publishes
       });
       const changes: unknown[] = [];
       const outcomes: unknown[] = [];
-      const unsubscribe = publisher.subscribe("thread-1", (change) => changes.push(change));
-      const unsubscribeProvider = publisher.subscribeProvider((event) => outcomes.push(event));
+      const unsubscribe = yield* observePublisher(publisher.threadChanges, (change) =>
+        changes.push(change),
+      );
+      const unsubscribeProvider = yield* observePublisher(publisher.providerEvents, (event) =>
+        outcomes.push(event),
+      );
       yield* sql`CREATE TEMP TRIGGER fail_cutoff BEFORE INSERT ON thread_items
         WHEN NEW.kind = 'notice'
         BEGIN SELECT RAISE(ABORT, 'injected cutoff notice failure'); END`;
@@ -828,8 +838,8 @@ it.effect("a failed turn-marker insert rolls back running state and publishes no
       const sql = yield* SqlClient.SqlClient;
       const publisher = makeThreadPublisher();
       const changes: unknown[] = [];
-      publisher.subscribeAll((change) => changes.push(change));
-      publisher.subscribeProvider((event) => changes.push(event));
+      yield* observePublisher(publisher.threadChanges, (change) => changes.push(change));
+      yield* observePublisher(publisher.providerEvents, (event) => changes.push(event));
       yield* sql`CREATE TEMP TRIGGER fail_turn_insert BEFORE INSERT ON thread_items WHEN NEW.kind='turn'
       BEGIN SELECT RAISE(ABORT, 'injected turn insert failure'); END`;
       const result = yield* Effect.exit(

@@ -1,3 +1,4 @@
+import { observePublisher } from "./threadPublisherTestHelpers.ts";
 import * as fs from "node:fs/promises";
 import * as os from "node:os";
 import * as path from "node:path";
@@ -62,8 +63,9 @@ const setup = Effect.gen(function* () {
   yield* sql`UPDATE threads SET draft=${JSON.stringify({ prompt: input.message.text, attachments: [], files: [] })},draft_updated_at=${at}`;
   return makeThreadPublisher();
 });
-const withDb = <A, E>(program: Effect.Effect<A, E, SqlClient.SqlClient>) =>
-  program.pipe(Effect.provide(NodeSqliteClient.layerMemory()));
+const withDb = <A, E>(
+  program: Effect.Effect<A, E, SqlClient.SqlClient | import("effect/Scope").Scope>,
+) => program.pipe(Effect.provide(NodeSqliteClient.layerMemory()));
 for (const [state, dispatchMode, supportsSteer, plan] of [
   ["idle", "queue", true, "deliver"],
   ["running", "queue", true, "queue"],
@@ -213,7 +215,7 @@ it.effect("a draft-clear failure rolls back admission and publishes nothing", ()
       const publisher = yield* setup;
       const sql = yield* SqlClient.SqlClient;
       const changes: unknown[] = [];
-      publisher.subscribeAll((change) => changes.push(change));
+      yield* observePublisher(publisher.threadChanges, (change) => changes.push(change));
       yield* sql`CREATE TEMP TRIGGER reject_draft_clear BEFORE UPDATE OF draft ON threads BEGIN SELECT RAISE(ABORT,'injected clear failure'); END`;
       assert.isTrue(Exit.isFailure(yield* Effect.exit(sendMessage(publisher, driver, input))));
       assert.deepStrictEqual(yield* sql`SELECT * FROM thread_items`, []);

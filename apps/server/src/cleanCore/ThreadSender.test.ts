@@ -1,3 +1,4 @@
+import { observePublisher } from "./threadPublisherTestHelpers.ts";
 import { ensureDurableThreadWorkspace } from "../scratchWorkspaces.ts";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -50,7 +51,7 @@ const waitForSentMessage = (
         WHERE thread_id=${threadId} AND source_id=${messageId}`;
         if (item?.status === "sent") yield* Deferred.succeed(settled, undefined);
       }).pipe(Effect.provideService(SqlClient.SqlClient, sql), Effect.orDie);
-      const stop = publisher.subscribe(threadId, () => {
+      const stop = yield* observePublisher(publisher.threadChanges, () => {
         Effect.runSync(Effect.forkIn(check, scope));
       });
       yield* Effect.addFinalizer(() => Effect.sync(stop));
@@ -81,7 +82,7 @@ it.effect("delivers a queued message on model B after the composer changes from 
     const publisher = makeThreadPublisher();
     const drained = yield* Deferred.make<void>();
     const scope = yield* Effect.scope;
-    publisher.subscribe("thread-1", () => {
+    yield* observePublisher(publisher.threadChanges, () => {
       Effect.runSync(
         Effect.forkIn(
           Effect.gen(function* () {
@@ -344,7 +345,7 @@ it.effect(
       );
       const publisher = makeThreadPublisher();
       const changes: string[] = [];
-      publisher.subscribe("thread-1", (change) => changes.push(change.threadId));
+      yield* observePublisher(publisher.threadChanges, (change) => changes.push(change.threadId));
       const interrupts: unknown[] = [];
       const sender = yield* makeThreadSender.pipe(
         Effect.provideService(ServerConfig, {
@@ -437,10 +438,10 @@ for (const release of ["next-send", "remove-head", "edit-head"] as const) {
       let reject = true;
       let rejected = false;
       const attempts: string[] = [];
-      publisher.subscribe("thread-q", () => {
-        if (rejected) Effect.runSync(Deferred.succeed(failed, undefined));
+      yield* observePublisher(publisher.threadChanges, () => {
+        if (rejected) Effect.runFork(Deferred.succeed(failed, undefined));
         if (rejected && attempts.length === 2)
-          Effect.runSync(Deferred.succeed(failedAgain, undefined));
+          Effect.runFork(Deferred.succeed(failedAgain, undefined));
       });
       const coordinator = {
         dispatchTurnStart: ({
@@ -613,7 +614,7 @@ it.effect("claims queued attachments atomically and delivers them with their ori
     yield* sql`UPDATE threads SET draft = '{"prompt":"draft to clear"}' WHERE id = 'thread-attachments'`;
     const publisher = makeThreadPublisher();
     const changes: string[] = [];
-    publisher.subscribe("thread-attachments", (change) => changes.push(change.threadId));
+    yield* observePublisher(publisher.threadChanges, (change) => changes.push(change.threadId));
     const coordinator: typeof ProviderThreadSwitchCoordinator.Service = {
       dispatchTurnStart: ({ command, attachmentPrincipal }) =>
         Effect.gen(function* () {
@@ -767,7 +768,7 @@ it.effect(
       yield* sql`UPDATE threads SET draft = '{"prompt":"","attachments":[],"files":[]}',draft_updated_at='2026-10-10T00:00:02.000Z' WHERE id = ${threadId}`;
       const publisher = makeThreadPublisher();
       const changes: string[] = [];
-      publisher.subscribe(threadId, (change) => changes.push(change.threadId));
+      yield* observePublisher(publisher.threadChanges, (change) => changes.push(change.threadId));
       const sender = yield* makeThreadSender.pipe(
         Effect.provideService(ServerConfig, {
           stateDir: senderStateDir,
@@ -882,7 +883,7 @@ for (const content of [
         const before = yield* read;
         const publisher = makeThreadPublisher();
         const changes: string[] = [];
-        publisher.subscribe(threadId, (change) => changes.push(change.threadId));
+        yield* observePublisher(publisher.threadChanges, (change) => changes.push(change.threadId));
         const sender = yield* makeThreadSender.pipe(
           Effect.provideService(ServerConfig, {
             stateDir: senderStateDir,

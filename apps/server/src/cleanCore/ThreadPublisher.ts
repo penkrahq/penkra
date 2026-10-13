@@ -6,6 +6,7 @@
 
 import * as Layer from "effect/Layer";
 import * as ServiceMap from "effect/ServiceMap";
+import { Effect } from "effect";
 
 import {
   makeThreadPublisher,
@@ -16,4 +17,7 @@ export class ThreadPublisher extends ServiceMap.Service<ThreadPublisher, ThreadP
   "penkra/cleanCore/ThreadPublisher",
 ) {}
 
-export const ThreadPublisherLive = Layer.succeed(ThreadPublisher, makeThreadPublisher());
+export const ThreadPublisherLive = Layer.effect(
+  ThreadPublisher,
+  Effect.acquireRelease(Effect.sync(makeThreadPublisher), (publisher) => publisher.close),
+);

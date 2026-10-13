@@ -1,3 +1,4 @@
+import { observePublisher } from "./threadPublisherTestHelpers.ts";
 import { assert, it } from "@effect/vitest";
 import {
   EventId,
@@ -39,7 +40,13 @@ const setup = Effect.gen(function* () {
   yield* sql`INSERT INTO provider_connections (connection_id, harness_kind, authentication_target_id, authentication_method_id, label, profile_ref, health_status, lifecycle, created_at, updated_at) VALUES (${owner}, 'claudeAgent', 'anthropic-first-party', 'claude-account', 'Owner', 'provider-profile:owner', 'ready', 'active', ${at}, ${at})`;
   yield* sql`UPDATE threads SET connection_id=${owner},native_state_id='native', state='running', active_turn_id='turn' WHERE id=${threadId}`;
 });
-const withDb = <A, E>(effect: Effect.Effect<A, E, SqlClient.SqlClient | ConnectionRateLimits>) =>
+const withDb = <A, E>(
+  effect: Effect.Effect<
+    A,
+    E,
+    SqlClient.SqlClient | import("effect/Scope").Scope | ConnectionRateLimits
+  >,
+) =>
   setup.pipe(
     Effect.andThen(effect),
     Effect.provide(ConnectionRateLimitsLive),
@@ -64,7 +71,9 @@ it.effect("attributes Claude usage to the binding and commits it once with the t
       const sql = yield* SqlClient.SqlClient;
       const publisher = makeThreadPublisher();
       const broadcasts: string[] = [];
-      publisher.subscribeAll((change) => broadcasts.push(change.threadId));
+      yield* observePublisher(publisher.threadChanges, (change) =>
+        broadcasts.push(change.threadId),
+      );
       const event = completed("claudeAgent", {
         input_tokens: 1000,
         cache_creation_input_tokens: 200,
@@ -121,7 +130,9 @@ it.effect("updates process-local rate limits on the binding without writing toke
       };
       const publisher = makeThreadPublisher();
       const broadcasts: string[] = [];
-      publisher.subscribeAll((change) => broadcasts.push(change.threadId));
+      yield* observePublisher(publisher.threadChanges, (change) =>
+        broadcasts.push(change.threadId),
+      );
       yield* applyProviderRuntimeEvent(publisher, event);
       const observation = yield* limits.get(owner);
       assert.isTrue(Option.isSome(observation));
@@ -161,8 +172,10 @@ it.effect(
         const publisher = makeThreadPublisher();
         const broadcasts: string[] = [];
         const outcomes: string[] = [];
-        publisher.subscribeAll((change) => broadcasts.push(change.threadId));
-        publisher.subscribeProvider((event) => outcomes.push(event.type));
+        yield* observePublisher(publisher.threadChanges, (change) =>
+          broadcasts.push(change.threadId),
+        );
+        yield* observePublisher(publisher.providerEvents, (event) => outcomes.push(event.type));
         const result = yield* Effect.exit(
           applyProviderRuntimeEvent(
             publisher,

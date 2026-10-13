@@ -14,7 +14,7 @@ import {
   ProviderConnectionId,
   type CleanCoreSendMessageInput,
 } from "@penkra/contracts";
-import { Deferred, Effect, Layer, Option, Schema, Semaphore, ServiceMap, Stream } from "effect";
+import { Effect, Layer, Option, PubSub, Schema, Semaphore, ServiceMap, Stream } from "effect";
 import * as SqlClient from "effect/unstable/sql/SqlClient";
 import { ProviderThreadSwitchCoordinator } from "../orchestration/Services/ProviderThreadSwitchCoordinator.ts";
 import { ProviderService } from "../provider/Services/ProviderService.ts";
@@ -206,28 +206,8 @@ export const makeThreadSender = Effect.gen(function* () {
           ),
         );
     });
-  const waitForPendingAdmission = (threadId: string) =>
+  const deliverHead = (threadId: string, retryFailedHead = false) =>
     Effect.gen(function* () {
-      while (
-        yield* Effect.scoped(
-          Effect.gen(function* () {
-            const changed = yield* Deferred.make<void>();
-            const unsubscribe = publisher.subscribe(threadId, () =>
-              Effect.runSync(Deferred.succeed(changed, undefined)),
-            );
-            yield* Effect.addFinalizer(() => Effect.sync(unsubscribe));
-            const pending = yield* sql`SELECT 1 FROM thread_items WHERE thread_id=${threadId}
-        AND kind='user' AND status='sending' LIMIT 1`;
-            if (pending.length === 0) return false;
-            yield* Deferred.await(changed);
-            return true;
-          }),
-        )
-      ) {}
-    });
-  const deliverHead = (threadId: string) =>
-    Effect.gen(function* () {
-      yield* waitForPendingAdmission(threadId);
       const request = yield* withLane(
         threadId,
         sql.withTransaction(
@@ -249,6 +229,7 @@ export const makeThreadSender = Effect.gen(function* () {
             if (
               thread === undefined ||
               thread.state === "running" ||
+              (thread.state === "error" && !retryFailedHead) ||
               thread.archivedAt !== null ||
               thread.deletedAt !== null
             )
@@ -275,11 +256,18 @@ export const makeThreadSender = Effect.gen(function* () {
       publisher.publish({ threadId });
       yield* withLane(threadId, deliverMessage(publisher, driver, request, "deliver"), "delivery");
     }).pipe(Effect.provideService(SqlClient.SqlClient, sql));
-  const unsubscribe = publisher.subscribeProvider((event) => {
-    const threadIds = event.type === "turn.ended" ? [event.threadId] : [];
-    for (const threadId of threadIds) Effect.runSync(Effect.forkIn(deliverHead(threadId), scope));
-  });
-  yield* Effect.addFinalizer(() => Effect.sync(unsubscribe));
+  const deliveryEvents = yield* PubSub.subscribe(publisher.deliveryReady);
+  const providerEvents = yield* PubSub.subscribe(publisher.providerEvents);
+  yield* Stream.fromEffectRepeat(PubSub.take(deliveryEvents)).pipe(
+    Stream.runForEach((change) => Effect.forkIn(deliverHead(change.threadId), scope)),
+    Effect.forkIn(scope),
+  );
+  yield* Stream.fromEffectRepeat(PubSub.take(providerEvents)).pipe(
+    Stream.runForEach((event) =>
+      event.type === "turn.ended" ? Effect.forkIn(deliverHead(event.threadId), scope) : Effect.void,
+    ),
+    Effect.forkIn(scope),
+  );
   const removeQueued = (
     input: { threadId: ThreadId; messageId: string },
     draftUpdatedAt: string | null,
@@ -348,7 +336,7 @@ export const makeThreadSender = Effect.gen(function* () {
         );
         if (changed !== null) {
           publisher.publish({ threadId: input.threadId });
-          if (changed.wasHead) yield* Effect.forkIn(deliverHead(input.threadId), scope);
+          if (changed.wasHead) yield* Effect.forkIn(deliverHead(input.threadId, true), scope);
         }
         return { ...input, removed: changed !== null };
       }).pipe(Effect.provideService(SqlClient.SqlClient, sql)),
@@ -370,7 +358,7 @@ export const makeThreadSender = Effect.gen(function* () {
           const rows = yield* sql<{
             id: string;
           }>`SELECT id FROM threads WHERE connection_id=${connectionId} AND id>${after} AND deleted_at IS NULL AND archived_at IS NULL ORDER BY id LIMIT 50`;
-          for (const row of rows) yield* Effect.forkIn(deliverHead(row.id), scope);
+          for (const row of rows) yield* Effect.forkIn(deliverHead(row.id, true), scope);
           if (rows.length < 50) return;
           after = rows[rows.length - 1]!.id;
         }
@@ -453,7 +441,7 @@ export const makeThreadSender = Effect.gen(function* () {
           const admission = yield* sendMessage(publisher, driver, request);
           if (admission.plan === "queue") {
             if (current.state !== "running")
-              yield* Effect.forkIn(deliverHead(input.threadId), scope);
+              yield* Effect.forkIn(deliverHead(input.threadId, true), scope);
           } else if (existing === undefined) {
             yield* Effect.forkIn(
               withLane(

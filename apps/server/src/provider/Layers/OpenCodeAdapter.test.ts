@@ -3555,7 +3555,7 @@ describe("OpenCodeAdapter runtime lifecycle", () => {
     const runtime = createMockOpenCodeRuntime({
       events: eventQueue.stream,
       permissionReply: async (input) => {
-        Effect.runSync(Deferred.succeed(replied, input));
+        Effect.runFork(Deferred.succeed(replied, input));
         return {};
       },
     });
@@ -3611,7 +3611,7 @@ describe("OpenCodeAdapter runtime lifecycle", () => {
     const runtime = createMockOpenCodeRuntime({
       events: eventQueue.stream,
       permissionReply: async (input) => {
-        Effect.runSync(Deferred.succeed(replied, input));
+        Effect.runFork(Deferred.succeed(replied, input));
         return {};
       },
     });

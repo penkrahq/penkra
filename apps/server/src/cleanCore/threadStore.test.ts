@@ -1,6 +1,7 @@
 import { seedThreadFolderFixture } from "./threadFixtures.ts";
 import { assert, it } from "@effect/vitest";
-import { Effect } from "effect";
+import { Deferred, Effect } from "effect";
+import { observePublisher } from "./threadPublisherTestHelpers.ts";
 import * as SqlClient from "effect/unstable/sql/SqlClient";
 
 import {
@@ -313,16 +314,27 @@ it.effect("caps oversized item data at the shared 64 KB limit", () =>
   ),
 );
 
-it("publishes per-thread changes and stops after unsubscribe", () => {
-  const publisher = makeThreadPublisher();
-  const seen: string[] = [];
-  const unsubscribe = publisher.subscribe("thread-1", (change) => seen.push(change.threadId));
-  publisher.publish({ threadId: "thread-1" });
-  publisher.publish({ threadId: "thread-2" });
-  unsubscribe();
-  publisher.publish({ threadId: "thread-1" });
-  assert.deepStrictEqual(seen, ["thread-1"]);
-});
+it.effect("publishes per-thread changes and stops after unsubscribe", () =>
+  Effect.scoped(
+    Effect.gen(function* () {
+      const publisher = makeThreadPublisher();
+      const seen: string[] = [];
+      const received = yield* Deferred.make<void>();
+      const unsubscribe = yield* observePublisher(publisher.threadChanges, (change) => {
+        if (change.threadId === "thread-1") {
+          seen.push(change.threadId);
+          Effect.runFork(Deferred.succeed(received, undefined));
+        }
+      });
+      publisher.publish({ threadId: "thread-1" });
+      publisher.publish({ threadId: "thread-2" });
+      yield* Deferred.await(received);
+      unsubscribe();
+      publisher.publish({ threadId: "thread-1" });
+      assert.deepStrictEqual(seen, ["thread-1"]);
+    }),
+  ),
+);
 
 it.effect("moveFolder renumbers destination siblings and repeats without writes", () =>
   withDb(

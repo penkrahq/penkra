@@ -1,3 +1,4 @@
+import { observePublisher } from "./threadPublisherTestHelpers.ts";
 import { assert, it } from "@effect/vitest";
 import { FolderId, SpaceId, type CleanCoreNavigationUpdate } from "@penkra/contracts";
 import fs from "node:fs/promises";
@@ -15,7 +16,13 @@ const personal = SpaceId.makeUnsafe("penkra-personal");
 const work = SpaceId.makeUnsafe("penkra-work");
 const folder = FolderId.makeUnsafe("test-folder");
 const extra = SpaceId.makeUnsafe("test-space");
-const withDb = <A, E>(program: Effect.Effect<A, E, SqlClient.SqlClient | ThreadPublisher>) =>
+const withDb = <A, E>(
+  program: Effect.Effect<
+    A,
+    E,
+    SqlClient.SqlClient | import("effect/Scope").Scope | ThreadPublisher
+  >,
+) =>
   program.pipe(
     Effect.provideService(ThreadPublisher, makeThreadPublisher()),
     Effect.provide(NodeSqliteClient.layerMemory()),
@@ -87,7 +94,7 @@ for (const update of updates)
         yield* ensureDefaultSpaces;
         const publisher = yield* ThreadPublisher;
         const changes: unknown[] = [];
-        publisher.subscribeSidebar((change) => changes.push(change));
+        yield* observePublisher(publisher.sidebarChanges, (change) => changes.push(change));
         if (update.action.startsWith("space.") && update.action !== "space.create") {
           yield* updateNavigation({ update: updates[0]! });
           if (update.action === "space.restore") yield* updateNavigation({ update: updates[2]! });
@@ -316,7 +323,7 @@ it.effect("moving a folder moves its saved chats and publishes each change after
       yield* sql`UPDATE threads SET archived_at=${timestamp} WHERE id='folder-move-sibling'`;
       const publisher = yield* ThreadPublisher;
       const changes: unknown[] = [];
-      publisher.subscribeSidebar((change) => changes.push(change));
+      yield* observePublisher(publisher.sidebarChanges, (change) => changes.push(change));
       yield* updateNavigation({ update: updates[7]! });
       const rows = yield* sql<{
         spaceId: string;

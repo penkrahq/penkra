@@ -1,3 +1,4 @@
+import { observePublisher } from "./cleanCore/threadPublisherTestHelpers.ts";
 import { assert, it } from "@effect/vitest";
 import { ThreadId } from "@penkra/contracts";
 import { Effect } from "effect";
@@ -24,7 +25,7 @@ const setup = Effect.gen(function* () {
   yield* sql`INSERT INTO projection_folders (folder_id,space_id,title,created_at,updated_at) VALUES ('folder','penkra-personal','Folder',${origin},${origin})`;
   const publisher = makeThreadPublisher();
   const changes: string[] = [];
-  publisher.subscribeAll(({ threadId }) => changes.push(threadId));
+  yield* observePublisher(publisher.threadChanges, ({ threadId }) => changes.push(threadId));
   let beforeStop: Effect.Effect<void, never> = Effect.void;
   const lifecycle = yield* makeThreadLifecycle.pipe(
     Effect.provideService(ThreadPublisher, publisher),
@@ -69,7 +70,9 @@ const withDb = <A, E>(
   effect: Effect.Effect<
     A,
     E,
-    SqlClient.SqlClient | import("./serverLifecycleEvents.ts").ServerLifecycleEvents
+    | SqlClient.SqlClient
+    | import("effect/Scope").Scope
+    | import("./serverLifecycleEvents.ts").ServerLifecycleEvents
   >,
 ) =>
   effect.pipe(
