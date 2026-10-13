@@ -53,16 +53,14 @@ it.effect("queue is a FIFO persisted on threads.queue", () =>
       yield* enqueueMessage("thread-1", {
         messageId: MessageId.makeUnsafe("m1"),
         attachments: [],
-        senderThreadId: null,
-        dispatchOrigin: "user",
+        origin: { _tag: "user" as const },
         text: "first",
         queuedAt: "2026-10-09T00:00:01.000Z",
       });
       yield* enqueueMessage("thread-1", {
         messageId: MessageId.makeUnsafe("m2"),
         attachments: [],
-        senderThreadId: null,
-        dispatchOrigin: "user",
+        origin: { _tag: "user" as const },
         text: "second",
         queuedAt: "2026-10-09T00:00:02.000Z",
       });

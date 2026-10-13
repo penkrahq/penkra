@@ -173,8 +173,7 @@ export const makeCreateThreadHandler = (dependencies: CreationCoordinatorDepende
           messageId: MessageId.makeUnsafe(ids.messageId),
           text: input.prompt,
           attachments: [],
-          senderThreadId: ThreadId.makeUnsafe(context.callerThreadId),
-          dispatchOrigin: "agent",
+          origin: { _tag: "agent", senderThreadId: ThreadId.makeUnsafe(context.callerThreadId) },
           queuedAt: at,
         },
       });

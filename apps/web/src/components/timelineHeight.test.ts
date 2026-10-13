@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { ThreadId } from "@penkra/contracts";
 
 import { appendPastedTextsToPrompt } from "../lib/composerPastedText";
 import { appendTerminalContextsToPrompt } from "../lib/terminalContext";
@@ -11,7 +12,7 @@ describe("estimateTimelineMessageHeight", () => {
     const agentMessage = estimateTimelineMessageHeight({
       role: "user",
       text: "hello",
-      dispatchOrigin: "agent",
+      origin: { _tag: "agent" as const, senderThreadId: ThreadId.makeUnsafe("sender-thread") },
     });
 
     expect(agentMessage - ordinaryMessage).toBe(30);

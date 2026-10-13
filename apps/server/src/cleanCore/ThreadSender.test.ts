@@ -133,8 +133,7 @@ it.effect("delivers a queued message on model B after the composer changes from 
         messageId: MessageId.makeUnsafe("queued-model"),
         text: "next",
         attachments: [],
-        senderThreadId: null,
-        dispatchOrigin: "user",
+        origin: { _tag: "user" as const },
         queuedAt: "2026-10-09T00:00:02.000Z",
       },
     });
@@ -145,10 +144,9 @@ it.effect("delivers a queued message on model B after the composer changes from 
     );
     assert.deepStrictEqual(Object.keys((yield* readThreadQueue("thread-1"))[0]!).sort(), [
       "attachments",
-      "dispatchOrigin",
       "messageId",
+      "origin",
       "queuedAt",
-      "senderThreadId",
       "text",
     ]);
     yield* setThreadDraft(
@@ -271,8 +269,7 @@ for (const workspaceRoot of [null, "/repo"]) {
             messageId: MessageId.makeUnsafe("m1"),
             text: "hello",
             attachments: [],
-            senderThreadId: null,
-            dispatchOrigin: "user",
+            origin: { _tag: "user" as const },
             queuedAt: "2026-10-09T00:00:01.000Z",
           },
           dispatchMode: "queue",
@@ -335,8 +332,7 @@ it.effect(
           messageId: MessageId.makeUnsafe(id),
           text: id,
           attachments: [],
-          senderThreadId: null,
-          dispatchOrigin: "user",
+          origin: { _tag: "user" as const },
           queuedAt: "2026-10-09T00:00:01.000Z",
         });
       yield* setThreadState(
@@ -400,8 +396,7 @@ it.effect(
         messageId: MessageId.makeUnsafe("queued-after-service-start"),
         text: "fresh row",
         attachments: [],
-        senderThreadId: null,
-        dispatchOrigin: "user",
+        origin: { _tag: "user" as const },
         queuedAt: "2026-10-09T00:00:04.000Z",
       });
       assert.equal(yield* sender.queuedThread("queued-after-service-start"), threadId);
@@ -430,8 +425,7 @@ for (const release of ["next-send", "remove-head", "edit-head"] as const) {
         messageId: MessageId.makeUnsafe(id),
         text: id,
         attachments: [],
-        senderThreadId: null,
-        dispatchOrigin: "user" as const,
+        origin: { _tag: "user" as const },
         queuedAt: "2026-10-09T00:00:01.000Z",
       });
       for (const id of ["head", "second"]) yield* enqueueMessage("thread-q", message(id));
@@ -672,8 +666,7 @@ it.effect("claims queued attachments atomically and delivers them with their ori
             sizeBytes: 4,
           },
         ],
-        senderThreadId: null,
-        dispatchOrigin: "user",
+        origin: { _tag: "user" as const },
         queuedAt: at,
       },
     };
@@ -767,8 +760,7 @@ it.effect(
             sizeBytes: 4,
           },
         ],
-        senderThreadId: null,
-        dispatchOrigin: "user" as const,
+        origin: { _tag: "user" as const },
         queuedAt: "2026-10-10T00:00:02.000Z",
       };
       yield* enqueueMessage(threadId, message);
@@ -877,8 +869,7 @@ for (const content of [
           messageId: MessageId.makeUnsafe("queue"),
           text: "queued text",
           attachments: [],
-          senderThreadId: null,
-          dispatchOrigin: "user",
+          origin: { _tag: "user" as const },
           queuedAt: "2026-10-10T00:00:02.000Z",
         });
         const draft = JSON.stringify({
@@ -1014,8 +1005,7 @@ for (const provider of ["codex", "claudeAgent"] as const) {
               messageId: MessageId.makeUnsafe("now-message"),
               text: "continue",
               attachments: [],
-              senderThreadId: null,
-              dispatchOrigin: "user",
+              origin: { _tag: "user" as const },
               queuedAt: "2026-10-11T00:00:02.000Z",
             },
             dispatchMode: "steer",
@@ -1064,8 +1054,7 @@ it.effect("removes a failed user message but never a member of an admitted retry
           messageId: MessageId.makeUnsafe("remove"),
           text: "Remove",
           attachments: [],
-          senderThreadId: null,
-          dispatchOrigin: "user" as const,
+          origin: { _tag: "user" as const },
           queuedAt: "2026-10-12T00:00:00.000Z",
         },
         dispatchMode: "queue" as const,

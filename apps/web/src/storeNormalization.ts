@@ -484,18 +484,15 @@ export function normalizeChatMessage(
       : previous?.delivery !== undefined && previous.delivery.sequence > incoming.delivery.sequence
         ? previous.delivery
         : incoming.delivery;
-  const effectiveDispatchOrigin = incoming.dispatchOrigin ?? previous?.dispatchOrigin;
-  const senderThreadId =
-    effectiveDispatchOrigin === "agent"
-      ? (incoming.senderThreadId ?? previous?.senderThreadId)
-      : undefined;
+  const origin = incoming.origin ?? previous?.origin;
   if (
     previous &&
     previous.role === incoming.role &&
     previous.text === incoming.text &&
-    previous.dispatchMode === incoming.dispatchMode &&
-    previous.dispatchOrigin === incoming.dispatchOrigin &&
-    previous.senderThreadId === senderThreadId &&
+    previous.steered === incoming.steered &&
+    previous.origin?._tag === origin?._tag &&
+    (previous.origin?._tag !== "agent" ||
+      (origin?._tag === "agent" && previous.origin.senderThreadId === origin.senderThreadId)) &&
     previous.delivery === delivery &&
     previous.sequence === incoming.sequence &&
     previous.turnId === incoming.turnId &&
@@ -514,9 +511,8 @@ export function normalizeChatMessage(
     id: incoming.id,
     role: incoming.role,
     text: incoming.text,
-    ...(incoming.dispatchMode ? { dispatchMode: incoming.dispatchMode } : {}),
-    ...(incoming.dispatchOrigin ? { dispatchOrigin: incoming.dispatchOrigin } : {}),
-    ...(senderThreadId !== undefined ? { senderThreadId } : {}),
+    ...(incoming.steered ? { steered: incoming.steered } : {}),
+    ...(origin === undefined ? {} : { origin }),
     ...(delivery !== undefined ? { delivery } : {}),
     ...(incoming.sequence !== undefined ? { sequence: incoming.sequence } : {}),
     turnId: incoming.turnId,
@@ -581,11 +577,8 @@ function readModelMessageFromChatMessage(
     id: message.id,
     role: message.role,
     text: message.text,
-    ...(message.dispatchMode ? { dispatchMode: message.dispatchMode } : {}),
-    ...(message.dispatchOrigin ? { dispatchOrigin: message.dispatchOrigin } : {}),
-    ...(message.dispatchOrigin === "agent" && message.senderThreadId !== undefined
-      ? { senderThreadId: message.senderThreadId }
-      : {}),
+    ...(message.steered ? { steered: message.steered } : {}),
+    ...(message.origin === undefined ? {} : { origin: message.origin }),
     ...(message.sequence !== undefined ? { sequence: message.sequence } : {}),
     turnId: message.turnId ?? null,
     streaming: message.streaming,
@@ -714,8 +707,10 @@ function mergeReadModelMessagesWithLiveHotPath(
     mergedById.set(incomingMessage.id, {
       ...incomingMessage,
       text: previousMessage.text,
-      dispatchMode: previousMessage.dispatchMode ?? incomingMessage.dispatchMode,
-      dispatchOrigin: incomingMessage.dispatchOrigin ?? previousMessage.dispatchOrigin,
+      ...(previousMessage.steered || incomingMessage.steered ? { steered: true as const } : {}),
+      ...((incomingMessage.origin ?? previousMessage.origin)
+        ? { origin: (incomingMessage.origin ?? previousMessage.origin)! }
+        : {}),
       turnId: previousMessage.turnId ?? incomingMessage.turnId ?? null,
       source: previousMessage.source ?? incomingMessage.source ?? "native",
       streaming: previousMessage.streaming,

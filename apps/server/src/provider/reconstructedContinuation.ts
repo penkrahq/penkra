@@ -1,4 +1,6 @@
 import type { ThreadItemRecord } from "../cleanCore/threadItemsPage.ts";
+import { decodeUserItemData } from "@penkra/shared/userItemData";
+import type { MessageOrigin } from "@penkra/contracts";
 
 export interface ReconstructedContinuation {
   readonly boundary:
@@ -14,6 +16,8 @@ export interface ReconstructedContinuation {
     readonly role: "user" | "assistant";
     readonly text: string | null;
     readonly createdAt: string;
+    readonly origin?: MessageOrigin;
+    readonly steered?: true;
   }>;
 }
 
@@ -50,6 +54,9 @@ export function selectReconstructedContinuation(input: {
       role: item.kind === "user" ? ("user" as const) : ("assistant" as const),
       text: item.text,
       createdAt: item.createdAt,
+      ...(item.kind === "user"
+        ? decodeUserItemData(item.data === null ? null : JSON.parse(item.data))
+        : {}),
     }));
   return {
     boundary:
@@ -76,6 +83,8 @@ export function formatReconstructedContinuation(input: {
     role: message.role,
     text: message.text,
     createdAt: message.createdAt,
+    ...(message.origin === undefined ? {} : { origin: message.origin }),
+    ...(message.steered ? { steered: message.steered } : {}),
   }));
   return [
     "You are continuing an existing Penkra Thread because its provider-native continuation was unavailable.",

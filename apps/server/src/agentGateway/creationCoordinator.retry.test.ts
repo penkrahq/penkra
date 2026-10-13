@@ -308,7 +308,13 @@ describe("clean-core agent creation retries", () => {
     expect(h.rows.size).toBe(1);
     expect(h.deliveries).toBe(1);
     expect(h.sends.map((input) => input.message.messageId)).toEqual([IDS.messageId, IDS.messageId]);
-    expect(h.sends.every((input) => input.message.senderThreadId === CALLER_THREAD_ID)).toBe(true);
+    expect(
+      h.sends.every(
+        (input) =>
+          input.message.origin._tag === "agent" &&
+          input.message.origin.senderThreadId === CALLER_THREAD_ID,
+      ),
+    ).toBe(true);
     expect(JSON.parse(resultText(first)).sendAdmission).toEqual({
       threadId: IDS.threadId,
       messageId: IDS.messageId,

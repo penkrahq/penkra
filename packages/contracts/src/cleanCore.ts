@@ -5,6 +5,8 @@ export {
   CleanCoreOpenQuestion,
 } from "./threadSummary";
 import { Schema } from "effect";
+import { MessageOrigin } from "./messageOrigin";
+export { MessageOrigin } from "./messageOrigin";
 import { ProviderSkillReference, ProviderMentionReference } from "./providerDiscovery";
 
 import {
@@ -99,12 +101,20 @@ export type CleanCoreThreadChange = typeof CleanCoreThreadChange.Type;
 export const CleanCoreSubscribeThreadInput = Schema.Struct({ threadId: ThreadId });
 export type CleanCoreSubscribeThreadInput = typeof CleanCoreSubscribeThreadInput.Type;
 
+export const UserItemData = Schema.Struct({
+  origin: MessageOrigin,
+  attachments: Schema.Array(ChatAttachment),
+  skills: Schema.optionalKey(Schema.Array(ProviderSkillReference)),
+  mentions: Schema.optionalKey(Schema.Array(ProviderMentionReference)),
+  steered: Schema.optionalKey(Schema.Literal(true)),
+});
+export type UserItemData = typeof UserItemData.Type;
+
 export const CleanCoreQueuedMessage = Schema.Struct({
   messageId: MessageId,
   text: Schema.String,
   attachments: Schema.Array(ChatAttachment),
-  senderThreadId: Schema.NullOr(ThreadId),
-  dispatchOrigin: Schema.Literals(["user", "automation", "agent"]),
+  origin: MessageOrigin,
   queuedAt: IsoDateTime,
 });
 export type CleanCoreQueuedMessage = typeof CleanCoreQueuedMessage.Type;

@@ -190,22 +190,21 @@ const USER_TURN_MARKER_PRESENTATION: Record<
 };
 
 function UserDispatchModeChip({
-  dispatchMode,
-  dispatchOrigin,
+  steered,
+  origin,
   hasLeadingMedia,
-  senderThreadId,
   onOpenThread,
 }: {
-  dispatchMode: TimelineMessage["dispatchMode"];
-  dispatchOrigin: TimelineMessage["dispatchOrigin"];
+  steered: TimelineMessage["steered"];
+  origin: TimelineMessage["origin"];
   hasLeadingMedia: boolean;
-  senderThreadId?: TimelineMessage["senderThreadId"];
   onOpenThread?: (threadId: ThreadId) => void;
 }) {
+  const senderThreadId = origin?._tag === "agent" ? origin.senderThreadId : undefined;
   const senderThread = useStore((state) =>
     senderThreadId ? state.threadShellById?.[senderThreadId] : undefined,
   );
-  const markerKind = resolveUserTurnMarker({ dispatchMode, dispatchOrigin });
+  const markerKind = resolveUserTurnMarker({ steered, origin });
   if (!markerKind) {
     return null;
   }
@@ -1213,12 +1212,9 @@ export const MessagesTimeline = memo(function MessagesTimeline({
                       so suppress the dispatch chip here to avoid a duplicate "Sent by …" marker. */}
                     {showCrossTaskOrigin ? null : (
                       <UserDispatchModeChip
-                        dispatchMode={row.message.dispatchMode}
-                        dispatchOrigin={row.message.dispatchOrigin}
+                        steered={row.message.steered}
+                        origin={row.message.origin}
                         hasLeadingMedia={hasLeadingMedia}
-                        {...(row.message.senderThreadId
-                          ? { senderThreadId: row.message.senderThreadId }
-                          : {})}
                         {...(onOpenThread ? { onOpenThread } : {})}
                       />
                     )}

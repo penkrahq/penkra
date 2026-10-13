@@ -122,8 +122,7 @@ it.effect("queue admission preserves a newer draft and its selection", () =>
           messageId: MessageId.makeUnsafe("queued-pick"),
           text: "captured content",
           attachments: [],
-          senderThreadId: null,
-          dispatchOrigin: "user",
+          origin: { _tag: "user" as const },
           queuedAt: "2099-10-11T00:00:01.000Z",
         },
         {

@@ -4,11 +4,10 @@
 
 import type {
   ModelSelection,
-  MessageDispatchOrigin,
+  MessageOrigin,
   MessageDelivery,
   OrchestrationMessageSource,
   OrchestrationPendingInteraction,
-  TurnDispatchMode,
   OrchestrationLatestTurn,
   OrchestrationSessionStatus,
   OrchestrationThreadActivity,
@@ -67,9 +66,8 @@ export interface ChatMessage {
   attachments?: ChatAttachment[];
   skills?: ProviderSkillReference[];
   mentions?: ProviderMentionReference[];
-  dispatchMode?: TurnDispatchMode;
-  dispatchOrigin?: MessageDispatchOrigin;
-  senderThreadId?: ThreadId;
+  origin?: MessageOrigin;
+  steered?: true;
   delivery?: MessageDelivery;
   /** Persisted clean-core user item status. */
   sendStatus?: "sending" | "sent" | "failed";

@@ -50,8 +50,7 @@ describe("provider turn prompt preparation", () => {
       resolveProviderTurnContext(
         {
           messageText: "read this",
-          dispatchOrigin: "user",
-          senderThreadId: undefined,
+          origin: { _tag: "user" },
           mentions: [mention],
           maxContextChars: 0,
         },
@@ -71,8 +70,7 @@ describe("provider turn prompt preparation", () => {
       resolveProviderTurnContext(
         {
           messageText: "a new task",
-          dispatchOrigin: "agent",
-          senderThreadId: sender,
+          origin: { _tag: "agent", senderThreadId: sender },
           mentions: undefined,
           maxContextChars: 0,
         },

@@ -12,6 +12,7 @@ import { nextCommittedDraftTimestamp } from "./threadDraftTimestamp.ts";
 import { draftAfterSend } from "./threadDraft.ts";
 import { enqueueMessage, planSend, readThreadQueue, type QueuedMessage } from "./threadQueue.ts";
 import { type ThreadPublisher } from "./threadStore.ts";
+import { encodeUserItemAdmission } from "./userItemAdmission.ts";
 
 export const PLAY_TURN_RECOVERY_PROMPT =
   "The previous turn did not finish. Continue the existing task from the current state. Verify the current state before repeating any action whose outcome may be uncertain.";
@@ -47,6 +48,7 @@ export const sendMessage = (
 ) =>
   Effect.gen(function* () {
     const sql = yield* SqlClient.SqlClient;
+    yield* encodeUserItemAdmission(input, input.dispatchMode === "steer");
     const admission = yield* sql.withTransaction(
       Effect.gen(function* () {
         const [thread] = yield* sql<{
@@ -89,7 +91,7 @@ export const sendMessage = (
         const position = queue.findIndex(
           (message) => message.messageId === input.message.messageId,
         );
-        if (position !== -1)
+        if (position !== -1 && input.dispatchMode === "queue")
           return {
             threadId: ThreadId.makeUnsafe(input.threadId),
             messageId: input.message.messageId,
@@ -104,10 +106,28 @@ export const sendMessage = (
           state: thread.state,
           dispatchMode: input.dispatchMode,
           supportsSteer: input.supportsSteer,
-          queueLength: queue.length + pending.length,
+          // Explicit promotion bypasses waiting work, never an admitted start.
+          queueLength:
+            (position !== -1 && input.dispatchMode === "steer" ? 0 : queue.length) + pending.length,
         });
-        yield* driver.claimAttachments(input);
+        const request =
+          position === -1
+            ? input
+            : {
+                ...input,
+                message: queue[position]!,
+                draftUpdatedAt: undefined,
+              };
+        yield* driver.claimAttachments(request);
         if (plan === "queue") {
+          if (position !== -1)
+            return {
+              threadId: ThreadId.makeUnsafe(input.threadId),
+              messageId: input.message.messageId,
+              plan,
+              position: position + 1,
+              queueLength: queue.length,
+            } satisfies CleanCoreSendAdmission;
           const queued = yield* enqueueMessage(
             input.threadId,
             input.message,
@@ -122,9 +142,12 @@ export const sendMessage = (
             queueLength: queued.length,
           } satisfies CleanCoreSendAdmission;
         }
-        yield* writeSendingMessage(input, plan);
-        if (input.draftUpdatedAt !== undefined && thread.draftUpdatedAt === input.draftUpdatedAt) {
-          const draft = draftAfterSend(thread.draft, thread.provider, input);
+        yield* writeSendingMessage(request, plan);
+        if (
+          request.draftUpdatedAt !== undefined &&
+          thread.draftUpdatedAt === request.draftUpdatedAt
+        ) {
+          const draft = draftAfterSend(thread.draft, thread.provider, request);
           const draftUpdatedAt = nextCommittedDraftTimestamp(
             thread.draftUpdatedAt,
             new Date().toISOString(),

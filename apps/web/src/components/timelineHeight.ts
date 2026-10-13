@@ -3,6 +3,7 @@
 // Layer: Web chat virtualization utility
 // Exports: message/work height estimators used by MessagesTimeline and browser tests
 
+import type { MessageOrigin } from "@penkra/contracts";
 import { DEFAULT_CHAT_FONT_SIZE_PX, normalizeChatFontSizePx } from "../appSettings";
 import { deriveDisplayedUserMessageState } from "../lib/terminalContext";
 import { buildInlineTerminalContextText } from "./chat/userMessageTerminalContexts";
@@ -53,8 +54,8 @@ interface TimelineMessageHeightInput {
   role: "user" | "assistant" | "system";
   text: string;
   attachments?: ReadonlyArray<{ id: string; type?: "image" | "file" | "assistant-selection" }>;
-  dispatchMode?: "queue" | "steer";
-  dispatchOrigin?: "user" | "automation" | "agent";
+  origin?: MessageOrigin;
+  steered?: true;
   inlineToolEntries?: ReadonlyArray<TimelineWorkEntryHeightInput>;
   inlineToolExpanded?: boolean;
 }

@@ -549,20 +549,13 @@ function createThreadItemsPageFromFixtureSnapshot(threadId: ThreadId) {
               : "done",
         text: message.text,
         data:
-          message.role === "user" &&
-          ((message.attachments?.length ?? 0) > 0 ||
-            (message.skills?.length ?? 0) > 0 ||
-            (message.mentions?.length ?? 0) > 0)
+          message.role === "user"
             ? JSON.stringify({
                 attachments: message.attachments ?? [],
                 skills: message.skills ?? [],
                 mentions: message.mentions ?? [],
-                ...((message as { dispatchMode?: string }).dispatchMode
-                  ? { dispatchMode: (message as { dispatchMode?: string }).dispatchMode }
-                  : {}),
-                ...((message as { dispatchOrigin?: string }).dispatchOrigin
-                  ? { dispatchOrigin: (message as { dispatchOrigin?: string }).dispatchOrigin }
-                  : {}),
+                origin: message.origin ?? { _tag: "user" },
+                ...(message.steered ? { steered: true } : {}),
               })
             : null,
         createdAt: message.createdAt,
@@ -709,8 +702,8 @@ function applyEventsForTest(events: OrchestrationEvent[]): void {
             createdAt: payload.createdAt,
             updatedAt: payload.updatedAt,
             attachments: payload.attachments ?? [],
-            dispatchOrigin: payload.dispatchOrigin,
-            senderThreadId: payload.senderThreadId,
+            origin: payload.origin,
+            steered: payload.steered,
           };
           return {
             ...thread,
@@ -1521,8 +1514,7 @@ function summarizeFixtureThread(
           messageId: message.id,
           text: message.text,
           attachments: message.attachments ?? [],
-          senderThreadId: message.senderThreadId ?? null,
-          dispatchOrigin: "user",
+          origin: message.origin ?? { _tag: "user" },
           queuedAt: message.createdAt,
         })),
     ),

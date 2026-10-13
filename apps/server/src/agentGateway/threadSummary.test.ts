@@ -31,6 +31,7 @@ function makeMessage(index: number, text = `message ${index}`): OrchestrationMes
   return {
     id: MessageId.makeUnsafe(`m-${index}`),
     role: index % 2 === 0 ? "user" : "assistant",
+    ...(index % 2 === 0 ? { origin: { _tag: "user" as const } } : {}),
     text,
     turnId: null,
     streaming: false,
@@ -183,9 +184,12 @@ describe("paginateThreadMessages", () => {
   });
 
   it("surfaces dispatch origin on messages that carry it", () => {
-    const message = { ...makeMessage(0), dispatchOrigin: "agent" as const };
+    const message = {
+      ...makeMessage(0),
+      origin: { _tag: "agent" as const, senderThreadId: ThreadId.makeUnsafe("sender-thread") },
+    };
     const page = paginateThreadMessages({ messages: [message] });
-    assert.equal(page.messages[0]?.dispatchOrigin, "agent");
+    assert.equal(page.messages[0]?.origin?._tag, "agent");
   });
 });
 
@@ -262,7 +266,7 @@ describe("packAgentTranscriptPage", () => {
       turnId: TurnId.makeUnsafe("turn-long"),
       sequence: 7,
       streaming: true,
-      dispatchOrigin: "agent" as const,
+      origin: { _tag: "agent" as const, senderThreadId: ThreadId.makeUnsafe("sender-thread") },
     };
 
     const fragments: string[] = [];
@@ -282,7 +286,7 @@ describe("packAgentTranscriptPage", () => {
       assert.equal(item.turnId, "turn-long");
       assert.equal(item.sequence, 7);
       assert.equal(item.streaming, true);
-      assert.equal(item.dispatchOrigin, "agent");
+      assert.equal(item.origin?._tag, "agent");
       assert.notInclude(item.text, "[... truncated");
       fragments.unshift(item.text);
       anchor = page.nextAnchor;

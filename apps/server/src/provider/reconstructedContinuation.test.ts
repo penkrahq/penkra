@@ -13,7 +13,7 @@ const message = (id: string, turnId: string, sequence: number, text = id): Threa
   kind: sequence % 2 === 0 ? "text" : "user",
   status: sequence % 2 === 0 ? "done" : "sent",
   text,
-  data: null,
+  data: sequence % 2 === 0 ? null : JSON.stringify({ origin: { _tag: "user" }, attachments: [] }),
   turnId: TurnId.makeUnsafe(turnId),
   seq: sequence,
   createdAt: `2026-09-01T00:00:${String(sequence).padStart(2, "0")}.000Z`,

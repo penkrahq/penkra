@@ -22,7 +22,7 @@ describe("failed queued delivery hydration", () => {
           const sql = yield* SqlClient.SqlClient;
           yield* seedThreadFolderFixture("project-1", "penkra-personal");
           yield* sql`INSERT INTO threads (id,space_id,folder_id,title,provider,model,runtime_mode,state,last_error,queue,created_by,created_at,updated_at)
-          VALUES (${threadId},'penkra-personal','project-1','Thread','codex','gpt-5-codex','full-access','error',${reason},${JSON.stringify([{ messageId: "queued-failure", text: "Continue", attachments: [], senderThreadId: null, dispatchOrigin: "user", queuedAt: "2026-09-27T00:00:00.000Z" }])},'user','2026-09-27T00:00:00.000Z','2026-09-27T00:00:01.000Z')`;
+          VALUES (${threadId},'penkra-personal','project-1','Thread','codex','gpt-5-codex','full-access','error',${reason},${JSON.stringify([{ messageId: "queued-failure", text: "Continue", attachments: [], origin: { _tag: "user" as const }, queuedAt: "2026-09-27T00:00:00.000Z" }])},'user','2026-09-27T00:00:00.000Z','2026-09-27T00:00:01.000Z')`;
         }),
       );
       const query = await runtime.runPromise(Effect.service(ThreadReads));

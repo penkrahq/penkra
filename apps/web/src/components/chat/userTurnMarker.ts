@@ -8,16 +8,18 @@
 // Agent-dispatched turns take
 // precedence over the steer marker so the origin stays visible even for
 // steered dispatches.
+import type { MessageOrigin } from "@penkra/contracts";
+
 export type UserTurnMarkerKind = "agent" | "steer";
 
 export function resolveUserTurnMarker(message: {
-  readonly dispatchMode?: "queue" | "steer" | undefined;
-  readonly dispatchOrigin?: "user" | "automation" | "agent" | undefined;
+  readonly origin?: MessageOrigin | undefined;
+  readonly steered?: true | undefined;
 }): UserTurnMarkerKind | null {
-  if (message.dispatchOrigin === "agent") {
+  if (message.origin?._tag === "agent") {
     return "agent";
   }
-  if (message.dispatchMode === "steer") {
+  if (message.steered) {
     return "steer";
   }
   return null;
