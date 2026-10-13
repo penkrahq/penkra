@@ -1,3 +1,4 @@
+import { ProviderAuthCircuits } from "../provider/providerAuthCircuit.ts";
 import { ServerConfig } from "../config.ts";
 import { ensureDurableThreadWorkspace } from "../scratchWorkspaces.ts";
 import { ManagedAttachmentRepository } from "../persistence/Services/ManagedAttachments.ts";
@@ -17,7 +18,7 @@ import {
   type CleanCoreSendMessageInput,
   ProviderKind,
 } from "@penkra/contracts";
-import { Deferred, Effect, Layer, Option, Schema, Semaphore, ServiceMap } from "effect";
+import { Deferred, Effect, Layer, Option, Schema, Semaphore, ServiceMap, Stream } from "effect";
 import * as SqlClient from "effect/unstable/sql/SqlClient";
 import { ProviderThreadSwitchCoordinator } from "../orchestration/Services/ProviderThreadSwitchCoordinator.ts";
 import { ProviderService } from "../provider/Services/ProviderService.ts";
@@ -41,6 +42,9 @@ export type ThreadSendInput = CleanCoreSendMessageInput;
 export class ThreadSender extends ServiceMap.Service<
   ThreadSender,
   {
+    readonly resumeQueuedForConnection: (
+      connectionId: ProviderConnectionId,
+    ) => Effect.Effect<void, Error>;
     readonly runExclusive: <A, E, R>(
       threadId: ThreadId,
       action: Effect.Effect<A, E, R>,
@@ -368,6 +372,20 @@ export const makeThreadSender = Effect.gen(function* () {
       return Schema.decodeUnknownSync(CleanCoreThreadRuntime)(rows[0]);
     });
   return {
+    resumeQueuedForConnection: (connectionId: ProviderConnectionId) =>
+      Effect.gen(function* () {
+        let after = "";
+        while (true) {
+          const rows = yield* sql<{
+            id: string;
+          }>`SELECT id FROM threads WHERE connection_id=${connectionId} AND id>${after} AND deleted_at IS NULL AND archived_at IS NULL ORDER BY id LIMIT 50`;
+          for (const row of rows) yield* Effect.forkIn(deliverHead(row.id), scope);
+          if (rows.length < 50) return;
+          after = rows[rows.length - 1]!.id;
+        }
+      }).pipe(
+        Effect.mapError((cause) => (cause instanceof Error ? cause : new Error(String(cause)))),
+      ),
     runExclusive: <A, E, R>(threadId: ThreadId, action: Effect.Effect<A, E, R>) =>
       withLane(threadId, withLane(threadId, action, "delivery")),
     queuedThread: (messageId: string) =>
@@ -462,4 +480,23 @@ export const makeThreadSender = Effect.gen(function* () {
       ),
   };
 });
-export const ThreadSenderLive = Layer.effect(ThreadSender, makeThreadSender);
+export const ThreadSenderLive = Layer.effect(
+  ThreadSender,
+  Effect.gen(function* () {
+    const sender = yield* makeThreadSender;
+    const circuits = yield* ProviderAuthCircuits;
+    const sql = yield* SqlClient.SqlClient;
+    const publisher = yield* ThreadPublisher;
+    const releases = yield* circuits.subscribeReleases;
+    yield* Stream.runForEach(Stream.fromQueue(releases), (circuit) =>
+      Effect.gen(function* () {
+        const changed =
+          yield* sql`UPDATE threads SET state=CASE WHEN state='error' THEN 'idle' ELSE state END,last_error=NULL
+      WHERE connection_id=${circuit.connectionId} AND last_error LIKE ${circuit.summary + "%"} RETURNING id`;
+        for (const row of changed) publisher.publish({ threadId: String(row.id) });
+        yield* sender.resumeQueuedForConnection(circuit.connectionId);
+      }),
+    ).pipe(Effect.orDie, Effect.forkScoped);
+    return sender;
+  }),
+);

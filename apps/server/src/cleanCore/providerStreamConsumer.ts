@@ -1,3 +1,6 @@
+import { ProviderAuthCircuits } from "../provider/providerAuthCircuit.ts";
+import { classifyProviderAuthFailure } from "../provider/providerAuthFailure.ts";
+import { renameThread } from "./threadStore.ts";
 // FILE: providerStreamConsumer.ts
 // Purpose: The clean-core provider stream consumer (0.14.4 design 2.3): turn
 // state comes only from the provider stream, items go through the single
@@ -219,4 +222,33 @@ export const settleRunningThreadsOnStartup = (publisher: ThreadPublisher, at: st
       threadIds: rows.map((row) => row.id),
       at,
     });
+  });
+
+/** The single production consumer: no second projection, persisted pump or swallowed write. */
+export const consumeProviderRuntimeEvent = (
+  publisher: ThreadPublisher,
+  event: ProviderRuntimeEvent,
+) =>
+  Effect.gen(function* () {
+    if (event.type === "runtime.error") {
+      const circuits = yield* ProviderAuthCircuits;
+      const connection = (yield* circuits.connectionForThread(event.threadId))[0];
+      const failure = connection
+        ? classifyProviderAuthFailure({
+            detail: event.payload.message,
+            authenticationMethodId: connection.authenticationMethodId,
+          })
+        : null;
+      if (connection && failure)
+        yield* circuits.open({
+          connectionId: connection.connectionId,
+          failure,
+          now: event.createdAt,
+        });
+    }
+    yield* applyProviderRuntimeEvent(publisher, event);
+    if (event.type === "thread.metadata.updated" && event.payload.name) {
+      if (yield* renameThread(event.threadId, event.payload.name, event.createdAt))
+        publisher.publish({ threadId: event.threadId });
+    }
   });

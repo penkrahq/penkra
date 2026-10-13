@@ -25,10 +25,7 @@ import {
   OrchestrationEngineService,
   type OrchestrationEngineShape,
 } from "./orchestration/Services/OrchestrationEngine";
-import {
-  ProviderRuntimeIngestionService,
-  type ProviderRuntimeIngestionShape,
-} from "./orchestration/Services/ProviderRuntimeIngestion.ts";
+
 import {
   ProviderCommandReactor,
   type ProviderCommandReactorShape,
@@ -63,7 +60,6 @@ export interface ServerShape {
     | ManagedAttachmentCleanup
     | ServerLifecycleEvents
     | OrchestrationEngineService
-    | ProviderRuntimeIngestionService
     | ProviderCommandReactor
     | ProjectionSnapshotQuery
     | ThreadPublisher
@@ -91,7 +87,6 @@ export class ServerLifecycleError extends Schema.TaggedErrorClass<ServerLifecycl
 /** Cut off interrupted work and attach runtime observers before accepting commands. */
 export function startServerRuntimeSubscriptions(input: {
   readonly threadPublisher: typeof ThreadPublisher.Service;
-  readonly providerRuntimeIngestion: Pick<ProviderRuntimeIngestionShape, "start">;
   readonly providerCommandReactor: Pick<ProviderCommandReactorShape, "start">;
   readonly subscriptionsScope: Scope.Closeable;
   readonly startedAt: string;
@@ -100,10 +95,6 @@ export function startServerRuntimeSubscriptions(input: {
     yield* runStartupStage(
       "clean-core.startup-cutoff",
       settleRunningThreadsOnStartup(input.threadPublisher, input.startedAt),
-    );
-    yield* runStartupStage(
-      "provider-runtime-ingestion.start",
-      Scope.provide(input.providerRuntimeIngestion.start, input.subscriptionsScope),
     );
     // Observe provider events before commands can begin. Sequential scope
     // finalization drains commands before releasing their runtime observer.
@@ -174,7 +165,6 @@ export const createEffectServer = Effect.fn(function* (
   const workspaceWatcher = yield* WorkspaceWatcher;
   const lifecycleEvents = yield* ServerLifecycleEvents;
   const orchestrationEngine = yield* OrchestrationEngineService;
-  const providerRuntimeIngestion = yield* ProviderRuntimeIngestionService;
   const providerCommandReactor = yield* ProviderCommandReactor;
   const providerService = yield* ProviderService;
   const threadPublisher = yield* ThreadPublisher;
@@ -255,7 +245,6 @@ export const createEffectServer = Effect.fn(function* (
   yield* Effect.addFinalizer(() => shutdown);
   yield* startServerRuntimeSubscriptions({
     threadPublisher,
-    providerRuntimeIngestion,
     providerCommandReactor,
     subscriptionsScope,
     startedAt: new Date().toISOString(),
@@ -277,20 +266,6 @@ export const createEffectServer = Effect.fn(function* (
     type: "ready",
     payload: { at: new Date().toISOString() },
   });
-
-  // Durable recovery journals are best-effort startup maintenance. All live
-  // subscribers are attached and new commands are safe before these scans and
-  // provider resumptions complete, so keep them supervised but off the startup
-  // readiness path.
-  yield* Effect.gen(function* () {
-    yield* providerRuntimeIngestion.reconcileSettledOpenTurns;
-  }).pipe(
-    Effect.catchCause((cause) =>
-      Effect.logWarning("post-ready restart recovery failed", { cause }),
-    ),
-    Effect.forkIn(subscriptionsScope),
-    Effect.asVoid,
-  );
 
   if (!nodeServer) {
     return yield* new ServerLifecycleError({ operation: "httpServerListen" });

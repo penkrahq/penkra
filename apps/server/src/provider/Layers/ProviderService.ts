@@ -1,3 +1,6 @@
+import { consumeProviderRuntimeEvent } from "../../cleanCore/providerStreamConsumer.ts";
+import { ConnectionRateLimits } from "../../providerUsage/ConnectionRateLimits.ts";
+import { ProviderAuthCircuits } from "../providerAuthCircuit.ts";
 /**
  * ProviderServiceLive - Cross-provider orchestration layer.
  *
@@ -10,7 +13,6 @@
  * @module ProviderServiceLive
  */
 import {
-  EventId,
   ProviderCompactThreadInput,
   ModelSelection,
   NonNegativeInt,
@@ -29,7 +31,7 @@ import {
   type ProviderRuntimeEvent,
   type ProviderSession,
 } from "@penkra/contracts";
-import { createHash, randomUUID } from "node:crypto";
+import { randomUUID } from "node:crypto";
 import {
   Array as EffectArray,
   Cause,
@@ -62,8 +64,6 @@ import {
 } from "../Services/ProviderSessionDirectory.ts";
 import { type EventNdjsonLogger, makeEventNdjsonLogger } from "./EventNdjsonLogger.ts";
 import { AnalyticsService } from "../../telemetry/Services/AnalyticsService.ts";
-import { PersistenceDecodeError } from "../../persistence/Errors.ts";
-import { ProviderRuntimeEventRepository } from "../../persistence/Services/ProviderRuntimeEvents.ts";
 import { readThreadNativeState } from "../../cleanCore/threadNativeState.ts";
 import { ThreadPublisher } from "../../cleanCore/ThreadPublisher.ts";
 import * as SqlClient from "effect/unstable/sql/SqlClient";
@@ -77,10 +77,6 @@ import {
 import { makeProviderLifecycleCoordinator } from "../providerLifecycleCoordinator.ts";
 import { carryProviderAttachmentPaths } from "../providerAttachmentPaths.ts";
 import { providerNativeResumeIdentity } from "../nativeResumeIdentity.ts";
-import {
-  makeProviderRuntimeEventPumpHealthRegistry,
-  runProviderRuntimeEventPump,
-} from "../providerRuntimeEventPump.ts";
 
 /**
  * Preserve the adapter's per-occurrence identity. A content-derived id cannot distinguish two
@@ -129,18 +125,10 @@ export interface ProviderServiceLiveOptions {
   readonly threadSessionIdleMs?: number;
   /** Test/embedding override for the lossless runtime-event fan-out budget. */
   readonly runtimeEventBufferCapacity?: number;
-  /** Production journal hook. The event must be durable before this effect returns. */
-  readonly persistRuntimeEvent?: (
+  /** Commit the canonical thread event before publishing it to observers. */
+  readonly consumeRuntimeEvent?: (
     event: ProviderRuntimeEvent,
   ) => Effect.Effect<ProviderRuntimeEvent | null, unknown>;
-  /** Durable fallback for events that can never be accepted by the canonical journal. */
-  readonly quarantineRuntimeEvent?: (
-    event: ProviderRuntimeEvent,
-    cause: string,
-  ) => Effect.Effect<void, unknown>;
-  /** Test override for supervised event retry timing. */
-  readonly runtimeEventRetryBaseDelayMs?: number;
-  readonly runtimeEventRetryMaxDelayMs?: number;
   /** Persist an exact provider-native cursor into the managed thread binding. */
   readonly persistNativeResumeCursor?: (input: {
     readonly threadId: ThreadId;
@@ -157,14 +145,7 @@ export interface ProviderServiceLiveOptions {
 // Claude owns one process per thread; idle conversations resume after a 30-minute stop.
 export const THREAD_SESSION_IDLE_MS = 30 * 60 * 1000;
 export const PROVIDER_RUNTIME_EVENT_BUFFER_CAPACITY = 2_048;
-export const PROVIDER_RUNTIME_QUARANTINE_CAUSE_MAX_BYTES = 16 * 1024;
-
-export function summarizeProviderRuntimeQuarantineCause(cause: string): {
-  readonly cause: string;
-  readonly causeTruncated?: true;
-  readonly causeOriginalBytes?: number;
-  readonly causeSha256?: string;
-} {
+{
   const encoded = Buffer.from(cause, "utf8");
   if (encoded.byteLength <= PROVIDER_RUNTIME_QUARANTINE_CAUSE_MAX_BYTES) {
     return { cause };
@@ -628,8 +609,8 @@ const makeProviderService = (options?: ProviderServiceLiveOptions) =>
 
     const publishRuntimeEvent = (event: ProviderRuntimeEvent): Effect.Effect<void, unknown> =>
       Effect.uninterruptible(
-        (options?.persistRuntimeEvent
-          ? options.persistRuntimeEvent(event)
+        (options?.consumeRuntimeEvent
+          ? options.consumeRuntimeEvent(event)
           : Effect.succeed<ProviderRuntimeEvent | null>(event)
         ).pipe(
           Effect.flatMap((admittedEvent) =>
@@ -1153,7 +1134,6 @@ const makeProviderService = (options?: ProviderServiceLiveOptions) =>
     const adapters = yield* Effect.forEach(providers, (provider) =>
       registry.getByProvider(provider),
     );
-    const runtimeEventPumpHealth = makeProviderRuntimeEventPumpHealthRegistry(providers);
     const processRuntimeEvent = (event: ProviderRuntimeEvent): Effect.Effect<void, unknown> =>
       Effect.uninterruptible(
         Effect.suspend(() => {
@@ -1210,30 +1190,13 @@ const makeProviderService = (options?: ProviderServiceLiveOptions) =>
         }),
       );
 
-    // Each Adapter has one supervised journal-first pump. Per-event retry holds
-    // the current queue item until durable acceptance succeeds; stream restart
-    // covers unexpected completion/defects without provider-specific fallbacks.
+    // The provider stream itself is the completion boundary. A failed canonical
+    // write fails the consumer; there is no journal replay, retry or quarantine.
     yield* Effect.forEach(adapters, (adapter) =>
-      runProviderRuntimeEventPump({
-        provider: adapter.provider,
-        stream: adapter.streamEvents,
-        processEvent: processRuntimeEvent,
-        updateHealth: runtimeEventPumpHealth.update,
-        isPermanentFailure: (cause) =>
-          Option.match(Cause.findErrorOption(cause), {
-            onNone: () => false,
-            onSome: (error) => error instanceof PersistenceDecodeError,
-          }),
-        ...(options?.quarantineRuntimeEvent !== undefined
-          ? { quarantineEvent: options.quarantineRuntimeEvent }
-          : {}),
-        ...(options?.runtimeEventRetryBaseDelayMs !== undefined
-          ? { retryBaseDelayMs: options.runtimeEventRetryBaseDelayMs }
-          : {}),
-        ...(options?.runtimeEventRetryMaxDelayMs !== undefined
-          ? { retryMaxDelayMs: options.runtimeEventRetryMaxDelayMs }
-          : {}),
-      }).pipe(Effect.forkIn(runtimeEventProducerScope)),
+      Stream.runForEach(adapter.streamEvents, processRuntimeEvent).pipe(
+        Effect.orDie,
+        Effect.forkIn(runtimeEventProducerScope),
+      ),
     ).pipe(Effect.asVoid);
 
     const recoverSessionForThread = (input: {
@@ -2486,9 +2449,8 @@ const makeProviderService = (options?: ProviderServiceLiveOptions) =>
       rollbackConversation,
       compactThread,
       closeRuntimeEvents,
-      getRuntimeEventPumpHealth: () => Effect.sync(runtimeEventPumpHealth.snapshot),
       // Each access creates a fresh PubSub subscription so that multiple
-      // consumers (ProviderRuntimeIngestion and other reactors) each
+      // observers each
       // independently receive all runtime events.
       get streamEvents(): ProviderServiceShape["streamEvents"] {
         return Stream.fromPubSub(runtimeEventPubSub);
@@ -2502,82 +2464,25 @@ export function makeProviderServiceLive(options?: ProviderServiceLiveOptions) {
   return Layer.effect(ProviderService, makeProviderService(options));
 }
 
-/** Production provider service: journal each canonical event before live fan-out. */
-export function makeDurableProviderServiceLive(options?: ProviderServiceLiveOptions) {
-  return Layer.effect(
-    ProviderService,
-    Effect.gen(function* () {
-      const runtimeEvents = yield* ProviderRuntimeEventRepository;
-      return yield* makeProviderService({
-        ...options,
-        persistRuntimeEvent: (event) =>
-          runtimeEvents
-            .appendWithDiagnosticAdmission(event)
-            .pipe(Effect.map((persisted) => persisted?.event ?? null)),
-        quarantineRuntimeEvent: (event, cause) =>
-          runtimeEvents
-            .append({
-              type: "runtime.warning",
-              eventId: EventId.makeUnsafe(randomUUID()),
-              provider: event.provider,
-              threadId: event.threadId,
-              createdAt: new Date().toISOString(),
-              ...(event.turnId !== undefined ? { turnId: event.turnId } : {}),
-              ...(event.lifecycleGeneration !== undefined
-                ? { lifecycleGeneration: event.lifecycleGeneration }
-                : {}),
-              payload: {
-                message: `Quarantined provider runtime event '${event.type}' after a permanent journal failure.`,
-                detail: {
-                  originalEventId: event.eventId,
-                  originalEventType: event.type,
-                  ...summarizeProviderRuntimeQuarantineCause(cause),
-                },
-              },
-            })
-            .pipe(Effect.asVoid),
-      });
-    }),
-  );
-}
-
 /** Managed runtime: event ingestion and canonical provider-native resume identity. */
-export function makeManagedDurableProviderServiceLive(options?: ProviderServiceLiveOptions) {
+export function makeManagedProviderServiceLive(options?: ProviderServiceLiveOptions) {
   return Layer.effect(
     ProviderService,
     Effect.gen(function* () {
-      const runtimeEvents = yield* ProviderRuntimeEventRepository;
       const sql = yield* SqlClient.SqlClient;
       const publisher = yield* ThreadPublisher;
+      const rateLimits = yield* ConnectionRateLimits;
+      const circuits = yield* ProviderAuthCircuits;
       const launchResolver = yield* ProviderLaunchResolver;
       return yield* makeProviderService({
         ...options,
-        persistRuntimeEvent: (event) =>
-          runtimeEvents
-            .appendWithDiagnosticAdmission(event)
-            .pipe(Effect.map((persisted) => persisted?.event ?? null)),
-        quarantineRuntimeEvent: (event, cause) =>
-          runtimeEvents
-            .append({
-              type: "runtime.warning",
-              eventId: EventId.makeUnsafe(randomUUID()),
-              provider: event.provider,
-              threadId: event.threadId,
-              createdAt: new Date().toISOString(),
-              ...(event.turnId !== undefined ? { turnId: event.turnId } : {}),
-              ...(event.lifecycleGeneration !== undefined
-                ? { lifecycleGeneration: event.lifecycleGeneration }
-                : {}),
-              payload: {
-                message: `Quarantined provider runtime event '${event.type}' after a permanent journal failure.`,
-                detail: {
-                  originalEventId: event.eventId,
-                  originalEventType: event.type,
-                  ...summarizeProviderRuntimeQuarantineCause(cause),
-                },
-              },
-            })
-            .pipe(Effect.asVoid),
+        consumeRuntimeEvent: (event) =>
+          consumeProviderRuntimeEvent(publisher, event).pipe(
+            Effect.provideService(SqlClient.SqlClient, sql),
+            Effect.provideService(ConnectionRateLimits, rateLimits),
+            Effect.provideService(ProviderAuthCircuits, circuits),
+            Effect.as(event),
+          ),
         persistNativeResumeCursor: ({ threadId, provider, resumeCursor }) =>
           Effect.gen(function* () {
             const state = yield* readThreadNativeState(threadId).pipe(

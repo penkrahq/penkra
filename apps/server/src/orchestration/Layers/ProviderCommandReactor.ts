@@ -114,7 +114,6 @@ import {
   ProviderThreadSwitchCoordinator,
   ProviderThreadSwitchCoordinatorError,
 } from "../Services/ProviderThreadSwitchCoordinator.ts";
-import { ProviderRuntimeIngestionService } from "../Services/ProviderRuntimeIngestion.ts";
 import { ProjectionSnapshotQuery } from "../Services/ProjectionSnapshotQuery.ts";
 import {
   ProviderCommandReactor,
@@ -435,7 +434,6 @@ const make = Effect.gen(function* () {
   const queuedTurnPromotions = yield* QueuedTurnPromotionRepository;
   const projectionSnapshotQuery = yield* ProjectionSnapshotQuery;
   const providerService = yield* ProviderService;
-  const providerRuntimeIngestion = yield* ProviderRuntimeIngestionService;
   const providerTurnSelectionResolver = yield* ProviderTurnSelectionResolver;
   const providerLaunchResolver = yield* ProviderLaunchResolver;
   const projectionTurnRepository = yield* ProjectionTurnRepository;
@@ -2624,7 +2622,6 @@ const make = Effect.gen(function* () {
           // the error and terminal notifications. Give that boundary a short
           // chance to settle before recovering a seemingly orphaned queue.
           yield* Effect.sleep(Duration.millis(250));
-          yield* providerRuntimeIngestion.drain;
         }
         yield* drainQueuedTurnsForThread(threadId);
       }),
@@ -3755,9 +3752,7 @@ const make = Effect.gen(function* () {
           // Provider events are journaled before they are published. Ingestion
           // must project a preceding auth error before a failed/aborted turn
           // can promote the next queued turn. These are independent subscribers.
-          return providerRuntimeIngestion.drain.pipe(
-            Effect.andThen(processQueueDrainEventSafely(event)),
-          );
+          return Effect.void.pipe(Effect.andThen(processQueueDrainEventSafely(event)));
         }).pipe(Effect.forkScoped),
         Effect.forever(
           Effect.sleep(queuedTurnRecoveryInterval).pipe(

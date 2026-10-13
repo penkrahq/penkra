@@ -1,3 +1,5 @@
+import { ConnectionRateLimitsLive } from "./providerUsage/ConnectionRateLimits.ts";
+import { ProviderAuthCircuitsLive } from "./provider/providerAuthCircuit.ts";
 // FILE: codexAccountPool.test.ts
 // Purpose: Exercise account transports with real children and gateway leases.
 
@@ -36,14 +38,13 @@ import { makeOpenCodeAdapterLive } from "./provider/Layers/OpenCodeAdapter";
 import { OpenCodeAdapter } from "./provider/Services/OpenCodeAdapter";
 import { makeOpenCodeRuntimeLive, OpenCodeRuntime } from "./provider/opencodeRuntime";
 import { ProviderAdapterRegistry } from "./provider/Services/ProviderAdapterRegistry";
-import { makeManagedDurableProviderServiceLive } from "./provider/Layers/ProviderService";
+import { makeManagedProviderServiceLive } from "./provider/Layers/ProviderService";
 import { ProviderLaunchResolverLive } from "./provider/Layers/ProviderLaunchResolver";
 import { ProviderConnectionRepository } from "./persistence/Services/ProviderConnections";
 import { ProviderInstallationRepository } from "./persistence/Services/ProviderInstallations";
 import { ProviderCredentialBroker } from "./provider/providerCredentialBroker";
 import { ProviderSessionDirectoryLive } from "./provider/Layers/ProviderSessionDirectory";
 import { ProviderSessionRuntimeRepositoryLive } from "./persistence/Layers/ProviderSessionRuntime";
-import { ProviderRuntimeEventRepositoryLive } from "./persistence/Layers/ProviderRuntimeEvents";
 import { AnalyticsService } from "./telemetry/Services/AnalyticsService";
 import { runAutomaticProviderUpdateCycle } from "./provider/providerUpdateCoordinator";
 import type { ProviderHealthShape } from "./provider/Services/ProviderHealth";
@@ -754,12 +755,13 @@ it.each(["codex", "opencode"] as const)(
           } as never),
         ),
       );
-      const serviceLayer = makeManagedDurableProviderServiceLive().pipe(
+      const serviceLayer = makeManagedProviderServiceLive().pipe(
+        Layer.provide(ConnectionRateLimitsLive),
+        Layer.provide(ProviderAuthCircuitsLive),
         Layer.provideMerge(registryLayer),
         Layer.provide(
           ProviderSessionDirectoryLive.pipe(Layer.provide(ProviderSessionRuntimeRepositoryLive)),
         ),
-        Layer.provide(ProviderRuntimeEventRepositoryLive),
         Layer.provide(resolverLayer),
         Layer.provide(AnalyticsService.layerTest),
         Layer.provide(Layer.succeed(ThreadPublisher, makeThreadPublisher())),
