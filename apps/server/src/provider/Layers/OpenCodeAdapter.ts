@@ -125,15 +125,11 @@ const OPENCODE_ADAPTER_CONFIG: OpenCodeCompatibleAdapterConfig = {
 const OPENCODE_PROMPT_ACCEPTED_ACTIVITY_TIMEOUT_MS = 60_000;
 const OPENCODE_PROMPT_ACCEPTED_RECOVERY_DELAYS_MS = [2_000, 5_000, 10_000, 20_000] as const;
 const OPENCODE_PROMPT_SUBMISSION_INLINE_WAIT_MS = 500;
-const OPENCODE_EVENT_RECONNECT_DELAYS_MS = [250, 1_000, 2_500, 5_000] as const;
 const OPENCODE_MAX_RELATED_SESSIONS = 256;
-const OPENCODE_ABORT_IDLE_POLL_INTERVAL_MS = 50;
-const OPENCODE_ABORT_IDLE_MAX_POLLS = 40;
 
 const OPENCODE_ACTIONABLE_WARNING_CLASSES = {
   permissionPolicyFailure: "permission-policy-failure",
   providerRetry: "provider-retry",
-  eventStreamReconnect: "event-stream-reconnect",
 } as const;
 
 type OpenCodeActionableWarningClass =
@@ -146,7 +142,6 @@ function openCodeActionableWarningMessage(
   switch (warningClass) {
     case OPENCODE_ACTIONABLE_WARNING_CLASSES.permissionPolicyFailure:
     case OPENCODE_ACTIONABLE_WARNING_CLASSES.providerRetry:
-    case OPENCODE_ACTIONABLE_WARNING_CLASSES.eventStreamReconnect:
       return message;
   }
 }
@@ -190,6 +185,7 @@ interface OpenCodeSessionContext {
   lastEmittedTokenUsageKey: string | undefined;
   latestTurnCostUsd: number | undefined;
   activeTurnId: TurnId | undefined;
+  turnSettled: Deferred.Deferred<void, ProviderAdapterRequestError> | undefined;
   /** The abort request whose provider-side `session.error: Aborted` echo is expected. */
   pendingAbortErrorTurnId: TurnId | undefined;
   activeTurnEventSerial: number;
@@ -431,18 +427,6 @@ function openCodeMessageSnapshotsFromResponse(
     const snapshot = openCodeMessageSnapshotFromEntry(entry);
     return snapshot ? [snapshot] : [];
   });
-}
-
-function isFinalAssistantMessageSnapshot(
-  snapshot: OpenCodeMessageSnapshot,
-  expectedParentMessageId: string,
-): boolean {
-  return (
-    snapshot.info.role === "assistant" &&
-    snapshot.info.parentID === expectedParentMessageId &&
-    typeof snapshot.info.time?.completed === "number" &&
-    snapshot.info.finish !== "tool-calls"
-  );
 }
 
 function ensureSessionContext(
@@ -1205,8 +1189,9 @@ export function makeOpenCodeAdapterLive(options?: OpenCodeAdapterLiveOptions) {
         }),
       );
 
-      const emit = (context: OpenCodeSessionContext, event: ProviderRuntimeEvent) =>
-        Effect.sync(() => {
+      const emit = (context: OpenCodeSessionContext, event: ProviderRuntimeEvent) => {
+        const settled = context.turnSettled;
+        return Effect.sync(() => {
           if (event.providerRefs?.providerParentThreadId !== undefined) return;
           if (
             (event.type === "turn.completed" || event.type === "turn.aborted") &&
@@ -1234,8 +1219,31 @@ export function makeOpenCodeAdapterLive(options?: OpenCodeAdapterLiveOptions) {
                 : {}),
             }),
           ),
+          Effect.tap(() =>
+            Effect.sync(() => {
+              if (settled === undefined) return;
+              if (event.type === "session.exited") {
+                Deferred.doneUnsafe(
+                  settled,
+                  Effect.fail(
+                    new ProviderAdapterRequestError({
+                      provider,
+                      method: "interruptTurn",
+                      detail: event.payload.reason ?? "Session exited before becoming idle.",
+                    }),
+                  ),
+                );
+              } else if (
+                (event.type === "turn.completed" || event.type === "turn.aborted") &&
+                event.turnId !== undefined
+              ) {
+                Deferred.doneUnsafe(settled, Effect.void);
+              }
+            }),
+          ),
           Effect.asVoid,
         );
+      };
       const writeNativeEvent = (
         threadId: ThreadId,
         event: {
@@ -2565,6 +2573,20 @@ export function makeOpenCodeAdapterLive(options?: OpenCodeAdapterLiveOptions) {
             }
 
             if (event.properties.status.type === "idle" && turnId) {
+              if (
+                context.pendingAbortErrorTurnId === turnId &&
+                event.properties.sessionID === context.openCodeSessionId
+              ) {
+                context.pendingAbortErrorTurnId = undefined;
+                clearActiveTurnState(context);
+                updateProviderSession(context, { status: "ready" }, { clearActiveTurnId: true });
+                yield* emit(context, {
+                  ...buildEventBase({ threadId: context.session.threadId, turnId, raw: event }),
+                  type: "turn.aborted",
+                  payload: { reason: "Interrupted by user." },
+                });
+                break;
+              }
               if (yield* deferPrematureIdleCompletion(context, turnId, event)) {
                 break;
               }
@@ -2579,6 +2601,20 @@ export function makeOpenCodeAdapterLive(options?: OpenCodeAdapterLiveOptions) {
 
           case "session.idle": {
             if (turnId) {
+              if (
+                context.pendingAbortErrorTurnId === turnId &&
+                event.properties.sessionID === context.openCodeSessionId
+              ) {
+                context.pendingAbortErrorTurnId = undefined;
+                clearActiveTurnState(context);
+                updateProviderSession(context, { status: "ready" }, { clearActiveTurnId: true });
+                yield* emit(context, {
+                  ...buildEventBase({ threadId: context.session.threadId, turnId, raw: event }),
+                  type: "turn.aborted",
+                  payload: { reason: "Interrupted by user." },
+                });
+                break;
+              }
               if (yield* deferPrematureIdleCompletion(context, turnId, event)) {
                 break;
               }
@@ -3103,149 +3139,6 @@ export function makeOpenCodeAdapterLive(options?: OpenCodeAdapterLiveOptions) {
         }
       });
 
-      const loadCurrentMessageSnapshots = Effect.fn("loadCurrentMessageSnapshots")(function* (
-        context: OpenCodeSessionContext,
-      ) {
-        const messages = yield* runOpenCodeSdk("session.messages", () =>
-          context.client.session.messages({
-            sessionID: context.openCodeSessionId,
-          }),
-        );
-        return openCodeMessageSnapshotsFromResponse(messages.data ?? []);
-      });
-
-      const replayOpenCodeMessageSnapshots = Effect.fn("replayOpenCodeMessageSnapshots")(function* (
-        context: OpenCodeSessionContext,
-        snapshots: ReadonlyArray<OpenCodeMessageSnapshot>,
-        turnId: TurnId,
-      ) {
-        for (const snapshot of snapshots) {
-          const messageKey = openCodeSnapshotKey(snapshot.info);
-          if (context.messageSnapshotKeyById.get(snapshot.info.id) !== messageKey) {
-            yield* handleSubscribedEvent(context, {
-              type: "message.updated",
-              properties: {
-                sessionID: context.openCodeSessionId,
-                info: snapshot.info,
-              },
-            } as OpenCodeSubscribedEvent);
-          }
-
-          for (const part of snapshot.parts) {
-            const partKey = openCodeSnapshotKey(part);
-            if (context.partSnapshotKeyById.get(part.id) === partKey) {
-              continue;
-            }
-            yield* handleSubscribedEvent(context, {
-              type: "message.part.updated",
-              properties: {
-                sessionID: context.openCodeSessionId,
-                part,
-              },
-            } as OpenCodeSubscribedEvent);
-          }
-        }
-
-        if (context.activeTurnId !== turnId) {
-          return;
-        }
-      });
-
-      // Completion backstop for OpenCode-family providers: the SSE stream can drop or
-      // delay the terminal `session.idle` event (child-session gating, reconnects,
-      // provider-specific final-message shapes), which leaves a turn stuck in
-      // "working" even though the provider already finished. This independent fiber
-      // polls session status and, once the session looks idle with a fresh final
-      // assistant message, synthesizes the idle event so the turn completes.
-      //
-      // `pollMessagesWhileBusy` trades load for liveness by pulling the full message
-      // list every tick to also act as a live transcript catch-up; plain OpenCode
-      // keeps it cheap by only pulling messages once the session is no longer busy
-      // (fetching a large transcript every 500ms would be wasteful on big turns).
-      const startTurnSnapshotWatchdog = Effect.fn("startTurnSnapshotWatchdog")(function* (
-        context: OpenCodeSessionContext,
-        turnId: TurnId,
-        expectedParentMessageId: string,
-        options: { readonly pollMessagesWhileBusy: boolean },
-      ) {
-        yield* Effect.gen(function* () {
-          let idlePollsWithFinalMessage = 0;
-
-          while (!(yield* Ref.get(context.stopped)) && context.activeTurnId === turnId) {
-            yield* Effect.sleep(500);
-
-            const statusExit = yield* Effect.exit(
-              runOpenCodeSdk("session.status", () =>
-                context.client.session.status({
-                  directory: context.directory,
-                }),
-              ),
-            );
-            const statusKnown = Exit.isSuccess(statusExit);
-            const status = statusKnown
-              ? statusExit.value.data?.[context.openCodeSessionId]
-              : undefined;
-            const sessionBusy = status?.type === "busy" || status?.type === "retry";
-
-            let hasFinalAssistantMessage = false;
-            if (options.pollMessagesWhileBusy || (statusKnown && !sessionBusy)) {
-              const snapshotsExit = yield* Effect.exit(loadCurrentMessageSnapshots(context));
-              if (Exit.isSuccess(snapshotsExit)) {
-                yield* replayOpenCodeMessageSnapshots(context, snapshotsExit.value, turnId);
-                hasFinalAssistantMessage = snapshotsExit.value.some((snapshot) =>
-                  isFinalAssistantMessageSnapshot(snapshot, expectedParentMessageId),
-                );
-              }
-            }
-
-            if (!statusKnown || sessionBusy) {
-              idlePollsWithFinalMessage = 0;
-              continue;
-            }
-
-            idlePollsWithFinalMessage = hasFinalAssistantMessage
-              ? idlePollsWithFinalMessage + 1
-              : 0;
-            if (idlePollsWithFinalMessage < 1 || context.activeTurnId !== turnId) {
-              continue;
-            }
-
-            yield* handleSubscribedEvent(context, {
-              type: "session.status",
-              properties: {
-                sessionID: context.openCodeSessionId,
-                status: {
-                  type: "idle",
-                },
-              },
-            } as OpenCodeSubscribedEvent);
-            return;
-          }
-        }).pipe(
-          Effect.catchCause((cause) =>
-            Effect.logWarning(
-              `${adapterConfig.displayName} exact reply watchdog failed`,
-              Cause.squash(cause),
-            ).pipe(
-              Effect.andThen(
-                writeNativeEventBestEffort(context.session.threadId, {
-                  observedAt: nowIso(),
-                  event: {
-                    provider,
-                    threadId: context.session.threadId,
-                    providerThreadId: context.openCodeSessionId,
-                    type: "turn.snapshot-watchdog.error",
-                    turnId,
-                    detail: openCodeRuntimeErrorDetail(Cause.squash(cause)),
-                  },
-                }),
-              ),
-            ),
-          ),
-          Effect.forkIn(context.sessionScope),
-        );
-      });
-
       const startEventPump = Effect.fn("startEventPump")(function* (
         context: OpenCodeSessionContext,
       ) {
@@ -3256,62 +3149,37 @@ export function makeOpenCodeAdapterLive(options?: OpenCodeAdapterLiveOptions) {
         );
 
         yield* Effect.gen(function* () {
-          let reconnectAttempt = 0;
-          while (!eventsAbortController.signal.aborted && !(yield* Ref.get(context.stopped))) {
-            const subscriptionExit = yield* Effect.exit(
-              Effect.gen(function* () {
-                const subscription = yield* runOpenCodeSdk("event.subscribe", () =>
-                  context.client.event.subscribe(undefined, {
-                    signal: eventsAbortController.signal,
-                  }),
-                );
-                yield* reconcilePendingOpenCodeInteractions(context).pipe(
-                  Effect.catchCause((cause) =>
-                    Effect.logWarning(
-                      `${adapterConfig.displayName} pending interaction reconciliation failed`,
-                      Cause.squash(cause),
-                    ),
+          const subscriptionExit = yield* Effect.exit(
+            Effect.gen(function* () {
+              const subscription = yield* runOpenCodeSdk("event.subscribe", () =>
+                context.client.event.subscribe(undefined, {
+                  signal: eventsAbortController.signal,
+                }),
+              );
+              yield* reconcilePendingOpenCodeInteractions(context).pipe(
+                Effect.catchCause((cause) =>
+                  Effect.logWarning(
+                    `${adapterConfig.displayName} pending interaction reconciliation failed`,
+                    Cause.squash(cause),
                   ),
-                );
-                yield* Stream.fromAsyncIterable(
-                  subscription.stream,
-                  (cause) =>
-                    new OpenCodeRuntimeError({
-                      operation: "event.subscribe",
-                      detail: openCodeRuntimeErrorDetail(cause),
-                      cause,
-                    }),
-                ).pipe(Stream.runForEach((event) => handleSubscribedEvent(context, event)));
-              }),
-            );
-            if (eventsAbortController.signal.aborted || (yield* Ref.get(context.stopped))) {
-              return;
-            }
-
-            const delayMs =
-              OPENCODE_EVENT_RECONNECT_DELAYS_MS[
-                Math.min(reconnectAttempt, OPENCODE_EVENT_RECONNECT_DELAYS_MS.length - 1)
-              ] ?? OPENCODE_EVENT_RECONNECT_DELAYS_MS[0];
-            reconnectAttempt += 1;
-            yield* Effect.sleep(delayMs);
-            if (eventsAbortController.signal.aborted || (yield* Ref.get(context.stopped))) {
-              return;
-            }
-            const detail = Exit.isFailure(subscriptionExit)
-              ? openCodeRuntimeErrorDetail(Cause.squash(subscriptionExit.cause))
-              : `${adapterConfig.displayName} event stream ended.`;
-            yield* emit(context, {
-              ...buildEventBase({ threadId: context.session.threadId }),
-              type: "runtime.warning",
-              payload: {
-                message: openCodeActionableWarningMessage(
-                  OPENCODE_ACTIONABLE_WARNING_CLASSES.eventStreamReconnect,
-                  `${adapterConfig.displayName} event stream disconnected; reconnecting.`,
                 ),
-                detail,
-              },
-            });
-          }
+              );
+              yield* Stream.fromAsyncIterable(
+                subscription.stream,
+                (cause) =>
+                  new OpenCodeRuntimeError({
+                    operation: "event.subscribe",
+                    detail: openCodeRuntimeErrorDetail(cause),
+                    cause,
+                  }),
+              ).pipe(Stream.runForEach((event) => handleSubscribedEvent(context, event)));
+            }),
+          );
+          if (eventsAbortController.signal.aborted || (yield* Ref.get(context.stopped))) return;
+          const detail = Exit.isFailure(subscriptionExit)
+            ? openCodeRuntimeErrorDetail(Cause.squash(subscriptionExit.cause))
+            : `${adapterConfig.displayName} event stream ended.`;
+          yield* emitUnexpectedExit(context, `${detail} Retry the connection to continue.`);
         }).pipe(Effect.forkIn(context.sessionScope));
 
         if (!context.server.external && context.server.exitCode !== null) {
@@ -3596,6 +3464,7 @@ export function makeOpenCodeAdapterLive(options?: OpenCodeAdapterLiveOptions) {
                   lastEmittedTokenUsageKey: undefined,
                   latestTurnCostUsd: undefined,
                   activeTurnId: undefined,
+                  turnSettled: undefined,
                   pendingAbortErrorTurnId: undefined,
                   activeTurnEventSerial: 0,
                   activeTurnProviderActivitySerial: 0,
@@ -3717,6 +3586,7 @@ export function makeOpenCodeAdapterLive(options?: OpenCodeAdapterLiveOptions) {
             ? input.modelSelection.options?.variant
             : undefined;
 
+        context.turnSettled = yield* Deferred.make<void, ProviderAdapterRequestError>();
         context.activeTurnId = turnId;
         context.activeTurnEventSerial = 0;
         context.activeTurnProviderActivitySerial = 0;
@@ -3789,10 +3659,6 @@ export function makeOpenCodeAdapterLive(options?: OpenCodeAdapterLiveOptions) {
               : Effect.void,
           ),
         );
-        // Poll status as a completion backstop for dropped or delayed idle events.
-        yield* startTurnSnapshotWatchdog(context, turnId, providerMessageId, {
-          pollMessagesWhileBusy: false,
-        });
 
         return {
           threadId: input.threadId,
@@ -3808,6 +3674,7 @@ export function makeOpenCodeAdapterLive(options?: OpenCodeAdapterLiveOptions) {
         function* (threadId, turnId) {
           const context = ensureAdapterSessionContext(threadId);
           const activeTurnId = turnId ?? context.activeTurnId;
+          const settled = context.turnSettled;
           context.pendingAbortErrorTurnId = activeTurnId;
           yield* runOpenCodeSdk("session.abort", () =>
             context.client.session.abort({
@@ -3823,45 +3690,8 @@ export function makeOpenCodeAdapterLive(options?: OpenCodeAdapterLiveOptions) {
               }),
             ),
           );
-          // `session.abort` can resolve while OpenCode still reports the session
-          // as busy. Starting the promoted steering prompt in that gap either
-          // rejects the replacement as interrupted or leaves the session busy
-          // forever after the replacement answer. Gate the terminal event (and
-          // therefore queue promotion) on the provider leaving its abort state.
-          for (let poll = 0; poll < OPENCODE_ABORT_IDLE_MAX_POLLS; poll += 1) {
-            const statusExit = yield* Effect.exit(
-              runOpenCodeSdk("session.status", () =>
-                context.client.session.status({
-                  directory: context.directory,
-                }),
-              ),
-            );
-            if (Exit.isFailure(statusExit)) {
-              break;
-            }
-            const status = statusExit.value.data?.[context.openCodeSessionId];
-            if (status?.type !== "busy" && status?.type !== "retry") {
-              break;
-            }
-            yield* Effect.sleep(OPENCODE_ABORT_IDLE_POLL_INTERVAL_MS);
-          }
-          if (context.pendingAbortErrorTurnId === activeTurnId) {
-            context.pendingAbortErrorTurnId = undefined;
-          }
-          // The expected `session.error: Aborted` echo is intentionally not a
-          // terminal event. Settling here gates replacement steering on the
-          // abort RPC instead of racing a new prompt against it.
-          if (activeTurnId && context.activeTurnId === activeTurnId) {
-            clearActiveTurnState(context);
-            updateProviderSession(context, { status: "ready" }, { clearActiveTurnId: true });
-            yield* emit(context, {
-              ...buildEventBase({ threadId, turnId: activeTurnId }),
-              type: "turn.aborted",
-              payload: {
-                reason: "Interrupted by user.",
-              },
-            });
-          }
+          // The abort RPC is an acknowledgement; native idle settles the turn.
+          if (activeTurnId && settled !== undefined) yield* Deferred.await(settled);
         },
       );
 
