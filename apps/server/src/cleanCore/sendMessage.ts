@@ -5,7 +5,7 @@ import {
   type CleanCoreSendAdmission,
   type CleanCoreSendMessageInput,
 } from "@penkra/contracts";
-import { Effect } from "effect";
+import { Cause, Effect } from "effect";
 import * as SqlClient from "effect/unstable/sql/SqlClient";
 import { admitSendingPayload, readSendCohort, readSendDispatch } from "./sendPayload.ts";
 import { nextCommittedDraftTimestamp } from "./threadDraftTimestamp.ts";
@@ -159,18 +159,25 @@ export const deliverMessage = (
     const dispatch = yield* readSendDispatch(input);
     if (dispatch !== null) yield* driver.dispatch(dispatch, plan);
   }).pipe(
-    Effect.catch((error) =>
-      settleMessage(
+    Effect.catchCause((cause) => {
+      // Server shutdown leaves the admission for the existing startup cut-off.
+      if (Cause.hasInterruptsOnly(cause)) return Effect.failCause(cause);
+      const failure = Cause.squash(cause);
+      const error = failure instanceof Error ? failure.message : String(failure);
+      return settleMessage(
         publisher,
-        {
-          type: "failed",
-          threadId: input.threadId,
-          messageId: input.message.messageId,
-          error: error.message,
-        },
+        { type: "failed", threadId: input.threadId, messageId: input.message.messageId, error },
         new Date().toISOString(),
-      ),
-    ),
+      ).pipe(
+        Effect.andThen(
+          Effect.logError("admitted provider delivery failed", {
+            threadId: input.threadId,
+            messageId: input.message.messageId,
+            error,
+          }),
+        ),
+      );
+    }),
   );
 
 export type MessageOutcome = { readonly threadId: string; readonly messageId: string } & (
