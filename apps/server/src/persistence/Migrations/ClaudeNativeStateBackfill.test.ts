@@ -58,7 +58,11 @@ it.effect("moves a thread-owned Claude folder into its native-state folder with 
       });
       const before = yield* sql`SELECT * FROM threads ORDER BY id`;
       const result = yield* withClaudeNativeStateBackfill(stateDir, Effect.succeed("migration"));
-      assert.deepStrictEqual(result, { migrations: "migration", movedFolders: 1 });
+      assert.deepStrictEqual(result, {
+        migrations: "migration",
+        movedFolders: 1,
+        retained: { rows: 0, moved: 0, missing: 0, bytesFreed: 0 },
+      });
       assert.strictEqual(
         yield* Effect.promise(() =>
           readFile(Path.join(root, "claude", "project", "session.jsonl"), "utf8"),

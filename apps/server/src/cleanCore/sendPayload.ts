@@ -37,7 +37,7 @@ export const admitSendingPayload = (
       while (true) {
         const rows = yield* sql<{ seq: number; sourceId: string; sendPayload: string }>`
         SELECT seq,source_id AS "sourceId",send_payload AS "sendPayload" FROM thread_items
-        WHERE thread_id=${input.threadId} AND kind='user' AND status='failed' AND seq>${after}
+        WHERE thread_id=${input.threadId} AND kind='user' AND status='failed' AND send_payload IS NOT NULL AND seq>${after}
         ORDER BY seq LIMIT 50`;
         for (const row of rows)
           failed.push({ ...row, payload: decodeSendPayload(row.sendPayload) });
