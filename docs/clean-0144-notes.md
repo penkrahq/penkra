@@ -479,3 +479,27 @@ files and one skipped file (528.31s), with exit status 0:
 or newly skipped. The earlier full run which had already recorded the
 pre-repair watcher failure was interrupted when the operator fixed the host;
 its partial results are not presented as a passing run.
+
+
+## Final rehearsal after pipeline and provider fold (2026-10-13)
+
+The detached copy job's first run made a consistent 8,958,799,872-byte copy while Penkra was quit. Its integrity check returned `ok`; subsequent accidental relaunches of that job were stopped by the reviewer. G used only fresh `VACUUM INTO` copies of that retained copy, never Production.
+
+The first run exposed 45 historical failed messages in 24 threads being removed by migration 200. de6159be9 corrected this: all historical failed/starting/steering/queued messages remain Failed with no private send payload and never join a retry cohort. The fresh final run passed.
+
+| Evidence | Source | Final |
+|---|---:|---:|
+| Threads | 586 | 586 |
+| User + assistant/text messages | 92,555 | 92,555 |
+| Former child thread rows retained through flattening | 79 | 79 |
+| Open questions | 0 | 0 |
+| Folder rows | 25 | 25 |
+| Composer/native-owner discrepancies corrected | 121 | 0 |
+
+Per-thread message mismatches: 0. Native-state/session/owner mismatches: 0. `foreign_key_check`: empty; no FK targets a dropped table. All nine Claude folders moved; no live thread folder remained at the old path. Every file's tree hash was preserved and all nine exact session-ID JSONL files were present at the canonical path. This proves file/identity preservation, without launching an additional provider turn.
+
+Retained native state: 229 historical rows, 229 existing folders staged by same-volume rename, 0 missing, then 13,068,538,934 logical regular-file bytes removed after commit. On injected failure after the first threads insert, the DB SHA-256 was identical before/after; retained folders were renamed back and the original statement/cause surfaced. No logged-and-continued removal.
+
+Final migration duration: **396,762.52 ms (6.61 min)**. Before VACUUM: 12,115,427,328 bytes, 2,957,868 pages, 2,174,165 free pages. After VACUUM: **3,169,517,568 bytes**, 773,808 pages, **0 free pages**, `integrity_check = ok`. These are migration figures, not a live WAL peak measurement; the rehearsal used the rollback journal.
+
+Evidence is under `~/penkra-rehearsal/run-8/final/result.json` and `run.log`; the initial failed run's report is retained alongside them. At the operator's instruction, closed rehearsal databases, disposable native copies and the retained rehearsal source were deleted after recording the results. Free space afterward: **47,176,974,336 bytes**. No Production database, userdata backup directory or `.corrupt` file was touched.
