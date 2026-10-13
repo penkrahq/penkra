@@ -33,6 +33,7 @@ it.effect("adds private recovery storage and preserves existing items", () =>
     assert.deepStrictEqual(yield* runMigrations(), [
       [197, "SendRecoveryDraft"],
       [198, "IndexLatestTurn"],
+      [199, "IndexOpenQuestions"],
     ]);
     assert.deepStrictEqual(
       yield* sql`SELECT thread_id,seq,source_id,text FROM thread_items`,

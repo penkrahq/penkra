@@ -5,7 +5,7 @@ import { Effect } from "effect";
 import * as SqlClient from "effect/unstable/sql/SqlClient";
 
 import { listThreads, listFolderThreads, findThread, listRunningThreads } from "./threadList.ts";
-import { createThread, makeThreadPublisher } from "./threadStore.ts";
+import { createThread, makeThreadPublisher, upsertThreadItem } from "./threadStore.ts";
 import { applyProviderEvent } from "./providerStreamConsumer.ts";
 import { runMigrations } from "../persistence/Migrations.ts";
 import * as NodeSqliteClient from "../persistence/NodeSqliteClient.ts";
@@ -191,6 +191,53 @@ it.effect("reads the newest canonical turn from the indexed sidebar and thread r
           folderId: FolderId.makeUnsafe("list-folder"),
         })).threads[0]!.latestTurn,
         expected,
+      );
+    }),
+  ),
+);
+
+it.effect("reads only the newest open canonical question and excludes answered questions", () =>
+  withDb(
+    Effect.gen(function* () {
+      yield* runMigrations();
+      yield* seedThreadFolderFixture("questions-folder", "space");
+      const at = "2020-01-01T00:00:00.000Z";
+      yield* createThread({
+        id: "questions-thread",
+        spaceId: "space",
+        folderId: "questions-folder",
+        title: "Questions",
+        provider: "codex",
+        model: "model",
+        runtimeMode: "full-access",
+        createdBy: "user",
+        createdAt: at,
+      });
+      for (const id of ["first", "second"])
+        yield* upsertThreadItem({
+          threadId: "questions-thread",
+          sourceId: id,
+          kind: "question",
+          status: "open",
+          text: id,
+          createdAt: at,
+          updatedAt: at,
+        });
+      assert.deepStrictEqual(
+        (yield* findThread(ThreadId.makeUnsafe("questions-thread")))?.latestOpenQuestion,
+        { id: "second", summary: "second", createdAt: at },
+      );
+      yield* upsertThreadItem({
+        threadId: "questions-thread",
+        sourceId: "second",
+        kind: "question",
+        status: "answered",
+        createdAt: at,
+        updatedAt: at,
+      });
+      assert.equal(
+        (yield* findThread(ThreadId.makeUnsafe("questions-thread")))?.latestOpenQuestion?.id,
+        "first",
       );
     }),
   ),

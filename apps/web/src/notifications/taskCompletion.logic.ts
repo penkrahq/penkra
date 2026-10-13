@@ -7,7 +7,6 @@ import type { CleanCoreThreadSummary } from "@penkra/contracts";
 import type { Thread } from "../types";
 import type { AppState } from "../storeState";
 import { isPersistedThreadOpenable } from "../storeSelectors";
-import { derivePendingUserInputs } from "../session-logic";
 
 export interface CompletedThreadCandidate {
   threadId: Thread["id"];
@@ -35,14 +34,6 @@ export function focusAvailableNotificationThread(input: {
   if (!isPersistedThreadOpenable(input.state, input.threadId)) return false;
   input.navigate(input.threadId);
   return true;
-}
-
-// Thread completion toasts are for off-screen work; visible threads already show the result inline.
-export function shouldShowThreadNotificationToast(input: {
-  threadId: Thread["id"];
-  visibleThreadIds: ReadonlySet<Thread["id"]>;
-}): boolean {
-  return !input.visibleThreadIds.has(input.threadId);
 }
 
 const NOTIFICATION_SUMMARY_MAX_LENGTH = 120;
@@ -464,42 +455,43 @@ export function createCompletedThreadTracker(baseline: readonly CleanCoreThreadS
   };
 }
 
-// Compare consecutive activity snapshots and emit only fresh input-needed transitions.
-export function collectThreadAttentionCandidates(
-  previousThreads: readonly Thread[],
-  nextThreads: readonly Thread[],
-): ThreadAttentionCandidate[] {
-  const previousById = new Map(previousThreads.map((thread) => [thread.id, thread] as const));
-  const candidates: ThreadAttentionCandidate[] = [];
-
-  for (const thread of nextThreads) {
-    const previousThread = previousById.get(thread.id);
-    if (!previousThread) {
-      continue;
+/** Baseline existing questions, then consume each canonical question id once. */
+export function createOpenQuestionTracker(baseline: readonly CleanCoreThreadSummary[]) {
+  const seen = new Set<string>();
+  const knownThreads = new Set<Thread["id"]>();
+  const observeBaseline = (rows: readonly CleanCoreThreadSummary[]) => {
+    for (const row of rows) {
+      if (knownThreads.has(row.id)) continue;
+      knownThreads.add(row.id);
+      if (row.latestOpenQuestion) seen.add(`${row.id}:${row.latestOpenQuestion.id}`);
     }
-
-    const previousUserInputIds = new Set(
-      derivePendingUserInputs(previousThread.activities, previousThread.pendingInteractions).map(
-        (request) => request.requestId,
-      ),
-    );
-
-    for (const request of derivePendingUserInputs(thread.activities, thread.pendingInteractions)) {
-      if (previousUserInputIds.has(request.requestId)) {
-        continue;
-      }
-      candidates.push({
+  };
+  observeBaseline(baseline);
+  return {
+    observeBaseline,
+    consume(
+      row: CleanCoreThreadSummary,
+      visibleThreadIds: ReadonlySet<Thread["id"]>,
+    ): ThreadAttentionCandidate | null {
+      knownThreads.add(row.id);
+      const question = row.latestOpenQuestion;
+      if (!question) return null;
+      const key = `${row.id}:${question.id}`;
+      if (seen.has(key)) return null;
+      seen.add(key);
+      if (visibleThreadIds.has(row.id) || row.deletedAt !== null || row.archivedAt !== null)
+        return null;
+      return {
         kind: "user-input",
-        threadId: thread.id,
-        folderId: thread.folderId,
-        title: thread.title,
-        requestId: request.requestId,
-        createdAt: request.createdAt,
-      });
-    }
-  }
-
-  return candidates.toSorted((left, right) => left.createdAt.localeCompare(right.createdAt));
+        threadId: row.id,
+        folderId: row.folderId,
+        title: row.title,
+        requestId: question.id,
+        createdAt: question.createdAt,
+        ...(question.summary === null ? {} : { summary: question.summary }),
+      };
+    },
+  };
 }
 
 // Keep toast and OS notification copy aligned across browser and desktop surfaces.
@@ -530,19 +522,4 @@ export function buildThreadAttentionCopy(candidate: ThreadAttentionCandidate): {
   };
 }
 
-export const collectInputNeededThreadCandidates = collectThreadAttentionCandidates;
-
 export const buildInputNeededCopy = buildThreadAttentionCopy;
-
-// Hydration can replay old thread details after refresh; only timestamps after
-// this notification runtime mounted should be treated as live events.
-export function isNotificationRuntimeFreshTimestamp(
-  candidateTimestamp: string,
-  runtimeStartedAtMs: number,
-): boolean {
-  const candidateMs = Date.parse(candidateTimestamp);
-  if (!Number.isFinite(candidateMs) || !Number.isFinite(runtimeStartedAtMs)) {
-    return true;
-  }
-  return candidateMs > runtimeStartedAtMs;
-}

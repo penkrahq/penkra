@@ -22,6 +22,7 @@ vi.mock("./nativeApi", () => ({ ensureNativeApi: () => ({ cleanCore: api }) }));
 function row(queue: string, updatedAt: string): CleanCoreThreadSummary {
   return {
     latestTurn: null,
+    latestOpenQuestion: null,
     id: ThreadId.makeUnsafe("thread-51"),
     spaceId: "space" as CleanCoreThreadSummary["spaceId"],
     folderId: FolderId.makeUnsafe("folder"),

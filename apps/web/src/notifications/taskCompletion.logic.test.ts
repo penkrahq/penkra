@@ -1,7 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
 import {
-  EventId,
-  MessageId,
   FolderId,
   ThreadId,
   TurnId,
@@ -12,47 +10,10 @@ import {
   buildInputNeededCopy,
   buildTaskCompletionCopy,
   createCompletedThreadTracker,
-  collectInputNeededThreadCandidates,
+  createOpenQuestionTracker,
   focusAvailableNotificationThread,
-  isNotificationRuntimeFreshTimestamp,
-  shouldShowThreadNotificationToast,
 } from "./taskCompletion.logic";
 import type { Thread } from "../types";
-
-function makeThread(overrides: Partial<Thread>): Thread {
-  const id = "thread-1" as ThreadId;
-  const thread = {
-    id,
-    codexThreadId: null,
-    folderId: "project-1" as FolderId,
-    title: "Polish notifications",
-    modelSelection: { provider: "codex", model: "gpt-5.4-mini" },
-    runtimeMode: "full-access",
-    session: {
-      provider: "codex",
-      status: "running",
-      orchestrationStatus: "running",
-      createdAt: "2026-04-05T10:00:00.000Z",
-      updatedAt: "2026-04-05T10:00:00.000Z",
-    },
-    messages: [],
-    error: null,
-    createdAt: "2026-04-05T10:00:00.000Z",
-    updatedAt: "2026-04-05T10:00:00.000Z",
-    latestTurn: {
-      turnId: TurnId.makeUnsafe("turn-1"),
-      state: "running",
-      requestedAt: "2026-04-05T10:00:00.000Z",
-      startedAt: "2026-04-05T10:00:00.000Z",
-      completedAt: null,
-      assistantMessageId: null,
-    },
-    lastVisitedAt: "2026-04-05T10:00:00.000Z",
-    activities: [],
-    ...overrides,
-  };
-  return Object.assign({}, thread, {}) as Thread;
-}
 
 function makeCanonicalThread(
   overrides: Partial<CleanCoreThreadSummary> = {},
@@ -79,6 +40,7 @@ function makeCanonicalThread(
     lastUserMessageAt: null,
     lastVisitedAt: null,
     openQuestionCount: 0,
+    latestOpenQuestion: null,
     archivedAt: null,
     deletedAt: null,
     createdAt: "2026-04-05T10:00:00.000Z",
@@ -176,26 +138,6 @@ describe("canonical completion tracking", () => {
         new Set(),
       ),
     ).not.toBeNull();
-  });
-});
-
-describe("shouldShowThreadNotificationToast", () => {
-  it("hides in-app task notifications for already-visible threads", () => {
-    expect(
-      shouldShowThreadNotificationToast({
-        threadId: ThreadId.makeUnsafe("thread-1"),
-        visibleThreadIds: new Set([ThreadId.makeUnsafe("thread-1")]),
-      }),
-    ).toBe(false);
-  });
-
-  it("shows in-app task notifications for off-screen threads", () => {
-    expect(
-      shouldShowThreadNotificationToast({
-        threadId: ThreadId.makeUnsafe("thread-2"),
-        visibleThreadIds: new Set([ThreadId.makeUnsafe("thread-1")]),
-      }),
-    ).toBe(true);
   });
 });
 
@@ -425,72 +367,40 @@ describe("buildTaskCompletionCopy", () => {
   });
 });
 
-describe("collectInputNeededThreadCandidates", () => {
-  it("returns threads with newly opened user-input requests", () => {
-    const previous = [makeThread({ activities: [] })];
-    const next = [
-      makeThread({
-        activities: [
-          {
-            id: EventId.makeUnsafe("activity-user-input-1"),
-            tone: "info",
-            kind: "user-input.requested",
-            summary: "User input requested",
-            payload: {
-              requestId: "user-input-request-1",
-              questions: [
-                {
-                  id: "question-1",
-                  header: "Question",
-                  question: "Continue?",
-                  options: [
-                    { label: "Yes", description: "Continue" },
-                    { label: "No", description: "Stop" },
-                  ],
-                },
-              ],
-            },
-            turnId: TurnId.makeUnsafe("turn-1"),
-            createdAt: "2026-04-05T10:00:06.000Z",
-          },
-        ],
-      }),
-    ];
-
-    expect(collectInputNeededThreadCandidates(previous, next)).toEqual([
-      {
-        kind: "user-input",
-        threadId: ThreadId.makeUnsafe("thread-1"),
-        folderId: FolderId.makeUnsafe("project-1"),
-        title: "Polish notifications",
-        createdAt: "2026-04-05T10:00:06.000Z",
-        requestId: "user-input-request-1",
-      },
-    ]);
+describe("canonical open-question tracking", () => {
+  const question = {
+    id: "question-1",
+    summary: "Continue?",
+    createdAt: "2020-01-01T00:00:00.000Z",
+  };
+  it("does not notify questions open at the first canonical read", () => {
+    const row = makeCanonicalThread({ latestOpenQuestion: question });
+    const tracker = createOpenQuestionTracker([row]);
+    expect(tracker.consume(row, new Set())).toBeNull();
   });
-
-  it("ignores already-open requests from the previous snapshot", () => {
-    const activities = [
-      {
-        id: EventId.makeUnsafe("activity-approval-1"),
-        tone: "info" as const,
-        kind: "user-input.requested",
-        summary: "User input requested",
-        payload: {
-          requestId: "approval-request-1",
-          requestKind: "command",
-        },
-        turnId: TurnId.makeUnsafe("turn-1"),
-        createdAt: "2026-04-05T10:00:04.000Z",
-      },
-    ];
-
-    expect(
-      collectInputNeededThreadCandidates(
-        [makeThread({ activities })],
-        [makeThread({ activities })],
-      ),
-    ).toEqual([]);
+  it("notifies a new question once across duplicate pushes without a clock", () => {
+    const row = makeCanonicalThread({ latestOpenQuestion: question });
+    const tracker = createOpenQuestionTracker([makeCanonicalThread()]);
+    expect(tracker.consume(row, new Set())).toMatchObject({
+      requestId: question.id,
+      summary: question.summary,
+    });
+    expect(tracker.consume(row, new Set())).toBeNull();
+  });
+  it("consumes visible questions without notifying later", () => {
+    const row = makeCanonicalThread({ latestOpenQuestion: question });
+    const tracker = createOpenQuestionTracker([]);
+    expect(tracker.consume(row, new Set([row.id]))).toBeNull();
+    expect(tracker.consume(row, new Set())).toBeNull();
+  });
+  it("baselines a newly loaded page but not a new question on an already loaded page", () => {
+    const row = makeCanonicalThread({ latestOpenQuestion: question });
+    const tracker = createOpenQuestionTracker([]);
+    tracker.observeBaseline([row]);
+    expect(tracker.consume(row, new Set())).toBeNull();
+    const next = { ...row, latestOpenQuestion: { ...question, id: "question-2" } };
+    tracker.observeBaseline([next]);
+    expect(tracker.consume(next, new Set())).toMatchObject({ requestId: "question-2" });
   });
 });
 
@@ -509,23 +419,5 @@ describe("buildInputNeededCopy", () => {
       title: "Input needed",
       body: "Polish notifications: User input requested.",
     });
-  });
-});
-
-describe("isNotificationRuntimeFreshTimestamp", () => {
-  it("suppresses hydrated notifications from before the notification runtime mounted", () => {
-    const runtimeStartedAtMs = Date.parse("2026-04-05T10:00:10.000Z");
-
-    expect(
-      isNotificationRuntimeFreshTimestamp("2026-04-05T10:00:05.000Z", runtimeStartedAtMs),
-    ).toBe(false);
-  });
-
-  it("allows live notifications created after the notification runtime mounted", () => {
-    const runtimeStartedAtMs = Date.parse("2026-04-05T10:00:10.000Z");
-
-    expect(
-      isNotificationRuntimeFreshTimestamp("2026-04-05T10:00:11.000Z", runtimeStartedAtMs),
-    ).toBe(true);
   });
 });

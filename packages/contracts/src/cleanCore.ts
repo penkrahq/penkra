@@ -1,5 +1,9 @@
 import { CleanCoreThreadSummary } from "./threadSummary";
-export { CleanCoreThreadSummary, CleanCoreLatestTurn } from "./threadSummary";
+export {
+  CleanCoreThreadSummary,
+  CleanCoreLatestTurn,
+  CleanCoreOpenQuestion,
+} from "./threadSummary";
 import { Schema } from "effect";
 import { ProviderSkillReference, ProviderMentionReference } from "./providerDiscovery";
 

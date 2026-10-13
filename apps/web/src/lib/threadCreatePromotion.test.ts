@@ -56,6 +56,7 @@ function makeCanonicalThread(request: CleanCoreCreateThreadInput): CleanCoreThre
     lastUserMessageAt: null,
     lastVisitedAt: null,
     openQuestionCount: 0,
+    latestOpenQuestion: null,
     archivedAt: null,
     deletedAt: null,
     createdAt: request.createdAt,

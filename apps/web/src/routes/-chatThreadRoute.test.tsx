@@ -85,6 +85,7 @@ function row(): CleanCoreThreadSummary {
     lastUserMessageAt: null,
     lastVisitedAt: null,
     openQuestionCount: 0,
+    latestOpenQuestion: null,
     archivedAt: null,
     deletedAt: null,
     createdAt: "2026-10-10T00:00:00.000Z",

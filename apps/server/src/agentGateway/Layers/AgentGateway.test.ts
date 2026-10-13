@@ -378,6 +378,7 @@ function makeHarnessLayer(
     lastUserMessageAt: null,
     lastVisitedAt: null,
     openQuestionCount: 0,
+    latestOpenQuestion: null,
     archivedAt: thread.archivedAt === undefined ? null : thread.archivedAt,
     deletedAt: null,
     createdAt: thread.createdAt,

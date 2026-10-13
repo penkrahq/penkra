@@ -390,6 +390,7 @@ function summarizeFixtureThread(
     lastUserMessageAt: thread.latestUserMessageAt ?? null,
     lastVisitedAt: thread.lastVisitedAt ?? null,
     openQuestionCount: 0,
+    latestOpenQuestion: null,
     archivedAt: thread.archivedAt ?? null,
     deletedAt: thread.deletedAt,
     createdAt: thread.createdAt,

@@ -90,6 +90,7 @@ function row(id: ThreadId, title: string): CleanCoreThreadSummary {
     lastUserMessageAt: null,
     lastVisitedAt: null,
     openQuestionCount: 0,
+    latestOpenQuestion: null,
     archivedAt: null,
     deletedAt: null,
     createdAt: at,
