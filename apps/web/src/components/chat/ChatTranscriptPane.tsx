@@ -161,7 +161,7 @@ function ChatTranscriptPaneImpl({
             onMessagesClickCapture={onMessagesClickCapture}
             onMessagesMouseUp={onMessagesMouseUp}
             onMessagesWheel={onMessagesWheel}
-            onNearStart={loadOlderTurns}
+            {...(loadOlderTurns === undefined ? {} : { onNearStart: loadOlderTurns })}
             onMessagesPointerDown={onMessagesPointerDown}
             onMessagesPointerUp={onMessagesPointerUp}
             onMessagesPointerCancel={onMessagesPointerCancel}

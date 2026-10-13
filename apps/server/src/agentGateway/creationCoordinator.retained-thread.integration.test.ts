@@ -119,9 +119,8 @@ it.effect(
               );
               yield* Deferred.succeed(successSettled, undefined);
             }
-            return { sequence: dispatches };
+            return { turnId: TurnId.makeUnsafe("confirmed-turn") };
           }).pipe(Effect.provideService(SqlClient.SqlClient, sql), Effect.orDie),
-        dispatchQueuedTurn: () => Effect.die("unused queued dispatch"),
       } satisfies typeof ProviderThreadSwitchCoordinator.Service;
       const newSender = () =>
         makeThreadSender.pipe(

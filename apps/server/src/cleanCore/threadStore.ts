@@ -130,8 +130,8 @@ export const upsertThreadItem = (input: ThreadItemInput) =>
             status = excluded.status,
             text = excluded.text,
             data = excluded.data,
-            send_payload = excluded.send_payload,
-            admission_plan = excluded.admission_plan,
+            send_payload = CASE WHEN ${input.sendPayload === undefined ? 0 : 1}=1 THEN excluded.send_payload ELSE thread_items.send_payload END,
+            admission_plan = CASE WHEN ${input.admissionPlan === undefined ? 0 : 1}=1 THEN excluded.admission_plan ELSE thread_items.admission_plan END,
             updated_at = excluded.updated_at
         `;
         // 2.1 write rule: the thread's rollup columns move in the same write.

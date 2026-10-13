@@ -1,7 +1,7 @@
 import { assert, it } from "@effect/vitest";
 import { Effect, Schema } from "effect";
 
-import { ORCHESTRATION_WS_CHANNELS, ORCHESTRATION_WS_METHODS } from "./orchestration";
+import { CLEAN_CORE_WS_CHANNELS } from "./cleanCore";
 import { WsResponse, WS_CHANNELS } from "./ws";
 
 const decode = <S extends Schema.Top>(
@@ -42,7 +42,7 @@ it.effect("rejects push envelopes when channel payload does not match the channe
       decode(WsResponse, {
         type: "push",
         sequence: 2,
-        channel: ORCHESTRATION_WS_CHANNELS.domainEvent,
+        channel: CLEAN_CORE_WS_CHANNELS.threadChange,
         data: {
           cwd: "/tmp/workspace",
           projectName: "workspace",

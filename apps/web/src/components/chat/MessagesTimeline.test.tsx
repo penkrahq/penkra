@@ -1,3 +1,4 @@
+import { threadItemToChatMessage } from "./threadItemMappers";
 // FILE: MessagesTimeline.test.tsx
 // Purpose: Covers transcript row rendering and SSR-safe presentation contracts.
 // Layer: Web chat component tests
@@ -9,8 +10,6 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { beforeAll, describe, expect, it, vi } from "vitest";
 import { formatShortTimestamp } from "../../timestampFormat";
 import { useStore } from "../../store";
-import { applyOrchestrationEvents } from "../../storeEventReducer";
-import { syncServerReadModel } from "../../storeProjection";
 import {
   makeDomainEvent,
   makeReadModel,
@@ -180,8 +179,8 @@ describe("MessagesTimeline", () => {
     expect(markup).toContain("Failed · not delivered");
     expect(markup).not.toContain("Queued · not delivered");
   });
-  it.each(["live event", "snapshot hydration"] as const)(
-    "renders sender attribution after %s passes through the store",
+  it.each(["first canonical read", "canonical reread"] as const)(
+    "renders sender attribution after %s passes through the item mapper",
     async (source) => {
       const threadId = ThreadId.makeUnsafe(`receiving-${source.replaceAll(" ", "-")}`);
       const senderThreadId = ThreadId.makeUnsafe(`sender-${source.replaceAll(" ", "-")}`);
@@ -200,58 +199,19 @@ describe("MessagesTimeline", () => {
         updatedAt: createdAt,
         attachments: [],
       };
-      const initialState = makeState(makeThread({ id: threadId }));
-      const state =
-        source === "live event"
-          ? applyOrchestrationEvents(initialState, [
-              makeDomainEvent(
-                "thread.message-sent",
-                {
-                  threadId,
-                  messageId,
-                  role: "user",
-                  text: message.text,
-                  dispatchOrigin: "agent",
-                  turnId: null,
-                  streaming: false,
-                  source: "native",
-                  createdAt,
-                  updatedAt: createdAt,
-                  attachments: [],
-                },
-                { sequence: 1 },
-              ),
-              makeDomainEvent(
-                "thread.message-sent",
-                {
-                  threadId,
-                  messageId,
-                  role: "user",
-                  text: message.text,
-                  dispatchOrigin: "agent",
-                  senderThreadId,
-                  turnId: null,
-                  streaming: false,
-                  source: "native",
-                  createdAt,
-                  updatedAt: createdAt,
-                  attachments: [],
-                },
-                { sequence: 1 },
-              ),
-            ])
-          : syncServerReadModel(
-              initialState,
-              makeReadModel(
-                makeReadModelThread({
-                  id: threadId,
-                  messages: [message],
-                }),
-              ),
-            );
-      const storedMessage = threadsOf(state)[0]?.messages[0];
-      expect(storedMessage?.senderThreadId).toBe(senderThreadId);
-
+      const storedMessage = threadItemToChatMessage({
+        threadId,
+        seq: 1,
+        sourceId: messageId,
+        turnId: null,
+        kind: "user",
+        status: "sent",
+        text: message.text,
+        data: JSON.stringify({ dispatchOrigin: "agent", senderThreadId, attachments: [] }),
+        createdAt,
+        updatedAt: createdAt,
+      });
+      expect(storedMessage.senderThreadId).toBe(senderThreadId);
       const initialStoreState = useStore.getInitialState();
       const initialShells = initialStoreState.threadShellById;
       const threadShellById = {

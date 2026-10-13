@@ -781,26 +781,15 @@ it.layer(testLayer)("server CLI command", (it) => {
 
       yield* recordStartupHeartbeat.pipe(
         Effect.provideService(ThreadReads, {
-          getSnapshot: () =>
-            Effect.succeed({
-              snapshotSequence: 0,
-              threads: [] as OrchestrationReadModel["threads"],
-              updatedAt: new Date(0).toISOString(),
-            }),
-          getCommandReadModel: () =>
-            Effect.succeed({
-              snapshotSequence: 0,
-              threads: [] as OrchestrationReadModel["threads"],
-              updatedAt: new Date(0).toISOString(),
-            }),
+          queueLength: () => Effect.die("unused"),
+          countThreadMessages: () => Effect.die("unused"),
+          getTurnPage: () => Effect.die("unused"),
           getCounts,
-          getSnapshotSequence: () => Effect.succeed({ snapshotSequence: 0 }),
           searchThreadMessages: () => Effect.die("unused"),
           getThreadMessageContext: () => Effect.die("unused"),
           listFolderShellPage: () => Effect.die("unused page method"),
           listThreadShellPage: () => Effect.die("unused page method"),
           hasActiveProviderThread: () => Effect.die("unused provider admission method"),
-          getStartupSnapshot: () => Effect.die("unused"),
           getActiveFolderByWorkspaceRoot: () => Effect.die("unused"),
           getFolderShellsByIds: () => Effect.die("unused"),
           getFolderShellById: () => Effect.die("unused"),
@@ -809,9 +798,7 @@ it.layer(testLayer)("server CLI command", (it) => {
           getThreadShellById: () => Effect.die("unused"),
           getThreadDetailById: () => Effect.die("unused"),
           getThreadDetailForExportById: () => Effect.die("unused"),
-          getThreadDetailSnapshotById: () => Effect.die("unused"),
           getThreadTurnsPage: () => Effect.die("unused"),
-          getPendingStartOutcome: () => Effect.die("unused"),
         }),
         Effect.provideService(AnalyticsService, {
           record: recordTelemetry,

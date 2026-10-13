@@ -13,19 +13,6 @@ describe("WS RPC contracts", () => {
     },
   );
 
-  it("constructs the pending-start recovery handler in the feature RPC group", async () => {
-    const handlerLayer = WsFeatureRpcGroup.toLayerHandler(
-      ORCHESTRATION_WS_METHODS.getPendingStartOutcome,
-      () => Effect.die("not invoked"),
-    );
-    await expect(
-      Effect.runPromise(Effect.scoped(Layer.build(handlerLayer))),
-    ).resolves.toBeDefined();
-    expect(WsFeatureRpcGroup.requests.has(ORCHESTRATION_WS_METHODS.getPendingStartOutcome)).toBe(
-      true,
-    );
-  });
-
   it("exports the additive Effect RPC group", () => {
     expect(WsRpcGroup).toBeDefined();
     expect(WsBootstrapRpcGroup.requests.has("bootstrap.negotiate")).toBe(true);

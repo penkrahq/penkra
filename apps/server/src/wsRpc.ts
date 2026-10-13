@@ -1,3 +1,4 @@
+import { ModelSelection } from "@penkra/contracts";
 import { ProviderAuthCircuits } from "./provider/providerAuthCircuit.ts";
 import { PLAY_TURN_RECOVERY_PROMPT } from "./cleanCore/sendMessage.ts";
 import { getNavigation, updateNavigation } from "./cleanCore/navigation";

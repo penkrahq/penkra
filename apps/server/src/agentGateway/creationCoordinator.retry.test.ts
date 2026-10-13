@@ -92,16 +92,15 @@ function makeHarness() {
   let caller = CALLER;
   let callerRuntimeMode: CleanCoreThreadSummary["runtimeMode"] = "full-access";
   const snapshotQuery: ThreadReadsShape = {
-    getCommandReadModel: () => Effect.die("unused snapshot method"),
-    getSnapshot: () => Effect.die("unused snapshot method"),
+    queueLength: () => Effect.die("unused"),
+    countThreadMessages: () => Effect.die("unused"),
+    getTurnPage: () => Effect.die("unused"),
     getCounts: () => Effect.die("unused snapshot method"),
-    getSnapshotSequence: () => Effect.die("unused snapshot method"),
     searchThreadMessages: () => Effect.die("unused snapshot method"),
     getThreadMessageContext: () => Effect.die("unused snapshot method"),
     listFolderShellPage: () => Effect.die("unused page method"),
     listThreadShellPage: () => Effect.die("unused page method"),
     hasActiveProviderThread: () => Effect.die("unused provider admission method"),
-    getStartupSnapshot: () => Effect.die("unused snapshot method"),
     getActiveFolderByWorkspaceRoot: () => Effect.die("unused snapshot method"),
     getFolderShellsByIds: () => Effect.die("unused"),
     getFolderShellById: () => Effect.succeed(Option.some(FOLDER)),
@@ -110,9 +109,7 @@ function makeHarness() {
     getThreadShellById: () => Effect.succeed(Option.none()),
     getThreadDetailById: () => Effect.die("unused snapshot method"),
     getThreadDetailForExportById: () => Effect.die("unused snapshot method"),
-    getThreadDetailSnapshotById: () => Effect.die("unused snapshot method"),
     getThreadTurnsPage: () => Effect.die("unused snapshot method"),
-    getPendingStartOutcome: () => Effect.die("unused snapshot method"),
   };
 
   const providerDiscovery: ProviderDiscoveryServiceShape = {
@@ -225,6 +222,7 @@ function makeHarness() {
       update: () => Effect.die("unused lifecycle update"),
     },
     sender: {
+      resumeQueuedForConnection: () => Effect.void,
       runExclusive: (_threadId, action) => action,
       send: (input) =>
         Effect.gen(function* () {

@@ -1137,7 +1137,6 @@ export function createThreadActivityAccumulator(
   };
 }
 
-
 /**
  * Identifies a partially retained oldest turn that can be removed without
  * erasing the only scoped turn in the window. Turn-less metadata stays inside
@@ -1601,7 +1600,7 @@ export function normalizeThreadShellSnapshot(
       spaceId: incoming.spaceId ?? null,
       title: incoming.title,
       modelSelection: normalizeModelSelection(incoming.modelSelection, previous?.modelSelection),
-      connectionId: incoming.connectionId,
+      ...(incoming.connectionId === undefined ? {} : { connectionId: incoming.connectionId }),
       error: normalizeThreadErrorMessage(incoming.session?.lastError),
       createdAt: incoming.createdAt,
       archivedAt: incoming.archivedAt ?? null,
@@ -1609,7 +1608,7 @@ export function normalizeThreadShellSnapshot(
       creationSource: incoming.creationSource ?? null,
       sourceThreadId: incoming.sourceThreadId ?? null,
       hasPendingUserInput: incoming.hasPendingUserInput ?? false,
-      workStatus: incoming.workStatus,
+      ...(incoming.workStatus === undefined ? {} : { workStatus: incoming.workStatus }),
     },
     session,
     turnState: {

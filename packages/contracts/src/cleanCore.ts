@@ -1,5 +1,4 @@
 import { CleanCoreThreadSummary } from "./threadSummary";
-import { CleanCoreThreadSummary } from "./threadSummary";
 export {
   CleanCoreThreadSummary,
   CleanCoreLatestTurn,
