@@ -178,7 +178,7 @@ export interface AgentTranscriptMessageItem extends AgentTranscriptItemBase {
   readonly text: string;
   readonly textRange?: { readonly start: number; readonly end: number; readonly total: number };
   readonly streaming: boolean;
-  readonly delivery: "queued" | "delivered" | "failed";
+  readonly delivery: "queued" | "sending" | "delivered" | "failed";
   readonly position?: number;
   readonly dispatchOrigin?: string;
 }
@@ -250,6 +250,7 @@ function summarizeMessageDelivery(
 export function packAgentTranscriptPage(input: {
   readonly messages: ReadonlyArray<OrchestrationMessage>;
   readonly activities: ReadonlyArray<OrchestrationThreadActivity>;
+  readonly userStatuses?: ReadonlyMap<string, string>;
   readonly queuedPositions?: ReadonlyMap<string, number>;
   readonly include?: ReadonlySet<AgentTranscriptInclude>;
   readonly anchor?: AgentTranscriptCursorAnchor;
@@ -345,7 +346,12 @@ export function packAgentTranscriptPage(input: {
           ? { textRange: { start, end, total: item.message.text.length } }
           : {}),
         streaming: item.message.streaming,
-        delivery: summarizeMessageDelivery(item.message),
+        delivery:
+          input.userStatuses?.get(item.message.id) === "sending"
+            ? "sending"
+            : input.userStatuses?.get(item.message.id) === "failed"
+              ? "failed"
+              : summarizeMessageDelivery(item.message),
         ...(queuedPositions.has(item.message.id)
           ? { position: queuedPositions.get(item.message.id)! }
           : {}),

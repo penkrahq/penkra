@@ -190,6 +190,23 @@ describe("paginateThreadMessages", () => {
 });
 
 describe("packAgentTranscriptPage", () => {
+  it("reports canonical sending and failed user statuses", () => {
+    const messages = [makeMessage(0), makeMessage(1), makeMessage(2)];
+    const page = packAgentTranscriptPage({
+      messages,
+      activities: [],
+      userStatuses: new Map([
+        [messages[0]!.id, "sending"],
+        [messages[1]!.id, "failed"],
+        [messages[2]!.id, "sent"],
+      ]),
+    });
+    assert.deepEqual(
+      page.items.filter((item) => item.type === "message").map((item) => item.delivery),
+      ["sending", "failed", "delivered"],
+    );
+  });
+
   it("distinguishes queued, delivered, and failed messages", () => {
     const queued = {
       ...makeMessage(0, "queued"),

@@ -1015,6 +1015,7 @@ export function makeThreadReadTools(input: ThreadReadToolsInput): ReadonlyArray<
           const packed = packAgentTranscriptPage({
             messages,
             activities,
+            userStatuses: new Map(windows.flatMap(({ window }) => [...window.userStatuses])),
             include,
             limit: READ_THREAD_MAX_ITEM_LIMIT,
           });
@@ -1126,6 +1127,7 @@ export function makeThreadReadTools(input: ThreadReadToolsInput): ReadonlyArray<
             });
         const packed = packAgentTranscriptPage({
           messages: page.messages,
+          userStatuses: page.userStatuses,
           activities: page.activities,
           include,
           limit,
