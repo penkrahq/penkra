@@ -43,6 +43,7 @@ export function createThreadItemsController(
   api: ThreadItemsApi,
   threadId: string,
   onChange: (state: ThreadItemsState) => void,
+  onError: (error: unknown) => void,
 ): ThreadItemsController {
   let state = EMPTY_THREAD_ITEMS_STATE;
   let disposed = false;
@@ -54,10 +55,19 @@ export function createThreadItemsController(
     const page = await api.listThreadItemsPage({ threadId });
     if (!disposed) update(loadFirstPage(page));
   };
-  const loadOlder = async () => {
-    if (state.nextCursor === null) return;
-    const page = await api.listThreadItemsPage({ threadId, beforeSeq: state.nextCursor });
-    if (!disposed) update(prependOlderPage(state, page));
+  let olderRead: Promise<void> | null = null;
+  const loadOlder = () => {
+    if (olderRead !== null) return olderRead;
+    if (state.nextCursor === null) return Promise.resolve();
+    olderRead = api
+      .listThreadItemsPage({ threadId, beforeSeq: state.nextCursor })
+      .then((page) => {
+        if (!disposed) update(prependOlderPage(state, page));
+      })
+      .finally(() => {
+        olderRead = null;
+      });
+    return olderRead;
   };
   const unsubscribe = api.onThreadChange((change) => {
     if (change.threadId !== threadId) return;
@@ -66,7 +76,7 @@ export function createThreadItemsController(
       .then((page) => {
         if (!disposed) update(mergeItems(state, page.items, page.turns));
       })
-      .catch(() => undefined);
+      .catch(onError);
   });
   void api.subscribeThread({ threadId }).catch(() => undefined);
   return {
@@ -84,30 +94,42 @@ export function createThreadItemsController(
 export interface UseThreadItemsResult {
   readonly state: ThreadItemsState;
   readonly loadOlder: () => void;
+  readonly reload: () => void;
+  readonly error: unknown;
 }
 
 export function useThreadItems(threadId: string | null): UseThreadItemsResult {
+  const [error, setError] = useState<unknown>(null);
   const [state, setState] = useState<ThreadItemsState>(EMPTY_THREAD_ITEMS_STATE);
   const controllerRef = useRef<ThreadItemsController | null>(null);
   useEffect(() => {
     controllerRef.current = null;
     setState(EMPTY_THREAD_ITEMS_STATE);
+    setError(null);
     if (threadId === null) return;
     const api = readNativeApi();
     if (!api?.cleanCore) return;
     const controller = createThreadItemsController(
       api.cleanCore as unknown as ThreadItemsApi,
       threadId,
-      (next) => setState(next),
+      (next) => {
+        setError(null);
+        setState(next);
+      },
+      setError,
     );
     controllerRef.current = controller;
-    void controller.loadFirst();
+    void controller.loadFirst().catch(setError);
     return () => controller.dispose();
   }, [threadId]);
   const loadOlder = useCallback(() => {
-    void controllerRef.current?.loadOlder();
+    void controllerRef.current?.loadOlder().catch(setError);
   }, []);
-  return { state, loadOlder };
+  const reload = useCallback(() => {
+    setError(null);
+    void controllerRef.current?.loadFirst().catch(setError);
+  }, []);
+  return { state, loadOlder, reload, error };
 }
 
 export type { CleanCoreThreadItem };

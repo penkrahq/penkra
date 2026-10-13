@@ -1,7 +1,21 @@
 // FILE: ProviderThreadSwitchCoordinator.ts
 // Purpose: Canonical admission boundary for send-time Connection/model switches.
 
-import type { TurnId, OrchestrationCommand } from "@penkra/contracts";
+import type {
+  TurnId,
+  ThreadId,
+  MessageId,
+  ChatAttachment,
+  ProviderSkillReference,
+  ProviderMentionReference,
+  ModelSelection,
+  ProviderConnectionId,
+  ProviderStartOptions,
+  ProviderReviewTarget,
+  AssistantDeliveryMode,
+  MessageDispatchOrigin,
+  RuntimeMode,
+} from "@penkra/contracts";
 import { Data, Effect, ServiceMap } from "effect";
 
 import type { ManagedAttachmentPrincipal } from "../../managedAttachmentPrincipal.ts";
@@ -31,14 +45,30 @@ export class ProviderThreadSwitchCoordinatorError extends ProviderThreadSwitchCo
   }
 }
 
+export interface TurnAdmissionCommand {
+  readonly threadId: ThreadId;
+  readonly message: {
+    readonly messageId: MessageId;
+    readonly text: string;
+    readonly attachments: ReadonlyArray<ChatAttachment>;
+    readonly skills?: ReadonlyArray<ProviderSkillReference>;
+    readonly mentions?: ReadonlyArray<ProviderMentionReference>;
+  };
+  readonly modelSelection?: ModelSelection;
+  readonly connectionId?: ProviderConnectionId | null;
+  readonly providerOptions?: ProviderStartOptions;
+  readonly reviewTarget?: ProviderReviewTarget;
+  readonly assistantDeliveryMode?: AssistantDeliveryMode;
+  readonly dispatchMode: "queue" | "steer";
+  readonly dispatchOrigin?: MessageDispatchOrigin;
+  readonly senderThreadId?: ThreadId;
+  readonly runtimeMode: RuntimeMode;
+  readonly createdAt: string;
+}
+
 export interface ProviderThreadSwitchCoordinatorShape {
   readonly dispatchTurnStart: (input: {
-    readonly command: Extract<OrchestrationCommand, { type: "thread.turn.start" }>;
-    readonly attachmentPrincipal: ManagedAttachmentPrincipal;
-    readonly cwd?: string;
-  }) => Effect.Effect<{ readonly turnId: TurnId }, ProviderThreadSwitchCoordinatorError>;
-  readonly dispatchQueuedTurn: (input: {
-    readonly command: Extract<OrchestrationCommand, { type: "thread.turn.dispatch-queued" }>;
+    readonly command: TurnAdmissionCommand;
     readonly attachmentPrincipal: ManagedAttachmentPrincipal;
     readonly cwd?: string;
   }) => Effect.Effect<{ readonly turnId: TurnId }, ProviderThreadSwitchCoordinatorError>;

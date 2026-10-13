@@ -3,12 +3,7 @@
 
 import { randomUUID } from "node:crypto";
 import { providerSupportsNativeTurnSteering } from "@penkra/shared/providerMetadata";
-import {
-  ModelSelection,
-  ProviderConnectionId,
-  ThreadId,
-  type OrchestrationCommand,
-} from "@penkra/contracts";
+import { ModelSelection, ProviderConnectionId, ThreadId } from "@penkra/contracts";
 import { Deferred, Effect, Layer, Schema } from "effect";
 import * as SqlClient from "effect/unstable/sql/SqlClient";
 
@@ -22,15 +17,11 @@ import {
   ProviderThreadSwitchCoordinator,
   ProviderThreadSwitchCoordinatorError,
   type ProviderThreadSwitchCoordinatorShape,
+  type TurnAdmissionCommand,
 } from "../Services/ProviderThreadSwitchCoordinator.ts";
 
 const failure = (detail: string, cause?: unknown) =>
   new ProviderThreadSwitchCoordinatorError({ detail, ...(cause === undefined ? {} : { cause }) });
-
-type TurnAdmissionCommand = Extract<
-  OrchestrationCommand,
-  { type: "thread.turn.start" | "thread.turn.dispatch-queued" }
->;
 
 export const makeProviderThreadSwitchCoordinator = Effect.gen(function* () {
   const dispatch = yield* TurnDispatch;
@@ -266,7 +257,6 @@ export const makeProviderThreadSwitchCoordinator = Effect.gen(function* () {
 
   return {
     dispatchTurnStart: dispatchTurnAdmission,
-    dispatchQueuedTurn: dispatchTurnAdmission,
   } satisfies ProviderThreadSwitchCoordinatorShape;
 });
 

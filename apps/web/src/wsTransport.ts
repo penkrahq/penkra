@@ -6,8 +6,6 @@
 import type { CleanCoreSidebarChange } from "@penkra/contracts";
 import {
   CLEAN_CORE_WS_CHANNELS,
-  ORCHESTRATION_WS_CHANNELS,
-  ORCHESTRATION_WS_METHODS,
   WS_BOOTSTRAP_METHOD,
   WS_BOOTSTRAP_PATH,
   WS_CHANNELS,
@@ -24,10 +22,6 @@ import {
   WsRpcError,
   type GetProviderConnectionLoginInput,
   type ProviderConnectionLoginSnapshot,
-  type OrchestrationEvent,
-  type OrchestrationShellStreamItem,
-  type OrchestrationSyncStreamItem,
-  type OrchestrationThreadStreamItem,
   type ProjectWorkspaceChangeEvent,
   type ServerConfigStreamEvent,
   type ServerLifecycleStreamEvent,
@@ -393,7 +387,7 @@ export function getStreamFailureCode(cause: Cause.Cause<unknown>): string | null
   return null;
 }
 
-const THREAD_STREAM_KEY_PREFIX = "orchestration.thread:";
+const THREAD_STREAM_KEY_PREFIX = "cleanCore.thread:";
 
 function threadIdFromStreamKey(key: string): string | null {
   return key.startsWith(THREAD_STREAM_KEY_PREFIX)
@@ -492,11 +486,7 @@ export class WsTransport {
   private readonly streamDuplicateRetries = new Map<string, number>();
   private readonly streamThreadBootstrapRetries = new Map<string, number>();
   private readonly streamCapacityRetryTimers = new Map<string, number>();
-  private readonly activeThreadStreamInputs = new Map<string, unknown>();
-  private shellSubscribed = false;
   private syncAppliedSequence: number | undefined;
-  private syncDeliveryId: string | undefined;
-  private readonly threadSubscriptions = new Map<string, unknown>();
   private readonly cleanCoreThreadSubscriptions = new Map<string, unknown>();
   private readonly activeCleanCoreThreadInputs = new Map<string, unknown>();
   private compatibility: WsBootstrapNegotiateResult | null = null;
@@ -521,50 +511,7 @@ export class WsTransport {
       options?.timeoutMs === undefined ? { ...options, timeoutMs: REQUEST_TIMEOUT_MS } : options;
     const abortScope = makeRequestAbortScope(requestOptions);
     try {
-      if (method === ORCHESTRATION_WS_METHODS.unsubscribeShell) {
-        this.shellSubscribed = false;
-        await awaitWithAbort(this.stopStream("orchestration.shell"), abortScope.signal);
-        return undefined as T;
-      }
-      if (method === ORCHESTRATION_WS_METHODS.unsubscribeThread) {
-        const threadId = (params as { threadId: string }).threadId;
-        this.threadSubscriptions.delete(threadId);
-        await awaitWithAbort(
-          this.stopStream(`orchestration.thread:${threadId}`),
-          abortScope.signal,
-        );
-        return undefined as T;
-      }
-
       let client = await awaitWithAbort(this.getClient(), abortScope.signal);
-
-      if (method === ORCHESTRATION_WS_METHODS.acknowledgeSync) {
-        const deliveryId = (params as { deliveryId: string }).deliveryId;
-        if (requestSessionVersion !== this.sessionVersion || this.syncDeliveryId !== deliveryId) {
-          // The old stream's acknowledgement has no meaning on the new lease.
-          return undefined as T;
-        }
-      }
-
-      if (method === ORCHESTRATION_WS_METHODS.subscribeShell) {
-        this.shellSubscribed = true;
-        this.resetStreamCapacityRetry("orchestration.shell");
-        this.startShellStream(client);
-        return undefined as T;
-      }
-      if (method === ORCHESTRATION_WS_METHODS.subscribeThread) {
-        const threadId = (params as { threadId: string }).threadId;
-        this.resetStreamCapacityRetry(`orchestration.thread:${threadId}`);
-        // Preserve the stored input identity across repeated ownership requests so
-        // subscribing an already-owned thread is idempotent. Snapshot refreshes
-        // explicitly unsubscribe first; forcibly replacing a healthy stream here
-        // races the server-side lease finalizer and can be rejected as a duplicate.
-        const existingInput = this.threadSubscriptions.get(threadId);
-        const input = threadStreamInputsEqual(existingInput, params) ? existingInput : params;
-        this.threadSubscriptions.set(threadId, input);
-        await this.startThreadStream(client, threadId, input as never);
-        return undefined as T;
-      }
       if (method === WS_METHODS.cleanCoreSubscribeThread) {
         const threadId = (params as { threadId: string }).threadId;
         this.cleanCoreThreadSubscriptions.set(threadId, params);
@@ -594,29 +541,9 @@ export class WsTransport {
             clientRuntime.runPromise(call(rpcInput), { signal: controller.signal }),
             controller.signal,
           );
-          if (method === ORCHESTRATION_WS_METHODS.acknowledgeSync) {
-            const acknowledgement = rpcInput as {
-              deliveryId: string;
-              appliedSequence: number;
-            };
-            if (
-              this.syncDeliveryId === undefined ||
-              this.syncDeliveryId === acknowledgement.deliveryId
-            ) {
-              this.syncDeliveryId = acknowledgement.deliveryId;
-              this.syncAppliedSequence = Math.max(
-                this.syncAppliedSequence ?? 0,
-                acknowledgement.appliedSequence,
-              );
-            }
-          }
           return result as T;
         } catch (error) {
-          // Orchestration commands carry a durable command ID and fingerprint.
-          // Reissuing the identical request after connection loss is therefore
-          // safe whether the old server committed before its response or died
-          // before acceptance. Explicit server rejections are final and never
-          // enter this branch.
+          // Only a caller with a recorded idempotent admission may request replay.
           if (
             requestOptions.retryOnReconnect !== true ||
             isTerminalCompatibilityFailure(error) ||
@@ -753,7 +680,6 @@ export class WsTransport {
     this.resetAllStreamCapacityRetries();
     for (const cleanup of this.streamCleanups.values()) cleanup();
     this.streamCleanups.clear();
-    this.activeThreadStreamInputs.clear();
     this.threadStreamFailureListeners.clear();
     // Dispose can race with initial connection or reconnect promises. Mark them
     // handled before closing the runtime so test/browser teardown stays quiet.
@@ -881,8 +807,6 @@ export class WsTransport {
 
   private reconnect(): Promise<RpcClientInstance> {
     if (this.reconnectPromise) return this.reconnectPromise;
-
-    this.syncDeliveryId = undefined;
     const oldRuntime = this.runtime;
     const oldClientScope = this.clientScope;
 
@@ -894,7 +818,6 @@ export class WsTransport {
       this.resetAllStreamCapacityRetries();
       const cleanups = [...this.streamCleanups.values()];
       this.streamCleanups.clear();
-      this.activeThreadStreamInputs.clear();
       this.setState("connecting");
       for (const cleanup of cleanups) cleanup();
       await oldRuntime.runPromise(Scope.close(oldClientScope, Exit.void)).catch(() => undefined);
@@ -985,14 +908,8 @@ export class WsTransport {
         for (const channel of this.listeners.keys()) {
           this.startChannelStream(channel as WsPushChannel);
         }
-        if (this.shellSubscribed) {
-          this.startShellStream(client);
-        }
         for (const [threadId, input] of this.cleanCoreThreadSubscriptions) {
           await this.startCleanCoreThreadStream(client, threadId, input);
-        }
-        for (const [threadId, input] of this.threadSubscriptions) {
-          await this.startThreadStream(client, threadId, input);
         }
         return client;
       } catch (error) {
@@ -1092,35 +1009,6 @@ export class WsTransport {
               this.emit(WS_CHANNELS.projectWorkspaceChange, event),
             restartChannel,
           );
-        } else if (channel === ORCHESTRATION_WS_CHANNELS.syncEvent) {
-          this.startStream(
-            client,
-            "orchestration.sync",
-            client[ORCHESTRATION_WS_METHODS.subscribeSync](
-              this.syncAppliedSequence === undefined
-                ? {}
-                : { afterSequenceExclusive: this.syncAppliedSequence },
-            ),
-            (event: OrchestrationSyncStreamItem) => {
-              // A snapshot is an authoritative cursor reset (initial attach or a
-              // server log replacement). Its acknowledgement establishes the new
-              // resume point instead of retaining a cursor from the old log.
-              if (event.kind === "snapshot") {
-                this.syncAppliedSequence = undefined;
-              }
-              this.syncDeliveryId = event.deliveryId;
-              this.emit(ORCHESTRATION_WS_CHANNELS.syncEvent, event);
-            },
-            restartChannel,
-          );
-        } else if (channel === ORCHESTRATION_WS_CHANNELS.domainEvent) {
-          this.startStream(
-            client,
-            "orchestration.domain",
-            client[WS_METHODS.subscribeOrchestrationDomainEvents]({}),
-            (event: OrchestrationEvent) => this.emit(ORCHESTRATION_WS_CHANNELS.domainEvent, event),
-            restartChannel,
-          );
         }
       })
       .catch((error) => {
@@ -1144,9 +1032,6 @@ export class WsTransport {
     else if (channel === WS_CHANNELS.serverSettingsUpdated) this.stopStream("server.settings");
     else if (channel === WS_CHANNELS.projectWorkspaceChange)
       this.stopStream("project.workspaceChanges");
-    else if (channel === ORCHESTRATION_WS_CHANNELS.syncEvent) this.stopStream("orchestration.sync");
-    else if (channel === ORCHESTRATION_WS_CHANNELS.domainEvent)
-      this.stopStream("orchestration.domain");
   }
 
   private shouldKeepLifecycleStream(): boolean {
@@ -1174,71 +1059,6 @@ export class WsTransport {
         }
       },
       restartLifecycle,
-    );
-  }
-
-  private startShellStream(client: RpcClientInstance): void {
-    const restartShell = () => {
-      if (!this.shellSubscribed) return;
-      void this.getClient()
-        .then((nextClient) => this.startShellStream(nextClient))
-        .catch((error) => {
-          console.warn("WebSocket RPC shell stream failed to restart", error);
-        });
-    };
-    this.startStream(
-      client,
-      "orchestration.shell",
-      client[ORCHESTRATION_WS_METHODS.subscribeShell]({}),
-      (event: OrchestrationShellStreamItem) =>
-        this.emit(ORCHESTRATION_WS_CHANNELS.shellEvent, event),
-      restartShell,
-    );
-  }
-
-  private async startThreadStream(
-    client: RpcClientInstance,
-    threadId: string,
-    input: unknown,
-    forceRestart = false,
-  ): Promise<void> {
-    const key = `orchestration.thread:${threadId}`;
-    if (this.disposed || this.threadSubscriptions.get(threadId) !== input) {
-      return;
-    }
-    if (
-      !forceRestart &&
-      this.streamCleanups.has(key) &&
-      this.activeThreadStreamInputs.get(key) === input
-    ) {
-      return;
-    }
-    const sessionVersion = this.sessionVersion;
-    await this.stopStream(key, { resetCapacityRetry: false });
-    if (
-      this.disposed ||
-      this.sessionVersion !== sessionVersion ||
-      this.threadSubscriptions.get(threadId) !== input
-    ) {
-      return;
-    }
-    const restartThread = () => {
-      const desiredInput = this.threadSubscriptions.get(threadId);
-      if (desiredInput === undefined) return;
-      void this.getClient()
-        .then((nextClient) => this.startThreadStream(nextClient, threadId, desiredInput))
-        .catch((error) => {
-          console.warn("WebSocket RPC thread stream failed to restart", error);
-        });
-    };
-    this.activeThreadStreamInputs.set(key, input);
-    this.startStream(
-      client,
-      key,
-      client[ORCHESTRATION_WS_METHODS.subscribeThread](input as never),
-      (event: OrchestrationThreadStreamItem) =>
-        this.emit(ORCHESTRATION_WS_CHANNELS.threadEvent, event),
-      restartThread,
     );
   }
 
@@ -1337,7 +1157,6 @@ export class WsTransport {
           const wasReplacedOrStopped = this.streamCleanups.get(key) !== cancel;
           if (!wasReplacedOrStopped) {
             this.streamCleanups.delete(key);
-            this.activeThreadStreamInputs.delete(key);
           }
           if (wasReplacedOrStopped || this.disposed) {
             return;
@@ -1402,7 +1221,7 @@ export class WsTransport {
             const error = causeToError(exit.cause);
             console.warn("WebSocket RPC stream failed", error);
             const threadId = threadIdFromStreamKey(key);
-            if (threadId !== null && this.threadSubscriptions.has(threadId)) {
+            if (threadId !== null && this.cleanCoreThreadSubscriptions.has(threadId)) {
               this.emitThreadStreamFailure({
                 threadId,
                 code: getStreamFailureCode(exit.cause),
@@ -1429,7 +1248,6 @@ export class WsTransport {
       this.streamDuplicateRetries.delete(key);
       this.streamThreadBootstrapRetries.delete(key);
     }
-    this.activeThreadStreamInputs.delete(key);
     const cleanup = this.streamCleanups.get(key);
     const settled = this.streamSettled.get(key) ?? Promise.resolve();
     if (!cleanup) return settled;

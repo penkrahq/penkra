@@ -1,3 +1,4 @@
+import { readRehearsalSourceSnapshot } from "./Migrations/rehearsalSourceSnapshot.ts";
 import { Effect } from "effect";
 import * as SqlClient from "effect/unstable/sql/SqlClient";
 
@@ -27,17 +28,8 @@ const count = (sql: SqlClient.SqlClient, table: string) =>
 const program = Effect.gen(function* () {
   const sql = yield* SqlClient.SqlClient;
 
-  const before = {
-    projection_threads: yield* count(sql, "projection_threads"),
-    projection_thread_messages: yield* count(sql, "projection_thread_messages"),
-    projection_thread_activities: yield* count(sql, "projection_thread_activities"),
-    operations: yield* count(sql, "operations"),
-    notices: yield* count(sql, "notices"),
-    pending_user_input: (yield* sql<{ readonly count: number }>`
-        SELECT COUNT(*) AS count FROM projection_pending_interactions
-        WHERE interaction_kind = 'userInput'
-      `)[0]?.count,
-  };
+  const source = yield* readRehearsalSourceSnapshot;
+  const before = source.counts;
 
   const startedAt = Date.now();
   const executed = yield* runMigrations();
@@ -54,24 +46,17 @@ const program = Effect.gen(function* () {
       `)[0]?.count,
   };
 
-  // Per-thread message preservation: user+assistant source rows equal user/text items.
-  const mismatches = yield* sql<{
-    readonly threadId: string;
-    readonly source: number;
-    readonly items: number;
-  }>`
-    SELECT s.thread_id AS "threadId", s.source AS source, COALESCE(i.items, 0) AS items
-    FROM (
-      SELECT thread_id, COUNT(*) AS source FROM projection_thread_messages
-      WHERE role IN ('user', 'assistant') GROUP BY thread_id
-    ) s
-    LEFT JOIN (
-      SELECT thread_id, COUNT(*) AS items FROM thread_items
-      WHERE kind IN ('user', 'text') GROUP BY thread_id
-    ) i ON i.thread_id = s.thread_id
-    WHERE s.source <> COALESCE(i.items, 0)
-    LIMIT 20
-  `;
+  const migratedCounts = yield* sql<{
+    threadId: string;
+    items: number;
+  }>`SELECT thread_id AS "threadId",count(*) AS items FROM thread_items WHERE kind IN ('user','text') GROUP BY thread_id`;
+  const expected = new Map(source.messages.map((row) => [row.threadId, row.source]));
+  const actual = new Map(migratedCounts.map((row) => [row.threadId, row.items]));
+  const mismatches = [...new Set([...expected.keys(), ...actual.keys()])].flatMap((threadId) => {
+    const source = expected.get(threadId) ?? 0,
+      items = actual.get(threadId) ?? 0;
+    return source === items ? [] : [{ threadId, source, items }];
+  });
 
   console.log(
     JSON.stringify(

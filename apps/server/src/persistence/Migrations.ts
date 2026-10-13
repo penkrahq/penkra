@@ -1,3 +1,4 @@
+import Migration0201 from "./Migrations/201_DropLegacyPipeline.ts";
 /**
  * MigrationsLive - Migration runner with inline loader
  *
@@ -14,7 +15,7 @@ import * as Effect from "effect/Effect";
 import * as SqlClient from "effect/unstable/sql/SqlClient";
 
 import { MigrationLineageError, MigrationSchemaTooNewError } from "./Errors.ts";
-import { verifyCleanCoreBackfill } from "./verifyCleanCoreBackfill.ts";
+import { verifyCleanCoreBackfill } from "./Migrations/verifyCleanCoreBackfill.ts";
 
 // Import all migrations statically
 import Migration0001 from "./Migrations/001_OrchestrationEvents.ts";
@@ -415,6 +416,7 @@ export const migrationEntries = [
   [198, "IndexLatestTurn", Migration0198],
   [199, "IndexOpenQuestions", Migration0199],
   [200, "FailedSendPayload", Migration0200],
+  [201, "DropLegacyPipeline", Migration0201],
 ] as const;
 
 export const makeMigrationLoader = (throughId?: number) =>

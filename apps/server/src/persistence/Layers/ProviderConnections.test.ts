@@ -170,12 +170,11 @@ layer("ProviderConnectionRepository", (it) => {
       assert.strictEqual(duplicate.providerIdentityId, `superseded:${historicalId}:${duplicateId}`);
       const bindings = yield* sql<{
         readonly connectionId: string;
-        readonly bindingRevision: number;
       }>`
-        SELECT connection_id AS "connectionId", binding_revision AS "bindingRevision"
+        SELECT connection_id AS "connectionId"
         FROM thread_runtime_bindings WHERE thread_id = 'identity-thread'
       `;
-      assert.deepStrictEqual(bindings, [{ connectionId: historicalId, bindingRevision: 1 }]);
+      assert.deepStrictEqual(bindings, [{ connectionId: duplicateId }]);
       assert.deepStrictEqual(
         (yield* repository.list()).map((connection) => connection.id),
         [historicalId],
@@ -215,11 +214,11 @@ layer("ProviderConnectionRepository", (it) => {
         "active",
       );
       assert.deepStrictEqual(
-        yield* sql<{ readonly connectionId: string; readonly bindingRevision: number }>`
-          SELECT connection_id AS "connectionId", binding_revision AS "bindingRevision"
+        yield* sql<{ readonly connectionId: string }>`
+          SELECT connection_id AS "connectionId"
           FROM thread_runtime_bindings WHERE thread_id = 'identity-thread'
         `,
-        [{ connectionId: historicalId, bindingRevision: 1 }],
+        [{ connectionId: duplicateId }],
       );
       assert.deepStrictEqual(
         yield* sql<{ readonly profileRef: string; readonly lifecycle: string }>`

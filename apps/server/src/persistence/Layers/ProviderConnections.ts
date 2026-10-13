@@ -355,16 +355,6 @@ const makeProviderConnectionRepository = Effect.gen(function* () {
               AND credential_ref IS NULL AND profile_ref IS NOT NULL
             `),
             Effect.andThen(sql`
-              UPDATE thread_runtime_bindings
-              SET connection_id = ${input.id}, binding_revision = binding_revision + 1,
-                  updated_at = ${input.updatedAt}
-              WHERE connection_id IN (
-                SELECT connection_id FROM provider_connections
-                WHERE connection_id != ${input.id}
-                  AND provider_identity_id LIKE 'superseded:' || ${input.id} || ':%'
-              )
-            `),
-            Effect.andThen(sql`
               UPDATE provider_connections
               SET lifecycle = 'terminated', termination_reason = 'removed',
                   terminated_at = ${input.updatedAt}, health_status = 'unavailable',
@@ -428,18 +418,6 @@ const makeProviderConnectionRepository = Effect.gen(function* () {
               WHERE connection_id = ${input.id}
                 AND harness_kind = ${input.harness}
                 AND authentication_target_id = ${input.authenticationTargetId}
-            `),
-            Effect.andThen(sql`
-              UPDATE thread_runtime_bindings
-              SET connection_id = ${input.id}, binding_revision = binding_revision + 1,
-                  updated_at = ${input.updatedAt}
-              WHERE connection_id IN (
-                SELECT connection_id FROM provider_connections
-                WHERE connection_id != ${input.id}
-                  AND harness_kind = ${input.harness}
-                  AND authentication_target_id = ${input.authenticationTargetId}
-                  AND provider_identity_id LIKE 'superseded:' || ${input.id} || ':%'
-              )
             `),
             Effect.andThen(sql`
               UPDATE provider_connections

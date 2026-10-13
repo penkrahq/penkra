@@ -50,14 +50,14 @@ export interface ThreadSummaryRecord {
   readonly updatedAt: string;
 }
 
-interface RawThreadSummaryRecord extends Omit<
+export interface RawThreadSummaryRecord extends Omit<
   ThreadSummaryRecord,
   "latestTurn" | "latestOpenQuestion"
 > {
   readonly latestTurnJson: string | null;
   readonly latestOpenQuestionJson: string | null;
 }
-const decodeSummary = (row: RawThreadSummaryRecord): ThreadSummaryRecord => {
+export const decodeThreadSummary = (row: RawThreadSummaryRecord): ThreadSummaryRecord => {
   const { latestTurnJson, latestOpenQuestionJson, ...rest } = row;
   return {
     ...rest,
@@ -162,7 +162,7 @@ const readThreadPage = (input: ThreadPageInput, includeArchived: boolean) =>
     const pageRows = rows.length > limit ? rows.slice(0, limit) : rows;
     const last = pageRows.at(-1);
     return {
-      threads: pageRows.map(decodeSummary),
+      threads: pageRows.map(decodeThreadSummary),
       nextCursor:
         rows.length > limit && last !== undefined
           ? {
@@ -188,7 +188,7 @@ export const findThread = (threadId: ThreadId) =>
       FROM threads
       WHERE id = ${threadId}
   `;
-    return rows[0] === undefined ? null : decodeSummary(rows[0]);
+    return rows[0] === undefined ? null : decodeThreadSummary(rows[0]);
   });
 
 export const getThread = (threadId: ThreadId) =>
@@ -248,7 +248,7 @@ export const searchThreads = (input: CleanCoreSearchThreadsInput) =>
     `;
     const threads = rows.slice(0, THREADS_PAGE_SIZE).map(
       (row): ThreadSearchMatch => ({
-        ...decodeSummary(row),
+        ...decodeThreadSummary(row),
         matchKind: row.matchKind,
         messageId: row.messageId,
         messageText: row.messageText,
@@ -266,5 +266,7 @@ export const RUNNING_THREADS_SQL = `SELECT ${THREAD_SUMMARY_COLUMNS} FROM thread
 export const listRunningThreads = () =>
   Effect.gen(function* () {
     const sql = yield* SqlClient.SqlClient;
-    return (yield* sql.unsafe<RawThreadSummaryRecord>(RUNNING_THREADS_SQL)).map(decodeSummary);
+    return (yield* sql.unsafe<RawThreadSummaryRecord>(RUNNING_THREADS_SQL)).map(
+      decodeThreadSummary,
+    );
   });

@@ -3047,7 +3047,6 @@ describe("ChatView timeline estimator parity (full app)", () => {
           interruptedTurnId: turnId,
           connectionId: snapshot.threads[0]!.connectionId ?? null,
         });
-        expect(command).not.toHaveProperty("bindingRevision");
         expect(wsRequests.some((request) => request._tag === "provider.getThreadBinding")).toBe(
           false,
         );
@@ -4229,7 +4228,6 @@ describe("ChatView timeline estimator parity (full app)", () => {
         interruptedTurnId: turnId,
         connectionId: TEST_CONNECTION_ID,
       });
-      expect(command).not.toHaveProperty("bindingRevision");
       expect(wsRequests.some((request) => request._tag === "provider.getThreadBinding")).toBe(
         false,
       );
@@ -4618,7 +4616,6 @@ describe("ChatView timeline estimator parity (full app)", () => {
         expect(turnStart).toBeTruthy();
         return turnStart!;
       });
-      expect(command.bindingRevision).toBeUndefined();
       expect(wsRequests.some((request) => request._tag === WS_METHODS.cleanCoreSendMessage)).toBe(
         true,
       );

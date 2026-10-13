@@ -1,3 +1,5 @@
+import { ProviderAuthCircuits } from "./provider/providerAuthCircuit.ts";
+import { PLAY_TURN_RECOVERY_PROMPT } from "./cleanCore/sendMessage.ts";
 import { getNavigation, updateNavigation } from "./cleanCore/navigation";
 import { getFolderAppTabs, updateFolderAppTabs } from "./cleanCore/folderAppTabs.ts";
 import { listArchivedNavigation, listArchivedThreads, restoreThread } from "./cleanCore/archive.ts";
@@ -54,13 +56,9 @@ import {
   LOCAL_LOOPBACK_ATTACHMENT_PRINCIPAL,
 } from "./managedAttachmentPrincipal";
 import { Open, resolveAvailableEditors } from "./open";
-import { makeDispatchCommandNormalizer } from "./orchestration/dispatchCommandNormalization";
-import { describeRejectedPlay } from "./orchestration/playRejectionDiagnostics";
 import { makeImportThreadHandler } from "./orchestration/importThreadRoute";
-import { OrchestrationEngineService } from "./orchestration/Services/OrchestrationEngine";
-import { ProviderCommandReactor } from "./orchestration/Services/ProviderCommandReactor";
 import { ProviderThreadSwitchCoordinator } from "./orchestration/Services/ProviderThreadSwitchCoordinator";
-import { ProjectionSnapshotQuery } from "./orchestration/Services/ProjectionSnapshotQuery";
+import { ThreadReads } from "./cleanCore/ThreadReads";
 import { shouldPublishThreadShellForEvent } from "./orchestration/threadShellEvents";
 import { listProviderConnectionManifests } from "./provider/providerConnectionManifests";
 import { ProviderDiscoveryService } from "./provider/Services/ProviderDiscoveryService";
@@ -83,7 +81,12 @@ import { WorkspaceEntries } from "./workspace/Services/WorkspaceEntries";
 import { WorkspaceFileSystem } from "./workspace/Services/WorkspaceFileSystem";
 import { makeWsStreamAdmission } from "./wsStreamAdmission";
 import { listThreadItemsPage } from "./cleanCore/threadItemsPage.ts";
-import { findThread, listThreads, searchThreads } from "./cleanCore/threadList.ts";
+import {
+  findThread,
+  listThreads,
+  listRunningThreads,
+  searchThreads,
+} from "./cleanCore/threadList.ts";
 import { getThreadDraft, setThreadDraft } from "./cleanCore/threadDraft.ts";
 import {
   markThreadVisited,
@@ -165,25 +168,6 @@ const failLiveUiStreamForSnapshotResync = (report: LiveUiStreamDropReport) =>
     }),
   );
 
-// Must mirror the cases of toShellStreamEvent: events rejected here are dropped
-// before the live-UI buffer so the sliding window only holds events that can
-// actually project to a shell update.
-function isShellRelevantEvent(event: OrchestrationEvent): boolean {
-  return event.aggregateKind === "thread" && shouldPublishThreadShellForEvent(event);
-}
-
-function isThreadDetailEventFor(threadId: ThreadId, event: OrchestrationEvent): boolean {
-  return (
-    event.aggregateKind === "thread" &&
-    event.aggregateId === threadId &&
-    (event.type === "thread.message-sent" ||
-      event.type === "thread.activity-appended" ||
-      event.type === "thread.activity-read-model-updated" ||
-      event.type === "thread.conversation-rolled-back" ||
-      event.type === "thread.session-set")
-  );
-}
-
 const makeWsRpcHandlersLayer = () =>
   AdmittedWsFeatureRpcGroup.toLayer(
     Effect.gen(function* () {
@@ -191,13 +175,11 @@ const makeWsRpcHandlersLayer = () =>
       const fileSystem = yield* FileSystem.FileSystem;
       const keybindings = yield* Keybindings;
       const open = yield* Open;
-      const orchestrationEngine = yield* OrchestrationEngineService;
-      const providerCommandReactor = yield* ProviderCommandReactor;
-      const providerThreadSwitchCoordinator = yield* ProviderThreadSwitchCoordinator;
       const path = yield* Path.Path;
-      const projectionReadModelQuery = yield* ProjectionSnapshotQuery;
+      const projectionReadModelQuery = yield* ThreadReads;
       const providerAdapterRegistry = yield* ProviderAdapterRegistry;
       const providerDiscoveryService = yield* ProviderDiscoveryService;
+      const authCircuits = yield* ProviderAuthCircuits;
       const providerHealth = yield* ProviderHealth;
       const providerService = yield* ProviderService;
       const providerConnectionLifecycle = yield* ProviderConnectionLifecycle;
@@ -214,17 +196,7 @@ const makeWsRpcHandlersLayer = () =>
       const workspaceEntries = yield* WorkspaceEntries;
       const workspaceFileSystem = yield* WorkspaceFileSystem;
       const workspaceWatcher = yield* WorkspaceWatcher;
-      const syncAcknowledgements = makeSyncAcknowledgements();
       const streamAdmission = yield* makeWsStreamAdmission();
-      const logThreadResnapshotRequired = (
-        threadId: string,
-        report: {
-          readonly snapshotSequence: number;
-          readonly highWaterSequence: number;
-          readonly replayCount: number;
-          readonly replayLimit: number;
-        },
-      ) => Effect.logWarning("Thread stream requires a new snapshot", { threadId, ...report });
 
       const canonicalizeProjectWorkspaceRoot = Effect.fnUntraced(function* (
         workspaceRoot: string,
@@ -297,46 +269,10 @@ const makeWsRpcHandlersLayer = () =>
       });
       const prepareChatWorkspaceRoot = (workspaceRoot: string) =>
         prepareWorkspaceSubdirectories(workspaceRoot, CHAT_WORKSPACE_SUBDIRECTORIES);
-      const normalizeDispatchCommand = makeDispatchCommandNormalizer<WsRpcError>({
-        attachmentsDir: config.attachmentsDir,
-        chatWorkspaceRoot: config.chatWorkspaceRoot,
-        fileSystem,
-        path,
-        canonicalizeProjectWorkspaceRoot,
-        prepareChatWorkspaceRoot,
-      });
 
       const importThread = makeImportThreadHandler({
         projectionSnapshotQuery: projectionReadModelQuery,
       });
-
-      const dispatchOrchestrationCommand = (command: OrchestrationCommand) =>
-        Effect.gen(function* () {
-          const attachmentPrincipal = yield* CurrentManagedAttachmentPrincipal;
-          if (command.type === "thread.turn.start") {
-            const thread = yield* projectionReadModelQuery.getThreadShellById(command.threadId);
-            const project = yield* Option.match(thread, {
-              onNone: () => Effect.succeed(Option.none()),
-              onSome: (value) => projectionReadModelQuery.getFolderShellById(value.folderId),
-            });
-            const cwd = Option.map(
-              thread,
-              (value) =>
-                Option.getOrNull(project)?.workspaceRoot ??
-                ensureDurableThreadWorkspace(value.id, config.stateDir),
-            );
-            return yield* runtimeStartup.enqueueCommand(
-              providerThreadSwitchCoordinator.dispatchTurnStart({
-                command,
-                attachmentPrincipal,
-                ...(Option.isSome(cwd) ? { cwd: cwd.value } : {}),
-              }),
-            );
-          }
-          return yield* runtimeStartup.enqueueCommand(
-            orchestrationEngine.dispatch(command, { attachmentPrincipal }),
-          );
-        });
 
       const loadServerConfig = Effect.gen(function* () {
         const keybindingsConfig = yield* keybindings.loadConfigState;
@@ -353,354 +289,12 @@ const makeWsRpcHandlersLayer = () =>
         };
       });
 
-      const getOrchestrationHighWaterSequence = orchestrationEngine.getEventHighWaterSequence.pipe(
-        Effect.mapError((cause) =>
-          toWsRpcError(cause, "Failed to capture orchestration high-water sequence"),
-        ),
-      );
-
-      const loadStartupSnapshot: Effect.Effect<OrchestrationStartupSnapshot, WsRpcError> =
-        projectionReadModelQuery
-          .getStartupSnapshot()
-          .pipe(Effect.mapError((cause) => toWsRpcError(cause, "Failed to load startup snapshot")));
-
-      const toShellStreamEvent = (
-        event: OrchestrationEvent,
-      ): Effect.Effect<Option.Option<OrchestrationShellStreamEvent>, WsRpcError> => {
-        switch (event.type) {
-          default:
-            if (event.aggregateKind !== "thread") return Effect.succeed(Option.none());
-            return projectionReadModelQuery
-              .getThreadShellById(ThreadId.makeUnsafe(String(event.aggregateId)))
-              .pipe(
-                Effect.map((thread) =>
-                  Option.map(thread, (nextThread) => ({
-                    kind: "thread-upserted" as const,
-                    sequence: event.sequence,
-                    thread: nextThread,
-                  })),
-                ),
-                Effect.mapError((cause) =>
-                  toWsRpcError(cause, "Failed to read a thread shell update"),
-                ),
-              );
-        }
-      };
-
       const rpcEffect = <A, E, R>(effect: Effect.Effect<A, E, R>, fallbackMessage: string) =>
         effect.pipe(Effect.mapError((cause) => toWsRpcError(cause, fallbackMessage)));
 
       return AdmittedWsFeatureRpcGroup.of({
-        [ORCHESTRATION_WS_METHODS.dispatchCommand]: (input) =>
-          rpcEffect(
-            Effect.gen(function* () {
-              const command = input;
-              yield* Effect.logInfo("orchestration command received").pipe(
-                Effect.annotateLogs({
-                  commandId: command.commandId,
-                  commandType: command.type,
-                  ...(command.type === "thread.turn.start" || "threadId" in command
-                    ? { threadId: command.threadId }
-                    : {}),
-                  ...("folderId" in command ? { folderId: command.folderId } : {}),
-                }),
-              );
-              const { command: normalizedCommand } = yield* normalizeDispatchCommand({ command });
-              const lifecycleLogContext = {
-                commandId: normalizedCommand.commandId,
-                commandType: normalizedCommand.type,
-                ...("threadId" in normalizedCommand
-                  ? { threadId: normalizedCommand.threadId }
-                  : {}),
-                ...("folderId" in normalizedCommand
-                  ? { folderId: normalizedCommand.folderId }
-                  : {}),
-                ...(normalizedCommand.type === "thread.turn.start"
-                  ? {
-                      bindingRevision: normalizedCommand.bindingRevision ?? null,
-                      modelProvider: normalizedCommand.modelSelection?.provider ?? null,
-                      modelSlug: normalizedCommand.modelSelection?.model ?? null,
-                    }
-                  : {}),
-              };
-              const result = yield* dispatchOrchestrationCommand(normalizedCommand).pipe(
-                Effect.tap((receipt) =>
-                  Effect.logInfo("orchestration command accepted").pipe(
-                    Effect.annotateLogs({
-                      ...lifecycleLogContext,
-                      resultSequence: receipt.sequence,
-                    }),
-                  ),
-                ),
-                Effect.tapError((cause) =>
-                  Effect.gen(function* () {
-                    const playContext =
-                      normalizedCommand.type === "thread.turn.recover" &&
-                      normalizedCommand.reason === "play"
-                        ? yield* Effect.gen(function* () {
-                            const thread = yield* projectionReadModelQuery
-                              .getThreadDetailById(normalizedCommand.threadId)
-                              .pipe(Effect.catch(() => Effect.succeed(Option.none())));
-                            const rows = yield* sql<{
-                              connectionId: ProviderConnectionId | null;
-                            }>`SELECT connection_id AS "connectionId" FROM threads WHERE id=${normalizedCommand.threadId}`;
-                            return describeRejectedPlay(
-                              normalizedCommand,
-                              Option.getOrNull(thread),
-                              rows[0]?.connectionId,
-                            );
-                          })
-                        : {};
-                    yield* Effect.logWarning("orchestration command rejected").pipe(
-                      Effect.annotateLogs({
-                        ...lifecycleLogContext,
-                        ...playContext,
-                        cause: cause instanceof Error ? cause.message : String(cause),
-                      }),
-                    );
-                  }),
-                ),
-              );
-              return result;
-            }),
-            "Failed to dispatch orchestration command",
-          ),
         [ORCHESTRATION_WS_METHODS.importThread]: (input) =>
           rpcEffect(importThread(input), "Failed to import thread"),
-        [ORCHESTRATION_WS_METHODS.getSnapshot]: () =>
-          rpcEffect(
-            projectionReadModelQuery.getSnapshot(),
-            "Failed to load orchestration snapshot",
-          ),
-        [ORCHESTRATION_WS_METHODS.getThreadDetailSnapshot]: (input) =>
-          rpcEffect(
-            projectionReadModelQuery
-              .getThreadDetailSnapshotById(input.threadId)
-              .pipe(Effect.map(Option.getOrNull)),
-            "Failed to load orchestration thread detail snapshot",
-          ),
-        [ORCHESTRATION_WS_METHODS.getThreadTurnsPage]: (input) =>
-          rpcEffect(
-            projectionReadModelQuery.getThreadTurnsPage(input),
-            "Failed to load orchestration Thread turns",
-          ),
-        [ORCHESTRATION_WS_METHODS.getPendingStartOutcome]: (input) =>
-          rpcEffect(
-            projectionReadModelQuery.getPendingStartOutcome(input),
-            "Failed to load pending start outcome",
-          ),
-        [ORCHESTRATION_WS_METHODS.subscribeSync]: (input, { clientId }) =>
-          streamAdmission.guard(
-            clientId,
-            { key: "orchestration.sync" },
-            Stream.unwrap(
-              Effect.gen(function* () {
-                const acknowledgementLease = yield* syncAcknowledgements.open(clientId);
-                yield* Effect.addFinalizer(() =>
-                  acknowledgementLease.close.pipe(
-                    Effect.andThen(
-                      Effect.logInfo("orchestration synchronization closed").pipe(
-                        Effect.annotateLogs({ clientId }),
-                      ),
-                    ),
-                  ),
-                );
-                yield* Effect.logInfo("orchestration synchronization subscribed").pipe(
-                  Effect.annotateLogs({
-                    clientId,
-                    resumeAfterSequence: input.afterSequenceExclusive ?? null,
-                  }),
-                );
-                const source = makeDurableOrchestrationStream({
-                  ...(input.afterSequenceExclusive === undefined
-                    ? {}
-                    : { afterSequenceExclusive: input.afterSequenceExclusive }),
-                  subscribeLive: orchestrationEngine.subscribeDomainEvents,
-                  snapshot: loadStartupSnapshot,
-                  getHighWaterSequence: getOrchestrationHighWaterSequence,
-                  onReplayRange: (range) =>
-                    Effect.logDebug("orchestration synchronization durable replay").pipe(
-                      Effect.annotateLogs({ clientId, ...range }),
-                    ),
-                  replay: (fromSequenceExclusive, throughSequenceInclusive) =>
-                    orchestrationEngine
-                      .readEventsThrough(fromSequenceExclusive, throughSequenceInclusive)
-                      .pipe(
-                        Stream.mapError((cause) =>
-                          toWsRpcError(cause, "Failed to replay orchestration synchronization"),
-                        ),
-                      ),
-                });
-
-                return source.pipe(
-                  Stream.mapEffect((item) => {
-                    const sequence =
-                      item.kind === "snapshot"
-                        ? item.snapshot.snapshotSequence
-                        : item.event.sequence;
-                    return acknowledgementLease.recordDelivery(sequence).pipe(
-                      Effect.tap(() =>
-                        Effect.logDebug("orchestration synchronization delivery prepared").pipe(
-                          Effect.annotateLogs({
-                            clientId,
-                            deliveryKind: item.kind,
-                            sequence,
-                          }),
-                        ),
-                      ),
-                      Effect.as<OrchestrationSyncStreamItem>(
-                        item.kind === "snapshot"
-                          ? {
-                              kind: "snapshot",
-                              deliveryId: acknowledgementLease.deliveryId,
-                              snapshot: item.snapshot,
-                            }
-                          : {
-                              kind: "event",
-                              deliveryId: acknowledgementLease.deliveryId,
-                              event: item.event,
-                            },
-                      ),
-                    );
-                  }),
-                );
-              }),
-            ),
-          ),
-        [ORCHESTRATION_WS_METHODS.acknowledgeSync]: (input, { clientId }) =>
-          syncAcknowledgements.acknowledge(clientId, input),
-        [ORCHESTRATION_WS_METHODS.subscribeShell]: (_, { clientId }) =>
-          streamAdmission.guard(
-            clientId,
-            { key: "orchestration.shell" },
-            makeCursorSafeSnapshotLiveStream({
-              subscribeLive: orchestrationEngine.subscribeDomainEvents.pipe(
-                Effect.map((stream) =>
-                  bufferLiveUiStream(stream.pipe(Stream.filter(isShellRelevantEvent)), {
-                    label: "orchestration.shell",
-                    onDroppedEvents: failLiveUiStreamForSnapshotResync,
-                  }),
-                ),
-              ),
-              snapshot: projectionReadModelQuery
-                .getStartupSnapshot()
-                .pipe(
-                  Effect.mapError((cause) => toWsRpcError(cause, "Failed to load shell snapshot")),
-                ),
-              snapshotSequence: (snapshot) => snapshot.snapshotSequence,
-              getHighWaterSequence: getOrchestrationHighWaterSequence,
-              replay: (fromSequenceExclusive, throughSequenceInclusive) =>
-                orchestrationEngine
-                  .readEventsThrough(fromSequenceExclusive, throughSequenceInclusive)
-                  .pipe(
-                    Stream.filter(isShellRelevantEvent),
-                    Stream.mapError((cause) =>
-                      toWsRpcError(cause, "Failed to replay shell events"),
-                    ),
-                  ),
-            }).pipe(
-              Stream.mapEffect((item) =>
-                item.kind === "snapshot"
-                  ? Effect.succeed(
-                      Option.some<OrchestrationShellStreamItem>({
-                        kind: "snapshot",
-                        snapshot: item.snapshot,
-                      }),
-                    )
-                  : toShellStreamEvent(item.event),
-              ),
-              Stream.flatMap((item) =>
-                Option.isSome(item) ? Stream.succeed(item.value) : Stream.empty,
-              ),
-            ),
-          ),
-        [ORCHESTRATION_WS_METHODS.unsubscribeShell]: () => Effect.void,
-        [ORCHESTRATION_WS_METHODS.subscribeThread]: (input, { clientId }) =>
-          streamAdmission.guard(
-            clientId,
-            {
-              key: `orchestration.thread:${input.threadId}`,
-              threadId: input.threadId,
-            },
-            makeCursorSafeSnapshotLiveStream({
-              onResnapshotRequired: (report) => logThreadResnapshotRequired(input.threadId, report),
-              subscribeLive: orchestrationEngine.subscribeDomainEvents.pipe(
-                Effect.map((stream) =>
-                  bufferLiveUiStream(
-                    stream.pipe(
-                      Stream.filter((event) => isThreadDetailEventFor(input.threadId, event)),
-                    ),
-                    {
-                      label: "orchestration.thread-detail",
-                      onDroppedEvents: failLiveUiStreamForSnapshotResync,
-                    },
-                  ),
-                ),
-              ),
-              snapshot: projectionReadModelQuery.getThreadDetailSnapshotById(input.threadId).pipe(
-                Effect.flatMap(
-                  Option.match({
-                    onNone: () =>
-                      projectionReadModelQuery.getSnapshotSequence().pipe(
-                        Effect.map(({ snapshotSequence }) => ({
-                          detail: Option.none<OrchestrationThreadDetailSnapshot>(),
-                          snapshotSequence,
-                        })),
-                      ),
-                    onSome: (detail) =>
-                      Effect.succeed({
-                        detail: Option.some(detail),
-                        snapshotSequence: detail.snapshotSequence,
-                      }),
-                  }),
-                ),
-                Effect.mapError((cause) => toWsRpcError(cause, "Failed to load thread snapshot")),
-              ),
-              snapshotSequence: (snapshot) => snapshot.snapshotSequence,
-              getHighWaterSequence: getOrchestrationHighWaterSequence,
-              replay: (fromSequenceExclusive, throughSequenceInclusive) =>
-                orchestrationEngine
-                  .readEventsThrough(fromSequenceExclusive, throughSequenceInclusive)
-                  .pipe(
-                    Stream.filter((event) => isThreadDetailEventFor(input.threadId, event)),
-                    Stream.mapError((cause) =>
-                      toWsRpcError(cause, "Failed to replay thread events"),
-                    ),
-                  ),
-            }).pipe(
-              Stream.flatMap((item) => {
-                if (item.kind === "event") {
-                  return Stream.succeed<OrchestrationThreadStreamItem>({
-                    kind: "event",
-                    event: item.event,
-                  });
-                }
-                // A silently empty snapshot would leave the client waiting forever
-                // for thread history; fail identifiably so it can surface the state.
-                return Option.isSome(item.snapshot.detail)
-                  ? Stream.succeed<OrchestrationThreadStreamItem>({
-                      kind: "snapshot",
-                      snapshot: item.snapshot.detail.value,
-                    })
-                  : Stream.fail(
-                      new WsRpcError({
-                        message: `Thread detail snapshot not found for thread ${input.threadId}.`,
-                        code: "THREAD_SNAPSHOT_NOT_FOUND",
-                        retryable: false,
-                      }),
-                    );
-              }),
-            ),
-          ),
-        [ORCHESTRATION_WS_METHODS.unsubscribeThread]: () => Effect.void,
-        [WS_METHODS.subscribeOrchestrationDomainEvents]: (_, { clientId }) =>
-          streamAdmission.guard(
-            clientId,
-            { key: "orchestration.domain-events" },
-            bufferLiveUiStream(orchestrationEngine.streamDomainEvents, {
-              label: "orchestration.domain-events",
-            }),
-          ),
 
         [WS_METHODS.projectsListDirectories]: (input) =>
           rpcEffect(
@@ -780,6 +374,11 @@ const makeWsRpcHandlersLayer = () =>
                 : toWsRpcError(error, "Failed to edit the queued message"),
             ),
           ),
+        [WS_METHODS.cleanCoreGetBootstrap]: () =>
+          rpcEffect(
+            listRunningThreads().pipe(Effect.map((runningThreads) => ({ runningThreads }))),
+            "Failed to load running threads",
+          ),
         [WS_METHODS.cleanCoreGetNavigation]: () =>
           rpcEffect(getNavigation, "Failed to read navigation"),
         [WS_METHODS.cleanCoreUpdateNavigation]: (input) =>
@@ -791,7 +390,7 @@ const makeWsRpcHandlersLayer = () =>
           ),
         [WS_METHODS.cleanCoreGetThreadShell]: (input) =>
           rpcEffect(
-            Effect.flatMap(Effect.service(ProjectionSnapshotQuery), (query) =>
+            Effect.flatMap(Effect.service(ThreadReads), (query) =>
               query.getThreadShellById(input.threadId).pipe(Effect.map(Option.getOrNull)),
             ),
             "Failed to read the thread shell",
@@ -801,7 +400,7 @@ const makeWsRpcHandlersLayer = () =>
             runtimeStartup.enqueueCommand(
               Effect.gen(function* () {
                 const result = yield* createAndSendThread(input);
-                const query = yield* ProjectionSnapshotQuery;
+                const query = yield* ThreadReads;
                 const shell = yield* query.getThreadShellById(result.thread.id);
                 if (Option.isNone(shell))
                   return yield* Effect.fail(new Error("The created thread is not available."));
@@ -818,7 +417,7 @@ const makeWsRpcHandlersLayer = () =>
           rpcEffect(
             Effect.gen(function* () {
               const result = yield* createThreadFromClient(input);
-              const query = yield* ProjectionSnapshotQuery;
+              const query = yield* ThreadReads;
               const shell = yield* query.getThreadShellById(result.thread.id);
               if (Option.isNone(shell))
                 return yield* Effect.fail(new Error("The created thread is not available."));
@@ -849,6 +448,42 @@ const makeWsRpcHandlersLayer = () =>
               const update = input.update;
               const publish = (threadId: string) => threadPublisher.publish({ threadId });
               switch (update.action) {
+                case "stopTask":
+                  yield* providerService.stopTask({
+                    threadId: update.threadId,
+                    taskId: update.taskId,
+                  });
+                  return;
+                case "resume": {
+                  const row = yield* findThread(update.threadId);
+                  if (row === null)
+                    return yield* Effect.fail(new Error("The thread does not exist."));
+                  const sender = yield* ThreadSender;
+                  yield* sender.send({
+                    threadId: update.threadId,
+                    message: {
+                      messageId: update.messageId,
+                      text: PLAY_TURN_RECOVERY_PROMPT,
+                      attachments: [],
+                      senderThreadId: null,
+                      dispatchOrigin: "user",
+                      queuedAt: update.updatedAt,
+                    },
+                    dispatchMode: "queue",
+                    modelSelection: Schema.decodeUnknownSync(ModelSelection)({
+                      provider: row.provider,
+                      model: row.model,
+                      ...(row.modelOptions === null
+                        ? {}
+                        : { options: JSON.parse(row.modelOptions) }),
+                    }),
+                    connectionId: row.connectionId,
+                    ...(update.runtimeMode === undefined
+                      ? {}
+                      : { runtimeMode: update.runtimeMode }),
+                  });
+                  return;
+                }
                 case "rename":
                 case "archive":
                 case "delete":
@@ -974,7 +609,15 @@ const makeWsRpcHandlersLayer = () =>
           ),
         [WS_METHODS.providerRetryAuthConnection]: (input) =>
           rpcEffect(
-            providerCommandReactor.retryAuthConnection(input.connectionId),
+            Effect.gen(function* () {
+              const circuit = (yield* authCircuits.get(input.connectionId))[0];
+              if (!circuit) return;
+              const accepted = yield* providerDiscoveryService
+                .probeConnection({ provider: circuit.harness, connectionId: input.connectionId })
+                .pipe(Effect.catch(() => Effect.succeed(false)));
+              if (accepted) yield* authCircuits.close(input.connectionId);
+              else yield* authCircuits.recordFailedProbe(input.connectionId);
+            }),
             "Failed to retry the Connection",
           ),
         [WS_METHODS.providerCreateStaticConnection]: (input) =>

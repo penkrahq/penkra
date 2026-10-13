@@ -4,7 +4,6 @@ import { ensureDurableThreadWorkspace } from "../scratchWorkspaces.ts";
 import { ManagedAttachmentRepository } from "../persistence/Services/ManagedAttachments.ts";
 import { randomUUID } from "node:crypto";
 import {
-  CommandId,
   MessageId,
   ModelSelection,
   RuntimeMode,
@@ -154,12 +153,9 @@ export const makeThreadSender = Effect.gen(function* () {
           );
           yield* coordinator.dispatchTurnStart({
             command: {
-              type: "thread.turn.start",
-              commandId: CommandId.makeUnsafe(randomUUID()),
               threadId,
               message: {
                 messageId: MessageId.makeUnsafe(input.message.messageId),
-                role: "user",
                 text: input.message.text,
                 attachments: input.message.attachments,
                 ...(input.skills === undefined ? {} : { skills: input.skills }),
@@ -173,6 +169,7 @@ export const makeThreadSender = Effect.gen(function* () {
               modelSelection,
               connectionId,
               runtimeMode,
+              ...(input.reviewTarget === undefined ? {} : { reviewTarget: input.reviewTarget }),
               ...(input.providerOptions === undefined
                 ? {}
                 : { providerOptions: input.providerOptions }),

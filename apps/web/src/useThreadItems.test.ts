@@ -54,7 +54,14 @@ it("loads the first page, loads older on demand, and applies a push", async () =
     "2": { turns: {}, items: [item(1)], nextCursor: null },
   });
   const states: ThreadItemsState[] = [];
-  const controller = createThreadItemsController(api, "thread-1", (s) => states.push(s));
+  const controller = createThreadItemsController(
+    api,
+    "thread-1",
+    (s) => states.push(s),
+    (error) => {
+      throw error;
+    },
+  );
 
   await controller.loadFirst();
   expect(controller.getState().items.map((i) => i.seq)).toEqual([2, 3]);
@@ -89,7 +96,14 @@ it("ignores a push for another thread", async () => {
   const { api, emitPush } = makeApi({
     first: { turns: {}, items: [item(1)], nextCursor: null },
   });
-  const controller = createThreadItemsController(api, "thread-1", () => undefined);
+  const controller = createThreadItemsController(
+    api,
+    "thread-1",
+    () => undefined,
+    (error) => {
+      throw error;
+    },
+  );
   await controller.loadFirst();
   api.listThreadItemsPage = vi.fn(async () => ({ turns: {}, items: [item(2)], nextCursor: null }));
   emitPush("thread-2");
@@ -103,7 +117,14 @@ it("a failure push removes the sending item on the authoritative re-read", async
   const { api, emitPush } = makeApi({
     first: { turns: {}, items: [sending, item(1)], nextCursor: null },
   });
-  const controller = createThreadItemsController(api, "thread-1", () => undefined);
+  const controller = createThreadItemsController(
+    api,
+    "thread-1",
+    () => undefined,
+    (error) => {
+      throw error;
+    },
+  );
   await controller.loadFirst();
   expect(controller.getState().items.some((row) => row.status === "sending")).toBe(true);
   let resolveReread!: () => void;

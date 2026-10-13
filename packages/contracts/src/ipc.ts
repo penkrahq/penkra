@@ -1058,6 +1058,7 @@ export interface NativeApi {
     ) => Promise<CleanCoreListArchivedThreadsResult>;
     restoreThread: (input: CleanCoreRestoreThreadInput) => Promise<void>;
     getNavigation: () => Promise<CleanCoreGetNavigationResult>;
+    getBootstrap: () => Promise<import("./cleanCore").CleanCoreGetBootstrapResult>;
     updateNavigation: (
       input: CleanCoreUpdateNavigationInput,
     ) => Promise<CleanCoreGetNavigationResult>;
@@ -1101,28 +1102,8 @@ export interface NativeApi {
     onThreadChange: (callback: (change: CleanCoreThreadChange) => void) => () => void;
   };
   orchestration: {
-    getSnapshot: () => Promise<OrchestrationReadModel>;
-    getThreadDetailSnapshot: (
-      input: OrchestrationGetThreadDetailSnapshotInput,
-    ) => Promise<OrchestrationGetThreadDetailSnapshotResult>;
-    getThreadTurnsPage: (
-      input: OrchestrationGetThreadTurnsPageInput,
-    ) => Promise<OrchestrationGetThreadTurnsPageResult>;
-    getPendingStartOutcome: (
-      input: OrchestrationGetPendingStartOutcomeInput,
-    ) => Promise<OrchestrationGetPendingStartOutcomeResult>;
-    acknowledgeSync: (input: OrchestrationAcknowledgeSyncInput) => Promise<void>;
-    dispatchCommand: (command: ClientOrchestrationCommand) => Promise<{ sequence: number }>;
     importThread: (
       input: OrchestrationImportThreadInput,
     ) => Promise<OrchestrationImportThreadResult>;
-    subscribeShell: () => Promise<void>;
-    unsubscribeShell: () => Promise<void>;
-    subscribeThread: (input: OrchestrationSubscribeThreadInput) => Promise<void>;
-    unsubscribeThread: (input: OrchestrationSubscribeThreadInput) => Promise<void>;
-    onDomainEvent: (callback: (event: OrchestrationEvent) => void) => () => void;
-    onSyncEvent: (callback: (event: OrchestrationSyncStreamItem) => void) => () => void;
-    onShellEvent: (callback: (event: OrchestrationShellStreamItem) => void) => () => void;
-    onThreadEvent: (callback: (event: OrchestrationThreadStreamItem) => void) => () => void;
   };
 }

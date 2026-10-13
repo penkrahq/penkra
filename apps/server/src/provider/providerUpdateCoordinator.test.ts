@@ -4,13 +4,13 @@ import * as NodeServices from "@effect/platform-node/NodeServices";
 import { Effect, FileSystem, Stream, Layer } from "effect";
 import { describe, expect, it, vi } from "vitest";
 
-import { ProjectionSnapshotQuery } from "../orchestration/Services/ProjectionSnapshotQuery";
-import { OrchestrationProjectionSnapshotQueryLive } from "../orchestration/Layers/ProjectionSnapshotQuery";
+import { ThreadReads } from "../cleanCore/ThreadReads";
+import { ThreadReadsLive } from "../cleanCore/ThreadReads";
 import { SqlitePersistenceMemory } from "../persistence/Layers/Sqlite";
 import * as SqlClient from "effect/unstable/sql/SqlClient";
 import { createThread } from "../cleanCore/threadStore";
 import { SpaceId } from "@penkra/contracts";
-import type { ProjectionSnapshotQueryShape } from "../orchestration/Services/ProjectionSnapshotQuery";
+import type { ThreadReadsShape } from "../cleanCore/ThreadReads";
 import type { ServerSettingsShape } from "../serverSettings";
 import type { ProviderHealthShape } from "./Services/ProviderHealth";
 import {
@@ -29,7 +29,7 @@ const installationRepository = {
 function withSession<A, E>(
   status: string,
   activeTurnId: string | null,
-  effect: Effect.Effect<A, E, ProjectionSnapshotQuery | SqlClient.SqlClient>,
+  effect: Effect.Effect<A, E, ThreadReads | SqlClient.SqlClient>,
 ) {
   return Effect.runPromise(
     Effect.gen(function* () {
@@ -49,11 +49,7 @@ function withSession<A, E>(
       yield* sql`INSERT INTO projection_thread_sessions(thread_id, status, provider_name, active_turn_id, updated_at)
       VALUES ('active-thread', ${status}, 'codex', ${activeTurnId}, '2026-10-10T00:00:00.000Z')`;
       return yield* effect;
-    }).pipe(
-      Effect.provide(
-        OrchestrationProjectionSnapshotQueryLive.pipe(Layer.provideMerge(SqlitePersistenceMemory)),
-      ),
-    ),
+    }).pipe(Effect.provide(ThreadReadsLive.pipe(Layer.provideMerge(SqlitePersistenceMemory)))),
   );
 }
 
@@ -97,7 +93,7 @@ describe("provider update coordinator", () => {
       "running",
       "turn-1",
       Effect.gen(function* () {
-        const query = yield* ProjectionSnapshotQuery;
+        const query = yield* ThreadReads;
         expect(yield* query.hasActiveProviderThread("codex")).toBe(true);
         expect(yield* query.hasActiveProviderThread("claudeAgent")).toBe(false);
       }),
@@ -109,7 +105,7 @@ describe("provider update coordinator", () => {
       "ready",
       null,
       Effect.gen(function* () {
-        const query = yield* ProjectionSnapshotQuery;
+        const query = yield* ThreadReads;
         expect(yield* query.hasActiveProviderThread("codex")).toBe(false);
       }),
     );
@@ -124,7 +120,7 @@ describe("provider update coordinator", () => {
       status,
       activeTurnId,
       Effect.gen(function* () {
-        const query = yield* ProjectionSnapshotQuery;
+        const query = yield* ThreadReads;
         expect(yield* query.hasActiveProviderThread("codex")).toBe(true);
       }),
     );
@@ -135,7 +131,7 @@ describe("provider update coordinator", () => {
       "running",
       "turn-1",
       Effect.gen(function* () {
-        const query = yield* ProjectionSnapshotQuery;
+        const query = yield* ThreadReads;
         const sql = yield* SqlClient.SqlClient;
         const plan = yield* sql<{ detail: string }>`EXPLAIN QUERY PLAN SELECT EXISTS(
         SELECT 1 FROM threads t JOIN projection_thread_sessions s ON s.thread_id = t.id
@@ -176,7 +172,7 @@ describe("provider update coordinator", () => {
             refresh: Effect.suspend(refresh),
             streamChanges: Stream.empty,
           } as unknown as ProviderHealthShape,
-          projectionSnapshotQuery: {} as ProjectionSnapshotQueryShape,
+          projectionSnapshotQuery: {} as ThreadReadsShape,
           serverSettings: {
             getSettings: Effect.succeed({
               ...DEFAULT_SERVER_SETTINGS,
@@ -225,7 +221,7 @@ describe("provider update coordinator", () => {
           refresh: Effect.succeed([]),
           streamChanges: Stream.empty,
         } as unknown as ProviderHealthShape,
-        projectionSnapshotQuery: {} as ProjectionSnapshotQueryShape,
+        projectionSnapshotQuery: {} as ThreadReadsShape,
         serverSettings: {
           getSettings: Effect.succeed(DEFAULT_SERVER_SETTINGS),
         } as unknown as ServerSettingsShape,
@@ -280,7 +276,7 @@ describe("provider update coordinator", () => {
         } as unknown as ProviderHealthShape,
         projectionSnapshotQuery: {
           hasActiveProviderThread: () => Effect.succeed(true),
-        } as unknown as ProjectionSnapshotQueryShape,
+        } as unknown as ThreadReadsShape,
         serverSettings: {
           getSettings: Effect.succeed(DEFAULT_SERVER_SETTINGS),
         } as unknown as ServerSettingsShape,
@@ -310,7 +306,7 @@ describe("provider update coordinator", () => {
           } as unknown as ProviderHealthShape,
           projectionSnapshotQuery: {
             hasActiveProviderThread,
-          } as unknown as ProjectionSnapshotQueryShape,
+          } as unknown as ThreadReadsShape,
           serverSettings: {
             getSettings: Effect.succeed(DEFAULT_SERVER_SETTINGS),
           } as unknown as ServerSettingsShape,
@@ -381,7 +377,7 @@ describe("provider update coordinator", () => {
           } as unknown as ProviderHealthShape,
           projectionSnapshotQuery: {
             hasActiveProviderThread: () => Effect.succeed(false),
-          } as unknown as ProjectionSnapshotQueryShape,
+          } as unknown as ThreadReadsShape,
           serverSettings: {
             getSettings: Effect.succeed(DEFAULT_SERVER_SETTINGS),
           } as unknown as ServerSettingsShape,
@@ -447,7 +443,7 @@ describe("provider update coordinator", () => {
           } as unknown as ProviderHealthShape,
           projectionSnapshotQuery: {
             hasActiveProviderThread: () => Effect.succeed(false),
-          } as unknown as ProjectionSnapshotQueryShape,
+          } as unknown as ThreadReadsShape,
           serverSettings: {
             getSettings: Effect.succeed({
               ...DEFAULT_SERVER_SETTINGS,
@@ -508,7 +504,7 @@ describe("provider update coordinator", () => {
           } as unknown as ProviderHealthShape,
           projectionSnapshotQuery: {
             hasActiveProviderThread: () => Effect.succeed(false),
-          } as unknown as ProjectionSnapshotQueryShape,
+          } as unknown as ThreadReadsShape,
           serverSettings: {
             getSettings: Effect.succeed(DEFAULT_SERVER_SETTINGS),
           } as unknown as ServerSettingsShape,

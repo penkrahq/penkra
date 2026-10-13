@@ -34,7 +34,7 @@ import { ServerAuth } from "./auth/Services/ServerAuth";
 import * as SqlitePersistence from "./persistence/Layers/Sqlite";
 import { makeServerApplicationLayers } from "./serverLayers";
 import { startThreadRetentionJob } from "./threadRetention.ts";
-import { ProjectionSnapshotQuery } from "./orchestration/Services/ProjectionSnapshotQuery";
+import { ThreadReads } from "./cleanCore/ThreadReads";
 import { ThreadPublisherLive } from "./cleanCore/ThreadPublisher.ts";
 import { ProviderHealth } from "./provider/Services/ProviderHealth";
 import { ProviderAdapterRegistry } from "./provider/Services/ProviderAdapterRegistry";
@@ -309,7 +309,7 @@ const LayerLive = (input: CliInput) => {
 
 export const recordStartupHeartbeat = Effect.gen(function* () {
   const analytics = yield* AnalyticsService;
-  const projectionSnapshotQuery = yield* ProjectionSnapshotQuery;
+  const projectionSnapshotQuery = yield* ThreadReads;
 
   const { threadCount, folderCount } = yield* projectionSnapshotQuery.getCounts().pipe(
     Effect.catch((cause) =>
@@ -422,7 +422,7 @@ const makeServerProgram = (input: CliInput) => {
           )
         : undefined;
 
-    const projectionSnapshotQuery = yield* ProjectionSnapshotQuery;
+    const projectionSnapshotQuery = yield* ThreadReads;
     const providerAdapters = yield* ProviderAdapterRegistry;
     yield* startAutomaticProviderUpdates({
       providerHealth,

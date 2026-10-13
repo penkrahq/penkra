@@ -235,6 +235,10 @@
     "./toolResults": {
       "types": "./src/toolResults.ts",
       "import": "./src/toolResults.ts"
+    },
+    "./threadView": {
+      "types": "./src/threadView.ts",
+      "import": "./src/threadView.ts"
     }
   },
   "scripts": {

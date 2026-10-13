@@ -100,10 +100,6 @@ const serverProviderStatusesUpdatedListeners =
 const serverMaintenanceUpdatedListeners = createListenerRegistry<ServerLifecycleStreamEvent>();
 const serverSettingsUpdatedListeners = createListenerRegistry<ServerSettingsUpdatedPayload>();
 const projectWorkspaceChangeListeners = createListenerRegistry<ProjectWorkspaceChangeEvent>();
-const orchestrationDomainEventListeners = createListenerRegistry<OrchestrationEvent>();
-const orchestrationSyncEventListeners = createListenerRegistry<OrchestrationSyncStreamItem>();
-const orchestrationShellEventListeners = createListenerRegistry<OrchestrationShellStreamItem>();
-const orchestrationThreadEventListeners = createListenerRegistry<OrchestrationThreadStreamItem>();
 const cleanCoreSidebarChangeListeners = createListenerRegistry<CleanCoreSidebarChange>();
 const cleanCoreThreadChangeListeners = createListenerRegistry<CleanCoreThreadChange>();
 const threadStreamFailureListeners = createListenerRegistry<WsThreadStreamFailure>();
@@ -116,10 +112,6 @@ function clearWsNativeApiListeners(): void {
   serverMaintenanceUpdatedListeners.clear();
   serverSettingsUpdatedListeners.clear();
   projectWorkspaceChangeListeners.clear();
-  orchestrationDomainEventListeners.clear();
-  orchestrationSyncEventListeners.clear();
-  orchestrationShellEventListeners.clear();
-  orchestrationThreadEventListeners.clear();
   threadStreamFailureListeners.clear();
 }
 
@@ -281,8 +273,6 @@ export function createWsNativeApi(): NativeApi {
   }
 
   const transport = new WsTransport();
-  let unsubscribeDomainEventTransport: (() => void) | null = null;
-  let unsubscribeSyncEventTransport: (() => void) | null = null;
   transport.onStateChange((state) => emitWsTransportState(state));
   transport.onCompatibilityIssue((issue) => emitWsCompatibilityIssue(issue), {
     replayCurrent: true,
@@ -305,12 +295,6 @@ export function createWsNativeApi(): NativeApi {
   });
   transport.subscribe(WS_CHANNELS.projectWorkspaceChange, (message) => {
     projectWorkspaceChangeListeners.emit(message.data);
-  });
-  transport.subscribe(ORCHESTRATION_WS_CHANNELS.shellEvent, (message) => {
-    orchestrationShellEventListeners.emit(message.data);
-  });
-  transport.subscribe(ORCHESTRATION_WS_CHANNELS.threadEvent, (message) => {
-    orchestrationThreadEventListeners.emit(message.data);
   });
   transport.subscribe(CLEAN_CORE_WS_CHANNELS.sidebarChange, (message) => {
     cleanCoreSidebarChangeListeners.emit(message.data);
@@ -494,6 +478,7 @@ export function createWsNativeApi(): NativeApi {
         transport.request(WS_METHODS.cleanCoreListArchivedThreads, input),
       restoreThread: (input) => transport.request(WS_METHODS.cleanCoreRestoreThread, input),
       getNavigation: () => transport.request(WS_METHODS.cleanCoreGetNavigation),
+      getBootstrap: () => transport.request(WS_METHODS.cleanCoreGetBootstrap),
       updateNavigation: (input) => transport.request(WS_METHODS.cleanCoreUpdateNavigation, input),
       getFolders: (input) => transport.request(WS_METHODS.cleanCoreGetFolders, input),
       getThread: (input) => transport.request(WS_METHODS.cleanCoreGetThread, input),
@@ -528,65 +513,7 @@ export function createWsNativeApi(): NativeApi {
       onSidebarChange: cleanCoreSidebarChangeListeners.subscribe,
     },
     orchestration: {
-      getSnapshot: () => transport.request(ORCHESTRATION_WS_METHODS.getSnapshot),
-      getThreadDetailSnapshot: (input) =>
-        transport.request(ORCHESTRATION_WS_METHODS.getThreadDetailSnapshot, input),
-      getThreadTurnsPage: (input) =>
-        transport.request(ORCHESTRATION_WS_METHODS.getThreadTurnsPage, input),
-      getPendingStartOutcome: (input) =>
-        transport.request(ORCHESTRATION_WS_METHODS.getPendingStartOutcome, input),
-      acknowledgeSync: (input) =>
-        transport.request<void>(ORCHESTRATION_WS_METHODS.acknowledgeSync, input),
-      dispatchCommand: (command) => {
-        return transport.request(ORCHESTRATION_WS_METHODS.dispatchCommand, command, {
-          timeoutMs: null,
-          retryOnReconnect: true,
-        });
-      },
       importThread: (input) => transport.request(ORCHESTRATION_WS_METHODS.importThread, input),
-      subscribeShell: () => transport.request<void>(ORCHESTRATION_WS_METHODS.subscribeShell, {}),
-      unsubscribeShell: () =>
-        transport.request<void>(ORCHESTRATION_WS_METHODS.unsubscribeShell, {}),
-      subscribeThread: (input) =>
-        transport.request<void>(ORCHESTRATION_WS_METHODS.subscribeThread, input),
-      unsubscribeThread: (input) =>
-        transport.request<void>(ORCHESTRATION_WS_METHODS.unsubscribeThread, input),
-      onDomainEvent: (callback) => {
-        const shouldStartTransport = orchestrationDomainEventListeners.size === 0;
-        const unsubscribe = orchestrationDomainEventListeners.subscribe(callback);
-        if (shouldStartTransport) {
-          unsubscribeDomainEventTransport = transport.subscribe(
-            ORCHESTRATION_WS_CHANNELS.domainEvent,
-            (message) => orchestrationDomainEventListeners.emit(message.data),
-          );
-        }
-        return () => {
-          unsubscribe();
-          if (orchestrationDomainEventListeners.size === 0) {
-            unsubscribeDomainEventTransport?.();
-            unsubscribeDomainEventTransport = null;
-          }
-        };
-      },
-      onSyncEvent: (callback) => {
-        const shouldStartTransport = orchestrationSyncEventListeners.size === 0;
-        const unsubscribe = orchestrationSyncEventListeners.subscribe(callback);
-        if (shouldStartTransport) {
-          unsubscribeSyncEventTransport = transport.subscribe(
-            ORCHESTRATION_WS_CHANNELS.syncEvent,
-            (message) => orchestrationSyncEventListeners.emit(message.data),
-          );
-        }
-        return () => {
-          unsubscribe();
-          if (orchestrationSyncEventListeners.size === 0) {
-            unsubscribeSyncEventTransport?.();
-            unsubscribeSyncEventTransport = null;
-          }
-        };
-      },
-      onShellEvent: orchestrationShellEventListeners.subscribe,
-      onThreadEvent: orchestrationThreadEventListeners.subscribe,
     },
   };
 

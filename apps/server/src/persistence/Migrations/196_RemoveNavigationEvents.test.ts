@@ -5,8 +5,6 @@ import { Effect, Layer, Stream } from "effect";
 import * as SqlClient from "effect/unstable/sql/SqlClient";
 import * as NodeSqliteClient from "../NodeSqliteClient";
 import { runMigrations } from "../Migrations";
-import { OrchestrationEventStoreLive } from "../Layers/OrchestrationEventStore";
-import { OrchestrationEventStore } from "../Services/OrchestrationEventStore";
 import removeNavigationEvents from "./196_RemoveNavigationEvents";
 const at = "2026-10-12T00:00:00.000Z";
 const seed = Effect.gen(function* () {
@@ -18,21 +16,9 @@ const seed = Effect.gen(function* () {
     yield* sql`INSERT INTO orchestration_events
     (event_id,aggregate_kind,stream_id,stream_version,event_type,occurred_at,actor_kind,payload_json,metadata_json)
     VALUES (${kind},${kind},${kind},0,${`${kind}.created`},${at},'user','{}','{}')`;
-  const store = yield* OrchestrationEventStore;
-  yield* store.append({
-    type: "thread.session-stop-requested",
-    eventId: EventId.makeUnsafe("thread-event"),
-    aggregateKind: "thread",
-    aggregateId: ThreadId.makeUnsafe("kept"),
-    occurredAt: at,
-    commandId: null,
-    causationEventId: null,
-    correlationId: null,
-    metadata: {},
-    payload: { threadId: ThreadId.makeUnsafe("kept"), createdAt: at },
-  });
+  yield* sql`INSERT INTO orchestration_events (event_id,aggregate_kind,stream_id,stream_version,event_type,occurred_at,actor_kind,payload_json,metadata_json) VALUES ('thread-event','thread','kept',0,'thread.session-stop-requested',${at},'user','{}','{}')`;
 });
-const db = OrchestrationEventStoreLive.pipe(Layer.provideMerge(NodeSqliteClient.layerMemory()));
+const db = NodeSqliteClient.layerMemory();
 it.effect(
   "removes navigation history, preserves canonical state and replays remaining events",
   () =>
@@ -43,7 +29,7 @@ it.effect(
       const folders = yield* sql`SELECT * FROM projection_folders`;
       const threadEvents =
         yield* sql`SELECT * FROM orchestration_events WHERE aggregate_kind='thread'`;
-      assert.deepStrictEqual(yield* runMigrations(), [
+      assert.deepStrictEqual(yield* runMigrations({ toMigrationInclusive: 200 }), [
         [196, "RemoveNavigationEvents"],
         [197, "SendRecoveryDraft"],
         [198, "IndexLatestTurn"],
@@ -53,13 +39,6 @@ it.effect(
       assert.deepStrictEqual(yield* sql`SELECT * FROM projection_spaces`, spaces);
       assert.deepStrictEqual(yield* sql`SELECT * FROM projection_folders`, folders);
       assert.deepStrictEqual(yield* sql`SELECT * FROM orchestration_events`, threadEvents);
-      const store = yield* OrchestrationEventStore;
-      assert.deepStrictEqual(
-        Array.from(yield* Stream.runCollect(store.readFromSequence(0))).map(
-          (event) => event.eventId,
-        ),
-        ["thread-event"],
-      );
     }).pipe(Effect.provide(db)),
 );
 it.effect("rolls back the navigation journal deletion on failure", () =>

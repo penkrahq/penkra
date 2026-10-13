@@ -1,4 +1,5 @@
 import { CleanCoreThreadSummary } from "./threadSummary";
+import { CleanCoreThreadSummary } from "./threadSummary";
 export {
   CleanCoreThreadSummary,
   CleanCoreLatestTurn,
@@ -21,6 +22,7 @@ import {
 } from "./baseSchemas";
 import {
   ModelSelection,
+  ProviderReviewTarget,
   ProviderKind,
   RuntimeMode,
   OrchestrationThreadShell,
@@ -110,6 +112,7 @@ export type CleanCoreQueuedMessage = typeof CleanCoreQueuedMessage.Type;
 export const CleanCoreSendMessageInput = Schema.Struct({
   threadId: ThreadId,
   draftUpdatedAt: Schema.optional(Schema.NullOr(IsoDateTime)),
+  reviewTarget: Schema.optional(ProviderReviewTarget),
   runtimeMode: Schema.optional(RuntimeMode),
   message: CleanCoreQueuedMessage,
   dispatchMode: Schema.Literals(["queue", "steer"]),
@@ -357,6 +360,19 @@ export type CleanCoreSidebarChange = typeof CleanCoreSidebarChange.Type;
 
 export const CleanCoreThreadUpdate = Schema.Union([
   Schema.Struct({
+    action: Schema.Literal("resume"),
+    threadId: ThreadId,
+    messageId: MessageId,
+    runtimeMode: Schema.optional(RuntimeMode),
+    updatedAt: IsoDateTime,
+  }),
+  Schema.Struct({
+    action: Schema.Literal("stopTask"),
+    threadId: ThreadId,
+    taskId: Schema.String,
+    updatedAt: IsoDateTime,
+  }),
+  Schema.Struct({
     action: Schema.Literal("rename"),
     threadId: ThreadId,
     title: Schema.String,
@@ -535,3 +551,8 @@ export const CleanCoreRestoreThreadInput = Schema.Struct({
   updatedAt: IsoDateTime,
 });
 export type CleanCoreRestoreThreadInput = typeof CleanCoreRestoreThreadInput.Type;
+
+export const CleanCoreGetBootstrapResult = Schema.Struct({
+  runningThreads: Schema.Array(CleanCoreThreadSummary),
+});
+export type CleanCoreGetBootstrapResult = typeof CleanCoreGetBootstrapResult.Type;

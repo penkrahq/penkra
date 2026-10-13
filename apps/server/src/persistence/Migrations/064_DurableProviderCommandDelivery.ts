@@ -1,7 +1,8 @@
 import * as Effect from "effect/Effect";
 import * as SqlClient from "effect/unstable/sql/SqlClient";
 
-import { PROVIDER_COMMAND_REACTOR_CONSUMER } from "../Services/OrchestrationEventDeliveries.ts";
+// Frozen historical consumer name; the runtime journal has been removed.
+const PROVIDER_COMMAND_REACTOR_CONSUMER = "provider-command-reactor.v1";
 
 // Activates durable provider-command delivery at the exact event-log high-water
 // mark. Older events were handled by the former live-only reactor and must not

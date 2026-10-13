@@ -1,3 +1,5 @@
+import * as NodeSqliteClient from "../../persistence/NodeSqliteClient.ts";
+import { ThreadPublisherLive } from "../../cleanCore/ThreadPublisher.ts";
 import { makeAgentCreationIds, stableGatewayDigest } from "../creationUtils.ts";
 import { ThreadRunningError } from "../../cleanCore/threadStore.ts";
 import { ThreadLifecycle } from "../../cleanCore/threadLifecycle.ts";
@@ -28,7 +30,6 @@ import { homedir } from "node:os";
 import { Deferred, Effect, Layer, Logger, Option, Stream } from "effect";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 
-import { OrchestrationEngineService } from "../../orchestration/Services/OrchestrationEngine.ts";
 import { OrchestrationCommandInvariantError } from "../../orchestration/Errors.ts";
 import { deriveAgentThreadStatus } from "../threadSummary.ts";
 import { THREADS_PAGE_SIZE } from "@penkra/contracts";
@@ -36,10 +37,9 @@ import type {
   ProjectionThreadShellPageInput,
   ProjectionFolderPageCursor,
   ProjectionTranscriptSearchInput,
-} from "../../orchestration/Services/ProjectionSnapshotQuery.ts";
-import { ProjectionSnapshotQuery } from "../../orchestration/Services/ProjectionSnapshotQuery.ts";
-import { ProjectionTurnRepository } from "../../persistence/Services/ProjectionTurns.ts";
-import { QueuedTurnPromotionRepository } from "../../persistence/Services/QueuedTurnPromotions.ts";
+} from "../../cleanCore/ThreadReads.ts";
+import { ThreadReads } from "../../cleanCore/ThreadReads.ts";
+
 import { ProviderDiscoveryService } from "../../provider/Services/ProviderDiscoveryService.ts";
 import { ProviderHealth } from "../../provider/Services/ProviderHealth.ts";
 import { connectionFixture } from "../../provider/defaultConnection.test-fixture.ts";
@@ -47,7 +47,6 @@ import { ServerConfig } from "../../config.ts";
 import { ServerSettingsService } from "../../serverSettings.ts";
 import { ProviderConnectionRepository } from "../../persistence/Services/ProviderConnections.ts";
 
-import { OrchestrationCommandReceiptRepository } from "../../persistence/Services/OrchestrationCommandReceipts.ts";
 import { ManagedAttachmentRepository } from "../../persistence/Services/ManagedAttachments.ts";
 import { AgentGateway } from "../Services/AgentGateway.ts";
 import { AgentGatewayCredentials } from "../Services/AgentGatewayCredentials.ts";
@@ -295,10 +294,6 @@ function makeHarnessLayer(
           : new Set(["thread:read", "thread:write"] as const),
     };
   };
-  const commandReceiptsLayer = Layer.succeed(OrchestrationCommandReceiptRepository, {
-    insert: () => Effect.die("unused receipt insert"),
-    getByCommandId: () => Effect.succeed(Option.none()),
-  });
 
   const credentialsLayer = Layer.succeed(AgentGatewayCredentials, {
     mcpEndpointUrl: "http://127.0.0.1:3773/mcp",
@@ -461,7 +456,13 @@ function makeHarnessLayer(
     [];
 
   let parentShellReads = 0;
-  const snapshotLayer = Layer.succeed(ProjectionSnapshotQuery, {
+  const snapshotLayer = Layer.succeed(ThreadReads, {
+    queueLength: (threadId: string) =>
+      Effect.succeed(
+        queuedPromotions.filter(
+          (promotion) => promotion.threadId === threadId && promotion.state !== "cancelled",
+        ).length,
+      ),
     listFolderShellPage: (after: ProjectionFolderPageCursor | null) =>
       Effect.sync(() => {
         const matching = [makeProjectShell(), ...(options.extraFolders ?? [])]
@@ -721,9 +722,9 @@ function makeHarnessLayer(
           nextCursor: null,
         });
       }),
-  } as unknown as (typeof ProjectionSnapshotQuery)["Service"]);
+  } as unknown as (typeof ThreadReads)["Service"]);
 
-  const engineLayer = Layer.succeed(OrchestrationEngineService, {
+  const nativeDispatch = {
     dispatch: (command: OrchestrationCommand) =>
       Effect.sleep(options.dispatchDelayMs ?? 0).pipe(
         Effect.flatMap(() =>
@@ -777,7 +778,7 @@ function makeHarnessLayer(
           }),
         ),
       ),
-  } as unknown as (typeof OrchestrationEngineService)["Service"]);
+  };
   const providerTurnSelectionResolverLayer = Layer.succeed(ProviderTurnSelectionResolver, {
     resolveNewThreadConnection: (input: unknown) => {
       options.resolveConnection?.(input);
@@ -787,7 +788,6 @@ function makeHarnessLayer(
   const providerThreadSwitchCoordinatorLayer = Layer.effect(
     ProviderThreadSwitchCoordinator,
     Effect.gen(function* () {
-      const engine = yield* OrchestrationEngineService;
       return {
         dispatchTurnStart: ({ command }: { readonly command: OrchestrationCommand }) =>
           options.sendSelectionError && command.type === "thread.turn.start"
@@ -797,11 +797,11 @@ function makeHarnessLayer(
                   detail: options.sendSelectionError.message,
                 }),
               )
-            : engine.dispatch(command),
+            : nativeDispatch.dispatch(command),
         recoverOpen: Effect.void,
       } as unknown as (typeof ProviderThreadSwitchCoordinator)["Service"];
     }),
-  ).pipe(Layer.provide(engineLayer));
+  );
 
   const providerDiscoveryLayer = Layer.succeed(ProviderDiscoveryService, {
     listModels: (input: { provider: string }) => {
@@ -889,83 +889,17 @@ function makeHarnessLayer(
         }
       : undefined;
   };
-  const projectionTurnsLayer = Layer.succeed(ProjectionTurnRepository, {
-    listByThreadId: ({ threadId }: { threadId: string }) =>
-      Effect.sync(() => {
-        const pinned = [...projectionTurnsByKey.values()]
-          .filter((turn) => turn.threadId === threadId)
-          .map((turn) => readProjectionTurn(turn.threadId, turn.turnId))
-          .filter((turn): turn is NonNullable<typeof turn> => turn !== undefined);
-        const latestTurnId = threadsById.get(threadId)?.latestTurn?.turnId;
-        const latest = latestTurnId ? readProjectionTurn(threadId, latestTurnId) : undefined;
-        return latest && !pinned.some((turn) => turn.turnId === latest.turnId)
-          ? [...pinned, latest]
-          : pinned;
-      }),
-    listByThreadIds: (threadIds: ReadonlyArray<string>) =>
-      Effect.sync(() =>
-        threadIds.flatMap((threadId) => {
-          const pinned = [...projectionTurnsByKey.values()]
-            .filter((turn) => turn.threadId === threadId)
-            .map((turn) => readProjectionTurn(turn.threadId, turn.turnId))
-            .filter((turn): turn is NonNullable<typeof turn> => turn !== undefined);
-          const latestTurnId = threadsById.get(threadId)?.latestTurn?.turnId;
-          const latest = latestTurnId ? readProjectionTurn(threadId, latestTurnId) : undefined;
-          return latest && !pinned.some((turn) => turn.turnId === latest.turnId)
-            ? [...pinned, latest]
-            : pinned;
-        }),
-      ),
-    getByTurnId: ({ threadId, turnId }: { threadId: string; turnId: string }) =>
-      Effect.succeed(Option.fromNullishOr(readProjectionTurn(threadId, turnId))),
-    reopenForRestart: () => Effect.void,
-    listProviderTurnIds: ({ threadId, turnId }: { threadId: string; turnId: string }) =>
-      Effect.succeed(
-        (projectionTurnsByKey.get(`${threadId}:${turnId}`)?.providerTurnIds ?? []).map((id) =>
-          TurnId.makeUnsafe(id),
-        ),
-      ),
-    getManyByTurnId: (input: ReadonlyArray<{ threadId: string; turnId: string }>) =>
-      Effect.sync(() => {
-        return input.flatMap(({ threadId, turnId }) => {
-          const turn = readProjectionTurn(threadId, turnId);
-          return turn ? [turn] : [];
-        });
-      }),
-    getManyWaitSnapshot: (input: {
-      readonly threadIds: ReadonlyArray<string>;
-      readonly turns: ReadonlyArray<{ threadId: string; turnId: string }>;
-    }) =>
-      Effect.sync(() => {
-        return {
-          existingThreadIds: input.threadIds.filter((threadId) => threadsById.has(threadId)),
-          turns: input.turns.flatMap(({ threadId, turnId }) => {
-            const turn = readProjectionTurn(threadId, turnId);
-            return turn ? [turn] : [];
-          }),
-        };
-      }),
-  } as unknown as (typeof ProjectionTurnRepository)["Service"]);
-  const queuedTurnPromotionsLayer = Layer.succeed(QueuedTurnPromotionRepository, {
-    countPendingByThreadIds: (threadIds: ReadonlyArray<string>) =>
-      Effect.sync(() =>
-        threadIds.flatMap((threadId) => {
-          const count = queuedPromotions.filter(
-            (promotion) => promotion.threadId === threadId && promotion.state !== "cancelled",
-          ).length;
-          return count > 0 ? [{ threadId, count }] : [];
-        }),
-      ),
-  } as unknown as (typeof QueuedTurnPromotionRepository)["Service"]);
 
   const sent: ThreadSendInput[] = [];
   const gatewayLayer = AgentGatewayLive.pipe(
+    Layer.provide(NodeSqliteClient.layerMemory()),
+    Layer.provide(ThreadPublisherLive),
     Layer.provide(lifecycleLayer),
-    Layer.provide(commandReceiptsLayer),
+
     Layer.provide(AgentGatewayToolBridgeLive),
     Layer.provide(credentialsLayer),
     Layer.provide(snapshotLayer),
-    Layer.provide(engineLayer),
+
     Layer.provide(providerTurnSelectionResolverLayer),
     Layer.provide(providerThreadSwitchCoordinatorLayer),
     Layer.provide(providerDiscoveryLayer),
@@ -980,7 +914,7 @@ function makeHarnessLayer(
           ]),
       } as unknown as (typeof ProviderConnectionRepository)["Service"]),
     ),
-    Layer.provide(Layer.mergeAll(projectionTurnsLayer, queuedTurnPromotionsLayer)),
+
     Layer.provide(ServerConfig.layerTest(process.cwd(), process.cwd())),
     Layer.provide(
       Layer.mergeAll(

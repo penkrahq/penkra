@@ -20,10 +20,7 @@ import { NetService } from "@penkra/shared/Net";
 
 import { ServerConfig, type ServerConfigShape } from "./config";
 import { Open, type OpenShape } from "./open";
-import {
-  ProjectionSnapshotQuery,
-  type ProjectionSnapshotQueryShape,
-} from "./orchestration/Services/ProjectionSnapshotQuery";
+import { ThreadReads, type ThreadReadsShape } from "./cleanCore/ThreadReads";
 import { AnalyticsService } from "./telemetry/Services/AnalyticsService";
 import { Server, type ServerShape } from "./effectServer";
 import { makeServerShutdownController } from "./serverShutdown";
@@ -783,7 +780,7 @@ it.layer(testLayer)("server CLI command", (it) => {
       );
 
       yield* recordStartupHeartbeat.pipe(
-        Effect.provideService(ProjectionSnapshotQuery, {
+        Effect.provideService(ThreadReads, {
           getSnapshot: () =>
             Effect.succeed({
               snapshotSequence: 0,
@@ -836,9 +833,9 @@ it.layer(testLayer)("server CLI command", (it) => {
     Effect.gen(function* () {
       const recordTelemetry = vi.fn(() => Effect.void);
       yield* recordStartupHeartbeat.pipe(
-        Effect.provideService(ProjectionSnapshotQuery, {
+        Effect.provideService(ThreadReads, {
           getCounts: () => Effect.fail(new Error("private projection detail")),
-        } as unknown as ProjectionSnapshotQueryShape),
+        } as unknown as ThreadReadsShape),
         Effect.provideService(AnalyticsService, { record: recordTelemetry, flush: Effect.void }),
       );
       assert.deepEqual(recordTelemetry.mock.calls[0], [

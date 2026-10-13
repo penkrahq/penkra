@@ -30,7 +30,7 @@ import { makeAgentGatewaySessionRegistry } from "./agentGateway/Layers/AgentGate
 import { makeAgentGatewayCredentials } from "./agentGateway/Layers/AgentGatewayCredentials";
 import { AgentGatewaySessionRegistry } from "./agentGateway/Services/AgentGatewaySessionRegistry";
 import { makeAgentGatewayMcpTransport } from "./agentGateway/mcpTransport";
-import type { ProjectionSnapshotQueryShape } from "./orchestration/Services/ProjectionSnapshotQuery";
+import type { ThreadReadsShape } from "./cleanCore/ThreadReads";
 import { ServerConfig } from "./config";
 import { makeCodexAdapterLive } from "./provider/Layers/CodexAdapter";
 import { CodexAdapter } from "./provider/Services/CodexAdapter";
@@ -103,7 +103,7 @@ async function createPool() {
     credentials,
     snapshotQuery: {
       getThreadShellById: (id: ThreadId) => Effect.succeed(Option.some(shell(id))),
-    } as unknown as ProjectionSnapshotQueryShape,
+    } as unknown as ThreadReadsShape,
     requireThreadShell: (id) => Effect.succeed(shell(id)),
     instructions: "Pool attribution test",
     tools: [
@@ -517,7 +517,7 @@ it("a turn started after the update admission check receives a persisted cut-off
                 admissionChecked = true;
                 return false;
               }),
-          } as unknown as ProjectionSnapshotQueryShape,
+          } as unknown as ThreadReadsShape,
           serverSettings: {
             getSettings: Effect.succeed(DEFAULT_SERVER_SETTINGS),
           } as unknown as ServerSettingsShape,
