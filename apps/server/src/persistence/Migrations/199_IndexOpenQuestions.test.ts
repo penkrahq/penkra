@@ -4,7 +4,7 @@ import * as SqlClient from "effect/unstable/sql/SqlClient";
 import * as NodeSqliteClient from "../NodeSqliteClient.ts";
 import { runMigrations } from "../Migrations.ts";
 import { seedThreadFolderFixture } from "../../cleanCore/threadFixtures.ts";
-import { createThread, upsertThreadItem } from "../../cleanCore/threadStore.ts";
+import { createThread } from "../../cleanCore/threadStore.ts";
 import indexOpenQuestions from "./199_IndexOpenQuestions.ts";
 
 it.effect("indexes open questions without changing stored rows and rolls back on failure", () =>
@@ -24,16 +24,8 @@ it.effect("indexes open questions without changing stored rows and rolls back on
       createdBy: "user",
       createdAt: at,
     });
-    yield* upsertThreadItem({
-      threadId: "thread",
-      sourceId: "question:keep",
-      turnId: "keep",
-      kind: "question",
-      status: "open",
-      data: JSON.stringify({ startedAt: at, endedAt: at }),
-      createdAt: at,
-      updatedAt: at,
-    });
+    yield* sql`INSERT INTO thread_items (thread_id,seq,source_id,turn_id,kind,status,data,created_at,updated_at)
+      VALUES ('thread',1,'question:keep','keep','question','open',${JSON.stringify({ startedAt: at, endedAt: at })},${at},${at})`;
     const before = yield* sql`SELECT * FROM thread_items`;
     yield* Effect.flip(
       sql.withTransaction(

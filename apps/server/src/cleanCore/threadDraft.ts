@@ -66,9 +66,7 @@ export function draftAfterSend(
   draft: string | null,
   provider: string,
   selection:
-    | (Pick<CleanCoreSendMessageInput, "modelSelection" | "connectionId"> & {
-        runtimeMode?: typeof RuntimeMode.Type;
-      })
+    | Pick<CleanCoreSendMessageInput, "modelSelection" | "connectionId" | "runtimeMode">
     | undefined,
 ): string | null {
   const current = draft === null ? {} : Schema.decodeUnknownSync(DraftSelection)(JSON.parse(draft));
@@ -111,9 +109,10 @@ export function resolveDraftSendSelection(
     connectionId: typeof ProviderConnectionId.Type | null;
     runtimeMode: string;
   },
-  requested: Pick<CleanCoreSendMessageInput, "modelSelection" | "connectionId"> & {
-    runtimeMode?: typeof RuntimeMode.Type;
-  } = {},
+  requested: Pick<
+    CleanCoreSendMessageInput,
+    "modelSelection" | "connectionId" | "runtimeMode"
+  > = {},
 ) {
   const provider = Schema.decodeUnknownSync(ProviderKind)(row.provider);
   const draft =
@@ -140,23 +139,4 @@ export function resolveDraftSendSelection(
       requested.runtimeMode ?? draft.runtimeMode ?? row.runtimeMode,
     ),
   };
-}
-
-/** Recovery cannot replace text or structured context composed after a send. */
-export function isThreadDraftEmpty(draft: string | null): boolean {
-  if (draft === null) return true;
-  const value = JSON.parse(draft) as Record<string, unknown>;
-  return (
-    !(typeof value.prompt === "string" && value.prompt.length > 0) &&
-    [
-      "attachments",
-      "files",
-      "assistantSelections",
-      "terminalContexts",
-      "fileComments",
-      "pastedTexts",
-      "skills",
-      "mentions",
-    ].every((key) => !Array.isArray(value[key]) || value[key].length === 0)
-  );
 }

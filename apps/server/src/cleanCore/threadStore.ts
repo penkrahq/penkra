@@ -31,7 +31,7 @@ export interface ThreadItemInput {
   readonly status: string;
   readonly text?: string | null;
   readonly data?: string | null;
-  readonly recoveryDraft?: string | null;
+  readonly sendPayload?: string | null;
   readonly admissionPlan?: "deliver" | "steer" | "interrupt-deliver";
   readonly createdAt: string;
   readonly updatedAt: string;
@@ -119,18 +119,18 @@ export const upsertThreadItem = (input: ThreadItemInput) =>
       Effect.gen(function* () {
         yield* sql`
           INSERT INTO thread_items (
-            thread_id, seq, source_id, turn_id, kind, status, text, data, recovery_draft, admission_plan, created_at, updated_at
+            thread_id, seq, source_id, turn_id, kind, status, text, data, send_payload, admission_plan, created_at, updated_at
           ) VALUES (
             ${input.threadId},
             (SELECT COALESCE(MAX(seq), 0) + 1 FROM thread_items WHERE thread_id = ${input.threadId}),
             ${input.sourceId}, ${input.turnId ?? null}, ${input.kind}, ${input.status},
-            ${input.text ?? null}, ${data}, ${input.recoveryDraft ?? null}, ${input.admissionPlan ?? null}, ${input.createdAt}, ${input.updatedAt}
+            ${input.text ?? null}, ${data}, ${input.sendPayload ?? null}, ${input.admissionPlan ?? null}, ${input.createdAt}, ${input.updatedAt}
           )
           ON CONFLICT (thread_id, source_id) DO UPDATE SET
             status = excluded.status,
             text = excluded.text,
             data = excluded.data,
-            recovery_draft = excluded.recovery_draft,
+            send_payload = excluded.send_payload,
             admission_plan = excluded.admission_plan,
             updated_at = excluded.updated_at
         `;

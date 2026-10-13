@@ -19,7 +19,7 @@ import {
   QUEUED_MESSAGE_EDIT_NONEMPTY_DRAFT_ERROR,
 } from "@penkra/contracts";
 import { Cause, Deferred, Effect, Exit, Option } from "effect";
-import { settleMessage } from "./sendMessage";
+import { settleMessage, sendMessage } from "./sendMessage";
 import { makeThreadSender, type ThreadSendInput } from "./ThreadSender.ts";
 import { ThreadPublisher } from "./ThreadPublisher.ts";
 import { createThread, makeThreadPublisher, setThreadState } from "./threadStore.ts";
@@ -656,7 +656,6 @@ it.effect("claims queued attachments atomically and delivers them with their ori
     );
     const request: ThreadSendInput = {
       threadId: ThreadId.makeUnsafe("thread-attachments"),
-      draft: '{"prompt":"draft to clear"}',
       draftUpdatedAt: null,
       dispatchMode: "queue",
       message: {
@@ -1027,3 +1026,82 @@ for (const provider of ["codex", "claudeAgent"] as const) {
     );
   }
 }
+
+it.effect("removes a failed user message but never a member of an admitted retry cohort", () =>
+  Effect.scoped(
+    Effect.gen(function* () {
+      yield* runMigrations();
+      const sql = yield* SqlClient.SqlClient;
+      yield* sql`INSERT INTO projection_folders (folder_id,title,space_id,created_at,updated_at) VALUES ('folder','Folder','space','2026-10-12T00:00:00.000Z','2026-10-12T00:00:00.000Z')`;
+      yield* createThread({
+        id: "thread",
+        folderId: "folder",
+        spaceId: "space",
+        title: "Thread",
+        provider: "codex",
+        model: "model",
+        runtimeMode: "full-access",
+        createdBy: "user",
+        createdAt: "2026-10-12T00:00:00.000Z",
+      });
+      const publisher = makeThreadPublisher();
+      const sender = yield* makeThreadSender.pipe(
+        Effect.provideService(ServerConfig, {
+          stateDir: senderStateDir,
+        } as typeof ServerConfig.Service),
+        Effect.provide(ManagedAttachmentRepositoryLive),
+        Effect.provideService(ThreadPublisher, publisher),
+        Effect.provideService(
+          ProviderThreadSwitchCoordinator,
+          {} as typeof ProviderThreadSwitchCoordinator.Service,
+        ),
+        Effect.provideService(ProviderService, {} as typeof ProviderService.Service),
+      );
+      const message = {
+        threadId: "thread",
+        message: {
+          messageId: MessageId.makeUnsafe("remove"),
+          text: "Remove",
+          attachments: [],
+          senderThreadId: null,
+          dispatchOrigin: "user" as const,
+          queuedAt: "2026-10-12T00:00:00.000Z",
+        },
+        dispatchMode: "queue" as const,
+        supportsSteer: true,
+      };
+      yield* sendMessage(
+        publisher,
+        { claimAttachments: () => Effect.void, dispatch: () => Effect.void },
+        message,
+      );
+      yield* settleMessage(
+        publisher,
+        { type: "failed", threadId: "thread", messageId: "remove", error: "refused" },
+        message.message.queuedAt,
+      );
+      assert.equal(yield* sender.queuedThread("remove"), "thread");
+      assert.equal(
+        (yield* sender.cancelQueued({
+          threadId: ThreadId.makeUnsafe("thread"),
+          messageId: "remove",
+        })).removed,
+        true,
+      );
+      assert.deepStrictEqual(yield* sql`SELECT source_id FROM thread_items WHERE kind='user'`, []);
+      yield* sendMessage(
+        publisher,
+        { claimAttachments: () => Effect.void, dispatch: () => Effect.void },
+        message,
+      );
+      assert.equal(
+        (yield* sender.cancelQueued({
+          threadId: ThreadId.makeUnsafe("thread"),
+          messageId: "remove",
+        })).removed,
+        false,
+      );
+      assert.equal((yield* sql`SELECT 1 FROM thread_items WHERE source_id='remove'`).length, 1);
+    }).pipe(Effect.provide(NodeSqliteClient.layerMemory())),
+  ),
+);

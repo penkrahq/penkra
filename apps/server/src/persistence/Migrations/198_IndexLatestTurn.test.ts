@@ -4,7 +4,7 @@ import * as SqlClient from "effect/unstable/sql/SqlClient";
 import * as NodeSqliteClient from "../NodeSqliteClient.ts";
 import { runMigrations } from "../Migrations.ts";
 import { seedThreadFolderFixture } from "../../cleanCore/threadFixtures.ts";
-import { createThread, upsertThreadItem } from "../../cleanCore/threadStore.ts";
+import { createThread } from "../../cleanCore/threadStore.ts";
 import indexLatestTurn from "./198_IndexLatestTurn.ts";
 
 it.effect("indexes latest turns without changing stored rows and rolls back on failure", () =>
@@ -24,16 +24,8 @@ it.effect("indexes latest turns without changing stored rows and rolls back on f
       createdBy: "user",
       createdAt: at,
     });
-    yield* upsertThreadItem({
-      threadId: "thread",
-      sourceId: "turn:keep",
-      turnId: "keep",
-      kind: "turn",
-      status: "done",
-      data: JSON.stringify({ startedAt: at, endedAt: at }),
-      createdAt: at,
-      updatedAt: at,
-    });
+    yield* sql`INSERT INTO thread_items (thread_id,seq,source_id,turn_id,kind,status,data,created_at,updated_at)
+      VALUES ('thread',1,'turn:keep','keep','turn','done',${JSON.stringify({ startedAt: at, endedAt: at })},${at},${at})`;
     const before = yield* sql`SELECT * FROM thread_items`;
     yield* Effect.flip(
       sql.withTransaction(indexLatestTurn.pipe(Effect.andThen(Effect.fail(new Error("injected"))))),

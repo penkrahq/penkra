@@ -25,7 +25,7 @@ const seed = Effect.gen(function* () {
   yield* sql`INSERT INTO thread_items (thread_id,seq,source_id,kind,status,text,created_at,updated_at)
     VALUES ('thread',1,'message','user','sent','Keep','2026-10-12T00:00:00.000Z','2026-10-12T00:00:00.000Z')`;
 });
-it.effect("adds private recovery storage and preserves existing items", () =>
+it.effect("adds admission storage and preserves sent items through the replacement migration", () =>
   Effect.gen(function* () {
     yield* seed;
     const sql = yield* SqlClient.SqlClient;
@@ -34,13 +34,14 @@ it.effect("adds private recovery storage and preserves existing items", () =>
       [197, "SendRecoveryDraft"],
       [198, "IndexLatestTurn"],
       [199, "IndexOpenQuestions"],
+      [200, "FailedSendPayload"],
     ]);
     assert.deepStrictEqual(
       yield* sql`SELECT thread_id,seq,source_id,text FROM thread_items`,
       before,
     );
-    assert.deepStrictEqual(yield* sql`SELECT recovery_draft,admission_plan FROM thread_items`, [
-      { recovery_draft: null, admission_plan: null },
+    assert.deepStrictEqual(yield* sql`SELECT send_payload,admission_plan FROM thread_items`, [
+      { send_payload: null, admission_plan: null },
     ]);
     assert.deepStrictEqual(yield* sql`PRAGMA foreign_key_check`, []);
   }).pipe(Effect.provide(NodeSqliteClient.layerMemory())),

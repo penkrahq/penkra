@@ -158,27 +158,16 @@ beforeAll(() => {
 });
 
 describe("MessagesTimeline", () => {
-  it("shows a failed queued message as a transcript row", async () => {
-    const message = makeThread({
-      messages: [
-        {
-          id: MessageId.makeUnsafe("failed-queued-row"),
-          role: "user",
-          text: "Continue",
-          delivery: {
-            state: "failed",
-            queued: false,
-            sequence: 12,
-            failurePhase: "before-provider-dispatch",
-            failureDetail: "Choose another Connection.",
-          },
-          streaming: false,
-          source: "native",
-          sequence: 10,
-          createdAt: "2026-09-27T00:00:00.000Z",
-        },
-      ],
-    }).messages[0]!;
+  it("shows a persisted failed user message as a transcript row", async () => {
+    const message = {
+      id: MessageId.makeUnsafe("failed-queued-row"),
+      role: "user" as const,
+      text: "Continue",
+      sendStatus: "failed" as const,
+      streaming: false,
+      sequence: 10,
+      createdAt: "2026-09-27T00:00:00.000Z",
+    };
     const markup = renderToStaticMarkup(
       <MessagesTimeline
         {...makeTimelineBaseProps()}
