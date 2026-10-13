@@ -31,6 +31,8 @@ export interface ThreadItemInput {
   readonly status: string;
   readonly text?: string | null;
   readonly data?: string | null;
+  readonly recoveryDraft?: string | null;
+  readonly admissionPlan?: "deliver" | "steer" | "interrupt-deliver";
   readonly createdAt: string;
   readonly updatedAt: string;
 }
@@ -39,20 +41,9 @@ export interface ThreadChange {
   readonly threadId: string;
 }
 
-export type MessageDispatchReply = { readonly threadId: string; readonly messageId: string } & (
-  | { readonly type: "acknowledged"; readonly turnId: string }
-  | { readonly type: "failed"; readonly error: string }
-);
-
 export interface ThreadPublisher {
   readonly subscribeProvider: (listener: (event: CleanCoreProviderEvent) => void) => () => void;
   readonly publishProvider: (event: CleanCoreProviderEvent) => void;
-  readonly subscribeDispatch: (
-    threadId: string,
-    messageId: string,
-    listener: (reply: MessageDispatchReply) => void,
-  ) => () => void;
-  readonly publishDispatch: (reply: MessageDispatchReply) => void;
   /** Subscribe to one thread's changes. Returns an unsubscribe function. */
   readonly subscribe: (threadId: string, listener: (change: ThreadChange) => void) => () => void;
   /** Subscribe to every thread's changes. Returns an unsubscribe function. */
@@ -68,7 +59,6 @@ export const makeThreadPublisher = (): ThreadPublisher => {
   const all = new Set<(change: ThreadChange) => void>();
   const sidebar = new Set<(change: CleanCoreSidebarChange) => void>();
   const provider = new Set<(event: CleanCoreProviderEvent) => void>();
-  const dispatch = new Set<(reply: MessageDispatchReply) => void>();
   return {
     subscribeProvider: (listener) => {
       provider.add(listener);
@@ -78,18 +68,6 @@ export const makeThreadPublisher = (): ThreadPublisher => {
     },
     publishProvider: (event) => {
       for (const listener of provider) listener(event);
-    },
-    subscribeDispatch: (threadId, messageId, listener) => {
-      const scoped = (reply: MessageDispatchReply) => {
-        if (reply.threadId === threadId && reply.messageId === messageId) listener(reply);
-      };
-      dispatch.add(scoped);
-      return () => {
-        dispatch.delete(scoped);
-      };
-    },
-    publishDispatch: (reply) => {
-      for (const listener of dispatch) listener(reply);
     },
     subscribeSidebar: (listener) => {
       sidebar.add(listener);
@@ -141,17 +119,19 @@ export const upsertThreadItem = (input: ThreadItemInput) =>
       Effect.gen(function* () {
         yield* sql`
           INSERT INTO thread_items (
-            thread_id, seq, source_id, turn_id, kind, status, text, data, created_at, updated_at
+            thread_id, seq, source_id, turn_id, kind, status, text, data, recovery_draft, admission_plan, created_at, updated_at
           ) VALUES (
             ${input.threadId},
             (SELECT COALESCE(MAX(seq), 0) + 1 FROM thread_items WHERE thread_id = ${input.threadId}),
             ${input.sourceId}, ${input.turnId ?? null}, ${input.kind}, ${input.status},
-            ${input.text ?? null}, ${data}, ${input.createdAt}, ${input.updatedAt}
+            ${input.text ?? null}, ${data}, ${input.recoveryDraft ?? null}, ${input.admissionPlan ?? null}, ${input.createdAt}, ${input.updatedAt}
           )
           ON CONFLICT (thread_id, source_id) DO UPDATE SET
             status = excluded.status,
             text = excluded.text,
             data = excluded.data,
+            recovery_draft = excluded.recovery_draft,
+            admission_plan = excluded.admission_plan,
             updated_at = excluded.updated_at
         `;
         // 2.1 write rule: the thread's rollup columns move in the same write.

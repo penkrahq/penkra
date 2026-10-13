@@ -103,7 +103,7 @@ import {
   CleanCoreCreateAndSendThreadResponse,
   CleanCoreThreadSummary,
   CleanCoreSendMessageInput,
-  CleanCoreSendResult,
+  CleanCoreSendAdmission,
   CleanCoreQueuedMessageInput,
   CleanCoreQueuedMessageResult,
   CleanCoreEditQueuedMessageInput,
@@ -526,7 +526,7 @@ export const WsCleanCoreGetThreadRpc = Rpc.make(WS_METHODS.cleanCoreGetThread, {
 });
 export const WsCleanCoreSendMessageRpc = Rpc.make(WS_METHODS.cleanCoreSendMessage, {
   payload: CleanCoreSendMessageInput,
-  success: CleanCoreSendResult,
+  success: CleanCoreSendAdmission,
   error: WsRpcError,
 });
 export const WsCleanCoreCancelQueuedMessageRpc = Rpc.make(WS_METHODS.cleanCoreCancelQueuedMessage, {

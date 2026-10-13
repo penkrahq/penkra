@@ -18,11 +18,15 @@ import {
   QueuedEditDraftNotEmptyError,
   QUEUED_MESSAGE_EDIT_NONEMPTY_DRAFT_ERROR,
 } from "@penkra/contracts";
-import { Cause, Deferred, Effect, Option } from "effect";
+import { Cause, Deferred, Effect, Exit, Option } from "effect";
+import { settleMessage } from "./sendMessage";
 import { makeThreadSender, type ThreadSendInput } from "./ThreadSender.ts";
 import { ThreadPublisher } from "./ThreadPublisher.ts";
 import { createThread, makeThreadPublisher, setThreadState } from "./threadStore.ts";
-import { ProviderThreadSwitchCoordinator } from "../orchestration/Services/ProviderThreadSwitchCoordinator.ts";
+import {
+  ProviderThreadSwitchCoordinator,
+  ProviderThreadSwitchCoordinatorError,
+} from "../orchestration/Services/ProviderThreadSwitchCoordinator.ts";
 import { ProviderService } from "../provider/Services/ProviderService.ts";
 import { runMigrations } from "../persistence/Migrations.ts";
 import { applyProviderEvent } from "./providerStreamConsumer.ts";
@@ -30,6 +34,30 @@ import { setThreadDraft } from "./threadDraft.ts";
 import { enqueueMessage, readThreadQueue } from "./threadQueue.ts";
 import * as SqlClient from "effect/unstable/sql/SqlClient";
 import * as NodeSqliteClient from "../persistence/NodeSqliteClient.ts";
+
+const waitForSentMessage = (
+  publisher: ReturnType<typeof makeThreadPublisher>,
+  threadId: string,
+  messageId: string,
+) =>
+  Effect.scoped(
+    Effect.gen(function* () {
+      const sql = yield* SqlClient.SqlClient;
+      const scope = yield* Effect.scope;
+      const settled = yield* Deferred.make<void>();
+      const check = Effect.gen(function* () {
+        const [item] = yield* sql<{ status: string }>`SELECT status FROM thread_items
+        WHERE thread_id=${threadId} AND source_id=${messageId}`;
+        if (item?.status === "sent") yield* Deferred.succeed(settled, undefined);
+      }).pipe(Effect.provideService(SqlClient.SqlClient, sql), Effect.orDie);
+      const stop = publisher.subscribe(threadId, () => {
+        Effect.runSync(Effect.forkIn(check, scope));
+      });
+      yield* Effect.addFinalizer(() => Effect.sync(stop));
+      yield* check;
+      yield* Deferred.await(settled);
+    }),
+  );
 
 it.effect("delivers a queued message on model B after the composer changes from model A", () =>
   Effect.gen(function* () {
@@ -82,12 +110,16 @@ it.effect("delivers a queued message on model B after the composer changes from 
               turnId: "next-turn",
               at: command.createdAt,
             });
-            publisher.publishDispatch({
-              type: "acknowledged",
-              threadId: command.threadId,
-              messageId: command.message.messageId,
-              turnId: "next-turn",
-            });
+            yield* settleMessage(
+              publisher,
+              {
+                type: "acknowledged",
+                threadId: command.threadId,
+                messageId: command.message.messageId,
+                turnId: "next-turn",
+              },
+              new Date().toISOString(),
+            );
             return { sequence: 1 };
           }).pipe(Effect.provideService(SqlClient.SqlClient, sql), Effect.orDie),
         dispatchQueuedTurn: () => Effect.die("No legacy queue"),
@@ -107,7 +139,7 @@ it.effect("delivers a queued message on model B after the composer changes from 
         queuedAt: "2026-10-09T00:00:02.000Z",
       },
     });
-    assert.equal(result.delivery, "queued");
+    assert.equal(result.plan, "queue");
     assert.deepStrictEqual(
       yield* sql`SELECT connection_id, native_state_id FROM threads WHERE id='thread-1'`,
       [{ connection_id: "old-connection", native_state_id: "old-native" }],
@@ -162,7 +194,7 @@ for (const workspaceRoot of [null, "/repo"]) {
   it.effect(
     workspaceRoot === null
       ? "starts in the durable thread scratch directory when its folder has no workspace"
-      : "starts in its folder workspace and waits for native confirmation",
+      : "admits immediately and dispatches in its folder workspace",
     () =>
       Effect.gen(function* () {
         yield* runMigrations();
@@ -182,13 +214,15 @@ for (const workspaceRoot of [null, "/repo"]) {
         });
         const publisher = makeThreadPublisher();
         let dispatchCount = 0;
+        const completions = new Map<string, Deferred.Deferred<void>>();
+        for (const id of ["m1", "m2", "m3"]) completions.set(id, yield* Deferred.make<void>());
         let expectedCwd =
           workspaceRoot ??
           ensureDurableThreadWorkspace(ThreadId.makeUnsafe("thread-1"), senderStateDir);
         const dispatchedCwds: string[] = [];
         const coordinator: typeof ProviderThreadSwitchCoordinator.Service = {
           dispatchTurnStart: ({ command, cwd }) =>
-            Effect.sync(() => {
+            Effect.gen(function* () {
               dispatchCount += 1;
               assert.equal(cwd, expectedCwd);
               if (cwd === undefined) throw new Error("The turn must have a directory.");
@@ -201,14 +235,19 @@ for (const workspaceRoot of [null, "/repo"]) {
                 turnId: "native-turn",
                 at: command.createdAt,
               });
-              publisher.publishDispatch({
-                type: "acknowledged",
-                threadId: command.threadId,
-                messageId: command.message.messageId,
-                turnId: "native-turn",
-              });
+              yield* settleMessage(
+                publisher,
+                {
+                  type: "acknowledged",
+                  threadId: command.threadId,
+                  messageId: command.message.messageId,
+                  turnId: "native-turn",
+                },
+                new Date().toISOString(),
+              );
+              yield* Deferred.succeed(completions.get(command.message.messageId)!, undefined);
               return { sequence: 1 };
-            }),
+            }).pipe(Effect.provideService(SqlClient.SqlClient, folderSql), Effect.orDie),
           dispatchQueuedTurn: () => Effect.die("no old queue"),
         };
         const sender = yield* makeThreadSender.pipe(
@@ -236,10 +275,10 @@ for (const workspaceRoot of [null, "/repo"]) {
         } satisfies ThreadSendInput;
         const result = yield* sender.send(request);
         assert.deepStrictEqual(yield* sender.send(request), result);
+        yield* Deferred.await(completions.get("m1")!);
         assert.equal(dispatchCount, 1);
-        assert.equal(result.delivery, "started");
-        if (result.delivery === "started")
-          assert.equal(result.turnId, TurnId.makeUnsafe("native-turn"));
+        assert.equal(result.plan, "deliver");
+        if (result.plan === "deliver") assert.isNumber(result.seq);
         yield* folderSql`UPDATE projection_folders SET workspace_root='/new-repo' WHERE folder_id='sender-folder'`;
         assert.equal(dispatchCount, 1);
         assert.equal(dispatchedCwds[0], expectedCwd);
@@ -249,9 +288,10 @@ for (const workspaceRoot of [null, "/repo"]) {
           (yield* sender.send({
             ...request,
             message: { ...request.message, messageId: MessageId.makeUnsafe("m2") },
-          })).delivery,
-          "started",
+          })).plan,
+          "deliver",
         );
+        yield* Deferred.await(completions.get("m2")!);
         yield* folderSql`UPDATE projection_folders SET workspace_root=NULL WHERE folder_id='sender-folder'`;
         yield* setThreadState("thread-1", "idle", null, null, "2026-10-09T00:00:03.000Z");
         expectedCwd = ensureDurableThreadWorkspace(ThreadId.makeUnsafe("thread-1"), senderStateDir);
@@ -259,9 +299,10 @@ for (const workspaceRoot of [null, "/repo"]) {
           (yield* sender.send({
             ...request,
             message: { ...request.message, messageId: MessageId.makeUnsafe("m3") },
-          })).delivery,
-          "started",
+          })).plan,
+          "deliver",
         );
+        yield* Deferred.await(completions.get("m3")!);
         assert.equal(dispatchCount, 3);
       }).pipe(Effect.scoped, Effect.provide(NodeSqliteClient.layerMemory())),
   );
@@ -394,14 +435,14 @@ for (const release of ["next-send", "remove-head", "edit-head"] as const) {
       const publisher = makeThreadPublisher();
       const failed = yield* Deferred.make<void>();
       const delivered = yield* Deferred.make<void>();
+      const failedAgain = yield* Deferred.make<void>();
       let reject = true;
       let rejected = false;
-      let startChanges: number | null = null;
       const attempts: string[] = [];
       publisher.subscribe("thread-q", () => {
         if (rejected) Effect.runSync(Deferred.succeed(failed, undefined));
-        if (startChanges !== null && ++startChanges === 3)
-          Effect.runSync(Deferred.succeed(delivered, undefined));
+        if (rejected && attempts.length === 2)
+          Effect.runSync(Deferred.succeed(failedAgain, undefined));
       });
       const coordinator = {
         dispatchTurnStart: ({
@@ -413,22 +454,32 @@ for (const release of ["next-send", "remove-head", "edit-head"] as const) {
               rejected = true;
               return yield* Effect.fail(new Error("provider launch rejected, unchanged"));
             }
-            startChanges = 0;
             yield* applyProviderEvent(publisher, {
               type: "turn.started",
               threadId: command.threadId,
               turnId: "new-native",
               at: command.createdAt,
             });
-            publisher.publishDispatch({
-              type: "acknowledged",
-              threadId: command.threadId,
-              messageId: command.message.messageId,
-              turnId: "new-native",
-            });
+            yield* settleMessage(
+              publisher,
+              {
+                type: "acknowledged",
+                threadId: command.threadId,
+                messageId: command.message.messageId,
+                turnId: "new-native",
+              },
+              new Date().toISOString(),
+            );
+            yield* Deferred.succeed(delivered, undefined);
             return { sequence: 1 };
-          }),
-      } as typeof ProviderThreadSwitchCoordinator.Service;
+          }).pipe(
+            Effect.provideService(SqlClient.SqlClient, folderSql),
+            Effect.mapError(
+              (cause) => new ProviderThreadSwitchCoordinatorError({ detail: cause.message }),
+            ),
+          ),
+        dispatchQueuedTurn: () => Effect.die("No legacy queue"),
+      } satisfies typeof ProviderThreadSwitchCoordinator.Service;
       const sender = yield* makeThreadSender.pipe(
         Effect.provideService(ServerConfig, {
           stateDir: senderStateDir,
@@ -438,19 +489,14 @@ for (const release of ["next-send", "remove-head", "edit-head"] as const) {
         Effect.provideService(ProviderThreadSwitchCoordinator, coordinator),
         Effect.provideService(ProviderService, {} as typeof ProviderService.Service),
       );
-      yield* applyProviderEvent(
-        publisher,
-        release === "edit-head"
-          ? { type: "provider.exited", threadIds: ["thread-q"], at: "2026-10-09T00:00:03.000Z" }
-          : {
-              type: "turn.ended",
-              threadId: "thread-q",
-              turnId: "old-turn",
-              state: release === "remove-head" ? "error" : "completed",
-              error: "old turn error",
-              at: "2026-10-09T00:00:03.000Z",
-            },
-      );
+      yield* applyProviderEvent(publisher, {
+        type: "turn.ended",
+        threadId: "thread-q",
+        turnId: "old-turn",
+        state: release === "next-send" ? "completed" : "error",
+        error: "old turn error",
+        at: "2026-10-09T00:00:03.000Z",
+      });
       yield* Deferred.await(failed);
       const sql = yield* SqlClient.SqlClient;
       const state = yield* sql<{
@@ -477,11 +523,11 @@ for (const release of ["next-send", "remove-head", "edit-head"] as const) {
       assert.deepStrictEqual(JSON.parse(JSON.stringify(blockedResult)), {
         threadId: "thread-q",
         messageId: "third",
-        delivery: "queued",
+        plan: "queue",
         position: 3,
         queueLength: 3,
-        runningTurnId: null,
       });
+      yield* Deferred.await(failedAgain);
       assert.deepStrictEqual(attempts, ["head", "head"]);
       reject = false;
       if (release === "next-send") {
@@ -490,7 +536,8 @@ for (const release of ["next-send", "remove-head", "edit-head"] as const) {
           message: message("fourth"),
           dispatchMode: "steer",
         });
-        assert.equal(result.delivery, "queued");
+        assert.equal(result.plan, "queue");
+        yield* Deferred.await(delivered);
         assert.deepStrictEqual(attempts, ["head", "head", "head"]);
         assert.deepStrictEqual(
           (yield* readThreadQueue("thread-q")).map((m) => m.messageId),
@@ -572,7 +619,7 @@ it.effect("claims queued attachments atomically and delivers them with their ori
     publisher.subscribe("thread-attachments", (change) => changes.push(change.threadId));
     const coordinator: typeof ProviderThreadSwitchCoordinator.Service = {
       dispatchTurnStart: ({ command, attachmentPrincipal }) =>
-        Effect.sync(() => {
+        Effect.gen(function* () {
           assert.deepStrictEqual(attachmentPrincipal, {
             ownerKind: "session",
             ownerId: "uploader",
@@ -583,14 +630,18 @@ it.effect("claims queued attachments atomically and delivers them with their ori
             turnId: "next",
             at: command.createdAt,
           });
-          publisher.publishDispatch({
-            type: "acknowledged",
-            threadId: command.threadId,
-            messageId: command.message.messageId,
-            turnId: "next",
-          });
+          yield* settleMessage(
+            publisher,
+            {
+              type: "acknowledged",
+              threadId: command.threadId,
+              messageId: command.message.messageId,
+              turnId: "next",
+            },
+            new Date().toISOString(),
+          );
           return { sequence: 1 };
-        }),
+        }).pipe(Effect.provideService(SqlClient.SqlClient, sql), Effect.orDie),
       dispatchQueuedTurn: () => Effect.die("no legacy queue"),
     };
     const sender = yield* makeThreadSender.pipe(
@@ -605,6 +656,8 @@ it.effect("claims queued attachments atomically and delivers them with their ori
     );
     const request: ThreadSendInput = {
       threadId: ThreadId.makeUnsafe("thread-attachments"),
+      draft: '{"prompt":"draft to clear"}',
+      draftUpdatedAt: null,
       dispatchMode: "queue",
       message: {
         messageId: MessageId.makeUnsafe("image-message"),
@@ -623,8 +676,8 @@ it.effect("claims queued attachments atomically and delivers them with their ori
         queuedAt: at,
       },
     };
-    const wrongOwner = yield* sender.send(request);
-    assert.equal(wrongOwner.delivery, "failed");
+    const wrongOwner = yield* Effect.exit(sender.send(request));
+    assert.isTrue(Exit.isFailure(wrongOwner));
     assert.deepStrictEqual(yield* readThreadQueue(request.threadId), []);
     assert.equal(changes.length, 0);
     assert.equal(
@@ -639,14 +692,20 @@ it.effect("claims queued attachments atomically and delivers them with their ori
         ownerId: "uploader",
       } as const),
     );
-    assert.equal(queued.delivery, "queued");
+    assert.equal(queued.plan, "queue");
     assert.equal(changes.length, 1);
-    assert.equal(
-      (yield* sql<{
-        draft: string | null;
-      }>`SELECT draft FROM threads WHERE id = ${request.threadId}`)[0]!.draft,
-      null,
-    );
+    const [cleared] = yield* sql<{
+      draft: string;
+    }>`SELECT draft FROM threads WHERE id=${request.threadId}`;
+    assert.deepStrictEqual(JSON.parse(cleared!.draft), {
+      prompt: "",
+      attachments: [],
+      files: [],
+      modelSelectionByProvider: { codex: { provider: "codex", model: "gpt-5.5" } },
+      connectionSelectionByProvider: { codex: null },
+      activeProvider: "codex",
+      runtimeMode: "full-access",
+    });
     const blob = yield* repository.findClaimedById({ attachmentId: "attachment" });
     assert.isTrue(Option.isSome(blob));
     yield* setThreadState(request.threadId, "idle", null, null, new Date().toISOString());
@@ -656,7 +715,8 @@ it.effect("claims queued attachments atomically and delivers them with their ori
         ownerId: "another-window",
       } as const),
     );
-    assert.equal(started.delivery, "started");
+    assert.equal(started.plan, "queue");
+    yield* waitForSentMessage(publisher, request.threadId, request.message.messageId);
     assert.deepStrictEqual(yield* readThreadQueue(request.threadId), []);
   }).pipe(
     Effect.scoped,
@@ -711,7 +771,7 @@ it.effect(
         queuedAt: "2026-10-10T00:00:02.000Z",
       };
       yield* enqueueMessage(threadId, message);
-      yield* sql`UPDATE threads SET draft = '{"prompt":"","attachments":[],"files":[]}' WHERE id = ${threadId}`;
+      yield* sql`UPDATE threads SET draft = '{"prompt":"","attachments":[],"files":[]}',draft_updated_at='2026-10-10T00:00:02.000Z' WHERE id = ${threadId}`;
       const publisher = makeThreadPublisher();
       const changes: string[] = [];
       publisher.subscribe(threadId, (change) => changes.push(change.threadId));
@@ -741,6 +801,9 @@ it.effect(
       );
       assert.deepStrictEqual(changes, []);
       yield* sql`DROP TRIGGER reject_edit`;
+      const [beforeEdit] = yield* sql<{
+        draft_updated_at: string;
+      }>`SELECT draft_updated_at FROM threads WHERE id=${threadId}`;
       assert.isTrue((yield* sender.editQueued(input)).removed);
       assert.deepStrictEqual(yield* readThreadQueue(threadId), []);
       const read = sql<{
@@ -755,8 +818,8 @@ it.effect(
         files: [{ id: "file", name: "file.txt", mimeType: "text/plain" }],
         assistantSelections: [],
       });
-      assert.equal(stored.draftUpdatedAt, input.updatedAt);
-      assert.equal(stored.updatedAt, input.updatedAt);
+      assert.isAbove(Date.parse(stored.draftUpdatedAt), Date.parse(beforeEdit!.draft_updated_at));
+      assert.equal(stored.updatedAt, stored.draftUpdatedAt);
       assert.deepStrictEqual(changes, [threadId]);
       assert.isFalse(
         (yield* sender.editQueued({ ...input, updatedAt: "2026-10-10T00:00:04.000Z" })).removed,
@@ -810,7 +873,7 @@ for (const content of [
         });
         yield* setThreadState(threadId, "running", "turn", null, "2026-10-10T00:00:01.000Z");
         yield* enqueueMessage(threadId, {
-          messageId: MessageId.makeUnsafe("queued"),
+          messageId: MessageId.makeUnsafe("queue"),
           text: "queued text",
           attachments: [],
           senderThreadId: null,
@@ -843,7 +906,7 @@ for (const content of [
         const result = yield* Effect.exit(
           sender.editQueued({
             threadId,
-            messageId: "queued",
+            messageId: "queue",
             updatedAt: "2026-10-10T00:00:04.000Z",
           }),
         );
@@ -866,7 +929,7 @@ for (const content of [
 for (const provider of ["codex", "claudeAgent"] as const) {
   for (const sameAccount of [true, false]) {
     it.effect(
-      `${provider} now ${sameAccount ? "steers the same account" : "interrupts before delivery to a different account"}`,
+      `${provider} now delegates the ${sameAccount ? "steer" : "interrupt-deliver"} admission and draft selection`,
       () =>
         Effect.gen(function* () {
           yield* runMigrations();
@@ -893,6 +956,7 @@ for (const provider of ["codex", "claudeAgent"] as const) {
           );
           const publisher = makeThreadPublisher();
           const order: string[] = [];
+          const dispatched = yield* Deferred.make<void>();
           const selectedConnection = sameAccount ? "account-A" : "account-B";
           yield* setThreadDraft(
             publisher,
@@ -913,18 +977,7 @@ for (const provider of ["codex", "claudeAgent"] as const) {
             Effect.provide(ManagedAttachmentRepositoryLive),
             Effect.provideService(ThreadPublisher, publisher),
             Effect.provideService(ProviderService, {
-              interruptTurn: () =>
-                Effect.gen(function* () {
-                  order.push("interrupt");
-                  yield* applyProviderEvent(publisher, {
-                    type: "turn.ended",
-                    threadId: "now-thread",
-                    turnId: "old-turn",
-                    state: "interrupted",
-                    error: null,
-                    at: "2026-10-11T00:00:03.000Z",
-                  });
-                }).pipe(Effect.provideService(SqlClient.SqlClient, sql), Effect.orDie),
+              interruptTurn: () => Effect.die("The switch coordinator owns interruption"),
             } as unknown as typeof ProviderService.Service),
             Effect.provideService(ProviderThreadSwitchCoordinator, {
               dispatchTurnStart: ({ command }) =>
@@ -932,19 +985,24 @@ for (const provider of ["codex", "claudeAgent"] as const) {
                   order.push("dispatch");
                   assert.equal(command.connectionId, selectedConnection);
                   assert.equal(command.modelSelection!.model, "model-B");
-                  assert.equal(command.dispatchMode, sameAccount ? "steer" : "queue");
+                  assert.equal(command.dispatchMode, "steer");
                   yield* applyProviderEvent(publisher, {
                     type: "turn.started",
                     threadId: "now-thread",
                     turnId: "new-turn",
                     at: command.createdAt,
                   });
-                  publisher.publishDispatch({
-                    type: "acknowledged",
-                    threadId: command.threadId,
-                    messageId: command.message.messageId,
-                    turnId: "new-turn",
-                  });
+                  yield* settleMessage(
+                    publisher,
+                    {
+                      type: "acknowledged",
+                      threadId: command.threadId,
+                      messageId: command.message.messageId,
+                      turnId: "new-turn",
+                    },
+                    new Date().toISOString(),
+                  );
+                  yield* Deferred.succeed(dispatched, undefined);
                   return { sequence: 1 };
                 }).pipe(Effect.provideService(SqlClient.SqlClient, sql), Effect.orDie),
               dispatchQueuedTurn: () => Effect.die("No legacy queue"),
@@ -962,8 +1020,9 @@ for (const provider of ["codex", "claudeAgent"] as const) {
             },
             dispatchMode: "steer",
           });
-          assert.equal(result.delivery, sameAccount ? "steered" : "interrupted");
-          assert.deepStrictEqual(order, sameAccount ? ["dispatch"] : ["interrupt", "dispatch"]);
+          assert.equal(result.plan, sameAccount ? "steer" : "interrupt-deliver");
+          yield* Deferred.await(dispatched);
+          assert.deepStrictEqual(order, ["dispatch"]);
         }).pipe(Effect.scoped, Effect.provide(NodeSqliteClient.layerMemory())),
     );
   }

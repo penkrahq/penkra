@@ -8,7 +8,7 @@ import {
 } from "@penkra/contracts";
 import { isGenericChatThreadTitle } from "@penkra/shared/chatThreads";
 import { canContinueLatestTurn } from "@penkra/shared/turnContinuation";
-import { type ChatMessage, type SessionPhase, type Thread } from "../types";
+import { type ChatMessage, type Thread } from "../types";
 import { type DraftThreadState } from "../composerDraftStore";
 import { Schema } from "effect";
 import {
@@ -302,7 +302,6 @@ export function shouldShowComposerContinue(input: {
   readonly hiddenTurnId: string | null;
   readonly continueInFlight: boolean;
   readonly sendBusy: boolean;
-  readonly sendPreflight: boolean;
   readonly connecting: boolean;
   readonly hasSendableContent: boolean;
 }): boolean {
@@ -316,30 +315,10 @@ export function shouldShowComposerContinue(input: {
     input.model != null &&
     !input.continueInFlight &&
     !input.sendBusy &&
-    !input.sendPreflight &&
     !input.connecting &&
     !input.hasSendableContent &&
     canContinueLatestTurn(input.thread, turnId)
   );
-}
-
-/**
- * Visible chat activity follows admitted or active work, not provider transport
- * setup. Opening an idle thread may connect a provider session and must not
- * fabricate a Thinking row.
- */
-export function deriveChatActivity(input: {
-  readonly hasLiveTurn: boolean;
-  readonly latestTurnLive: boolean;
-  readonly isSendBusy: boolean;
-  readonly hasPendingTurnStart: boolean;
-}): { readonly busy: boolean; readonly controllable: boolean } {
-  const controllable =
-    input.hasLiveTurn || input.latestTurnLive || input.isSendBusy || input.hasPendingTurnStart;
-  return {
-    busy: controllable,
-    controllable,
-  };
 }
 
 /**
@@ -365,10 +344,10 @@ export function resolveThreadDetailHydration(input: {
 /** Keep locally owned send feedback mounted while a promoted thread shell hydrates. */
 export function shouldRenderTranscriptDuringHydration(input: {
   readonly hydration: ThreadDetailHydration;
-  readonly optimisticMessageCount: number;
+  readonly messageCount: number;
   readonly isWorking: boolean;
 }): boolean {
-  return input.hydration === "ready" || input.optimisticMessageCount > 0 || input.isWorking;
+  return input.hydration === "ready" || input.messageCount > 0 || input.isWorking;
 }
 
 export function buildLocalDraftThread(
@@ -409,31 +388,6 @@ export function revokeBlobPreviewUrl(previewUrl: string | undefined): void {
     return;
   }
   URL.revokeObjectURL(previewUrl);
-}
-
-export function revokeUserMessagePreviewUrls(message: ChatMessage): void {
-  if (message.role !== "user" || !message.attachments) {
-    return;
-  }
-  for (const attachment of message.attachments) {
-    if (attachment.type !== "image") {
-      continue;
-    }
-    revokeBlobPreviewUrl(attachment.previewUrl);
-  }
-}
-
-export function collectUserMessageBlobPreviewUrls(message: ChatMessage): string[] {
-  if (message.role !== "user" || !message.attachments) {
-    return [];
-  }
-  const previewUrls: string[] = [];
-  for (const attachment of message.attachments) {
-    if (attachment.type !== "image") continue;
-    if (!attachment.previewUrl || !attachment.previewUrl.startsWith("blob:")) continue;
-    previewUrls.push(attachment.previewUrl);
-  }
-  return previewUrls;
 }
 
 export function appendVoiceTranscriptToPrompt(
@@ -535,98 +489,6 @@ export function shouldConsumePendingCustomBinaryConfirmation(input: {
   pendingCustomBinaryPath: string | null | undefined;
 }): boolean {
   return !input.sessionAlreadyChecked || Boolean(input.pendingCustomBinaryPath);
-}
-
-export interface LocalDispatchSnapshot {
-  startedAt: string;
-  expectedUserMessageId: ChatMessage["id"] | null;
-  latestTurnTurnId: Thread["latestTurn"] extends infer T
-    ? T extends { turnId: infer U }
-      ? U | null
-      : null
-    : null;
-  latestTurnRequestedAt: string | null;
-  latestTurnStartedAt: string | null;
-  latestTurnCompletedAt: string | null;
-  sessionOrchestrationStatus: Thread["session"] extends infer T
-    ? T extends { orchestrationStatus: infer U }
-      ? U | null
-      : null
-    : null;
-  sessionUpdatedAt: string | null;
-}
-
-export function createLocalDispatchSnapshot(
-  activeThread: Thread | undefined,
-  options?: { readonly expectedUserMessageId?: ChatMessage["id"] },
-): LocalDispatchSnapshot {
-  const latestTurn = activeThread?.latestTurn ?? null;
-  const session = activeThread?.session ?? null;
-  return {
-    startedAt: new Date().toISOString(),
-    expectedUserMessageId: options?.expectedUserMessageId ?? null,
-    latestTurnTurnId: latestTurn?.turnId ?? null,
-    latestTurnRequestedAt: latestTurn?.requestedAt ?? null,
-    latestTurnStartedAt: latestTurn?.startedAt ?? null,
-    latestTurnCompletedAt: latestTurn?.completedAt ?? null,
-    sessionOrchestrationStatus: session?.orchestrationStatus ?? null,
-    sessionUpdatedAt: session?.updatedAt ?? null,
-  };
-}
-
-export function resolveNextLocalDispatchSnapshot(input: {
-  current: LocalDispatchSnapshot | null;
-  activeThread: Thread | undefined;
-  options?: { readonly expectedUserMessageId?: ChatMessage["id"] };
-}): LocalDispatchSnapshot {
-  return input.current ?? createLocalDispatchSnapshot(input.activeThread, input.options);
-}
-
-export function hasServerAcknowledgedLocalDispatch(input: {
-  localDispatch: LocalDispatchSnapshot | null;
-  phase: SessionPhase;
-  latestTurn: Thread["latestTurn"] | null;
-  session: Thread["session"] | null;
-  messages?: ReadonlyArray<Pick<ChatMessage, "id" | "role" | "delivery">>;
-  hasPendingUserInput: boolean;
-  threadError: string | null | undefined;
-}): boolean {
-  if (!input.localDispatch) {
-    return false;
-  }
-  if (input.phase === "running" || input.hasPendingUserInput || Boolean(input.threadError)) {
-    return true;
-  }
-  // A first-send startup failure can settle the exact message before a provider
-  // session or latest turn exists. Mere message arrival is not acknowledgement:
-  // queued/starting/steering work must keep its admission indicator.
-  if (
-    input.localDispatch.expectedUserMessageId !== null &&
-    input.messages?.some(
-      (message) =>
-        message.id === input.localDispatch?.expectedUserMessageId &&
-        message.role === "user" &&
-        message.delivery?.state === "failed",
-    )
-  ) {
-    return true;
-  }
-  const latestTurn = input.latestTurn ?? null;
-  const latestTurnChanged =
-    input.localDispatch.latestTurnTurnId !== (latestTurn?.turnId ?? null) ||
-    input.localDispatch.latestTurnRequestedAt !== (latestTurn?.requestedAt ?? null) ||
-    input.localDispatch.latestTurnStartedAt !== (latestTurn?.startedAt ?? null) ||
-    input.localDispatch.latestTurnCompletedAt !== (latestTurn?.completedAt ?? null);
-
-  if (latestTurnChanged) {
-    return true;
-  }
-
-  // Session bootstrap is not turn acknowledgement. In particular, reopening a
-  // stopped provider changes stopped -> ready before the new turn is projected.
-  // Keep the local owner until the new turn, blocker, or explicit error above
-  // supplies evidence for this dispatch.
-  return false;
 }
 
 export function deriveComposerSendState(options: {

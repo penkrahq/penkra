@@ -530,48 +530,7 @@ describe("resolveThreadStatusPill", () => {
     ).toMatchObject({ label: "Working", pulse: true });
   });
 
-  it("keeps a newly promoted draft working before shell lifecycle projection arrives", () => {
-    expect(
-      resolveThreadStatusPill({
-        thread: {
-          ...baseThread,
-          latestTurn: null,
-          session: null,
-        },
-        hasPendingUserInput: false,
-        isPromotedDraftPending: true,
-      }),
-    ).toMatchObject({ label: "Working", pulse: true });
-  });
-
-  it("does not keep an orphaned promoted draft working after an idle shell summary arrives", () => {
-    expect(
-      resolveThreadStatusPill({
-        thread: {
-          ...baseThread,
-          latestTurn: null,
-          session: null,
-        },
-        hasPendingUserInput: false,
-        isPromotedDraftPending: true,
-        hasLocalSendOwner: false,
-        hasCanonicalThreadSummary: true,
-      }),
-    ).toBeNull();
-  });
-
-  it("keeps working after draft finalization while the shared send owner remains active", () => {
-    expect(
-      resolveThreadStatusPill({
-        thread: { ...baseThread, latestTurn: null, session: null },
-        hasPendingUserInput: false,
-        isPromotedDraftPending: false,
-        hasLocalSendOwner: true,
-      }),
-    ).toMatchObject({ label: "Working", pulse: true });
-  });
-
-  it("keeps working from the admitted message until the server turn projection arrives", () => {
+  it("does not show Working from an admission without a running turn", () => {
     expect(
       resolveThreadStatusPill({
         thread: {
@@ -582,10 +541,10 @@ describe("resolveThreadStatusPill", () => {
         },
         hasPendingUserInput: false,
       }),
-    ).toMatchObject({ label: "Working", pulse: true });
+    ).toBeNull();
   });
 
-  it("keeps an admitted message working while an unrelated previous turn remains completed", () => {
+  it("keeps the prior completion visible until the admitted message starts a turn", () => {
     expect(
       resolveThreadStatusPill({
         thread: {
@@ -608,7 +567,7 @@ describe("resolveThreadStatusPill", () => {
         },
         hasPendingUserInput: false,
       }),
-    ).toMatchObject({ label: "Working", pulse: true });
+    ).toMatchObject({ label: "Completed", pulse: false });
   });
 
   it("surfaces a quarantined or errored session as attention instead of working", () => {

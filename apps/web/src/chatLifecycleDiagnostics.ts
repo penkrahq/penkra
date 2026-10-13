@@ -11,12 +11,7 @@ export interface ChatLifecycleDiagnosticState {
   readonly threadDetailSyncState: string | null;
   readonly threadDetailHydration: string;
   readonly projectedMessageCount: number;
-  readonly optimisticUserMessageCount: number;
   readonly draftPromotedTo: string | null;
-  readonly localDispatchActive: boolean;
-  readonly localDispatchStartedAt: string | null;
-  readonly localDispatchExpectedUserMessageId: string | null;
-  readonly serverAcknowledgedLocalDispatch: boolean;
   readonly threadWorkStatus: string | null;
   readonly sessionStatus: string | null;
   readonly sessionUpdatedAt: string | null;
@@ -28,7 +23,6 @@ export interface ChatLifecycleDiagnosticState {
   readonly latestTurnStartedAt: string | null;
   readonly latestTurnCompletedAt: string | null;
   // Resolved working owner, including message-delivery fallback.
-  readonly pendingTurnStartMessageId: string | null;
   readonly projectedPendingTurnStartMessageId?: string | null;
   readonly hasSendPreflight?: boolean;
   readonly phase: string;
@@ -38,7 +32,6 @@ export interface ChatLifecycleDiagnosticState {
   readonly latestTurnLive: boolean;
   readonly hasLiveTurn: boolean;
   readonly isSendBusy: boolean;
-  readonly hasPendingTurnStart: boolean;
   readonly isConnecting: boolean;
   readonly isTurnWorking: boolean;
   readonly isWorking: boolean;
@@ -81,7 +74,6 @@ export interface ChatComposerContinueDiagnosticSample {
   readonly hiddenTurn: boolean;
   readonly continueInFlight: boolean;
   readonly sendBusy: boolean;
-  readonly sendPreflight: boolean;
   readonly connecting: boolean;
   readonly hasSendableContent: boolean;
   readonly canShowContinue: boolean;

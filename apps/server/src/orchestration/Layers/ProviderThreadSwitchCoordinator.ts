@@ -2,6 +2,7 @@
 // Purpose: Copy native state and admit a turn using the canonical thread row.
 
 import { randomUUID } from "node:crypto";
+import { providerSupportsNativeTurnSteering } from "@penkra/shared/providerMetadata";
 import {
   ModelSelection,
   ProviderConnectionId,
@@ -92,6 +93,7 @@ export const makeProviderThreadSwitchCoordinator = Effect.gen(function* () {
     let thread = yield* readThread(input.command.threadId);
     const nativeSteer =
       input.command.dispatchMode === "steer" &&
+      providerSupportsNativeTurnSteering(thread.provider) &&
       thread.state === "running" &&
       (input.command.connectionId === undefined ||
         input.command.connectionId === thread.connectionId);
@@ -217,7 +219,12 @@ export const makeProviderThreadSwitchCoordinator = Effect.gen(function* () {
     });
     const result = yield* engine
       .dispatch(
-        { ...input.command, modelSelection: selectedModel, connectionId: selection.connectionId },
+        {
+          ...input.command,
+          dispatchMode: nativeSteer ? "steer" : "queue",
+          modelSelection: selectedModel,
+          connectionId: selection.connectionId,
+        },
         {
           attachmentPrincipal: input.attachmentPrincipal,
           ...(nativeSteer
@@ -228,6 +235,7 @@ export const makeProviderThreadSwitchCoordinator = Effect.gen(function* () {
                   modelSelection: selectedModel,
                   connectionId: selection.connectionId,
                   nativeState,
+                  runtimeMode: input.command.runtimeMode,
                   updatedAt: input.command.createdAt,
                 },
               }),

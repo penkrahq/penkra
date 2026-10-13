@@ -177,3 +177,135 @@ describe("createComposerDraftSync", () => {
     expect(api.getThreadDraft).toHaveBeenCalledTimes(1);
   });
 });
+
+it("applies a committed null draft as a clear", async () => {
+  const api = makeApi({
+    draft: JSON.stringify({ prompt: "before clear" }),
+    updatedAt: "2026-10-12T00:00:00.000Z",
+  });
+  const applied = vi.fn();
+  const sync = createComposerDraftSync({
+    api,
+    threadId: THREAD_ID,
+    applyServerDraft: applied,
+    serialize,
+    deserialize,
+  });
+  await sync.start();
+  await api.setThreadDraft({
+    threadId: THREAD_ID,
+    draft: null,
+    updatedAt: "2026-10-12T00:00:00.001Z",
+  });
+  await sync.start();
+  expect(applied).toHaveBeenLastCalledWith(
+    expect.objectContaining({ prompt: "", images: [], files: [] }),
+  );
+  sync.stop();
+});
+it("does not let an older decoding draft overwrite a newer restoration", async () => {
+  let releaseOld!: () => void, enteredOld!: () => void, restored!: () => void;
+  const oldGate = new Promise<void>((resolve) => {
+    releaseOld = resolve;
+  });
+  const oldEntered = new Promise<void>((resolve) => {
+    enteredOld = resolve;
+  });
+  const restorationApplied = new Promise<void>((resolve) => {
+    restored = resolve;
+  });
+  const api = makeApi({
+    draft: JSON.stringify({ prompt: "old" }),
+    updatedAt: "2026-10-12T00:00:00.000Z",
+  });
+  const applied: string[] = [];
+  const sync = createComposerDraftSync({
+    api,
+    threadId: THREAD_ID,
+    serialize,
+    deserialize: async (id, payload) => {
+      if (JSON.parse(payload).prompt === "old") {
+        enteredOld();
+        await oldGate;
+      }
+      return deserialize(id, payload);
+    },
+    applyServerDraft: (draft) => {
+      applied.push(draft.prompt);
+      if (draft.prompt === "restored") restored();
+    },
+  });
+  const oldRead = sync.start();
+  await oldEntered;
+  await api.setThreadDraft({
+    threadId: THREAD_ID,
+    draft: JSON.stringify({ prompt: "restored" }),
+    updatedAt: "2026-10-12T00:00:00.001Z",
+  });
+  api.emit(THREAD_ID);
+  await restorationApplied;
+  releaseOld();
+  await oldRead;
+  expect(applied).toEqual(["restored"]);
+  sync.stop();
+});
+
+it("saves newer local input before applying a remote admission clear", async () => {
+  const api = makeApi({
+    draft: JSON.stringify({ prompt: "submitted" }),
+    updatedAt: "2026-10-12T00:00:00.000Z",
+  });
+  const applyServerDraft = vi.fn();
+  const sync = createComposerDraftSync({
+    api,
+    threadId: THREAD_ID,
+    applyServerDraft,
+    serialize,
+    deserialize,
+    now: () => "2026-10-12T00:00:01.000Z",
+  });
+  await sync.start();
+  sync.setLocalDraft({ ...createEmptyThreadDraft(), prompt: "newer" });
+  await api.setThreadDraft({
+    threadId: THREAD_ID,
+    draft: null,
+    updatedAt: "2026-10-12T00:00:00.001Z",
+  });
+  await sync.start();
+  expect(JSON.parse(api.current().draft!).prompt).toBe("newer");
+  expect(applyServerDraft.mock.calls.map(([draft]) => draft.prompt)).not.toContain("");
+  sync.stop();
+});
+
+it("does not apply an earlier read over input composed while that read is pending", async () => {
+  const api = makeApi({
+    draft: JSON.stringify({ prompt: "old server text" }),
+    updatedAt: "2026-10-12T00:00:00.000Z",
+  });
+  let releaseRead!: (value: Awaited<ReturnType<ComposerDraftSyncApi["getThreadDraft"]>>) => void;
+  api.getThreadDraft = vi.fn(
+    () =>
+      new Promise<Awaited<ReturnType<ComposerDraftSyncApi["getThreadDraft"]>>>((resolve) => {
+        releaseRead = resolve;
+      }),
+  );
+  const applyServerDraft = vi.fn();
+  const sync = createComposerDraftSync({
+    api,
+    threadId: THREAD_ID,
+    applyServerDraft,
+    serialize,
+    deserialize,
+    now: () => "2026-10-12T00:00:01.000Z",
+  });
+  const loading = sync.start();
+  sync.setLocalDraft({ ...createEmptyThreadDraft(), prompt: "newer editor input" });
+  releaseRead({
+    draft: JSON.stringify({ prompt: "old server text" }),
+    draftUpdatedAt: "2026-10-12T00:00:00.000Z",
+  });
+  await loading;
+  expect(applyServerDraft).not.toHaveBeenCalled();
+  expect(JSON.parse(api.current().draft!).prompt).toBe("newer editor input");
+  sync.stop();
+});

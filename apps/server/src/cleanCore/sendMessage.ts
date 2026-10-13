@@ -1,15 +1,15 @@
-// Provider-confirmed sends and the persisted FIFO (TODO 2.3/2.4).
+// Persist send admission before provider work; settle outcomes in canonical rows.
 import {
+  MessageId,
+  RuntimeMode,
   ThreadId,
-  TurnId,
-  type CleanCoreSendResult,
+  type CleanCoreSendAdmission,
   type CleanCoreSendMessageInput,
 } from "@penkra/contracts";
-import { Deferred, Effect } from "effect";
+import { Effect } from "effect";
 import * as SqlClient from "effect/unstable/sql/SqlClient";
-
-import { draftAfterSend } from "./threadDraft.ts";
-import { PROVIDER_CUTOFF_NOTICE } from "./providerStreamConsumer.ts";
+import { nextCommittedDraftTimestamp } from "./threadDraftTimestamp.ts";
+import { draftAfterSend, isThreadDraftEmpty } from "./threadDraft.ts";
 import { enqueueMessage, planSend, readThreadQueue, type QueuedMessage } from "./threadQueue.ts";
 import { upsertThreadItem, type ThreadPublisher } from "./threadStore.ts";
 
@@ -18,6 +18,8 @@ export const PLAY_TURN_RECOVERY_PROMPT =
 
 export interface SendMessageInput extends Pick<
   CleanCoreSendMessageInput,
+  | "draft"
+  | "draftUpdatedAt"
   | "providerOptions"
   | "assistantDeliveryMode"
   | "skills"
@@ -25,6 +27,7 @@ export interface SendMessageInput extends Pick<
   | "modelSelection"
   | "connectionId"
 > {
+  readonly runtimeMode?: typeof RuntimeMode.Type;
   readonly threadId: string;
   readonly message: QueuedMessage;
   readonly dispatchMode: "queue" | "steer";
@@ -32,134 +35,11 @@ export interface SendMessageInput extends Pick<
 }
 export interface SendDriver {
   readonly claimAttachments: (input: SendMessageInput) => Effect.Effect<void, Error>;
-  /** Dispatch and return the adapter's acknowledged native turn id. */
-  readonly dispatch: (
-    input: SendMessageInput,
-    mode: "deliver" | "steer",
-  ) => Effect.Effect<string, Error>;
-  readonly interrupt: (threadId: string) => Effect.Effect<void, Error>;
+  readonly dispatch: (input: SendMessageInput, mode: DeliveryPlan) => Effect.Effect<void, Error>;
 }
+type DeliveryPlan = "deliver" | "steer" | "interrupt-deliver";
 
-/** Subscribe before dispatch, and correlate the acknowledgement with the exact start event. */
-export const deliverMessage = (
-  publisher: ThreadPublisher,
-  driver: SendDriver,
-  input: SendMessageInput,
-  plan: "deliver" | "steer" | "interrupt-deliver",
-  runningTurnId: string | null,
-) =>
-  Effect.scoped(
-    Effect.gen(function* () {
-      yield* driver.claimAttachments(input);
-      const result = yield* Deferred.make<
-        { readonly turnId: string; readonly at: string },
-        Error
-      >();
-      const started = new Map<string, string>();
-      const exited = yield* Deferred.make<never, Error>();
-      let delivering = plan !== "interrupt-deliver";
-      let acknowledged: string | null = null;
-      const unsubscribe = publisher.subscribeProvider((event) => {
-        if (event.type === "turn.started" && event.threadId === input.threadId) {
-          started.set(event.turnId, event.at);
-          if (acknowledged === event.turnId)
-            Effect.runSync(Deferred.succeed(result, { turnId: event.turnId, at: event.at }));
-        } else if (
-          delivering &&
-          event.type === "provider.exited" &&
-          event.threadIds.includes(input.threadId)
-        ) {
-          Effect.runSync(
-            Deferred.fail(
-              result,
-              new Error(event.reason === undefined ? PROVIDER_CUTOFF_NOTICE : event.reason),
-            ),
-          );
-          Effect.runSync(
-            Deferred.fail(
-              exited,
-              new Error(event.reason === undefined ? PROVIDER_CUTOFF_NOTICE : event.reason),
-            ),
-          );
-        }
-      });
-      yield* Effect.addFinalizer(() => Effect.sync(unsubscribe));
-      if (plan === "interrupt-deliver") {
-        const ended = yield* Deferred.make<void>();
-        const stopListening = publisher.subscribeProvider((event) => {
-          if (
-            (event.type === "turn.ended" &&
-              event.threadId === input.threadId &&
-              event.turnId === runningTurnId) ||
-            (event.type === "provider.exited" && event.threadIds.includes(input.threadId))
-          ) {
-            Effect.runSync(Deferred.succeed(ended, undefined));
-          }
-        });
-        yield* Effect.addFinalizer(() => Effect.sync(stopListening));
-        yield* driver.interrupt(input.threadId);
-        yield* Deferred.await(ended);
-      }
-      delivering = true;
-      acknowledged = yield* Effect.raceFirst(
-        driver.dispatch(input, plan === "steer" ? "steer" : "deliver"),
-        Deferred.await(exited),
-      );
-      const now = new Date().toISOString();
-      const confirmed =
-        plan === "steer"
-          ? { turnId: acknowledged, at: now }
-          : started.has(acknowledged)
-            ? { turnId: acknowledged, at: started.get(acknowledged)! }
-            : yield* Deferred.await(result);
-      const sql = yield* SqlClient.SqlClient;
-      yield* sql.withTransaction(
-        Effect.gen(function* () {
-          yield* upsertThreadItem({
-            threadId: input.threadId,
-            sourceId: input.message.messageId,
-            turnId: confirmed.turnId,
-            kind: "user",
-            status: "sent",
-            text: input.message.text,
-            data: JSON.stringify({
-              delivery:
-                plan === "deliver" ? "started" : plan === "steer" ? "steered" : "interrupted",
-              attachments: input.message.attachments,
-              senderThreadId: input.message.senderThreadId,
-              dispatchOrigin: input.message.dispatchOrigin,
-            }),
-            createdAt: confirmed.at,
-            updatedAt: confirmed.at,
-          });
-          const drafts = yield* sql<{
-            draft: string | null;
-            provider: string;
-          }>`SELECT draft, provider FROM threads WHERE id=${input.threadId}`;
-          const draft = draftAfterSend(drafts[0]!.draft, drafts[0]!.provider, undefined);
-          yield* sql`UPDATE threads SET draft = ${draft}, draft_updated_at = ${confirmed.at}, updated_at = ${confirmed.at} WHERE id = ${input.threadId}`;
-        }),
-      );
-      publisher.publish({ threadId: input.threadId });
-      return {
-        threadId: ThreadId.makeUnsafe(input.threadId),
-        messageId: input.message.messageId,
-        delivery: plan === "deliver" ? "started" : plan === "steer" ? "steered" : "interrupted",
-        turnId: TurnId.makeUnsafe(confirmed.turnId),
-      } satisfies CleanCoreSendResult;
-    }),
-  ).pipe(
-    Effect.catch((error) => {
-      if ("_tag" in error && error._tag === "SqlError") return Effect.fail(error);
-      return Effect.succeed({
-        threadId: ThreadId.makeUnsafe(input.threadId),
-        messageId: input.message.messageId,
-        delivery: "failed" as const,
-        error: error.message,
-      } satisfies CleanCoreSendResult);
-    }),
-  );
-
+/** One committed admission, including clearing the composer. No provider wait. */
 export const sendMessage = (
   publisher: ThreadPublisher,
   driver: SendDriver,
@@ -167,72 +47,217 @@ export const sendMessage = (
 ) =>
   Effect.gen(function* () {
     const sql = yield* SqlClient.SqlClient;
-    const rows = yield* sql<{
-      readonly state: "idle" | "running" | "error";
-      readonly activeTurnId: string | null;
-    }>`SELECT state, active_turn_id AS "activeTurnId" FROM threads WHERE id = ${input.threadId}`;
-    const thread = rows[0];
-    if (thread === undefined)
-      return {
-        threadId: ThreadId.makeUnsafe(input.threadId),
-        messageId: input.message.messageId,
-        delivery: "failed" as const,
-        error: "The thread does not exist.",
-      } satisfies CleanCoreSendResult;
-    const queue = yield* readThreadQueue(input.threadId);
-    const plan = planSend({
-      state: thread.state,
-      dispatchMode: input.dispatchMode,
-      supportsSteer: input.supportsSteer,
-      queueLength: queue.length,
-    });
-    if (plan !== "queue")
-      return yield* deliverMessage(publisher, driver, input, plan, thread.activeTurnId);
-    const queued = yield* sql.withTransaction(
+    const admission = yield* sql.withTransaction(
       Effect.gen(function* () {
+        const [thread] = yield* sql<{
+          state: "idle" | "running" | "error";
+          provider: string;
+          draft: string | null;
+          draftUpdatedAt: string | null;
+          archivedAt: string | null;
+          deletedAt: string | null;
+        }>`
+        SELECT state,provider,draft,draft_updated_at AS "draftUpdatedAt",archived_at AS "archivedAt",deleted_at AS "deletedAt"
+        FROM threads WHERE id=${input.threadId}`;
+        if (thread === undefined || thread.deletedAt !== null)
+          return yield* Effect.fail(new Error("The thread does not exist."));
+        if (thread.archivedAt !== null)
+          return yield* Effect.fail(
+            new Error("This thread is archived. Unarchive it to send messages."),
+          );
+        if (input.modelSelection !== undefined && input.modelSelection.provider !== thread.provider)
+          return yield* Effect.fail(
+            new Error(
+              "This thread uses a different provider. To use another provider, start a new thread.",
+            ),
+          );
+        const [existing] = yield* sql<{ seq: number; plan: DeliveryPlan }>`
+        SELECT seq,admission_plan AS plan FROM thread_items WHERE thread_id=${input.threadId}
+          AND source_id=${input.message.messageId} AND kind='user'`;
+        if (existing !== undefined)
+          return {
+            threadId: ThreadId.makeUnsafe(input.threadId),
+            messageId: input.message.messageId,
+            plan: existing.plan,
+            seq: existing.seq,
+          } satisfies CleanCoreSendAdmission;
+        const queue = yield* readThreadQueue(input.threadId);
+        const position = queue.findIndex(
+          (message) => message.messageId === input.message.messageId,
+        );
+        if (position !== -1)
+          return {
+            threadId: ThreadId.makeUnsafe(input.threadId),
+            messageId: input.message.messageId,
+            plan: "queue" as const,
+            position: position + 1,
+            queueLength: queue.length,
+          } satisfies CleanCoreSendAdmission;
+        // An admitted start is busy even before its provider turn-start event.
+        const pending = yield* sql`SELECT 1 FROM thread_items WHERE thread_id=${input.threadId}
+        AND kind='user' AND status='sending' LIMIT 1`;
+        const plan = planSend({
+          state: thread.state,
+          dispatchMode: input.dispatchMode,
+          supportsSteer: input.supportsSteer,
+          queueLength: queue.length + pending.length,
+        });
         yield* driver.claimAttachments(input);
-        return yield* enqueueMessage(input.threadId, input.message, input);
+        if (plan === "queue") {
+          const queued = yield* enqueueMessage(
+            input.threadId,
+            input.message,
+            input,
+            input.draft,
+            input.draftUpdatedAt,
+          );
+          return {
+            threadId: ThreadId.makeUnsafe(input.threadId),
+            messageId: input.message.messageId,
+            plan,
+            position: queued.length,
+            queueLength: queued.length,
+          } satisfies CleanCoreSendAdmission;
+        }
+        yield* writeSendingMessage(input, plan);
+        if (input.draft !== undefined && thread.draftUpdatedAt === (input.draftUpdatedAt ?? null)) {
+          const draft = draftAfterSend(thread.draft, thread.provider, input);
+          const draftUpdatedAt = nextCommittedDraftTimestamp(
+            thread.draftUpdatedAt,
+            new Date().toISOString(),
+          );
+          yield* sql`UPDATE threads SET draft=${draft},draft_updated_at=${draftUpdatedAt} WHERE id=${input.threadId}`;
+        }
+        const [row] = yield* sql<{ seq: number }>`SELECT seq FROM thread_items
+        WHERE thread_id=${input.threadId} AND source_id=${input.message.messageId}`;
+        return {
+          threadId: ThreadId.makeUnsafe(input.threadId),
+          messageId: input.message.messageId,
+          plan,
+          seq: row!.seq,
+        } satisfies CleanCoreSendAdmission;
       }),
     );
     publisher.publish({ threadId: input.threadId });
-    return {
-      threadId: ThreadId.makeUnsafe(input.threadId),
-      messageId: input.message.messageId,
-      delivery: "queued" as const,
-      position: queued.length,
-      queueLength: queued.length,
-      runningTurnId: thread.activeTurnId === null ? null : TurnId.makeUnsafe(thread.activeTurnId),
-    } satisfies CleanCoreSendResult;
-  }).pipe(
-    Effect.catch((error) => {
-      if ("_tag" in error && error._tag === "SqlError") return Effect.fail(error);
-      return Effect.succeed({
-        threadId: ThreadId.makeUnsafe(input.threadId),
-        messageId: input.message.messageId,
-        delivery: "failed" as const,
-        error: error.message,
-      } satisfies CleanCoreSendResult);
-    }),
-  );
+    return admission;
+  });
 
-export const playThread = (
+/** Also used when a queued head begins delivery; its selection is read then. */
+export const writeSendingMessage = (input: SendMessageInput, plan: DeliveryPlan) =>
+  upsertThreadItem({
+    threadId: input.threadId,
+    sourceId: input.message.messageId,
+    kind: "user",
+    status: "sending",
+    text: input.message.text,
+    recoveryDraft: input.draft ?? null,
+    admissionPlan: plan,
+    data: JSON.stringify({
+      attachments: input.message.attachments,
+      senderThreadId: input.message.senderThreadId,
+    }),
+    createdAt: input.message.queuedAt,
+    updatedAt: input.message.queuedAt,
+  });
+
+/** Scoped background dispatch; the coordinator owns steering and interruption. */
+export const deliverMessage = (
   publisher: ThreadPublisher,
   driver: SendDriver,
-  input: { readonly threadId: string; readonly message: QueuedMessage },
+  input: SendMessageInput,
+  plan: DeliveryPlan,
+) =>
+  driver.dispatch(input, plan).pipe(
+    Effect.catch((error) =>
+      settleMessage(
+        publisher,
+        {
+          type: "failed",
+          threadId: input.threadId,
+          messageId: input.message.messageId,
+          error: error.message,
+        },
+        new Date().toISOString(),
+      ),
+    ),
+  );
+
+export type MessageOutcome = { readonly threadId: string; readonly messageId: string } & (
+  | { readonly type: "acknowledged"; readonly turnId: string }
+  | { readonly type: "failed"; readonly error: string }
+);
+
+/** The one outcome writer; callers report native results, never repair rows. */
+export const settleMessage = (publisher: ThreadPublisher, outcome: MessageOutcome, at: string) =>
+  Effect.gen(function* () {
+    const sql = yield* SqlClient.SqlClient;
+    const changed = yield* sql.withTransaction(
+      Effect.gen(function* () {
+        const [row] = yield* sql<{
+          recoveryDraft: string | null;
+        }>`SELECT recovery_draft AS "recoveryDraft" FROM thread_items
+        WHERE thread_id=${outcome.threadId} AND source_id=${outcome.messageId} AND kind='user' AND status='sending'`;
+        if (row === undefined) return false;
+        const [thread] = yield* sql<{
+          queue: string;
+          draft: string | null;
+          draftUpdatedAt: string | null;
+        }>`SELECT queue,draft,draft_updated_at AS "draftUpdatedAt" FROM threads WHERE id=${outcome.threadId}`;
+        const queue = JSON.parse(thread!.queue) as QueuedMessage[];
+        const queued = queue.some((message) => message.messageId === outcome.messageId);
+        if (outcome.type === "acknowledged") {
+          yield* sql`UPDATE thread_items SET status='sent',recovery_draft=NULL,turn_id=${outcome.turnId},updated_at=${at}
+          WHERE thread_id=${outcome.threadId} AND source_id=${outcome.messageId}`;
+          if (queued)
+            yield* sql`UPDATE threads SET queue=${JSON.stringify(queue.filter((message) => message.messageId !== outcome.messageId))},updated_at=${at} WHERE id=${outcome.threadId}`;
+        } else {
+          yield* sql`DELETE FROM thread_items WHERE thread_id=${outcome.threadId} AND source_id=${outcome.messageId}`;
+          if (queued) {
+            yield* sql`UPDATE threads SET state='error',active_turn_id=NULL,last_error=${outcome.error},updated_at=${at} WHERE id=${outcome.threadId}`;
+          } else if (row.recoveryDraft !== null && isThreadDraftEmpty(thread!.draft)) {
+            const draftUpdatedAt = nextCommittedDraftTimestamp(thread!.draftUpdatedAt, at);
+            yield* sql`UPDATE threads SET last_error=${outcome.error},draft=${row.recoveryDraft},
+              draft_updated_at=${draftUpdatedAt},updated_at=${at} WHERE id=${outcome.threadId}`;
+          } else {
+            yield* sql`UPDATE threads SET last_error=${outcome.error},updated_at=${at} WHERE id=${outcome.threadId}`;
+          }
+        }
+        return true;
+      }),
+    );
+    if (changed) publisher.publish({ threadId: outcome.threadId });
+  });
+
+/** A restart cannot resume an unacknowledged admission; restore it as a failure. */
+export const failSendingMessagesOnStartup = (
+  publisher: ThreadPublisher,
+  at: string,
+  error: string,
 ) =>
   Effect.gen(function* () {
     const sql = yield* SqlClient.SqlClient;
-    const rows = yield* sql<{
-      readonly state: string;
-    }>`SELECT state FROM threads WHERE id = ${input.threadId}`;
-    if (rows[0]?.state !== "idle") return null;
-    const cutoff =
-      yield* sql`SELECT 1 FROM thread_items WHERE thread_id = ${input.threadId} AND kind = 'notice' AND text = ${PROVIDER_CUTOFF_NOTICE} LIMIT 1`;
-    if (cutoff.length === 0) return null;
-    return yield* sendMessage(publisher, driver, {
-      threadId: input.threadId,
-      message: { ...input.message, text: PLAY_TURN_RECOVERY_PROMPT },
-      dispatchMode: "queue",
-      supportsSteer: false,
-    });
+    let after: string | null = null;
+    while (true) {
+      const threads: readonly { id: string }[] =
+        after === null
+          ? yield* sql<{ id: string }>`SELECT id FROM threads ORDER BY id LIMIT 50`
+          : yield* sql<{
+              id: string;
+            }>`SELECT id FROM threads WHERE id>${after} ORDER BY id LIMIT 50`;
+      if (threads.length === 0) return;
+      for (const thread of threads) {
+        while (true) {
+          const pending = yield* sql<{ messageId: string }>`SELECT source_id AS "messageId"
+            FROM thread_items WHERE thread_id=${thread.id} AND kind='user' AND status='sending' ORDER BY seq LIMIT 50`;
+          if (pending.length === 0) break;
+          for (const row of pending)
+            yield* settleMessage(
+              publisher,
+              { type: "failed", threadId: thread.id, messageId: row.messageId, error },
+              at,
+            );
+        }
+      }
+      after = threads[threads.length - 1]!.id;
+    }
   });

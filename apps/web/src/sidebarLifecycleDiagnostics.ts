@@ -9,7 +9,6 @@ export interface SidebarLifecycleDiagnosticState {
   readonly summaryPresent: boolean;
   readonly activeSidebarThreadId: string | null;
   readonly draftPromotedTo: string | null;
-  readonly hasLocalSendOwner: boolean;
   readonly projectedWorkStatus: string | null;
   readonly sessionStatus: string | null;
   readonly sessionOrchestrationStatus: string | null;

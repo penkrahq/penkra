@@ -39,7 +39,6 @@ import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } 
 import { render } from "vitest-browser-react";
 
 import { type ComposerImageAttachment, useComposerDraftStore } from "../composerDraftStore";
-import { resetComposerSendPreflightsForTests } from "../composerSendPreflight";
 import {
   AUTO_SCROLL_BOTTOM_THRESHOLD_PX,
   getScrollContainerDistanceFromBottom,
@@ -372,6 +371,7 @@ function createSnapshotForTargetUser(options: {
       {
         id: THREAD_ID,
         folderId: PROJECT_ID,
+        connectionId: TEST_CONNECTION_ID,
         title: THREAD_TITLE,
         modelSelection: {
           provider: "codex",
@@ -388,7 +388,8 @@ function createSnapshotForTargetUser(options: {
           threadId: THREAD_ID,
           status: options.sessionStatus ?? "ready",
           providerName: "codex",
-          activeTurnId: null,
+          activeTurnId:
+            options.sessionStatus === "running" ? TurnId.makeUnsafe("browser-running-turn") : null,
           lastError: null,
           updatedAt: NOW_ISO,
         },
@@ -1535,8 +1536,8 @@ function resolveWsRpc(body: WsRequestEnvelope["body"]): unknown {
       return {
         threadId: input.threadId,
         messageId: input.message.messageId,
-        delivery: "failed",
-        error: "The thread does not exist.",
+        plan: "deliver",
+        seq: 1,
       };
     const running = thread.session?.status === "running" || thread.latestTurn?.state === "running";
     const queued = running && input.dispatchMode === "queue";
@@ -1571,22 +1572,38 @@ function resolveWsRpc(body: WsRequestEnvelope["body"]): unknown {
         ),
       },
     };
-    fixtureDrafts.set(input.threadId, { draft: null, draftUpdatedAt: input.message.queuedAt });
+    if (
+      (fixtureDrafts.get(input.threadId)?.draftUpdatedAt ?? null) === (input.draftUpdatedAt ?? null)
+    )
+      fixtureDrafts.set(input.threadId, {
+        draft: JSON.stringify({
+          prompt: "",
+          attachments: [],
+          files: [],
+          modelSelectionByProvider: {
+            [thread.modelSelection.provider]: input.modelSelection ?? thread.modelSelection,
+          },
+          connectionSelectionByProvider: {
+            [thread.modelSelection.provider]: input.connectionId ?? thread.connectionId ?? null,
+          },
+          activeProvider: thread.modelSelection.provider,
+        }),
+        draftUpdatedAt: new Date().toISOString(),
+      });
     pushCleanCoreThreadChange(input.threadId);
     return queued
       ? {
           threadId: input.threadId,
           messageId: input.message.messageId,
-          delivery: "queued",
+          plan: "queue",
           position: thread.queuedMessageIds?.length ? thread.queuedMessageIds.length + 1 : 1,
           queueLength: thread.queuedMessageIds?.length ? thread.queuedMessageIds.length + 1 : 1,
-          runningTurnId: thread.session?.activeTurnId ?? thread.latestTurn?.turnId ?? null,
         }
       : {
           threadId: input.threadId,
           messageId: input.message.messageId,
-          delivery: input.dispatchMode === "steer" && running ? "steered" : "started",
-          turnId: thread.session?.activeTurnId ?? thread.latestTurn?.turnId ?? "turn-fixture-start",
+          plan: input.dispatchMode === "steer" && running ? "steer" : "deliver",
+          seq: thread.messages.length + 1,
         };
   }
   if (
@@ -2003,7 +2020,7 @@ function installDeterministicSendNativeApi(options?: {
             _tag: WS_METHODS.cleanCoreSendMessage,
             ...send,
             threadId: thread.threadId,
-          }) as import("@penkra/contracts").CleanCoreSendResult;
+          }) as import("@penkra/contracts").CleanCoreSendAdmission;
           return { ...created, sendResult };
         },
         sendMessage: async (input: Parameters<typeof wsNativeApi.cleanCore.sendMessage>[0]) => {
@@ -2029,10 +2046,9 @@ function installDeterministicSendNativeApi(options?: {
         dispatchCommand: async (
           command: Parameters<typeof wsNativeApi.orchestration.dispatchCommand>[0],
         ) => {
-          wsRequests.push({
-            _tag: ORCHESTRATION_WS_METHODS.dispatchCommand,
-            command,
-          });
+          wsRequests.push(
+            flattenEffectRpcRequestPayload(ORCHESTRATION_WS_METHODS.dispatchCommand, command),
+          );
           if (command.type === "thread.turn.start" || command.type === "thread.turn.recover") {
             await options?.dispatchGate;
           }
@@ -2469,13 +2485,8 @@ function readDispatchedCommand(request: WsRequestEnvelope["body"]): Record<strin
       createdAt: input.message.queuedAt,
     };
   }
-  if (
-    request._tag !== ORCHESTRATION_WS_METHODS.dispatchCommand ||
-    typeof request.command !== "object" ||
-    request.command === null
-  )
-    return null;
-  return request.command as Record<string, unknown>;
+  if (request._tag !== ORCHESTRATION_WS_METHODS.dispatchCommand) return null;
+  return request as Record<string, unknown>;
 }
 
 function readCleanCoreUpdate(request: WsRequestEnvelope["body"]): Record<string, unknown> | null {
@@ -2861,10 +2872,25 @@ describe("ChatView timeline estimator parity (full app)", () => {
     const requestedAt = "2026-09-26T22:18:03.115Z";
     const runningAt = "2026-09-26T22:18:03.790Z";
     const stoppedAt = "2026-09-26T22:18:15.938Z";
-    const snapshot = createSnapshotForTargetUser({
+    const baseSnapshot = createSnapshotForTargetUser({
       targetMessageId: MessageId.makeUnsafe("browser-target-before-play"),
       targetText: "Run a long tool",
     });
+    const snapshot = {
+      ...baseSnapshot,
+      threads: baseSnapshot.threads.map((thread) => ({
+        ...thread,
+        latestTurn: {
+          turnId,
+          providerTurnId,
+          state: "running" as const,
+          requestedAt,
+          startedAt: runningAt,
+          completedAt: null,
+          assistantMessageId: null,
+        },
+      })),
+    };
     const mounted = await mountChatView({ viewport: DEFAULT_VIEWPORT, snapshot });
     window.desktopBridge = {
       ...previousBridge,
@@ -2924,23 +2950,6 @@ describe("ChatView timeline estimator parity (full app)", () => {
           },
           { sequence: 559913 },
         ),
-        makeDomainEvent(
-          "thread.turn-start-requested",
-          {
-            threadId: THREAD_ID,
-            turnId,
-            messageId,
-            runtimeMode: "full-access",
-            dispatchMode: "queue",
-            createdAt: requestedAt,
-          },
-          { sequence: 559914 },
-        ),
-        makeDomainEvent(
-          "thread.message-delivery-set",
-          { threadId: THREAD_ID, messageId, turnId, state: "accepted", updatedAt: runningAt },
-          { sequence: 559915 },
-        ),
         { ...session("running", providerTurnId, runningAt), sequence: 559916 },
         { ...activity("tool.started", "2026-09-26T22:18:04.000Z"), sequence: 559919 },
         makeDomainEvent(
@@ -2957,11 +2966,11 @@ describe("ChatView timeline estimator parity (full app)", () => {
         { ...session("interrupted", null, stoppedAt), sequence: 559926 },
         { ...activity("turn.completed", stoppedAt), sequence: 559927 },
       ]);
-      const play = await waitForElement(
+      await waitForElement(
         () => document.querySelector<HTMLButtonElement>('button[aria-label="Continue"]'),
         "Play did not appear after the delayed tool settled.",
       );
-      play.click();
+      await page.getByRole("button", { name: "Continue", exact: true }).click();
       await vi.waitFor(() => {
         const command = wsRequests
           .map(readDispatchedCommand)
@@ -2976,7 +2985,7 @@ describe("ChatView timeline estimator parity (full app)", () => {
         expect(wsRequests.some((request) => request._tag === "provider.getThreadBinding")).toBe(
           false,
         );
-        expect(document.body.textContent).toContain("Thinking");
+        expect(document.body.textContent).not.toContain("Thinking");
         expect(
           getChatLifecycleDiagnosticSamples(THREAD_ID).some(
             (sample) =>
@@ -2987,9 +2996,10 @@ describe("ChatView timeline estimator parity (full app)", () => {
         ).toBe(true);
       });
       releaseDispatch();
+      const resumedAt = new Date().toISOString();
       applyEventsForTest([
         {
-          ...session("running", turnId, "2026-09-26T22:18:24.000Z"),
+          ...session("running", turnId, resumedAt),
           sequence: 559930,
         },
         makeDomainEvent(
@@ -3002,8 +3012,8 @@ describe("ChatView timeline estimator parity (full app)", () => {
             turnId,
             streaming: true,
             source: "native",
-            createdAt: "2026-09-26T22:18:24.100Z",
-            updatedAt: "2026-09-26T22:18:24.100Z",
+            createdAt: resumedAt,
+            updatedAt: resumedAt,
             attachments: [],
           },
           { sequence: 559931 },
@@ -3418,7 +3428,6 @@ describe("ChatView timeline estimator parity (full app)", () => {
 
   afterAll(async () => {
     await resetWsNativeApiForTest();
-    resetComposerSendPreflightsForTests();
     await worker.stop();
   });
 
@@ -3466,7 +3475,6 @@ describe("ChatView timeline estimator parity (full app)", () => {
         }
       }
     });
-    resetComposerSendPreflightsForTests();
     await resetWsNativeApiForTest();
     resetThreadListForTests();
     resetRetainedThreadDetailSubscriptionsForTests();
@@ -4080,7 +4088,7 @@ describe("ChatView timeline estimator parity (full app)", () => {
         ),
       };
       fixture = { ...fixture, snapshot };
-      useStore.getState().syncServerReadModel(snapshot);
+      syncReadModelForTest(snapshot);
     };
     const mounted = await mountChatView({ viewport: DEFAULT_VIEWPORT, snapshot });
     try {
@@ -4137,11 +4145,11 @@ describe("ChatView timeline estimator parity (full app)", () => {
         expect(page.getByTestId("composer-editor").element().textContent ?? "").toBe("");
         expect(useComposerDraftStore.getState().draftsByThreadId[THREAD_ID]?.prompt ?? "").toBe("");
       });
-      const playAgain = await waitForElement(
+      await waitForElement(
         () => document.querySelector<HTMLButtonElement>('button[aria-label="Continue"]'),
         "Play did not return after clearing the composer.",
       );
-      playAgain.click();
+      await page.getByRole("button", { name: "Continue", exact: true }).click();
       await vi.waitFor(() => {
         expect(hasDispatchedCommandType("thread.turn.recover")).toBe(true);
         expect(document.querySelector('button[aria-label="Continue"]')).toBeNull();
@@ -4153,7 +4161,7 @@ describe("ChatView timeline estimator parity (full app)", () => {
         reason: "play",
         turnId,
         interruptedTurnId: turnId,
-        connectionId: null,
+        connectionId: TEST_CONNECTION_ID,
       });
       expect(command).not.toHaveProperty("bindingRevision");
       expect(wsRequests.some((request) => request._tag === "provider.getThreadBinding")).toBe(
@@ -4432,214 +4440,83 @@ describe("ChatView timeline estimator parity (full app)", () => {
     }
   });
 
-  it("keeps send chrome live through durable, starting, and lagging ready snapshots", async () => {
-    const restoreNativeApi = installDeterministicSendNativeApi();
-    let currentSnapshot = createSnapshotForTargetUser({
-      targetMessageId: "msg-user-send-handoff-target" as MessageId,
-      targetText: "send handoff target",
+  it("restores the submitted composer on an admission error without adding a row", async () => {
+    const restoreNativeApi = installDeterministicSendNativeApi({
+      dispatchError: new Error("Admission rejected"),
     });
-    const mounted = await mountChatView({
-      viewport: DEFAULT_VIEWPORT,
-      snapshot: currentSnapshot,
+    const snapshot = createSnapshotForTargetUser({
+      targetMessageId: MessageId.makeUnsafe("rejection-target"),
+      targetText: "Target",
     });
-
-    const syncActiveThread = (
-      update: (
-        thread: OrchestrationReadModel["threads"][number],
-      ) => OrchestrationReadModel["threads"][number],
-    ) => {
-      currentSnapshot = {
-        ...currentSnapshot,
-        snapshotSequence: currentSnapshot.snapshotSequence + 1,
-        threads: currentSnapshot.threads.map((thread) =>
-          thread.id === THREAD_ID
-            ? { ...update(thread), updatedAt: new Date().toISOString() }
-            : thread,
-        ),
-        updatedAt: isoAt(2_100 + currentSnapshot.snapshotSequence),
-      };
-      fixture = { ...fixture, snapshot: currentSnapshot };
-      useStore.getState().syncServerReadModel(currentSnapshot);
-    };
-    const expectLiveSendChrome = async () => {
-      await vi.waitFor(
-        () => {
-          expect(
-            document.querySelector<HTMLButtonElement>('button[aria-label="Stop generation"]'),
-          ).toBeTruthy();
-          expect(
-            document.querySelector<HTMLButtonElement>('button[aria-label="Send message"]'),
-          ).toBeNull();
-          expect(document.body.textContent).toContain("Thinking");
-          const thinkingStatus = document.querySelector<HTMLElement>(
-            '[data-timeline-row-kind="working"] > div',
-          );
-          expect(thinkingStatus).toBeTruthy();
-          expect(getComputedStyle(thinkingStatus!).visibility).toBe("visible");
-        },
-        { timeout: 8_000, interval: 16 },
-      );
-    };
-    const expectIdleSendChrome = async () => {
-      await vi.waitFor(() => {
-        expect(
-          document.querySelector<HTMLButtonElement>('button[aria-label="Stop generation"]'),
-        ).toBeNull();
-        expect(
-          document.querySelector<HTMLButtonElement>('button[aria-label="Send message"]'),
-        ).toBeTruthy();
-        expect(document.body.textContent).not.toContain("Thinking");
-      });
-    };
-
+    const mounted = await mountChatView({ viewport: DEFAULT_VIEWPORT, snapshot });
+    const before = snapshot.threads[0]!.messages.length;
     try {
-      // Transport setup alone is not a user execution. It must not fabricate
-      // Stop or Thinking before a message has actually been admitted.
-      syncActiveThread((thread) => ({
-        ...thread,
-        session: thread.session
-          ? { ...thread.session, status: "starting", updatedAt: isoAt(2_100) }
-          : null,
-        updatedAt: isoAt(2_100),
-      }));
-      await expectIdleSendChrome();
-      syncActiveThread((thread) => ({
-        ...thread,
-        session: thread.session
-          ? { ...thread.session, status: "ready", updatedAt: isoAt(2_101) }
-          : null,
-        updatedAt: isoAt(2_101),
-      }));
-
-      const prompt = "keep working chrome continuously visible";
-      useComposerDraftStore.getState().setPrompt(THREAD_ID, prompt);
-      (await waitForSendButton()).click();
-      await expectLiveSendChrome();
-
-      const turnStartCommand = await vi.waitFor(() => {
-        const command = wsRequests
-          .map(readDispatchedCommand)
-          .find((candidate) => candidate?.type === "thread.turn.start");
-        expect(command).toBeTruthy();
-        return command!;
-      });
-      const message = turnStartCommand.message as { messageId: MessageId };
-
-      // The user-message projection arrives before turn-start ownership.
-      syncActiveThread((thread) => ({
-        ...thread,
-        messages: [
-          ...thread.messages,
-          createUserMessage({
-            id: message.messageId,
-            text: prompt,
-            offsetSeconds: 2_101,
-          }),
-        ],
-        updatedAt: isoAt(2_102),
-      }));
-      await expectLiveSendChrome();
-
-      // The turn-start projection takes the session to starting.
-      syncActiveThread((thread) => ({
-        ...thread,
-        pendingTurnStartMessageId: message.messageId,
-        session: thread.session
-          ? { ...thread.session, status: "starting", updatedAt: isoAt(2_103) }
-          : null,
-        updatedAt: isoAt(2_103),
-      }));
-      await expectLiveSendChrome();
-
-      // A lagging shell snapshot must not reopen the idle composer seam.
-      syncActiveThread((thread) => ({
-        ...thread,
-        pendingTurnStartMessageId: null,
-        session: thread.session
-          ? { ...thread.session, status: "ready", updatedAt: isoAt(2_104) }
-          : null,
-        updatedAt: isoAt(2_104),
-      }));
-      await expectLiveSendChrome();
-
-      const turnId = TurnId.makeUnsafe("turn-send-handoff-running");
-      const providerTurnId = TurnId.makeUnsafe("provider-turn-send-handoff-running");
-      // The durable turn request arrives before either the provider start
-      // timestamp or the session's running projection. Once local dispatch is
-      // acknowledged, this exact first-turn seam must keep Thinking visible.
-      syncActiveThread((thread) => ({
-        ...thread,
-        workStatus: "running",
-        latestTurn: {
-          turnId,
-          providerTurnId,
-          state: "running",
-          requestedAt: isoAt(2_103),
-          startedAt: null,
-          completedAt: null,
-          assistantMessageId: null,
-        },
-        updatedAt: isoAt(2_105),
-      }));
-      await expectLiveSendChrome();
-      expect(document.body.textContent).not.toContain("Working for");
-
-      syncActiveThread((thread) => ({
-        ...thread,
-        latestTurn: thread.latestTurn
-          ? { ...thread.latestTurn, startedAt: isoAt(2_106) }
-          : thread.latestTurn,
-        session: thread.session
-          ? {
-              ...thread.session,
-              status: "running",
-              activeTurnId: providerTurnId,
-              updatedAt: isoAt(2_106),
-            }
-          : null,
-        updatedAt: isoAt(2_106),
-      }));
-      await expectLiveSendChrome();
-      await vi.waitFor(() => expect(document.body.textContent).toContain("Working for"), {
-        timeout: 8_000,
-        interval: 16,
-      });
-
-      // The shell stream can arrive later while carrying the older ready row.
-      // Its envelope sequence is new, but its per-thread session timestamp is not.
-      const laggingShellReadModel: OrchestrationReadModel = {
-        ...currentSnapshot,
-        snapshotSequence: currentSnapshot.snapshotSequence + 1,
-        threads: currentSnapshot.threads.map((thread) =>
-          thread.id === THREAD_ID
-            ? {
-                ...thread,
-                latestTurn: null,
-                pendingTurnStartMessageId: null,
-                session: thread.session
-                  ? {
-                      ...thread.session,
-                      status: "ready",
-                      activeTurnId: null,
-                      updatedAt: isoAt(2_104),
-                    }
-                  : null,
-                updatedAt: currentSnapshot.threads.find((thread) => thread.id === THREAD_ID)!
-                  .updatedAt,
-              }
-            : thread,
-        ),
-        updatedAt: isoAt(2_106),
-      };
-      useStore
-        .getState()
-        .syncServerThreadShell(
-          THREAD_ID,
-          createThreadShellFromReadModel(laggingShellReadModel.threads[0]!),
-        );
-      await expectLiveSendChrome();
-      expect(document.body.textContent).toContain("Working for");
+      const editor = page.getByTestId("composer-editor");
+      await editor.fill("Keep this text on rejection");
+      await expect
+        .element(page.getByRole("button", { name: "Send message", exact: true }))
+        .toBeEnabled();
+      await page.getByRole("button", { name: "Send message", exact: true }).click();
+      await vi.waitFor(() => expect(document.body.textContent).toContain("Admission rejected"));
+      await expect.element(editor).toHaveTextContent("Keep this text on rejection");
+      expect(fixture.snapshot.threads[0]!.messages).toHaveLength(before);
+      expect(document.querySelector('button[aria-label="Stop generation"]')).toBeNull();
     } finally {
+      await mounted.cleanup();
+      restoreNativeApi();
+    }
+  });
+
+  it("shows working chrome only after the provider turn starts", async () => {
+    let releaseAdmission!: () => void;
+    const dispatchGate = new Promise<void>((resolve) => {
+      releaseAdmission = resolve;
+    });
+    const restoreNativeApi = installDeterministicSendNativeApi({ dispatchGate });
+    const snapshot = createSnapshotForTargetUser({
+      targetMessageId: MessageId.makeUnsafe("admission-chrome-target"),
+      targetText: "Target",
+    });
+    const mounted = await mountChatView({ viewport: DEFAULT_VIEWPORT, snapshot });
+    try {
+      const editor = page.getByTestId("composer-editor");
+      await editor.fill("send without fabricated work");
+      await expect
+        .element(page.getByRole("button", { name: "Send message", exact: true }))
+        .toBeEnabled();
+      await page.getByRole("button", { name: "Send message", exact: true }).click();
+      await vi.waitFor(() => expect(editor.element().textContent ?? "").toBe(""));
+      expect(document.querySelector('button[aria-label="Stop generation"]')).toBeNull();
+      expect(document.body.textContent).not.toContain("Thinking");
+      releaseAdmission();
+      await vi.waitFor(() =>
+        expect(wsRequests.some((request) => request._tag === WS_METHODS.cleanCoreSendMessage)).toBe(
+          true,
+        ),
+      );
+      expect(document.querySelector('button[aria-label="Stop generation"]')).toBeNull();
+      const turnId = TurnId.makeUnsafe("native-admission-chrome-turn");
+      syncReadModelForTest({
+        ...fixture.snapshot,
+        threads: fixture.snapshot.threads.map((thread) => ({
+          ...thread,
+          latestTurn: {
+            turnId,
+            state: "running",
+            requestedAt: NOW_ISO,
+            startedAt: NOW_ISO,
+            completedAt: null,
+            assistantMessageId: null,
+          },
+          session: thread.session && { ...thread.session, status: "running", activeTurnId: turnId },
+        })),
+      });
+      await vi.waitFor(() =>
+        expect(document.querySelector('button[aria-label="Stop generation"]')).not.toBeNull(),
+      );
+      expect(document.body.textContent).toContain("Thinking");
+    } finally {
+      releaseAdmission();
       await mounted.cleanup();
       restoreNativeApi();
     }
@@ -4813,9 +4690,14 @@ describe("ChatView timeline estimator parity (full app)", () => {
       await editor.fill("first prompt");
       await expect.element(editor).toHaveTextContent("first prompt");
 
-      await promoteDraftThreadForTest(THREAD_ID, THREAD_TITLE);
-      useComposerDraftStore.getState().clearDraftThread(THREAD_ID);
-      await expect.element(editor).toHaveTextContent("");
+      await expect
+        .element(page.getByRole("button", { name: "Send message", exact: true }))
+        .toBeEnabled();
+      await page.getByRole("button", { name: "Send message", exact: true }).click();
+      await vi.waitFor(() =>
+        expect(fixture.snapshot.threads.some((thread) => thread.id === THREAD_ID)).toBe(true),
+      );
+      await vi.waitFor(() => expect(editor.element().textContent ?? "").toBe(""));
 
       await editor.fill("second prompt");
       await expect.element(editor).toHaveTextContent("second prompt");
@@ -4910,11 +4792,9 @@ describe("ChatView timeline estimator parity (full app)", () => {
       const editor = page.getByTestId("composer-editor");
       await editor.fill(originalPrompt);
       await expect.element(editor).toHaveTextContent(originalPrompt);
+      await editor.click();
       await userEvent.keyboard("{Enter}");
-      await waitForElement(
-        () => document.querySelector<HTMLButtonElement>('button[aria-label="Stop generation"]'),
-        "Immediate submission did not enter preflight.",
-      );
+      await vi.waitFor(() => expect(editor.element().textContent ?? "").toBe(""));
 
       // This is real editor input, not a direct store mutation. Keep it inside
       // the held admission window so both promptRef and the debounced store
@@ -5105,7 +4985,7 @@ describe("ChatView timeline estimator parity (full app)", () => {
       await vi.waitFor(() => {
         expect(document.querySelector('[data-agent-activity-detail="true"]')).toBeNull();
       });
-      useStore.getState().syncServerReadModel(snapshot);
+      syncReadModelForTest(snapshot);
       await expect
         .element(page.getByRole("button", { name: /Historical task output/u }))
         .toBeVisible();
@@ -5427,7 +5307,7 @@ describe("ChatView timeline estimator parity (full app)", () => {
     }
   });
 
-  it("retains held preflight ownership across a ChatView remount", async () => {
+  it("does not fabricate working state for a held send across a ChatView remount", async () => {
     let releaseConnections!: () => void;
     providerConnectionsResponseGate = new Promise<void>((resolve) => {
       releaseConnections = resolve;
@@ -5456,16 +5336,14 @@ describe("ChatView timeline estimator parity (full app)", () => {
         "Unable to find composer form.",
       );
       composerForm.requestSubmit();
-      await waitForElement(
-        () => document.querySelector<HTMLButtonElement>('button[aria-label="Stop generation"]'),
-        "Unable to find preflight Stop button before remount.",
+      await vi.waitFor(() =>
+        expect(document.querySelector('button[aria-label="Stop generation"]')).toBeNull(),
       );
 
       await mounted.cleanup();
       mounted = await mountChatView({ viewport: DEFAULT_VIEWPORT, snapshot });
-      await waitForElement(
-        () => document.querySelector<HTMLButtonElement>('button[aria-label="Stop generation"]'),
-        "Unable to find retained preflight Stop button after remount.",
+      await vi.waitFor(() =>
+        expect(document.querySelector('button[aria-label="Stop generation"]')).toBeNull(),
       );
       expect((await waitForComposerEditor()).textContent ?? "").toBe("");
 
@@ -6423,6 +6301,7 @@ describe("ChatView timeline estimator parity (full app)", () => {
       })),
       threads: base.threads.map((thread) => ({
         ...thread,
+        connectionId: null,
         modelSelection: {
           provider: "opencode",
           model: "opencode/deepseek-v4-flash-free",
@@ -7071,7 +6950,7 @@ describe("ChatView timeline estimator parity (full app)", () => {
     }
   });
 
-  it("keeps the optimistic first message visible across the creation broadcast and first-send response", async () => {
+  it("keeps the committed first message visible across the creation broadcast and admission response", async () => {
     let releaseSend!: () => void;
     const sendGate = new Promise<void>((resolve) => {
       releaseSend = resolve;
@@ -7096,6 +6975,25 @@ describe("ChatView timeline estimator parity (full app)", () => {
         configurable: true,
         value: {
           ...api,
+          cleanCore: {
+            ...api.cleanCore,
+            createAndSendThread: async (
+              input: import("@penkra/contracts").CleanCoreCreateAndSendThreadInput,
+            ) => {
+              wsRequests.push({ _tag: WS_METHODS.cleanCoreCreateAndSendThread, ...input });
+              const created = resolveWsRpc({
+                _tag: WS_METHODS.cleanCoreCreateThread,
+                ...input.thread,
+              }) as import("@penkra/contracts").CleanCoreCreateThreadResult;
+              const sendResult = resolveWsRpc({
+                _tag: WS_METHODS.cleanCoreSendMessage,
+                ...input,
+                threadId: input.thread.threadId,
+              }) as import("@penkra/contracts").CleanCoreSendAdmission;
+              await sendGate;
+              return { ...created, sendResult };
+            },
+          },
           orchestration: {
             ...api.orchestration,
             getThreadTurnsPage: async ({ threadId }: { threadId: ThreadId }) => {

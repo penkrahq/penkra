@@ -129,7 +129,7 @@ import {
 } from "../providerIntentClassification.ts";
 import { deriveTurnStartSession } from "../turnStartSession.ts";
 import { ThreadPublisher } from "../../cleanCore/ThreadPublisher.ts";
-import { PLAY_TURN_RECOVERY_PROMPT } from "../../cleanCore/sendMessage.ts";
+import { PLAY_TURN_RECOVERY_PROMPT, settleMessage } from "../../cleanCore/sendMessage.ts";
 import { resolveProviderSessionThread as resolveProviderSessionThreadFromProjection } from "../providerSessionThread.ts";
 import { userStopPending } from "../userStopPending.ts";
 import { startProviderIntentOutboxWorker } from "../providerIntentOutboxWorker.ts";
@@ -774,12 +774,16 @@ const make = Effect.gen(function* () {
       : undefined;
     if (openCircuit) {
       const refusal = `${openCircuit.detail}\nSign in again or retry this Connection to clear the block.`;
-      threadPublisher.publishDispatch({
-        type: "failed",
-        threadId: event.payload.threadId,
-        messageId: event.payload.messageId,
-        error: refusal,
-      });
+      yield* settleMessage(
+        threadPublisher,
+        {
+          type: "failed",
+          threadId: event.payload.threadId,
+          messageId: event.payload.messageId,
+          error: refusal,
+        },
+        new Date().toISOString(),
+      ).pipe(Effect.provideService(SqlClient.SqlClient, sql));
       yield* orchestrationEngine.dispatch({
         type: "thread.message.delivery.set",
         commandId: replaySafeServerCommandId("message-auth-rejected", event.eventId),
@@ -1809,18 +1813,22 @@ const make = Effect.gen(function* () {
                   failure instanceof ProviderSessionStartupBeforeDispatchError
                     ? failure.cause
                     : failure;
-                threadPublisher.publishDispatch({
-                  type: "failed",
-                  threadId: event.payload.threadId,
-                  messageId: event.payload.messageId,
-                  error:
-                    Schema.is(ProviderAdapterRequestError)(providerFailure) ||
-                    Schema.is(ProviderAdapterProcessError)(providerFailure)
-                      ? providerFailure.detail
-                      : providerFailure instanceof Error
-                        ? providerFailure.message
-                        : detail,
-                });
+                yield* settleMessage(
+                  threadPublisher,
+                  {
+                    type: "failed",
+                    threadId: event.payload.threadId,
+                    messageId: event.payload.messageId,
+                    error:
+                      Schema.is(ProviderAdapterRequestError)(providerFailure) ||
+                      Schema.is(ProviderAdapterProcessError)(providerFailure)
+                        ? providerFailure.detail
+                        : providerFailure instanceof Error
+                          ? providerFailure.message
+                          : detail,
+                  },
+                  new Date().toISOString(),
+                ).pipe(Effect.provideService(SqlClient.SqlClient, sql));
                 const failedBeforeProviderDispatch =
                   failure instanceof ProviderSessionStartupBeforeDispatchError;
                 const failedAt = new Date().toISOString();
@@ -1873,12 +1881,16 @@ const make = Effect.gen(function* () {
         ),
       );
       if (startedTurn !== undefined)
-        threadPublisher.publishDispatch({
-          type: "acknowledged",
-          threadId: event.payload.threadId,
-          messageId: event.payload.messageId,
-          turnId: startedTurn.turnId,
-        });
+        yield* settleMessage(
+          threadPublisher,
+          {
+            type: "acknowledged",
+            threadId: event.payload.threadId,
+            messageId: event.payload.messageId,
+            turnId: startedTurn.turnId,
+          },
+          new Date().toISOString(),
+        ).pipe(Effect.provideService(SqlClient.SqlClient, sql));
       const terminalBeforeResult = startedTurn
         ? (terminalTurnsObservedBeforeSettlement.get(startedTurn.turnId) ??
           (yield* readDurableTerminalTurn(

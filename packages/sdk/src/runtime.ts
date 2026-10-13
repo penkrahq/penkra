@@ -281,7 +281,6 @@ export interface AppThreadState {
     composeId: string | null;
   };
   queued: { count: number; hasAppSubmission: boolean };
-  steering: { pending: boolean; hasAppSubmission: boolean };
   updatedAt: string;
 }
 
@@ -310,20 +309,10 @@ export interface AppThreadCreateResult {
   folderId: string;
 }
 
-export interface AppThreadSendReceipt {
-  submissionId: string;
-  composeId: string;
-  threadId: string;
-  mode: "queue" | "steer";
-  state: "accepted" | "queued" | "steering";
-  acceptedAt: string;
-}
-
-/** Provider-confirmed result of `penkra threads send` (TODO 2.4). */
-export type AgentThreadSendResult = { threadId: string; messageId: string } & (
-  | { delivery: "started" | "steered" | "interrupted"; turnId: string }
-  | { delivery: "queued"; position: number; queueLength: number; runningTurnId: string | null }
-  | { delivery: "failed"; error: string }
+/** Committed send admission. Read the Thread for the provider outcome. */
+export type AppThreadSendAdmission = { threadId: string; messageId: string } & (
+  | { plan: "deliver" | "steer" | "interrupt-deliver"; seq: number }
+  | { plan: "queue"; position: number; queueLength: number }
 );
 
 export interface AppPossibleModelDescriptor {
@@ -464,7 +453,7 @@ export interface PenkraTabRuntimeApi {
     /** Writes one visible composition and returns a receipt for those exact bytes. */
     compose(input: AppThreadComposeInput & { threadId: string }): Promise<AppThreadComposition>;
     /** Sends the exact composition named by the receipt once; the receipt owns its Thread target. */
-    send(input: { composeId: string; mode?: "queue" | "steer" }): Promise<AppThreadSendReceipt>;
+    send(input: { composeId: string; mode?: "queue" | "steer" }): Promise<AppThreadSendAdmission>;
     /** Emits an immediate folder snapshot and later meaningful changes. */
     onState(listener: (threads: ReadonlyArray<AppThreadState>) => void): () => void;
   };

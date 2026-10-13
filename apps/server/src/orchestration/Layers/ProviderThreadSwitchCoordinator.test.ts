@@ -119,7 +119,7 @@ const dependencies = Layer.mergeAll(
               label: id === sourceConnectionId ? "Personal" : "Work",
               credentialRef: currentProvider === "opencode" ? "secret" : null,
               profileRef: currentProvider === "opencode" ? null : "profile",
-              providerIdentityId: null,
+              providerIdentityId: currentProvider === "claudeAgent" ? `claude:${id}` : null,
               health: "ready",
               lifecycle: "active",
               createdAt: timestamp,
@@ -504,6 +504,37 @@ layer("canonical turn selection", (it) => {
       assert.equal(modelDiscoveryCalls - discoveryCallsBefore, 1);
       assert.deepStrictEqual(f.order, ["stop", "dispatch"]);
       assert.strictEqual((yield* f.read()).model, modelFor("opencode"));
+    }),
+  );
+
+  it.effect("OpenCode now interrupts the same account and delivers after settlement", () =>
+    Effect.gen(function* () {
+      const f = yield* fixture("opencode", { running: true });
+      yield* f.send({ dispatchMode: "steer", connectionId: sourceConnectionId });
+      assert.deepStrictEqual(f.order, ["interrupt", "dispatch"]);
+      const sent = f.sent() as Extract<OrchestrationCommand, { type: "thread.turn.start" }>;
+      assert.strictEqual(sent.dispatchMode, "queue");
+      assert.strictEqual(sent.connectionId, sourceConnectionId);
+      assert.strictEqual(f.authorizations.length, 1);
+    }),
+  );
+
+  it.effect("Claude native steer keeps the running turn's account and model", () =>
+    Effect.gen(function* () {
+      const f = yield* fixture("claudeAgent", { running: true });
+      const nativeId = randomUUID();
+      yield* f.sql`UPDATE threads SET native_state_id=${nativeId} WHERE id=${f.threadId}`;
+      yield* Effect.promise(() =>
+        mkdir(providerNativeStateRoot(stateDir, nativeId), { recursive: true }),
+      );
+      yield* f.send({
+        dispatchMode: "steer",
+        connectionId: sourceConnectionId,
+        modelSelection: { provider: "claudeAgent", model: modelFor("claudeAgent", true) },
+      });
+      assert.deepStrictEqual(f.order, ["dispatch"]);
+      assert.strictEqual(f.context()?.acceptedTurnSelection, undefined);
+      assert.strictEqual((yield* f.read()).model, modelFor("claudeAgent"));
     }),
   );
 

@@ -154,7 +154,7 @@ describe("agent gateway contracts", () => {
         model: "gpt-5.6-terra",
         runtimeMode: "approval-required",
         messageId: "message-1",
-        turnId: "turn-1",
+        sendAdmission: { threadId: "thread-1", messageId: "message-1", plan: "deliver", seq: 1 },
       }),
     );
     assert.doesNotThrow(() =>

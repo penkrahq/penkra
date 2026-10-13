@@ -9,7 +9,6 @@ export interface DesktopThreadLiveState {
   readonly queuedCount: number;
   readonly pendingUserInput: boolean;
   readonly sendBusy: boolean;
-  readonly steeringPending: boolean;
 }
 
 export interface DesktopThreadSendRequest {

@@ -190,25 +190,20 @@ describe("paginateThreadMessages", () => {
 });
 
 describe("packAgentTranscriptPage", () => {
-  it("distinguishes queued, pending, delivered, and failed messages", () => {
+  it("distinguishes queued, delivered, and failed messages", () => {
     const queued = {
       ...makeMessage(0, "queued"),
       delivery: { state: "queued" as const, queued: true, sequence: 2 },
     };
-    const pending = {
-      ...makeMessage(1, "delivered"),
-      delivery: { state: "starting" as const, queued: true, sequence: 3 },
-    };
     const delivered = {
       ...makeMessage(2, "accepted"),
-      delivery: { state: "accepted" as const, queued: true, sequence: 4 },
     };
     const failed = {
       ...makeMessage(3, "failed"),
       delivery: { state: "failed" as const, queued: false, sequence: 5 },
     };
     const page = packAgentTranscriptPage({
-      messages: [queued, pending, delivered, failed],
+      messages: [queued, delivered, failed],
       activities: [],
     });
     const deliveryByMessageId = Object.fromEntries(
@@ -218,7 +213,6 @@ describe("packAgentTranscriptPage", () => {
     );
     assert.deepEqual(deliveryByMessageId, {
       [queued.id]: "queued",
-      [pending.id]: "pending",
       [delivered.id]: "delivered",
       [failed.id]: "failed",
     });
@@ -226,12 +220,11 @@ describe("packAgentTranscriptPage", () => {
       (item) => item.type === "message" && item.messageId === queued.id,
     );
     assert.equal(queuedItem?.type === "message" && queuedItem.position, 1);
-    const summary = paginateThreadMessages({ messages: [queued, pending, delivered, failed] });
+    const summary = paginateThreadMessages({ messages: [queued, delivered, failed] });
     assert.equal(summary.messages[0]?.delivery, "queued");
     assert.equal(summary.messages[0]?.position, 1);
-    assert.equal(summary.messages[1]?.delivery, "pending");
-    assert.equal(summary.messages[2]?.delivery, "delivered");
-    assert.equal(summary.messages[3]?.delivery, "failed");
+    assert.equal(summary.messages[1]?.delivery, "delivered");
+    assert.equal(summary.messages[2]?.delivery, "failed");
     const deepPage = packAgentTranscriptPage({
       messages: [queued],
       activities: [],

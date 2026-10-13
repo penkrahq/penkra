@@ -7,23 +7,23 @@ import type {
   DesktopThreadComposeAttachment,
   CleanCoreThreadSummary,
   OrchestrationFolderShell,
-  OrchestrationCommand,
   ChatAttachment,
   CleanCoreThreadUpdate,
   CleanCoreCreateThreadInput,
   CleanCoreCreateThreadResult,
 } from "@penkra/contracts";
 import {
-  CommandId,
   MessageId,
   FolderId,
   ModelSelection,
+  type CleanCoreSendMessageInput,
+  type CleanCoreSendAdmission,
   RuntimeMode,
   CleanCoreThreadListCursor,
   ThreadId,
 } from "@penkra/contracts";
 import { Schema } from "effect";
-import type { AppThreadSendReceipt, AppThreadState } from "@penkra/sdk";
+import type { AppThreadSendAdmission, AppThreadState } from "@penkra/sdk";
 
 type ComposeRequest = Extract<DesktopThreadApiRequest, { method: "compose" }>;
 interface StagedComposition {
@@ -36,8 +36,8 @@ interface StagedComposition {
   readonly attachments: ReadonlyArray<ChatAttachment>;
   readonly createdAt: string;
   readonly expiresAt: number;
-  result?: AppThreadSendReceipt;
-  sending?: Promise<AppThreadSendReceipt>;
+  result?: AppThreadSendAdmission;
+  sending?: Promise<AppThreadSendAdmission>;
 }
 
 export interface DesktopThreadCommandDependencies {
@@ -51,15 +51,11 @@ export interface DesktopThreadCommandDependencies {
     threads: readonly CleanCoreThreadSummary[];
     nextCursor: CleanCoreThreadListCursor | null;
   }>;
-  dispatch(command: OrchestrationCommand): Promise<unknown>;
   createThread(input: CleanCoreCreateThreadInput): Promise<CleanCoreCreateThreadResult>;
   updateThread(
     update: Extract<CleanCoreThreadUpdate, { action: "moveSidebarItem" | "archive" }>,
   ): Promise<void>;
-  dispatchTurn(
-    command: Extract<OrchestrationCommand, { type: "thread.turn.start" }>,
-    ownerId: string,
-  ): Promise<unknown>;
+  send(input: CleanCoreSendMessageInput, ownerId: string): Promise<CleanCoreSendAdmission>;
   stageAttachment(input: {
     threadId: string;
     ownerId: string;
@@ -72,7 +68,6 @@ function fail(code: string, message: string): never {
   throw Object.assign(new Error(message), { code });
 }
 
-const commandId = () => CommandId.makeUnsafe(randomUUID());
 const threadId = () => ThreadId.makeUnsafe(randomUUID());
 
 export class DesktopThreadCommands {
@@ -131,13 +126,12 @@ export class DesktopThreadCommands {
         queued: {
           count: (JSON.parse(member.queue) as unknown[]).length,
           hasAppSubmission: [...this.#receipts.values()].some(
-            (item) => item.threadId === id && item.result?.state === "queued",
-          ),
-        },
-        steering: {
-          pending: running,
-          hasAppSubmission: [...this.#receipts.values()].some(
-            (item) => item.threadId === id && item.result?.state === "steering",
+            (item) =>
+              item.threadId === id &&
+              item.result?.plan === "queue" &&
+              (JSON.parse(member.queue) as { messageId: string }[]).some(
+                (message) => message.messageId === item.result?.messageId,
+              ),
           ),
         },
         updatedAt: member.updatedAt,
@@ -311,9 +305,6 @@ export class DesktopThreadCommands {
         if (target.openQuestionCount > 0)
           fail("THREAD_WAITING_FOR_USER", "The Thread is waiting for a human answer.");
         const mode = request.input.mode ?? "queue";
-        const busy = target.state === "running";
-        const state = busy ? (mode === "steer" ? "steering" : "queued") : "accepted";
-        const submissionId = randomUUID();
         const selected = receipt.input.model?.[0];
         const modelSelection =
           selected &&
@@ -339,41 +330,35 @@ export class DesktopThreadCommands {
             (document) => `\n\n${document.title}\n${document.content}`,
           ),
         ].join("");
-        const command: Extract<OrchestrationCommand, { type: "thread.turn.start" }> = {
-          type: "thread.turn.start",
-          commandId: CommandId.makeUnsafe(`app:${request.input.composeId}`),
-          threadId: target.id,
-          message: {
-            messageId: MessageId.makeUnsafe(`app:${request.input.composeId}`),
-            role: "user",
-            text,
-            attachments: [...receipt.attachments],
-            ...(receipt.input.skills?.length ? { skills: receipt.input.skills } : {}),
-          },
-          modelSelection: Schema.decodeUnknownSync(ModelSelection)(modelSelection),
-          dispatchMode: mode,
-          runtimeMode: Schema.decodeUnknownSync(RuntimeMode)(target.runtimeMode),
-          createdAt: receipt.createdAt,
-        };
-        const sending = this.deps.dispatchTurn(command, `${request.appId}:${request.tabId}`).then(
-          () => {
-            const result: AppThreadSendReceipt = {
-              submissionId,
-              composeId: request.input.composeId,
+        const sending = this.deps
+          .send(
+            {
               threadId: target.id,
-              mode,
-              state,
-              acceptedAt: new Date().toISOString(),
-            };
-            receipt.result = result;
-            delete receipt.sending;
-            return result;
-          },
-          (error) => {
-            delete receipt.sending;
-            throw error;
-          },
-        );
+              message: {
+                messageId: MessageId.makeUnsafe(`app:${request.input.composeId}`),
+                text,
+                attachments: [...receipt.attachments],
+                senderThreadId: null,
+                dispatchOrigin: "user",
+                queuedAt: receipt.createdAt,
+              },
+              modelSelection: Schema.decodeUnknownSync(ModelSelection)(modelSelection),
+              dispatchMode: mode,
+              ...(receipt.input.skills?.length ? { skills: receipt.input.skills } : {}),
+            },
+            `${request.appId}:${request.tabId}`,
+          )
+          .then(
+            (result) => {
+              receipt.result = result;
+              delete receipt.sending;
+              return result;
+            },
+            (error) => {
+              delete receipt.sending;
+              throw error;
+            },
+          );
         receipt.sending = sending;
         return sending;
       }

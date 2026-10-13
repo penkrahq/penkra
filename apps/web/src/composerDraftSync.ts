@@ -8,9 +8,9 @@
 // Exports: shouldApplyRemoteDraft, createComposerDraftSync, useComposerDraftSync
 
 import type { ThreadId } from "@penkra/contracts";
-import { useEffect, useRef } from "react";
+import { useEffect, useLayoutEffect, useRef, useCallback } from "react";
 
-import type { ComposerThreadDraftState } from "./composerDraftDomain";
+import { createEmptyThreadDraft, type ComposerThreadDraftState } from "./composerDraftDomain";
 import {
   hydrateComposerThreadDraftFromServer,
   serializeComposerThreadDraft,
@@ -74,10 +74,10 @@ async function defaultReadAssetSize(
   return file?.size ?? null;
 }
 
-async function defaultDeserialize(
+export async function deserializeComposerThreadDraft(
   threadId: ThreadId,
   payload: string,
-  readAssetSize: ReadComposerDraftAssetSize,
+  readAssetSize: ReadComposerDraftAssetSize = defaultReadAssetSize,
 ): Promise<ComposerThreadDraftState | null> {
   try {
     return await hydrateComposerThreadDraftFromServer(
@@ -91,6 +91,8 @@ async function defaultDeserialize(
 }
 
 export interface ComposerDraftSync {
+  /** Timestamp of the draft read or committed by this controller. */
+  draftUpdatedAt(): string | null;
   /** Load the server draft and subscribe to pushes. */
   start(): Promise<void>;
   /** Apply the current local draft to the sync (debounced save). */
@@ -120,7 +122,7 @@ export function createComposerDraftSync(input: {
   const serialize = input.serialize ?? defaultSerialize;
   const deserialize =
     input.deserialize ??
-    ((threadId, payload) => defaultDeserialize(threadId, payload, readAssetSize));
+    ((threadId, payload) => deserializeComposerThreadDraft(threadId, payload, readAssetSize));
 
   let disposed = false;
   let appliedUpdatedAt: string | null = null;
@@ -135,9 +137,17 @@ export function createComposerDraftSync(input: {
     appliedUpdatedAt = updatedAt;
     knownPayload = payload;
     pendingPayload = undefined;
-    if (payload === null) return;
+    if (payload === null) {
+      if (updatedAt !== null && !disposed) input.applyServerDraft(createEmptyThreadDraft());
+      return;
+    }
     const draft = await deserialize(input.threadId, payload);
-    if (draft !== null && !disposed) input.applyServerDraft(draft);
+    if (!disposed && pendingPayload !== undefined) {
+      await flush();
+      return;
+    }
+    if (draft !== null && !disposed && updatedAt === appliedUpdatedAt)
+      input.applyServerDraft(draft);
   };
 
   const flush = async (): Promise<void> => {
@@ -163,8 +173,14 @@ export function createComposerDraftSync(input: {
   };
 
   const load = async () => {
+    if (pendingPayload !== undefined) await flush();
     const remote = await input.api.getThreadDraft({ threadId: input.threadId });
     if (disposed) return;
+    // Input composed while this read was pending wins over its earlier snapshot.
+    if (pendingPayload !== undefined) {
+      await flush();
+      return;
+    }
     if (shouldApplyRemoteDraft(remote.draftUpdatedAt, appliedUpdatedAt)) {
       await applyRemote(remote.draft, remote.draftUpdatedAt);
     } else if (knownPayload === null) {
@@ -179,6 +195,7 @@ export function createComposerDraftSync(input: {
 
   return {
     start: load,
+    draftUpdatedAt: () => appliedUpdatedAt,
     setLocalDraft: (draft) => {
       if (disposed) return;
       const payload = serialize(input.threadId, draft);
@@ -210,13 +227,13 @@ export function useComposerDraftSync(input: {
   readonly threadId: ThreadId | null;
   readonly draft: ComposerThreadDraftState;
   readonly applyServerDraft: (threadId: ThreadId, draft: ComposerThreadDraftState) => void;
-}): void {
+}): { refresh: () => Promise<void>; draftUpdatedAt: () => string | null } {
   const controllerRef = useRef<ComposerDraftSync | null>(null);
   const applyRef = useRef(input.applyServerDraft);
   applyRef.current = input.applyServerDraft;
   const threadId = input.threadId;
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     controllerRef.current = null;
     if (threadId === null) return;
     const api = readNativeApi();
@@ -235,4 +252,9 @@ export function useComposerDraftSync(input: {
   useEffect(() => {
     controllerRef.current?.setLocalDraft(input.draft);
   }, [input.draft]);
+  const refresh = useCallback(async () => {
+    await controllerRef.current?.start();
+  }, []);
+  const draftUpdatedAt = useCallback(() => controllerRef.current?.draftUpdatedAt() ?? null, []);
+  return { refresh, draftUpdatedAt };
 }

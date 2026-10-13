@@ -97,7 +97,7 @@ for (const state of ["idle", "running"]) {
   );
 }
 
-it.effect("queue admission keeps a newer draft pick, while consuming only composed content", () =>
+it.effect("queue admission preserves a newer draft and its selection", () =>
   withDb(
     Effect.gen(function* () {
       yield* runMigrations();
@@ -133,15 +133,15 @@ it.effect("queue admission keeps a newer draft pick, while consuming only compos
       );
       const saved = (yield* getThreadDraft("thread-1")).draft!;
       assert.deepStrictEqual(JSON.parse(saved), {
-        prompt: "",
+        prompt: "queued content",
         attachments: [],
         files: [],
         ...choice,
       });
-      assert.deepStrictEqual(
-        JSON.parse(draftAfterSend(saved, "codex", undefined)!),
-        JSON.parse(saved),
-      );
+      assert.deepStrictEqual(JSON.parse(draftAfterSend(saved, "codex", undefined)!), {
+        ...JSON.parse(saved),
+        prompt: "",
+      });
     }),
   ),
 );

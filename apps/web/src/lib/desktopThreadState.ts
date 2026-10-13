@@ -31,6 +31,5 @@ export function deriveUnmountedThreadLiveState(
     queuedCount,
     pendingUserInput,
     sendBusy: running,
-    steeringPending: false,
   };
 }

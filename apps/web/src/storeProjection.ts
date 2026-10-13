@@ -662,8 +662,6 @@ function removeThreadState(state: AppState, threadId: ThreadId): AppState {
     state.threadTurnPaginationById ?? {};
   const { [threadId]: _removedSummary, ...sidebarThreadSummaryById } =
     state.sidebarThreadSummaryById;
-  const { [threadId]: _removedCancellation, ...pendingStartCancellationByThreadId } =
-    state.pendingStartCancellationByThreadId ?? {};
   const nextThreadIds = (state.threadIds ?? EMPTY_THREAD_IDS).filter((id) => id !== threadId);
 
   if (
@@ -686,7 +684,6 @@ function removeThreadState(state: AppState, threadId: ThreadId): AppState {
       activityByThreadId,
       threadTurnPaginationById,
       sidebarThreadSummaryById,
-      pendingStartCancellationByThreadId,
     },
     threadId,
   );
