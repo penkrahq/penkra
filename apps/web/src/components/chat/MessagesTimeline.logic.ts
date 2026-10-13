@@ -3,7 +3,7 @@
 // Layer: Web chat presentation helpers
 // Exports: row derivation, structural sharing, copy/timer helpers
 
-import { type TurnId } from "@penkra/contracts";
+import { type TurnId, type CleanCoreThreadItem } from "@penkra/contracts";
 import {
   type TimelineEntry,
   type WorkLogEntry,
@@ -190,14 +190,6 @@ export function findLastLiveWorkGroupId(rows: ReadonlyArray<MessagesTimelineRow>
   return null;
 }
 
-export interface TimelineDurationMessage {
-  id: string;
-  role: "user" | "assistant" | "system";
-  createdAt: string;
-  turnId?: string | null;
-  completedAt?: string | undefined;
-}
-
 export type MessagesTimelineRow =
   | {
       kind: "media";
@@ -226,7 +218,6 @@ export type MessagesTimelineRow =
       collapsedWorkElapsed?: string | null;
       collapsedTurnSummaryOnly?: boolean;
       hasVisibleMediaInTurn?: boolean;
-      durationStart: string;
       showAssistantCopyButton: boolean;
       assistantCopyStreaming: boolean;
       assistantTurnInProgress?: boolean | undefined;
@@ -241,25 +232,6 @@ export type MessagesTimelineRow =
 export interface StableMessagesTimelineRowsState {
   byId: Map<string, MessagesTimelineRow>;
   result: MessagesTimelineRow[];
-}
-
-export function computeMessageDurationStart(
-  messages: ReadonlyArray<TimelineDurationMessage>,
-): Map<string, string> {
-  const result = new Map<string, string>();
-  let lastBoundary: string | null = null;
-
-  for (const message of messages) {
-    if (message.role === "user") {
-      lastBoundary = message.createdAt;
-    }
-    result.set(message.id, lastBoundary ?? message.createdAt);
-    if (message.role === "assistant" && message.completedAt) {
-      lastBoundary = message.completedAt;
-    }
-  }
-
-  return result;
 }
 
 export function normalizeCompactToolLabel(value: string): string {
@@ -305,9 +277,9 @@ export function resolveAssistantMessageDisplayText(
   return input.hasVisibleMediaInTurn ? null : "(empty response)";
 }
 
-export function deriveTerminalAssistantMessageIds(
-  messages: ReadonlyArray<TimelineDurationMessage>,
-): Set<string> {
+export function deriveTerminalAssistantMessageIds<
+  T extends { id: string; role: ChatMessage["role"] },
+>(messages: ReadonlyArray<T>): Set<string> {
   const terminalAssistantMessageIds = new Set<string>();
   let latestAssistantMessageId: string | null = null;
 
@@ -338,12 +310,12 @@ export function deriveMessagesTimelineRows(input: {
   activeTurnInProgress?: boolean;
   activeTurnId?: TurnId | null | undefined;
   activeTurnStartedAt: string | null;
+  turns?: Readonly<Record<string, CleanCoreThreadItem>> | undefined;
 }): MessagesTimelineRow[] {
   const nextRows: MessagesTimelineRow[] = [];
   const timelineMessages = input.timelineEntries.flatMap((entry) =>
     entry.kind === "message" ? [entry.message] : [],
   );
-  const durationStartByMessageId = computeMessageDurationStart(timelineMessages);
   const terminalAssistantMessageIds = deriveTerminalAssistantMessageIds(timelineMessages);
   let pendingWorkGroup: Extract<MessagesTimelineRow, { kind: "work" }> | null = null;
 
@@ -478,7 +450,6 @@ export function deriveMessagesTimelineRows(input: {
       message,
       ...(leadingWorkEntries ? { leadingWorkEntries } : {}),
       ...(leadingWorkGroupId ? { leadingWorkGroupId } : {}),
-      durationStart: durationStartByMessageId.get(message.id) ?? message.createdAt,
       showAssistantCopyButton:
         message.role === "assistant" && terminalAssistantMessageIds.has(message.id),
       assistantCopyStreaming: message.streaming || assistantTurnStillInProgress,
@@ -503,6 +474,7 @@ export function deriveMessagesTimelineRows(input: {
 
   collapseSettledTurns(nextRows, {
     terminalAssistantMessageIds,
+    turns: input.turns ?? {},
     activeTurnInProgress: input.activeTurnInProgress ?? false,
     activeTurnId: input.activeTurnId ?? null,
   });
@@ -558,6 +530,7 @@ function collapseSettledTurns(
   rows: MessagesTimelineRow[],
   options: {
     terminalAssistantMessageIds: ReadonlySet<string>;
+    turns: Readonly<Record<string, CleanCoreThreadItem>>;
     activeTurnInProgress: boolean;
     activeTurnId: TurnId | null;
   },
@@ -571,14 +544,6 @@ function collapseSettledTurns(
     for (const entry of entries) {
       into.push({ kind: "work", id: entry.id, entry });
     }
-  };
-
-  const earliestTimestamp = (a: string, b: string): string => {
-    const aMs = Date.parse(a);
-    const bMs = Date.parse(b);
-    if (Number.isNaN(aMs)) return b;
-    if (Number.isNaN(bMs)) return a;
-    return bMs < aMs ? b : a;
   };
 
   for (let pass = rows.length - 1; pass >= 0; pass -= 1) {
@@ -626,19 +591,11 @@ function collapseSettledTurns(
     const firstMediaRow = mediaIndices.length > 0 ? rows[mediaIndices[0]!] : undefined;
 
     const collapsedItems: CollapsedTurnItem[] = [];
-    // The disclosure folds everything back to the user boundary, so "Worked
-    // for" must start where the folded segment starts. The terminal row's own
-    // durationStart advances past intermediate *completed* assistant messages
-    // (e.g. a failed attempt before a retry), which would report only the tail
-    // of the turn instead of the full run.
-    let collapsedStart = row.durationStart;
     for (const index of foldIndices) {
       const folded = rows[index]!;
       if (folded.kind === "work") {
-        collapsedStart = earliestTimestamp(collapsedStart, folded.createdAt);
         collectWorkItems(folded.groupedEntries, collapsedItems);
       } else if (folded.kind === "message" && folded.message.role === "assistant") {
-        collapsedStart = earliestTimestamp(collapsedStart, folded.durationStart);
         if (folded.leadingWorkEntries) collectWorkItems(folded.leadingWorkEntries, collapsedItems);
         if (folded.collapsedTurnItems) collapsedItems.push(...folded.collapsedTurnItems);
         collapsedItems.push({ kind: "narration", id: folded.message.id, message: folded.message });
@@ -651,7 +608,15 @@ function collapseSettledTurns(
     if (row.inlineWorkEntries) collectWorkItems(row.inlineWorkEntries, collapsedItems);
 
     if (collapsedItems.length > 0) {
-      const elapsed = formatElapsed(collapsedStart, message.completedAt);
+      const turn = message.turnId == null ? undefined : options.turns[message.turnId];
+      const timing =
+        turn?.data == null
+          ? null
+          : (JSON.parse(turn.data) as { startedAt: string; endedAt: string | null });
+      const elapsed =
+        turn?.status !== "running" && timing?.endedAt
+          ? formatElapsed(timing.startedAt, timing.endedAt)
+          : null;
       const creationRecapItems = collapsedItems.filter(
         (item) => item.kind === "work" && item.entry.penkraThreadCreation,
       );
@@ -991,7 +956,6 @@ function isRowUnchanged(a: MessagesTimelineRow, b: MessagesTimelineRow): boolean
         a.collapsedWorkElapsed === bm.collapsedWorkElapsed &&
         a.collapsedTurnSummaryOnly === bm.collapsedTurnSummaryOnly &&
         a.hasVisibleMediaInTurn === bm.hasVisibleMediaInTurn &&
-        a.durationStart === bm.durationStart &&
         a.showAssistantCopyButton === bm.showAssistantCopyButton &&
         a.assistantCopyStreaming === bm.assistantCopyStreaming &&
         a.assistantTurnInProgress === bm.assistantTurnInProgress

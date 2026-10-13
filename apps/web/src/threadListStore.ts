@@ -37,6 +37,16 @@ export function subscribeThreadRowChanges(
     rowListeners.delete(listener);
   };
 }
+const pageReadListeners = new Set<(rows: readonly CleanCoreThreadSummary[]) => void>();
+/** Page snapshots establish a baseline; row-change reads are live events. */
+export function subscribeThreadPageReads(
+  listener: (rows: readonly CleanCoreThreadSummary[]) => void,
+): () => void {
+  pageReadListeners.add(listener);
+  return () => {
+    pageReadListeners.delete(listener);
+  };
+}
 const listeners = new Set<() => void>();
 let liveSubscription: (() => void) | null = null;
 export interface ThreadListPageState {
@@ -114,6 +124,7 @@ function readThreadPage(
   const request = ensureNativeApi()
     .cleanCore.listThreads({ ...input, after })
     .then((page) => {
+      for (const listener of pageReadListeners) listener(page.threads);
       const next = new Map(byId);
       for (const thread of page.threads) {
         const stored = next.get(thread.id);
@@ -194,6 +205,7 @@ export function resetThreadListForTests(): void {
   threads = [];
   listeners.clear();
   rowListeners.clear();
+  pageReadListeners.clear();
   pages = new Map();
   pendingPages.clear();
 }

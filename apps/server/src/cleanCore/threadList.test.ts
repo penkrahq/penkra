@@ -1,11 +1,12 @@
 import { seedThreadFolderFixture } from "./threadFixtures.ts";
 import { assert, it } from "@effect/vitest";
-import { FolderId, SpaceId, ThreadId } from "@penkra/contracts";
+import { FolderId, SpaceId, ThreadId, TurnId } from "@penkra/contracts";
 import { Effect } from "effect";
 import * as SqlClient from "effect/unstable/sql/SqlClient";
 
-import { listThreads, listFolderThreads } from "./threadList.ts";
-import { createThread } from "./threadStore.ts";
+import { listThreads, listFolderThreads, findThread, listRunningThreads } from "./threadList.ts";
+import { createThread, makeThreadPublisher } from "./threadStore.ts";
+import { applyProviderEvent } from "./providerStreamConsumer.ts";
 import { runMigrations } from "../persistence/Migrations.ts";
 import * as NodeSqliteClient from "../persistence/NodeSqliteClient.ts";
 
@@ -138,6 +139,59 @@ it.effect("pages folder members in sidebar order and excludes archived and delet
       });
       assert.deepStrictEqual(empty.threads, []);
       assert.isNull(empty.nextCursor);
+    }),
+  ),
+);
+
+it.effect("reads the newest canonical turn from the indexed sidebar and thread row", () =>
+  withDb(
+    Effect.gen(function* () {
+      yield* runMigrations();
+      yield* seedThreadFolderFixture("list-folder", "space-1");
+      yield* createThread({
+        id: "thread-1",
+        spaceId: "space-1",
+        folderId: "list-folder",
+        title: "Hello",
+        provider: "codex",
+        model: "model",
+        runtimeMode: "full-access",
+        createdBy: "user",
+        createdAt: "2026-10-12T00:00:00.000Z",
+      });
+      const publisher = makeThreadPublisher();
+      assert.isNull((yield* findThread(ThreadId.makeUnsafe("thread-1")))!.latestTurn);
+      yield* applyProviderEvent(publisher, {
+        type: "turn.started",
+        threadId: "thread-1",
+        turnId: "native",
+        at: "2026-10-12T00:00:01.000Z",
+      });
+      assert.equal((yield* listRunningThreads())[0]!.latestTurn!.status, "running");
+      yield* applyProviderEvent(publisher, {
+        type: "turn.ended",
+        threadId: "thread-1",
+        turnId: "native",
+        state: "completed",
+        at: "2026-10-12T00:00:06.000Z",
+      });
+      const expected = {
+        turnId: TurnId.makeUnsafe("native"),
+        status: "done" as const,
+        startedAt: "2026-10-12T00:00:01.000Z",
+        endedAt: "2026-10-12T00:00:06.000Z",
+      };
+      assert.deepStrictEqual(
+        (yield* findThread(ThreadId.makeUnsafe("thread-1")))!.latestTurn,
+        expected,
+      );
+      assert.deepStrictEqual(
+        (yield* listThreads({
+          spaceId: SpaceId.makeUnsafe("space-1"),
+          folderId: FolderId.makeUnsafe("list-folder"),
+        })).threads[0]!.latestTurn,
+        expected,
+      );
     }),
   ),
 );

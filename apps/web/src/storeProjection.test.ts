@@ -2492,6 +2492,19 @@ describe("deletion tombstone retirement", () => {
     expect(resynced).toBe(hydrated);
   });
 
+  it("does not let a startup snapshot overwrite canonical navigation", () => {
+    const canonical = syncServerNavigation(
+      makeState(makeThread({ id: deletedThreadId, folderId })),
+      { spaces: [], folders: [] },
+    );
+    const snapshot = makeStartupNavigationSnapshot(5);
+    expect(snapshot.folders.length).toBeGreaterThan(0);
+    const next = syncServerStartupSnapshot(canonical, snapshot);
+    expect(next.folders).toBe(canonical.folders);
+    expect(next.spaces).toBe(canonical.spaces);
+    expect(next.threadsHydrated).toBe(true);
+  });
+
   it("preserves the opened thread registry across startup navigation snapshots", () => {
     const hydrated = syncServerStartupSnapshot(
       makeState(makeThread({ id: deletedThreadId, folderId })),

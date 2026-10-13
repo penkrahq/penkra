@@ -24,6 +24,23 @@ import { MessagesTimeline } from "./MessagesTimeline";
 import { deriveTimelineEntries } from "../../session-logic";
 import { COLLAPSED_USER_MESSAGE_MAX_CHARS } from "./userMessageCollapse";
 
+const TIMING_FIXTURE_TURNS = {
+  "fixture-duration": {
+    threadId: ThreadId.makeUnsafe("fixture"),
+    seq: 1,
+    sourceId: "turn:fixture-duration",
+    turnId: TurnId.makeUnsafe("fixture-duration"),
+    kind: "turn",
+    status: "done",
+    text: null,
+    data: JSON.stringify({
+      startedAt: "2026-03-17T19:12:29.000Z",
+      endedAt: "2026-03-17T19:12:30.000Z",
+    }),
+    createdAt: "2026-03-17T19:12:29.000Z",
+    updatedAt: "2026-03-17T19:12:30.000Z",
+  },
+};
 const TOOLTIP_TRIGGER_MARKER = 'data-base-ui-tooltip-trigger=""';
 
 vi.mock("./TranscriptVirtualList", async () => {
@@ -1211,6 +1228,7 @@ describe("MessagesTimeline", () => {
   it("folds work log summaries above the next assistant message footer", async () => {
     const markup = renderToStaticMarkup(
       <MessagesTimeline
+        turns={TIMING_FIXTURE_TURNS}
         hasMessages
         isWorking={false}
         activeTurnInProgress={false}
@@ -1232,6 +1250,7 @@ describe("MessagesTimeline", () => {
             kind: "message",
             createdAt: "2026-03-17T19:12:29.000Z",
             message: {
+              turnId: TurnId.makeUnsafe("fixture-duration"),
               id: MessageId.makeUnsafe("message-assistant-inline"),
               role: "assistant",
               text: "done",
@@ -1313,6 +1332,7 @@ describe("MessagesTimeline", () => {
   it("collapses every completed-turn tool call behind a single Worked-for toggle", async () => {
     const markup = renderToStaticMarkup(
       <MessagesTimeline
+        turns={TIMING_FIXTURE_TURNS}
         hasMessages
         isWorking={false}
         activeTurnInProgress={false}
@@ -1389,6 +1409,7 @@ describe("MessagesTimeline", () => {
             kind: "message",
             createdAt: "2026-03-17T19:12:29.000Z",
             message: {
+              turnId: TurnId.makeUnsafe("fixture-duration"),
               id: MessageId.makeUnsafe("message-assistant-inline-tools"),
               role: "assistant",
               text: "done",
@@ -1421,6 +1442,7 @@ describe("MessagesTimeline", () => {
   it("renders the completed-turn disclosure before an interleaved presented image", async () => {
     const markup = renderToStaticMarkup(
       <MessagesTimeline
+        turns={TIMING_FIXTURE_TURNS}
         hasMessages
         isWorking={false}
         activeTurnInProgress={false}
@@ -1443,6 +1465,7 @@ describe("MessagesTimeline", () => {
             kind: "message",
             createdAt: "2026-03-17T19:12:29.000Z",
             message: {
+              turnId: TurnId.makeUnsafe("fixture-duration"),
               id: MessageId.makeUnsafe("assistant-preamble-media-turn"),
               role: "assistant",
               text: "Preparing the image.",
@@ -1486,6 +1509,7 @@ describe("MessagesTimeline", () => {
             kind: "message",
             createdAt: "2026-03-17T19:12:30.000Z",
             message: {
+              turnId: TurnId.makeUnsafe("fixture-duration"),
               id: MessageId.makeUnsafe("assistant-final-media-turn"),
               role: "assistant",
               text: "Here it is.",
@@ -1883,6 +1907,7 @@ describe("MessagesTimeline", () => {
   it("attaches trailing tool rows to the last assistant reply after completion", async () => {
     const markup = renderToStaticMarkup(
       <MessagesTimeline
+        turns={TIMING_FIXTURE_TURNS}
         hasMessages
         isWorking={false}
         activeTurnInProgress={false}
@@ -1893,6 +1918,7 @@ describe("MessagesTimeline", () => {
             kind: "message",
             createdAt: "2026-03-17T19:12:29.000Z",
             message: {
+              turnId: TurnId.makeUnsafe("fixture-duration"),
               id: MessageId.makeUnsafe("message-assistant-final"),
               role: "assistant",
               text: "done",
@@ -2754,6 +2780,7 @@ describe("MessagesTimeline", () => {
     };
     const liveMarkup = renderToStaticMarkup(
       <MessagesTimeline
+        turns={TIMING_FIXTURE_TURNS}
         {...baseProps}
         isWorking
         activeTurnInProgress
@@ -2765,6 +2792,7 @@ describe("MessagesTimeline", () => {
 
     const markup = renderToStaticMarkup(
       <MessagesTimeline
+        turns={TIMING_FIXTURE_TURNS}
         {...baseProps}
         isWorking={false}
         activeTurnInProgress={false}
@@ -2775,6 +2803,7 @@ describe("MessagesTimeline", () => {
             kind: "message",
             createdAt: "2026-03-17T19:12:30.000Z",
             message: {
+              turnId: TurnId.makeUnsafe("fixture-duration"),
               id: assistantMessageId,
               role: "assistant",
               text: "Both threads are running.",

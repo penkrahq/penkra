@@ -70,7 +70,6 @@ type SidebarThreadSortInput = {
   createdAt: string;
   sidebarSortOrder?: number | null | undefined;
   updatedAt?: string | undefined;
-  latestTurn?: Thread["latestTurn"] | undefined;
   lastVisitedAt?: string | null | undefined;
   hasPendingUserInput?: boolean | undefined;
   session?: Thread["session"] | undefined;

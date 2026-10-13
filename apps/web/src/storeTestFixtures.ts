@@ -238,6 +238,7 @@ export function makeThreadSummary(
   overrides: Partial<import("@penkra/contracts").CleanCoreThreadSummary> = {},
 ): import("@penkra/contracts").CleanCoreThreadSummary {
   return {
+    latestTurn: null,
     id: ThreadId.makeUnsafe("thread-1"),
     spaceId: TEST_SPACE_ID,
     folderId: FolderId.makeUnsafe("project-1"),

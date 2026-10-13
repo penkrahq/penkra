@@ -350,6 +350,7 @@ function makeHarnessLayer(
   const summary = (
     thread: OrchestrationThreadShell,
   ): import("@penkra/contracts").CleanCoreThreadSummary => ({
+    latestTurn: null,
     id: thread.id,
     spaceId: SPACE_ID,
     folderId: thread.folderId,

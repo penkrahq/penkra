@@ -1,5 +1,5 @@
 import { CleanCoreThreadSummary } from "./threadSummary";
-export { CleanCoreThreadSummary } from "./threadSummary";
+export { CleanCoreThreadSummary, CleanCoreLatestTurn } from "./threadSummary";
 import { Schema } from "effect";
 import { ProviderSkillReference, ProviderMentionReference } from "./providerDiscovery";
 
@@ -62,6 +62,7 @@ export const CleanCoreThreadItem = Schema.Struct({
 export type CleanCoreThreadItem = typeof CleanCoreThreadItem.Type;
 
 export const CleanCoreListThreadItemsPageResult = Schema.Struct({
+  turns: Schema.Record(Schema.String, CleanCoreThreadItem),
   items: Schema.Array(CleanCoreThreadItem),
   nextCursor: Schema.NullOr(NonNegativeInt),
 });

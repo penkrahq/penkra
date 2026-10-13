@@ -30,7 +30,10 @@ it.effect("adds private recovery storage and preserves existing items", () =>
     yield* seed;
     const sql = yield* SqlClient.SqlClient;
     const before = yield* sql`SELECT thread_id,seq,source_id,text FROM thread_items`;
-    assert.deepStrictEqual(yield* runMigrations(), [[197, "SendRecoveryDraft"]]);
+    assert.deepStrictEqual(yield* runMigrations(), [
+      [197, "SendRecoveryDraft"],
+      [198, "IndexLatestTurn"],
+    ]);
     assert.deepStrictEqual(
       yield* sql`SELECT thread_id,seq,source_id,text FROM thread_items`,
       before,

@@ -1,10 +1,9 @@
-import { MessageId, TurnId } from "@penkra/contracts";
+import { MessageId, TurnId, ThreadId, type CleanCoreThreadItem } from "@penkra/contracts";
 import { describe, expect, it } from "vitest";
 import {
   capOpenWorkEntryRenderChunks,
   chunkCollapsedTurnItems,
   chunkWorkEntries,
-  computeMessageDurationStart,
   computeStableMessagesTimelineRows,
   deriveMessagesTimelineRows,
   deriveTerminalAssistantMessageIds,
@@ -18,139 +17,6 @@ import {
   type StableMessagesTimelineRowsState,
 } from "./MessagesTimeline.logic";
 import type { TimelineEntry, WorkLogEntry } from "../../session-logic";
-
-describe("computeMessageDurationStart", () => {
-  it("returns message createdAt when there is no preceding user message", () => {
-    const result = computeMessageDurationStart([
-      {
-        id: "a1",
-        role: "assistant",
-        createdAt: "2026-01-01T00:00:05Z",
-        completedAt: "2026-01-01T00:00:10Z",
-      },
-    ]);
-    expect(result).toEqual(new Map([["a1", "2026-01-01T00:00:05Z"]]));
-  });
-
-  it("uses the user message createdAt for the first assistant response", () => {
-    const result = computeMessageDurationStart([
-      { id: "u1", role: "user", createdAt: "2026-01-01T00:00:00Z" },
-      {
-        id: "a1",
-        role: "assistant",
-        createdAt: "2026-01-01T00:00:30Z",
-        completedAt: "2026-01-01T00:00:30Z",
-      },
-    ]);
-
-    expect(result).toEqual(
-      new Map([
-        ["u1", "2026-01-01T00:00:00Z"],
-        ["a1", "2026-01-01T00:00:00Z"],
-      ]),
-    );
-  });
-
-  it("uses the previous assistant completedAt for subsequent assistant responses", () => {
-    const result = computeMessageDurationStart([
-      { id: "u1", role: "user", createdAt: "2026-01-01T00:00:00Z" },
-      {
-        id: "a1",
-        role: "assistant",
-        createdAt: "2026-01-01T00:00:30Z",
-        completedAt: "2026-01-01T00:00:30Z",
-      },
-      {
-        id: "a2",
-        role: "assistant",
-        createdAt: "2026-01-01T00:00:55Z",
-        completedAt: "2026-01-01T00:00:55Z",
-      },
-    ]);
-
-    expect(result).toEqual(
-      new Map([
-        ["u1", "2026-01-01T00:00:00Z"],
-        ["a1", "2026-01-01T00:00:00Z"],
-        ["a2", "2026-01-01T00:00:30Z"],
-      ]),
-    );
-  });
-
-  it("does not advance the boundary for a streaming message without completedAt", () => {
-    const result = computeMessageDurationStart([
-      { id: "u1", role: "user", createdAt: "2026-01-01T00:00:00Z" },
-      { id: "a1", role: "assistant", createdAt: "2026-01-01T00:00:30Z" },
-      {
-        id: "a2",
-        role: "assistant",
-        createdAt: "2026-01-01T00:00:55Z",
-        completedAt: "2026-01-01T00:00:55Z",
-      },
-    ]);
-
-    expect(result).toEqual(
-      new Map([
-        ["u1", "2026-01-01T00:00:00Z"],
-        ["a1", "2026-01-01T00:00:00Z"],
-        ["a2", "2026-01-01T00:00:00Z"],
-      ]),
-    );
-  });
-
-  it("resets the boundary on a new user message", () => {
-    const result = computeMessageDurationStart([
-      { id: "u1", role: "user", createdAt: "2026-01-01T00:00:00Z" },
-      {
-        id: "a1",
-        role: "assistant",
-        createdAt: "2026-01-01T00:00:30Z",
-        completedAt: "2026-01-01T00:00:30Z",
-      },
-      { id: "u2", role: "user", createdAt: "2026-01-01T00:01:00Z" },
-      {
-        id: "a2",
-        role: "assistant",
-        createdAt: "2026-01-01T00:01:20Z",
-        completedAt: "2026-01-01T00:01:20Z",
-      },
-    ]);
-
-    expect(result).toEqual(
-      new Map([
-        ["u1", "2026-01-01T00:00:00Z"],
-        ["a1", "2026-01-01T00:00:00Z"],
-        ["u2", "2026-01-01T00:01:00Z"],
-        ["a2", "2026-01-01T00:01:00Z"],
-      ]),
-    );
-  });
-
-  it("handles system messages without affecting the boundary", () => {
-    const result = computeMessageDurationStart([
-      { id: "u1", role: "user", createdAt: "2026-01-01T00:00:00Z" },
-      { id: "s1", role: "system", createdAt: "2026-01-01T00:00:01Z" },
-      {
-        id: "a1",
-        role: "assistant",
-        createdAt: "2026-01-01T00:00:30Z",
-        completedAt: "2026-01-01T00:00:30Z",
-      },
-    ]);
-
-    expect(result).toEqual(
-      new Map([
-        ["u1", "2026-01-01T00:00:00Z"],
-        ["s1", "2026-01-01T00:00:00Z"],
-        ["a1", "2026-01-01T00:00:00Z"],
-      ]),
-    );
-  });
-
-  it("returns empty map for empty input", () => {
-    expect(computeMessageDurationStart([])).toEqual(new Map());
-  });
-});
 
 describe("normalizeCompactToolLabel", () => {
   it("removes trailing completion wording from command labels", () => {
@@ -352,7 +218,6 @@ describe("computeStableMessagesTimelineRows", () => {
           },
         ],
         inlineWorkGroupId: "activity-command",
-        durationStart: "2026-05-09T10:00:01.000Z",
         showAssistantCopyButton: false,
         assistantCopyStreaming: true,
       },
@@ -478,6 +343,25 @@ describe("resolveAssistantMessageDisplayText", () => {
   });
 });
 
+const makeTurnItems = (
+  startedAt: string,
+  endedAt: string,
+  id = "t1",
+): Readonly<Record<string, CleanCoreThreadItem>> => ({
+  [id]: {
+    threadId: ThreadId.makeUnsafe("thread"),
+    seq: 1,
+    sourceId: `turn:${id}`,
+    turnId: TurnId.makeUnsafe(id),
+    kind: "turn",
+    status: "done",
+    text: null,
+    data: JSON.stringify({ startedAt, endedAt }),
+    createdAt: startedAt,
+    updatedAt: endedAt,
+  },
+});
+
 describe("deriveMessagesTimelineRows", () => {
   type MessageTimelineRow = Extract<MessagesTimelineRow, { kind: "message" }>;
 
@@ -576,7 +460,11 @@ describe("deriveMessagesTimelineRows", () => {
       activeTurnId: TurnId.makeUnsafe("t1"),
       timelineEntries,
     });
-    const settled = deriveMessagesTimelineRows({ ...baseInput, timelineEntries });
+    const settled = deriveMessagesTimelineRows({
+      ...baseInput,
+      timelineEntries,
+      turns: makeTurnItems("2026-01-01T00:00:00Z", "2026-01-01T00:00:04Z"),
+    });
     expect(live.map((row) => row.kind)).toEqual([
       "message",
       "message",
@@ -602,6 +490,7 @@ describe("deriveMessagesTimelineRows", () => {
     const mediaAt = "2026-01-01T00:00:02Z";
     const rows = deriveMessagesTimelineRows({
       ...baseInput,
+      turns: makeTurnItems("2026-01-01T00:00:00Z", "2026-01-01T00:00:05Z", "t1"),
       timelineEntries: [
         userEntry("u1", "2026-01-01T00:00:00Z"),
         {
@@ -765,6 +654,7 @@ describe("deriveMessagesTimelineRows", () => {
   it("folds a settled turn's narration and work into one collapsed group on the terminal message", () => {
     const rows = deriveMessagesTimelineRows({
       ...baseInput,
+      turns: makeTurnItems("2026-01-01T00:00:00Z", "2026-01-01T00:00:06Z", "t1"),
       timelineEntries: [
         userEntry("u1", "2026-01-01T00:00:00Z"),
         assistantEntry("a1", "2026-01-01T00:00:01Z", {
@@ -834,12 +724,13 @@ describe("deriveMessagesTimelineRows", () => {
     expect(rows.some((row) => row.kind === "work")).toBe(false);
   });
 
-  it("times the collapsed disclosure from the turn start, not the last intermediate assistant message", () => {
+  it("uses the persisted companion timing instead of intermediate assistant timestamps", () => {
     // Mirrors a provider failure + retry: the first attempt's assistant message
     // completes 22m20s in, the retry answers 40s later. The disclosure folds
     // the whole run, so the timer must cover it too — not just the retry tail.
     const rows = deriveMessagesTimelineRows({
       ...baseInput,
+      turns: makeTurnItems("2026-01-01T00:00:00Z", "2026-01-01T00:23:00Z", "t2"),
       timelineEntries: [
         userEntry("u1", "2026-01-01T00:00:00Z"),
         workEntry("w1", "2026-01-01T00:00:05Z", "long tool work"),
@@ -1337,7 +1228,6 @@ const messageRowOf = (
     createdAt: "2026-01-01T00:00:00Z",
     streaming: false,
   },
-  durationStart: "2026-01-01T00:00:00Z",
   showAssistantCopyButton: false,
   assistantCopyStreaming: false,
   ...groups,

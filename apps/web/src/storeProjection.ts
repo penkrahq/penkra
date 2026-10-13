@@ -1002,17 +1002,9 @@ export function syncServerStartupSnapshot(
   snapshot: OrchestrationStartupSnapshot,
 ): AppState {
   if (isStaleSnapshot(state, snapshot.snapshotSequence)) return state;
-  rememberProjectUiState(state.folders);
-  rememberProjectLocalNames(state.folders);
-  const deletedFolders = state.deletedFolderIdsById ?? {};
   return {
     ...state,
     shellSnapshotSequence: Math.max(state.shellSnapshotSequence ?? 0, snapshot.snapshotSequence),
-    spaces: mapSpaces(snapshot.spaces, state.spaces),
-    folders: mapFolders(
-      snapshot.folders.filter((folder) => deletedFolders[folder.id] === undefined),
-      state.folders,
-    ),
     threadsHydrated: true,
   };
 }

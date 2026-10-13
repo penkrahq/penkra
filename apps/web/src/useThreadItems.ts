@@ -64,7 +64,7 @@ export function createThreadItemsController(
     void api
       .listThreadItemsPage({ threadId })
       .then((page) => {
-        if (!disposed) update(mergeItems(state, page.items));
+        if (!disposed) update(mergeItems(state, page.items, page.turns));
       })
       .catch(() => undefined);
   });

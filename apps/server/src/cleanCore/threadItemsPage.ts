@@ -25,6 +25,7 @@ export interface ThreadItemRecord {
 export interface ThreadItemsPage {
   /** Newest first. */
   readonly items: ReadonlyArray<ThreadItemRecord>;
+  readonly turns: Readonly<Record<string, ThreadItemRecord>>;
   /** Pass as `beforeSeq` to read the next older page, or null when exhausted. */
   readonly nextCursor: number | null;
 }
@@ -58,9 +59,20 @@ export const listThreadItemsPage = (input: {
       ORDER BY seq DESC
       LIMIT ${limit}
     `;
+    const sourceIds = [
+      ...new Set(rows.flatMap((row) => (row.turnId === null ? [] : [`turn:${row.turnId}`]))),
+    ];
+    const companions =
+      sourceIds.length === 0
+        ? []
+        : yield* sql<ThreadItemRecord>`SELECT
+      thread_id AS "threadId",seq,source_id AS "sourceId",turn_id AS "turnId",kind,status,text,data,
+      created_at AS "createdAt",updated_at AS "updatedAt" FROM thread_items
+      WHERE thread_id=${input.threadId} AND source_id IN ${sql.in(sourceIds)} AND kind='turn'`;
     const oldest = rows.at(-1);
     return {
       items: rows,
+      turns: Object.fromEntries(companions.map((turn) => [turn.turnId!, turn])),
       nextCursor: rows.length === limit && oldest !== undefined ? oldest.seq : null,
     } satisfies ThreadItemsPage;
   });

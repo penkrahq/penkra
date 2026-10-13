@@ -18,7 +18,14 @@ const item = (seq: number, text = `item ${seq}`): CleanCoreThreadItem => ({
 });
 
 function makeApi(
-  pages: Record<string, { items: CleanCoreThreadItem[]; nextCursor: number | null }>,
+  pages: Record<
+    string,
+    {
+      items: CleanCoreThreadItem[];
+      nextCursor: number | null;
+      turns: Record<string, CleanCoreThreadItem>;
+    }
+  >,
 ) {
   let pushListener: ((change: { threadId: string }) => void) | null = null;
   const unsubscribe = vi.fn();
@@ -26,6 +33,7 @@ function makeApi(
     listThreadItemsPage: vi.fn(
       async ({ beforeSeq }) =>
         pages[beforeSeq === undefined ? "first" : String(beforeSeq)] ?? {
+          turns: {},
           items: [],
           nextCursor: null,
         },
@@ -42,8 +50,8 @@ function makeApi(
 
 it("loads the first page, loads older on demand, and applies a push", async () => {
   const { api, emitPush, unsubscribe } = makeApi({
-    first: { items: [item(3), item(2)], nextCursor: 2 },
-    "2": { items: [item(1)], nextCursor: null },
+    first: { turns: {}, items: [item(3), item(2)], nextCursor: 2 },
+    "2": { turns: {}, items: [item(1)], nextCursor: null },
   });
   const states: ThreadItemsState[] = [];
   const controller = createThreadItemsController(api, "thread-1", (s) => states.push(s));
@@ -59,6 +67,7 @@ it("loads the first page, loads older on demand, and applies a push", async () =
 
   // A push re-reads the newest page and merges by seq (updated text wins).
   api.listThreadItemsPage = vi.fn(async () => ({
+    turns: {},
     items: [item(3, "item 3 updated")],
     nextCursor: 2,
   }));
@@ -78,11 +87,11 @@ it("loads the first page, loads older on demand, and applies a push", async () =
 
 it("ignores a push for another thread", async () => {
   const { api, emitPush } = makeApi({
-    first: { items: [item(1)], nextCursor: null },
+    first: { turns: {}, items: [item(1)], nextCursor: null },
   });
   const controller = createThreadItemsController(api, "thread-1", () => undefined);
   await controller.loadFirst();
-  api.listThreadItemsPage = vi.fn(async () => ({ items: [item(2)], nextCursor: null }));
+  api.listThreadItemsPage = vi.fn(async () => ({ turns: {}, items: [item(2)], nextCursor: null }));
   emitPush("thread-2");
   await new Promise((resolve) => setTimeout(resolve, 0));
   expect(controller.getState().items.map((i) => i.seq)).toEqual([1]);
@@ -91,7 +100,9 @@ it("ignores a push for another thread", async () => {
 
 it("a failure push removes the sending item on the authoritative re-read", async () => {
   const sending = { ...item(2, "retry this"), kind: "user", status: "sending" };
-  const { api, emitPush } = makeApi({ first: { items: [sending, item(1)], nextCursor: null } });
+  const { api, emitPush } = makeApi({
+    first: { turns: {}, items: [sending, item(1)], nextCursor: null },
+  });
   const controller = createThreadItemsController(api, "thread-1", () => undefined);
   await controller.loadFirst();
   expect(controller.getState().items.some((row) => row.status === "sending")).toBe(true);
@@ -101,7 +112,7 @@ it("a failure push removes the sending item on the authoritative re-read", async
   });
   api.listThreadItemsPage = vi.fn(async () => {
     resolveReread();
-    return { items: [item(1)], nextCursor: null };
+    return { turns: {}, items: [item(1)], nextCursor: null };
   });
   emitPush("thread-1");
   await reread;

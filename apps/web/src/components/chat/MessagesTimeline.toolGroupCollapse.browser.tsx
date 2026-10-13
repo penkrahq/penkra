@@ -5,13 +5,30 @@
 
 import "../../index.css";
 
-import { MessageId } from "@penkra/contracts";
+import { MessageId, ThreadId, TurnId } from "@penkra/contracts";
 import { afterEach, describe, expect, it } from "vitest";
 import { render } from "vitest-browser-react";
 
 import { MessagesTimeline } from "./MessagesTimeline";
 import type { TimelineEntry } from "../../session-logic";
 
+const TIMING_FIXTURE_TURNS = {
+  "fixture-duration": {
+    threadId: ThreadId.makeUnsafe("fixture"),
+    seq: 1,
+    sourceId: "turn:fixture-duration",
+    turnId: TurnId.makeUnsafe("fixture-duration"),
+    kind: "turn",
+    status: "done",
+    text: null,
+    data: JSON.stringify({
+      startedAt: "2026-03-17T19:12:20.000Z",
+      endedAt: "2026-03-17T19:12:30.000Z",
+    }),
+    createdAt: "2026-03-17T19:12:20.000Z",
+    updatedAt: "2026-03-17T19:12:30.000Z",
+  },
+};
 function assistantEntry(
   id: string,
   text: string,
@@ -23,6 +40,7 @@ function assistantEntry(
     kind: "message",
     createdAt: "2026-03-17T19:12:28.000Z",
     message: {
+      turnId: TurnId.makeUnsafe("fixture-duration"),
       id: MessageId.makeUnsafe(id),
       role: "assistant",
       text,
@@ -76,6 +94,7 @@ const LIVE_COMMANDS = ["git status", "node scripts/tail.mjs"];
 function ToolGroupCollapseTimeline(props: { timelineEntries: TimelineEntry[] }) {
   return (
     <MessagesTimeline
+      turns={TIMING_FIXTURE_TURNS}
       hasMessages
       isWorking={false}
       activeTurnInProgress
@@ -187,6 +206,7 @@ describe("MessagesTimeline tool group collapse", () => {
     const host = createTimelineHost();
     const screen = await render(
       <MessagesTimeline
+        turns={TIMING_FIXTURE_TURNS}
         hasMessages
         isWorking={false}
         activeTurnInProgress={false}
@@ -272,6 +292,7 @@ describe("MessagesTimeline tool group collapse", () => {
     const host = createTimelineHost();
     const screen = await render(
       <MessagesTimeline
+        turns={TIMING_FIXTURE_TURNS}
         hasMessages
         isWorking={false}
         activeTurnInProgress={false}

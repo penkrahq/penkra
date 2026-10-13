@@ -6153,6 +6153,7 @@ function ChatViewContent({
                         listRef={transcriptListRef}
                         crossTaskOrigin={crossTaskOrigin}
                         timelineEntries={visibleTimelineEntries}
+                        turns={threadItemsState.turns}
                         onOpenThread={onNavigateToThread}
                         onExpandTimelineImage={onExpandTimelineImage}
                         onIsAtEndChange={onIsAtEndChange}

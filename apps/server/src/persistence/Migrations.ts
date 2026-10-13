@@ -206,6 +206,7 @@ import Migration0194 from "./Migrations/194_RemoveApprovalDecisionColumn.ts";
 import Migration0195 from "./Migrations/195_RemoveFolderScripts.ts";
 import Migration0196 from "./Migrations/196_RemoveNavigationEvents.ts";
 import Migration0197 from "./Migrations/197_SendRecoveryDraft.ts";
+import Migration0198 from "./Migrations/198_IndexLatestTurn.ts";
 import Migration0177 from "./Migrations/177_ThreadHarnessCanonicalForeignKey.ts";
 
 /**
@@ -409,6 +410,7 @@ export const migrationEntries = [
   [195, "RemoveFolderScripts", Migration0195],
   [196, "RemoveNavigationEvents", Migration0196],
   [197, "SendRecoveryDraft", Migration0197],
+  [198, "IndexLatestTurn", Migration0198],
 ] as const;
 
 export const makeMigrationLoader = (throughId?: number) =>

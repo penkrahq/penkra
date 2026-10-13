@@ -3,10 +3,11 @@
 // Layer: Notification logic
 // Exports: lifecycle detection helpers and notification copy helpers
 
-import type { Thread, ThreadSession } from "../types";
+import type { CleanCoreThreadSummary } from "@penkra/contracts";
+import type { Thread } from "../types";
 import type { AppState } from "../storeState";
 import { isPersistedThreadOpenable } from "../storeSelectors";
-import { derivePendingUserInputs, hasLiveLatestTurn } from "../session-logic";
+import { derivePendingUserInputs } from "../session-logic";
 
 export interface CompletedThreadCandidate {
   threadId: Thread["id"];
@@ -26,8 +27,6 @@ export interface ThreadAttentionCandidate {
   summary?: string;
 }
 
-type ThreadSessionStatus = ThreadSession["status"];
-
 export function focusAvailableNotificationThread(input: {
   threadId: Thread["id"];
   state: Pick<AppState, "threadShellById">;
@@ -44,11 +43,6 @@ export function shouldShowThreadNotificationToast(input: {
   visibleThreadIds: ReadonlySet<Thread["id"]>;
 }): boolean {
   return !input.visibleThreadIds.has(input.threadId);
-}
-
-// Treat sidebar "working" states as the only notification-worthy starting point.
-function isRunningStatus(status: ThreadSessionStatus | null | undefined): boolean {
-  return status === "running" || status === "connecting";
 }
 
 const NOTIFICATION_SUMMARY_MAX_LENGTH = 120;
@@ -431,106 +425,43 @@ function summarizeAssistantText(text: string): string | null {
     : `${trimmed.slice(0, NOTIFICATION_SUMMARY_MAX_LENGTH - 1).trimEnd()}…`;
 }
 
-// Build a short body from the turn's *final* assistant message — the end-of-turn reply
-// that lands after the work/compaction, not the opening preamble. Prefer the canonical
-// `latestTurn.assistantMessageId`; if it's missing/empty, fall back to the last non-empty
-// assistant message of that turn so we still surface the latest reply.
-function summarizeLatestAssistantMessage(thread: Thread): string | null {
-  const latestTurnId = thread.latestTurn?.turnId ?? null;
-  const finalAssistantMessageId = thread.latestTurn?.assistantMessageId ?? null;
-
-  if (finalAssistantMessageId) {
-    const finalMessage = thread.messages.find((message) => message.id === finalAssistantMessageId);
-    if (finalMessage) {
-      const summary = summarizeAssistantText(finalMessage.text);
-      if (summary) {
-        return summary;
-      }
+/** Each settled canonical turn is consumed once, including when it was visible. */
+export function createCompletedThreadTracker(baseline: readonly CleanCoreThreadSummary[]) {
+  const seen = new Set<string>();
+  const knownThreads = new Set<Thread["id"]>();
+  const observeBaseline = (rows: readonly CleanCoreThreadSummary[]) => {
+    for (const row of rows) {
+      if (knownThreads.has(row.id)) continue;
+      knownThreads.add(row.id);
+      if (row.latestTurn && row.latestTurn.status !== "running")
+        seen.add(`${row.id}:${row.latestTurn.turnId}`);
     }
-  }
-
-  for (let index = thread.messages.length - 1; index >= 0; index -= 1) {
-    const message = thread.messages[index];
-    if (!message || message.role !== "assistant") {
-      continue;
-    }
-    // Stay within the just-completed turn so an earlier/other-turn preamble can't win.
-    if (latestTurnId && message.turnId !== latestTurnId) {
-      continue;
-    }
-    const summary = summarizeAssistantText(message.text);
-    if (summary) {
-      return summary;
-    }
-  }
-  return null;
-}
-
-function hadUnsettledTurn(thread: Thread | undefined): boolean {
-  if (!thread) {
-    return false;
-  }
-  if (hasLiveLatestTurn(thread.latestTurn, thread.session)) {
-    return true;
-  }
-  return !thread.latestTurn?.completedAt && isRunningStatus(thread.session?.status);
-}
-
-function isCompletionNotificationSettled(thread: Thread | undefined): boolean {
-  if (!thread?.latestTurn?.startedAt || !thread.latestTurn.completedAt) {
-    return false;
-  }
-  if (!thread.session) {
-    return true;
-  }
-  return thread.session.orchestrationStatus !== "running";
-}
-
-// Compare consecutive snapshots and emit fresh settled completions, even if the
-// session snapshot skips directly to ready before the toast logic observes it.
-export function collectCompletedThreadCandidates(
-  previousThreads: readonly Thread[],
-  nextThreads: readonly Thread[],
-): CompletedThreadCandidate[] {
-  const previousById = new Map(previousThreads.map((thread) => [thread.id, thread] as const));
-  const candidates: CompletedThreadCandidate[] = [];
-
-  for (const thread of nextThreads) {
-    const previousThread = previousById.get(thread.id);
-    if (!previousThread) {
-      continue;
-    }
-
-    const completedAt = thread.latestTurn?.completedAt;
-    if (!completedAt) {
-      continue;
-    }
-    if (!isCompletionNotificationSettled(thread)) {
-      continue;
-    }
-    if (!previousThread.session && !previousThread.latestTurn?.completedAt) {
-      continue;
-    }
-    if (!hadUnsettledTurn(previousThread) && !previousThread.latestTurn?.completedAt) {
-      continue;
-    }
-    if (
-      previousThread.latestTurn?.turnId === thread.latestTurn?.turnId &&
-      isCompletionNotificationSettled(previousThread)
-    ) {
-      continue;
-    }
-
-    candidates.push({
-      threadId: thread.id,
-      folderId: thread.folderId,
-      title: thread.title,
-      completedAt,
-      assistantSummary: summarizeLatestAssistantMessage(thread),
-    });
-  }
-
-  return candidates;
+  };
+  observeBaseline(baseline);
+  return {
+    observeBaseline,
+    consume(
+      row: CleanCoreThreadSummary,
+      visibleThreadIds: ReadonlySet<Thread["id"]>,
+    ): CompletedThreadCandidate | null {
+      knownThreads.add(row.id);
+      const turn = row.latestTurn;
+      if (!turn || turn.status === "running" || turn.endedAt === null) return null;
+      const key = `${row.id}:${turn.turnId}`;
+      if (seen.has(key)) return null;
+      seen.add(key);
+      if (visibleThreadIds.has(row.id) || row.deletedAt !== null || row.archivedAt !== null)
+        return null;
+      return {
+        threadId: row.id,
+        folderId: row.folderId,
+        title: row.title,
+        completedAt: turn.endedAt,
+        assistantSummary:
+          row.lastMessagePreview === null ? null : summarizeAssistantText(row.lastMessagePreview),
+      };
+    },
+  };
 }
 
 // Compare consecutive activity snapshots and emit only fresh input-needed transitions.
