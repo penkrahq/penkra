@@ -43,7 +43,10 @@ it.effect(
       const folders = yield* sql`SELECT * FROM projection_folders`;
       const threadEvents =
         yield* sql`SELECT * FROM orchestration_events WHERE aggregate_kind='thread'`;
-      assert.deepStrictEqual(yield* runMigrations(), [[196, "RemoveNavigationEvents"]]);
+      assert.deepStrictEqual(yield* runMigrations(), [
+        [196, "RemoveNavigationEvents"],
+        [197, "SendRecoveryDraft"],
+      ]);
       assert.deepStrictEqual(yield* sql`SELECT * FROM projection_spaces`, spaces);
       assert.deepStrictEqual(yield* sql`SELECT * FROM projection_folders`, folders);
       assert.deepStrictEqual(yield* sql`SELECT * FROM orchestration_events`, threadEvents);

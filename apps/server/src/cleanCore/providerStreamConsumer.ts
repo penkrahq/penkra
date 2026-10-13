@@ -9,6 +9,7 @@ import type { ProviderRuntimeEvent } from "@penkra/contracts";
 import { Effect } from "effect";
 import * as SqlClient from "effect/unstable/sql/SqlClient";
 
+import { failSendingMessagesOnStartup } from "./sendMessage.ts";
 import { toCleanCoreProviderEvents } from "./providerEventBridge.ts";
 import { writeProviderConnectionFacts } from "./providerConnectionFacts.ts";
 
@@ -106,6 +107,13 @@ const writeProviderEvent = (event: CleanCoreProviderEvent) =>
         return [event.threadId];
       }
       case "item": {
+        if (event.item.kind === "user") {
+          const sql = yield* SqlClient.SqlClient;
+          const existing = yield* sql`SELECT 1 FROM thread_items WHERE thread_id=${event.threadId}
+            AND source_id=${event.item.sourceId} AND kind='user' LIMIT 1`;
+          // Admission owns the user row; provider echoes must not replace it.
+          if (existing.length > 0) return [];
+        }
         yield* upsertThreadItem(event.item);
         return [event.threadId];
       }
@@ -204,6 +212,7 @@ export const settleRunningThreadsOnStartup = (publisher: ThreadPublisher, at: st
     const rows = yield* sql<{ readonly id: string }>`
       SELECT id FROM threads WHERE state = 'running'
     `;
+    yield* failSendingMessagesOnStartup(publisher, at, PROVIDER_CUTOFF_NOTICE);
     if (rows.length === 0) return;
     yield* applyProviderEvent(publisher, {
       type: "provider.exited",

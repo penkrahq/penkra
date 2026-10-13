@@ -1,3 +1,4 @@
+import { serializeComposerThreadDraft } from "../composerDraftPersistence";
 import { Schema } from "effect";
 import { loadThread, useThreadList, getThreadListById, useThreadSummary } from "../threadListStore";
 import { useThreadStop } from "../hooks/useThreadStop";
@@ -113,7 +114,6 @@ import { openThreadUrlReference, useThreadResourceOpener } from "../lib/threadRe
 import { readActiveSpaceId, useSpacesUiStore } from "../spacesUiStore";
 import { registerDesktopThreadLiveHandlers } from "../desktopThreadApiBroker";
 import {
-  buildOptimisticComposerAttachments,
   buildComposerFileAttachmentsFromFiles,
   buildComposerImageAttachmentsFromFiles,
   stageUploadComposerAttachments,
@@ -128,7 +128,6 @@ import { persistComposerAsset } from "../lib/composerAssetStore";
 import { splitComposerDropzoneFiles, useComposerDropzone } from "../hooks/useComposerDropzone";
 import {
   buildTranscriptAutoFollowSignal,
-  deriveChatActivity,
   derivePromptHistoryFromMessages,
   promptStillMatchesActiveHistoryBrowse,
   type PromptHistoryNavigationState,
@@ -170,11 +169,9 @@ import {
 import {
   derivePendingUserInputs,
   derivePhase,
-  deriveTimelineEntries,
   deriveActiveWorkStartedAt,
   deriveVisibleWorkLogSequenceFloor,
   deriveWorkLogEntries,
-  hasActivePendingTurnStart,
   hasLiveTurnTailWork,
   isLatestTurnSettled,
   isSessionActiveLatestTurn,
@@ -231,7 +228,6 @@ import {
   type ComposerFileAttachment,
   type ComposerImageAttachment,
   type ComposerAssistantSelectionAttachment,
-  type ComposerThreadDraftState,
   type PersistedComposerImageAttachment,
   type ComposerSubmission,
   captureComposerPromptHistorySavedDraft,
@@ -239,20 +235,7 @@ import {
   useComposerThreadDraft,
   useEffectiveComposerModelState,
 } from "../composerDraftStore";
-import {
-  cancelComposerSendPreflight,
-  claimComposerSendPreflight,
-  getActiveComposerSendPreparation,
-  getComposerDispatchedSendOwner,
-  isComposerImageOwnedBySendPreflight,
-  markComposerSendPreflightDispatching,
-  setComposerSendPreflightProjection,
-  updateComposerSendPreflightResolvedAdmission,
-  updateComposerSendPreflightImages,
-  releaseComposerSendPreflight,
-  useHasComposerSendActivity,
-  useComposerSendPreflightProjection,
-} from "../composerSendPreflight";
+
 import { useComposerFocusRequestStore } from "../composerFocusRequestStore";
 import { useWorkflowRunUiStore, useWorkflowRunUiThreadState } from "../workflowRunUiStore";
 import { appendComposerPromptText } from "../lib/chatReferences";
@@ -275,12 +258,10 @@ import {
 } from "../lib/composerPastedText";
 import {
   appendAssistantSelectionsToPrompt,
-  formatAssistantSelectionQueuePreview,
   formatAssistantSelectionTitleSeed,
 } from "../lib/assistantSelections";
 import {
   appendFileCommentsToPrompt,
-  formatFileCommentLabel,
   formatFileCommentTitleSeed,
   type FileCommentDraft,
 } from "../lib/fileComments";
@@ -381,13 +362,8 @@ import {
   buildLocalDraftThread,
   DISMISSED_PROVIDER_HEALTH_BANNERS_KEY,
   DismissedProviderHealthBannersSchema,
-  collectUserMessageBlobPreviewUrls,
   deriveComposerSendState,
-  hasServerAcknowledgedLocalDispatch,
-  resolveNextLocalDispatchSnapshot,
-  type LocalDispatchSnapshot,
   revokeBlobPreviewUrl,
-  revokeUserMessagePreviewUrls,
 } from "./ChatView.logic";
 import { useLocalStorage } from "~/hooks/useLocalStorage";
 import { useComposerSlashCommands } from "../hooks/useComposerSlashCommands";
@@ -402,65 +378,10 @@ const EMPTY_PROJECT_ENTRIES: ProjectEntry[] = [];
 const EMPTY_PROVIDER_NATIVE_COMMANDS: ProviderNativeCommandDescriptor[] = [];
 const EMPTY_PROVIDER_SKILLS: ProviderSkillDescriptor[] = [];
 
-function composerDraftOwnsPreviewUrl(previewUrl: string): boolean {
-  for (const draft of Object.values(useComposerDraftStore.getState().draftsByThreadId)) {
-    if (!draft) continue;
-    if (draft.images.some((image) => image.previewUrl === previewUrl)) return true;
-    if (draft.promptHistorySavedDraft?.images.some((image) => image.previewUrl === previewUrl)) {
-      return true;
-    }
-  }
-  return false;
-}
-
-function revokeUnownedUserMessagePreviewUrls(message: ChatMessage): void {
-  for (const previewUrl of collectUserMessageBlobPreviewUrls(message)) {
-    if (!composerDraftOwnsPreviewUrl(previewUrl)) revokeBlobPreviewUrl(previewUrl);
-  }
-}
-
-// Kept at module scope so the compiler does not rewrite the synchronous entry
-// into an owned action. The release still covers synchronous throws and the
-// eventual promise settlement.
-function runImmediatelyWithRelease<T>(
-  operation: () => Promise<T>,
-  release: () => void,
-): Promise<T> {
-  let result: Promise<T>;
-  try {
-    result = operation();
-  } catch (error) {
-    release();
-    throw error;
-  }
-  return result.finally(release);
-}
-
-// Keep synchronous rejection outside React's compiled handlers; their existing
-// catch blocks still own composer cleanup and the user-facing error.
 function failChatOperation(message: string): never {
   throw new Error(message);
 }
 
-function composerDraftContentOwnershipKey(draft: ComposerThreadDraftState | undefined): string {
-  if (!draft) return "";
-  return JSON.stringify({
-    prompt: draft.prompt,
-    imageIds: [
-      ...new Set([
-        ...draft.images.map((image) => image.id),
-        ...draft.persistedAttachments.map((attachment) => attachment.id),
-      ]),
-    ].sort(),
-    fileIds: draft.files.map((file) => file.id),
-    assistantSelectionIds: draft.assistantSelections.map((selection) => selection.id),
-    terminalContextIds: draft.terminalContexts.map((context) => context.id),
-    fileCommentIds: draft.fileComments.map((comment) => comment.id),
-    pastedTextIds: draft.pastedTexts.map((text) => text.id),
-    skills: draft.skills,
-    mentions: draft.mentions,
-  });
-}
 const COMPOSER_INPUT_BURST_IDLE_MS = 50;
 
 // Shared by the live-composer and prompt-history attachment sync effects.
@@ -614,44 +535,6 @@ type ComposerPluginSuggestion = {
 
 const EMPTY_COMPOSER_PLUGIN_SUGGESTIONS: ComposerPluginSuggestion[] = [];
 
-function buildQueuedComposerPreviewText(input: {
-  trimmedPrompt: string;
-  images: ReadonlyArray<ComposerImageAttachment>;
-  files: ReadonlyArray<ComposerFileAttachment>;
-  assistantSelections: ReadonlyArray<{ id: string }>;
-  terminalContexts: ReadonlyArray<TerminalContextDraft>;
-  fileComments: ReadonlyArray<FileCommentDraft>;
-  pastedTexts: ReadonlyArray<PastedTextDraft>;
-}): string {
-  if (input.trimmedPrompt.length > 0) {
-    return input.trimmedPrompt;
-  }
-  const firstImage = input.images[0];
-  if (firstImage) {
-    return `Image: ${firstImage.name}`;
-  }
-  const firstFile = input.files[0];
-  if (firstFile) {
-    return `File: ${firstFile.name}`;
-  }
-  if (input.assistantSelections.length > 0) {
-    return formatAssistantSelectionQueuePreview(input.assistantSelections.length);
-  }
-  const firstTerminalContext = input.terminalContexts[0];
-  if (firstTerminalContext) {
-    return formatTerminalContextLabel(firstTerminalContext);
-  }
-  const firstFileComment = input.fileComments[0];
-  if (firstFileComment) {
-    return formatFileCommentLabel(firstFileComment);
-  }
-  const pastedTitle = formatPastedTextTitleSeed(input.pastedTexts);
-  if (pastedTitle) {
-    return pastedTitle;
-  }
-  return "Queued follow-up";
-}
-
 function formatPastedTextTitleSeed(pastedTexts: ReadonlyArray<PastedTextDraft>): string | null {
   const firstPastedText = pastedTexts[0];
   if (!firstPastedText) {
@@ -691,12 +574,11 @@ interface LateComposerSendHandlers {
 
 export default function ChatView(props: ChatViewProps) {
   const row = useThreadSummary(props.threadId);
-  const hasFirstSend = useHasComposerSendActivity(props.threadId);
   const localDraft = useComposerDraftStore((state) => state.draftThreadsByThreadId[props.threadId]);
   const hasServerThread = useStore(
     (state) => state.threadShellById?.[props.threadId] !== undefined,
   );
-  const awaitingCreationResponse = hasFirstSend && localDraft !== undefined && !hasServerThread;
+  const awaitingCreationResponse = localDraft !== undefined && !hasServerThread;
   const [rowReadFailed, setRowReadFailed] = useState(false);
   const shellReads = useRef(new Map<ThreadId, Promise<void>>());
   const readRow = useCallback(() => {
@@ -826,16 +708,21 @@ function ChatViewContent({
       prompt,
     ],
   );
+  const [admittingThreadIds, setAdmittingThreadIds] = useState<ReadonlySet<string>>(
+    () => new Set(),
+  );
+  const admittingThreadsRef = useRef(new Set<string>());
   const nonPersistedComposerImageIds = composerDraft.nonPersistedImageIds;
   const durablyPersistedComposerImageIds = composerDraft.persistedAttachments;
   const setComposerDraftPrompt = useComposerDraftStore((store) => store.setPrompt);
   // Keep the one per-thread composer draft on the clean core (0.14.4 design 2.6).
   const applyServerThreadDraft = useComposerDraftStore((store) => store.applyServerThreadDraft);
-  useComposerDraftSync({
-    threadId: canonicalThread === null ? null : threadId,
-    draft: composerDraft,
-    applyServerDraft: applyServerThreadDraft,
-  });
+  const { refresh: refreshCommittedDraft, draftUpdatedAt: readDraftUpdatedAt } =
+    useComposerDraftSync({
+      threadId: canonicalThread === null ? null : threadId,
+      draft: composerDraft,
+      applyServerDraft: applyServerThreadDraft,
+    });
   const setComposerDraftPromptHistorySavedDraft = useComposerDraftStore(
     (store) => store.setPromptHistorySavedDraft,
   );
@@ -845,7 +732,6 @@ function ChatViewContent({
   const setComposerDraftProviderModelOptions = useComposerDraftStore(
     (store) => store.setProviderModelOptions,
   );
-  const setComposerDraftRuntimeMode = useComposerDraftStore((store) => store.setRuntimeMode);
   const addComposerDraftImage = useComposerDraftStore((store) => store.addImage);
   const addComposerDraftImages = useComposerDraftStore((store) => store.addImages);
   const removeComposerDraftImage = useComposerDraftStore((store) => store.removeImage);
@@ -949,13 +835,6 @@ function ChatViewContent({
   }, [threadId]);
   const [isDragOverComposer, setIsDragOverComposer] = useState(false);
   const [expandedImage, setExpandedImage] = useState<ExpandedImagePreview | null>(null);
-  const [optimisticUserMessages, setOptimisticUserMessages] = useState<ChatMessage[]>([]);
-  const optimisticUserMessagesRef = useRef(optimisticUserMessages);
-  // Mirror during the commit, before events or async continuations can observe
-  // the new UI with the previous render's preview URLs.
-  useLayoutEffect(() => {
-    optimisticUserMessagesRef.current = optimisticUserMessages;
-  }, [optimisticUserMessages]);
   const composerAssistantSelectionsRef = useRef<ComposerAssistantSelectionAttachment[]>(
     composerAssistantSelections,
   );
@@ -965,7 +844,6 @@ function ChatViewContent({
   const [localDraftErrorsByThreadId, setLocalDraftErrorsByThreadId] = useState<
     Record<ThreadId, string | null>
   >({});
-  const [localDispatch, setLocalDispatch] = useState<LocalDispatchSnapshot | null>(null);
   const [continueInFlight, setContinueInFlight] = useState<{
     threadId: ThreadId;
     turnId: TurnId;
@@ -1110,7 +988,6 @@ function ChatViewContent({
   const composerMenuItemsRef = useRef<ComposerCommandItem[]>([]);
   const activeComposerMenuItemRef = useRef<ComposerCommandItem | null>(null);
   const localDirectoryMenuRef = useRef<ComposerLocalDirectoryMenuHandle | null>(null);
-  const sendInFlightRef = useRef(false);
   const dragDepthRef = useRef(0);
   useEffect(() => {
     promptHistoryNavigationRef.current = null;
@@ -1481,34 +1358,12 @@ function ChatViewContent({
     syncServerThreadTurnsPage,
     threadId,
   ]);
-  const previousIsServerThreadRef = useRef(isServerThread);
-  const composerPromotionClearPendingRef = useRef(false);
-  useLayoutEffect(() => {
-    const wasServerThread = previousIsServerThreadRef.current;
-    previousIsServerThreadRef.current = isServerThread;
-    if (!wasServerThread && isServerThread) {
-      composerPromotionClearPendingRef.current = true;
-    } else if (!isServerThread) {
-      composerPromotionClearPendingRef.current = false;
-    }
-    if (!composerPromotionClearPendingRef.current || prompt.length > 0) {
-      return;
-    }
-
-    // Promotion can clear the draft before the 50ms editor-input burst has
-    // reached Zustand. In that ordering the selected prompt is already the
-    // shared empty value, so deleting the draft produces no prompt-prop change
-    // for Lexical to observe. Cancel the obsolete buffered write and apply the
-    // promotion clear directly at the editor boundary.
-    composerPromotionClearPendingRef.current = false;
-    cancelPendingPromptPersistence();
-    promptRef.current = "";
-    composerEditorRef.current?.clear();
-  }, [cancelPendingPromptPersistence, isServerThread, prompt]);
   const activeThreadId = activeThread?.id ?? null;
   // Clean-core transcript source (0.14.4 design 2.1): the transcript renders
   // strictly from thread_items, paged by seq.
-  const { state: threadItemsState } = useThreadItems(isServerThread ? activeThreadId : null);
+  const { state: threadItemsState } = useThreadItems(
+    canonicalRows.some((row) => row.id === threadId) ? threadId : null,
+  );
   const threadItems = threadItemsState.items;
   const activeLatestTurn = activeThread?.latestTurn ?? null;
   const activeLatestTurnId = activeLatestTurn?.turnId ?? null;
@@ -2145,62 +2000,10 @@ function ChatViewContent({
   );
   const workflowNowMs = useNowMs(workflowRunState !== null && !workflowRunState.settled);
   const showPlanFollowUpPrompt = false;
-  const serverAcknowledgedLocalDispatch = useMemo(
-    () =>
-      hasServerAcknowledgedLocalDispatch({
-        localDispatch,
-        phase,
-        latestTurn: activeLatestTurn,
-        session: activeThread?.session ?? null,
-        messages: activeThread?.messages ?? EMPTY_MESSAGES,
-        hasPendingUserInput: activePendingUserInput !== null,
-        threadError: activeThread?.error,
-      }),
-    [
-      activeLatestTurn,
-      activePendingUserInput,
-      activeThread?.error,
-      activeThread?.session,
-      activeThread?.messages,
-      localDispatch,
-      phase,
-    ],
-  );
-  const isSendBusy = localDispatch !== null && !serverAcknowledgedLocalDispatch;
-  const hasSendPreflight = useHasComposerSendActivity(activeThreadId ?? null);
-  const preflightOptimisticUserMessage = useComposerSendPreflightProjection(activeThreadId ?? null);
-  const hasLiveTurn = phase === "running";
-  const authoritativePendingTurnStartMessageId = useMemo(() => {
-    if (activeThread?.pendingTurnStartMessageId) {
-      return activeThread.pendingTurnStartMessageId;
-    }
-    const messages = activeThread?.messages ?? EMPTY_MESSAGES;
-    for (let index = messages.length - 1; index >= 0; index -= 1) {
-      const message = messages[index];
-      if (
-        message?.role === "user" &&
-        (message.delivery?.state === "starting" || message.delivery?.state === "steering")
-      ) {
-        return message.id;
-      }
-    }
-    return null;
-  }, [activeThread?.messages, activeThread?.pendingTurnStartMessageId]);
-  const hasPendingTurnStart = hasActivePendingTurnStart({
-    pendingMessageId: authoritativePendingTurnStartMessageId,
-    messages: activeThread?.messages ?? EMPTY_MESSAGES,
-    session: activeThread?.session,
-  });
-  const chatActivity = deriveChatActivity({
-    hasLiveTurn,
-    latestTurnLive,
-    isSendBusy,
-    hasPendingTurnStart,
-  });
-  const isTurnWorking = chatActivity.controllable || hasSendPreflight;
-  // One admitted/active-work predicate owns both Stop and transcript status.
-  // Provider transport connection is deliberately not a user-visible turn.
-  const isWorking = chatActivity.busy || hasSendPreflight || continueInFlight !== null;
+  const isSendBusy = admittingThreadIds.has(threadId);
+  const hasLiveTurn = context.kind === "persisted" && context.row.state === "running";
+  const isTurnWorking = hasLiveTurn;
+  const isWorking = hasLiveTurn;
   const showThinking = isWorking;
   const hasControllableTurn = isTurnWorking;
   const activeTurnLayoutLive = isWorking || !latestTurnSettled;
@@ -2219,12 +2022,7 @@ function ChatViewContent({
       threadDetailSyncState,
       threadDetailHydration,
       projectedMessageCount: activeThread?.messages.length ?? 0,
-      optimisticUserMessageCount: optimisticUserMessages.length,
       draftPromotedTo: draftThread?.promotedTo ?? null,
-      localDispatchActive: localDispatch !== null,
-      localDispatchStartedAt: localDispatch?.startedAt ?? null,
-      localDispatchExpectedUserMessageId: localDispatch?.expectedUserMessageId ?? null,
-      serverAcknowledgedLocalDispatch,
       threadWorkStatus: activeThread?.workStatus ?? null,
       sessionStatus: activeThread?.session?.status ?? null,
       sessionUpdatedAt: activeThread?.session?.updatedAt ?? null,
@@ -2235,9 +2033,7 @@ function ChatViewContent({
       latestTurnState: activeLatestTurn?.state ?? null,
       latestTurnStartedAt: activeLatestTurn?.startedAt ?? null,
       latestTurnCompletedAt: activeLatestTurn?.completedAt ?? null,
-      pendingTurnStartMessageId: authoritativePendingTurnStartMessageId ?? null,
       projectedPendingTurnStartMessageId: activeThread?.pendingTurnStartMessageId ?? null,
-      hasSendPreflight,
       phase,
       hasLiveTurnTail,
       latestTurnSettledByProvider,
@@ -2245,7 +2041,6 @@ function ChatViewContent({
       latestTurnLive,
       hasLiveTurn,
       isSendBusy,
-      hasPendingTurnStart,
       isConnecting,
       isTurnWorking,
       isWorking,
@@ -2276,12 +2071,9 @@ function ChatViewContent({
     activeThread?.workStatus,
     activeThreadId,
     activeWorkStartedAt,
-    authoritativePendingTurnStartMessageId,
     draftThread?.promotedTo,
-    hasSendPreflight,
     hasLiveTurn,
     hasLiveTurnTail,
-    hasPendingTurnStart,
     isConnecting,
     isLocalDraftThread,
     isSendBusy,
@@ -2295,10 +2087,7 @@ function ChatViewContent({
     latestLifecycleMessage?.id,
     latestLifecycleMessage?.role,
     latestLifecycleMessage?.streaming,
-    localDispatch,
-    optimisticUserMessages.length,
     phase,
-    serverAcknowledgedLocalDispatch,
     showThinking,
     threadDetailHydration,
     threadDetailSyncState,
@@ -2352,13 +2141,6 @@ function ChatViewContent({
     activePendingUserInput?.requestId,
     activePendingProgress?.activeQuestion?.id,
   ]);
-  useEffect(() => {
-    return () => {
-      for (const message of optimisticUserMessagesRef.current) {
-        revokeUnownedUserMessagePreviewUrls(message);
-      }
-    };
-  }, []);
   const serverMessages = activeThread?.messages;
   const [queuedComposerActionInFlightIds, setQueuedComposerActionInFlightIds] = useState<
     ReadonlySet<string>
@@ -2394,70 +2176,14 @@ function ChatViewContent({
       ),
     [canonicalThreadForTimeline],
   );
-  const timelineMessages = useMemo(() => {
-    const messages = (serverMessages ?? []).filter(
-      (message) => !serverQueuedMessageIds.has(message.id),
-    );
-    // Optimistic messages exist only briefly after a send; skip the full-transcript
-    // id Set on the common (streaming-flush) path where there is nothing to reconcile.
-    const serverIds =
-      optimisticUserMessages.length > 0 || preflightOptimisticUserMessage
-        ? new Set((serverMessages ?? []).map((message) => message.id))
-        : null;
-    let pendingMessages = optimisticUserMessages;
-    if (optimisticUserMessages.length > 0) {
-      // Reconcile against every durable server message before placement
-      // filtering. Server queued messages are intentionally absent from the
-      // transcript array, but still retire their optimistic twins.
-      pendingMessages = optimisticUserMessages.filter((message) => !serverIds?.has(message.id));
-    }
-    if (
-      preflightOptimisticUserMessage &&
-      !serverIds?.has(preflightOptimisticUserMessage.id) &&
-      !pendingMessages.some((message) => message.id === preflightOptimisticUserMessage.id)
-    ) {
-      pendingMessages = [...pendingMessages, preflightOptimisticUserMessage];
-    }
-    const withPending = pendingMessages.length === 0 ? messages : [...messages, ...pendingMessages];
-    return withPending;
-  }, [
-    serverMessages,
-    serverQueuedMessageIds,
-    optimisticUserMessages,
-    preflightOptimisticUserMessage,
-  ]);
-  const promptHistory = useMemo(() => {
-    const activeMessages = (activeThread?.messages ?? EMPTY_MESSAGES).filter(
-      (message) => !serverQueuedMessageIds.has(message.id),
-    );
-    // Optimistic messages exist only briefly after a send; skip the full-transcript
-    // id Set on the common (streaming-flush) path where there is nothing to reconcile.
-    if (optimisticUserMessages.length === 0 && !preflightOptimisticUserMessage) {
-      return derivePromptHistoryFromMessages(activeMessages);
-    }
-    const activeMessageIds = new Set(
-      (activeThread?.messages ?? EMPTY_MESSAGES).map((message) => message.id),
-    );
-    const pendingOptimisticMessages = optimisticUserMessages.filter(
-      (message) => !activeMessageIds.has(message.id),
-    );
-    const messagesWithPreflight = preflightOptimisticUserMessage
-      ? [...pendingOptimisticMessages, preflightOptimisticUserMessage]
-      : pendingOptimisticMessages;
-    const seenMessageIds = new Set<string>();
-    return derivePromptHistoryFromMessages(
-      [...activeMessages, ...messagesWithPreflight].filter((message) => {
-        if (seenMessageIds.has(message.id)) return false;
-        seenMessageIds.add(message.id);
-        return true;
-      }),
-    );
-  }, [
-    activeThread?.messages,
-    optimisticUserMessages,
-    preflightOptimisticUserMessage,
-    serverQueuedMessageIds,
-  ]);
+  const timelineMessages = useMemo(
+    () => (serverMessages ?? []).filter((message) => !serverQueuedMessageIds.has(message.id)),
+    [serverMessages, serverQueuedMessageIds],
+  );
+  const promptHistory = useMemo(
+    () => derivePromptHistoryFromMessages(timelineMessages),
+    [timelineMessages],
+  );
   const timelineEntries = useMemo(
     () =>
       measureChatPerformanceWork("transcript-timeline", () =>
@@ -2467,25 +2193,10 @@ function ChatViewContent({
   );
   const shouldRenderTranscriptSurface = shouldRenderTranscriptDuringHydration({
     hydration: threadDetailHydration,
-    optimisticMessageCount:
-      optimisticUserMessages.length + (preflightOptimisticUserMessage ? 1 : 0),
+    messageCount: timelineEntries.length,
     isWorking,
   });
-  const visibleTimelineEntries = useMemo(() => {
-    if (threadDetailHydration === "ready") return timelineEntries;
-    const transientMessages = [...optimisticUserMessages];
-    const transientIds = new Set(transientMessages.map((message) => message.id));
-    if (preflightOptimisticUserMessage && !transientIds.has(preflightOptimisticUserMessage.id)) {
-      transientMessages.push(preflightOptimisticUserMessage);
-      transientIds.add(preflightOptimisticUserMessage.id);
-    }
-    return deriveTimelineEntries(transientMessages, []);
-  }, [
-    optimisticUserMessages,
-    preflightOptimisticUserMessage,
-    threadDetailHydration,
-    timelineEntries,
-  ]);
+  const visibleTimelineEntries = timelineEntries;
   const renderedMessages = useMemo(
     () =>
       visibleTimelineEntries.flatMap((entry) => (entry.kind === "message" ? [entry.message] : [])),
@@ -2851,13 +2562,6 @@ function ChatViewContent({
     )?.id;
   }, [providerConnectionsQuery.data, stickyConnectionByProvider.codex]);
   const refreshProviderStatuses = useRefreshProviderStatusesNow();
-  const hasNativeUserMessages = useMemo(
-    () =>
-      activeThread?.messages.some(
-        (message) => message.role === "user" && message.source === "native",
-      ) ?? false,
-    [activeThread?.messages],
-  );
   const modelPickerShortcutLabel = useMemo(
     () =>
       shortcutLabelForCommand(keybindings, "modelPicker.toggle") ??
@@ -2943,7 +2647,6 @@ function ChatViewContent({
     hiddenTurnId: hiddenContinueTurnId,
     continueInFlight: continueInFlight !== null,
     sendBusy: isSendBusy,
-    sendPreflight: hasSendPreflight,
     connecting: isConnecting,
     hasSendableContent: composerSendState.hasSendableContent,
   });
@@ -2972,7 +2675,6 @@ function ChatViewContent({
       hiddenTurn: continueHiddenForTurn,
       continueInFlight: continueInFlight !== null,
       sendBusy: isSendBusy,
-      sendPreflight: hasSendPreflight,
       connecting: isConnecting,
       hasSendableContent: composerSendState.hasSendableContent,
       canShowContinue,
@@ -2993,7 +2695,6 @@ function ChatViewContent({
     composerSendState.hasSendableContent,
     continueHiddenForTurn,
     continueInFlight,
-    hasSendPreflight,
     isConnecting,
     isSendBusy,
     isServerThread,
@@ -3229,30 +2930,6 @@ function ChatViewContent({
       ]);
     },
     [activeThread, addComposerDraftPastedTexts, discardPromptHistoryNavigationForComposerMutation],
-  );
-
-  const persistThreadSettingsForNextTurn = useCallback(
-    async (input: { threadId: ThreadId; createdAt: string; runtimeMode: RuntimeMode }) => {
-      if (!serverThread) {
-        return;
-      }
-      const api = readNativeApi();
-      if (!api) {
-        return;
-      }
-
-      if (input.runtimeMode !== canonicalThread?.runtimeMode) {
-        await api.cleanCore.updateThread({
-          update: {
-            action: "runtimeMode",
-            threadId: input.threadId,
-            runtimeMode: input.runtimeMode,
-            updatedAt: input.createdAt,
-          },
-        });
-      }
-    },
-    [serverThread, canonicalThread],
   );
 
   // Scroll helpers stay list-owned so transcript updates stop bouncing through
@@ -3688,34 +3365,6 @@ function ChatViewContent({
   }, [composerPastedTexts]);
 
   useEffect(() => {
-    if (!activeThread?.id) return;
-    if (activeThread.messages.length === 0) {
-      return;
-    }
-    // No optimistic messages → nothing to reconcile; skip the full-transcript id Set
-    // this effect would otherwise rebuild on every streaming flush.
-    if (optimisticUserMessages.length === 0) {
-      return;
-    }
-    const serverIds = new Set(activeThread.messages.map((message) => message.id));
-    const removedMessages = optimisticUserMessages.filter((message) => serverIds.has(message.id));
-    if (removedMessages.length === 0) {
-      return;
-    }
-    setOptimisticUserMessages((existing) =>
-      existing.filter((message) => !serverIds.has(message.id)),
-    );
-    for (const removedMessage of removedMessages) {
-      const previewUrls = collectUserMessageBlobPreviewUrls(removedMessage);
-      if (previewUrls.length > 0) {
-        handoffAttachmentPreviews(removedMessage.id, previewUrls);
-        continue;
-      }
-      revokeUserMessagePreviewUrls(removedMessage);
-    }
-  }, [activeThread?.id, activeThread?.messages, handoffAttachmentPreviews, optimisticUserMessages]);
-
-  useEffect(() => {
     promptRefThreadId.current = threadId;
     promptRef.current = prompt;
     if (
@@ -3773,21 +3422,12 @@ function ChatViewContent({
   }, [selectedProvider, threadId, updateSelectedComposerMentions, updateSelectedComposerSkills]);
 
   useLayoutEffect(() => {
-    // ChatView stays mounted across thread switches, so clear thread-local overlays before paint.
-    setOptimisticUserMessages((existing) => {
-      if (existing.length === 0) return existing;
-      for (const message of existing) {
-        revokeUserMessagePreviewUrls(message);
-      }
-      return [];
-    });
     setExpandedImage(null);
   }, [threadId]);
 
   const [composerStateThreadId, setComposerStateThreadId] = useState(threadId);
   if (composerStateThreadId !== threadId) {
     setComposerStateThreadId(threadId);
-    setLocalDispatch(null);
     setComposerHighlightedItemId(null);
     setComposerCursor(collapseExpandedComposerCursor(prompt, prompt.length));
     setComposerTrigger(detectComposerTrigger(prompt, prompt.length));
@@ -3807,11 +3447,6 @@ function ChatViewContent({
     }
 
     let cancelled = false;
-    const sendOwnedImageIds = new Set(
-      pendingBlobAttachments
-        .filter((attachment) => isComposerImageOwnedBySendPreflight(threadId, attachment.id))
-        .map((attachment) => attachment.id),
-    );
     void hydratePendingBlobComposerAttachments(pendingBlobAttachments).then((hydratedImages) => {
       if (cancelled) {
         for (const image of hydratedImages) {
@@ -3820,10 +3455,7 @@ function ChatViewContent({
         return;
       }
       if (hydratedImages.length > 0) {
-        addComposerDraftImages(
-          threadId,
-          hydratedImages.filter((image) => !sendOwnedImageIds.has(image.id)),
-        );
+        addComposerDraftImages(threadId, hydratedImages);
       }
     });
 
@@ -3979,33 +3611,6 @@ function ChatViewContent({
     [canonicalThread],
   );
 
-  const beginLocalDispatch = useCallback(
-    (options?: { readonly expectedUserMessageId?: MessageId }) => {
-      setLocalDispatch((current) =>
-        resolveNextLocalDispatchSnapshot(
-          options ? { current, activeThread, options } : { current, activeThread },
-        ),
-      );
-    },
-    [activeThread],
-  );
-
-  const resetLocalDispatch = useCallback(() => {
-    setLocalDispatch(null);
-  }, []);
-  useEffect(() => {
-    if (!serverAcknowledgedLocalDispatch) {
-      return;
-    }
-    resetLocalDispatch();
-  }, [
-    activeThreadId,
-    localDispatch,
-    resetLocalDispatch,
-    serverAcknowledgedLocalDispatch,
-    threadId,
-  ]);
-
   const { stopping, stop: stopProviderTurn } = useThreadStop(
     isServerThread ? activeThreadId : null,
     (error) => {
@@ -4018,20 +3623,8 @@ function ChatViewContent({
   );
   const onInterrupt = useCallback(async () => {
     if (!activeThread) return;
-    const preparationOwner = getActiveComposerSendPreparation(activeThread.id);
-    const dispatchedOwner = getComposerDispatchedSendOwner(activeThread.id);
-    const hasDispatchedRun =
-      phase === "running" ||
-      phase === "connecting" ||
-      hasPendingTurnStart ||
-      dispatchedOwner !== null;
-    if (preparationOwner && !hasDispatchedRun) {
-      cancelComposerSendPreflight(activeThread.id);
-      scheduleComposerFocus();
-      return;
-    }
     await stopProviderTurn?.();
-  }, [activeThread, phase, hasPendingTurnStart, scheduleComposerFocus, stopProviderTurn]);
+  }, [activeThread, stopProviderTurn]);
 
   const onStopWorkflowRun = useCallback(async () => {
     const api = readNativeApi();
@@ -4376,19 +3969,11 @@ function ChatViewContent({
   const onSend = async (
     e?: { preventDefault: () => void },
     dispatchMode: "queue" | "steer" = "queue",
-    queuedTurn?: ComposerSubmission,
   ): Promise<boolean> => {
     e?.preventDefault();
     const api = readNativeApi();
     const lateSendHandlers = lateComposerSendHandlersRef.current;
-    if (!api || !lateSendHandlers || !activeThread || isVoiceTranscribing) {
-      return false;
-    }
-    const existingPreparation = getActiveComposerSendPreparation(activeThread.id);
-    if (existingPreparation) {
-      return false;
-    }
-    const followsDispatchingSend = getComposerDispatchedSendOwner(activeThread.id) !== null;
+    if (!api || !lateSendHandlers || !activeThread || isVoiceTranscribing) return false;
     if (activePendingProgress) {
       const activeQuestion = activePendingProgress.activeQuestion;
       const liveComposerSnapshot = composerEditorRef.current?.readSnapshot() ?? null;
@@ -4424,719 +4009,333 @@ function ChatViewContent({
       }
       return lateSendHandlers.advanceActivePendingUserInput(answerOverrides);
     }
-    const queuedChatTurn = queuedTurn ?? null;
-    if (queuedChatTurn === null) {
-      // Commit only this thread's pending input burst before taking the live
-      // send snapshot. Prebuilt turns must not flush the live composer.
-      flushPendingPromptPersistence(activeThread.id);
-    }
-    const liveComposerSnapshot =
-      queuedChatTurn === null ? (composerEditorRef.current?.readSnapshot() ?? null) : null;
-    const promptForSend =
-      queuedChatTurn?.prompt ?? liveComposerSnapshot?.value ?? promptRef.current;
-    let composerImagesForSend = queuedChatTurn?.images ?? composerImages;
-    const composerFilesForSend = queuedChatTurn?.files ?? composerFiles;
-    const composerAssistantSelectionsForSend =
-      queuedChatTurn?.assistantSelections ?? composerAssistantSelections;
-    const composerFileCommentsForSend = queuedChatTurn?.fileComments ?? composerFileComments;
-    const composerTerminalContextsForSend =
-      queuedChatTurn?.terminalContexts ?? composerTerminalContexts;
-    const composerPastedTextsForSend = queuedChatTurn?.pastedTexts ?? composerPastedTexts;
-    const selectedComposerSkillsForSend =
-      queuedChatTurn?.skills ?? selectedComposerSkillsRef.current;
-    const selectedComposerMentionsForSend =
-      queuedChatTurn?.mentions ?? selectedComposerMentionsRef.current;
-    const selectedProviderForSend = queuedChatTurn?.selectedProvider ?? selectedProvider;
-    const selectedModelForSend = queuedChatTurn?.selectedModel ?? selectedModel;
-    const selectedPromptEffortForSend =
-      queuedChatTurn?.selectedPromptEffort ?? selectedPromptEffort;
-    const selectedModelSelectionForSend = queuedChatTurn?.modelSelection ?? selectedModelSelection;
-    let selectedConnectionIdForSend =
-      queuedChatTurn === null
-        ? resolveSelectedConnection(
-            selectedModelSelectionForSend.provider,
-            selectedModelSelectionForSend.model,
-          )
-        : queuedChatTurn.connectionId;
-    const providerOptionsForDispatchForSend =
-      queuedChatTurn?.providerOptionsForDispatch ?? providerOptionsForDispatch;
-    const pendingBlobAttachments =
-      queuedChatTurn === null
-        ? findPendingBlobComposerAttachments({
-            persistedAttachments:
-              useComposerDraftStore.getState().draftsByThreadId[activeThread.id]
-                ?.persistedAttachments ?? [],
-            images: composerImagesForSend,
-          })
-        : [];
-    const capturedPersistedAttachments =
-      useComposerDraftStore.getState().draftsByThreadId[activeThread.id]?.persistedAttachments ??
-      [];
-    const capturedDraftOwnershipKey = composerDraftContentOwnershipKey(
-      useComposerDraftStore.getState().draftsByThreadId[activeThread.id],
-    );
-    const initialSendState = deriveComposerSendState({
-      prompt: promptForSend,
-      imageCount: composerImagesForSend.length + pendingBlobAttachments.length,
-      fileCount: composerFilesForSend.length,
-      assistantSelectionCount: composerAssistantSelectionsForSend.length,
-      fileCommentCount: composerFileCommentsForSend.length,
-      terminalContexts: composerTerminalContextsForSend,
-      pastedTexts: composerPastedTextsForSend,
-    });
-    const initialHasNoStructuredComposerContext =
-      composerImagesForSend.length === 0 &&
-      pendingBlobAttachments.length === 0 &&
-      composerFilesForSend.length === 0 &&
-      composerAssistantSelectionsForSend.length === 0 &&
-      composerFileCommentsForSend.length === 0 &&
-      initialSendState.sendableTerminalContexts.length === 0 &&
-      initialSendState.sendablePastedTexts.length === 0 &&
-      selectedComposerMentionsForSend.length === 0;
-    let standaloneSlashCommandChecked = false;
-    if (initialHasNoStructuredComposerContext) {
-      standaloneSlashCommandChecked = true;
-      if (initialSendState.trimmedPrompt.startsWith("/")) {
-        try {
-          const handledSlashCommand = await lateSendHandlers.handleStandaloneSlashCommand(
-            initialSendState.trimmedPrompt,
-          );
-          if (handledSlashCommand) return true;
-        } catch (error) {
-          setThreadError(
-            activeThread.id,
-            error instanceof Error ? error.message : "Failed to run the command.",
-          );
-          return false;
+
+    const threadIdForSend = activeThread.id;
+    if (admittingThreadsRef.current.has(threadIdForSend)) return false;
+    admittingThreadsRef.current.add(threadIdForSend);
+    setAdmittingThreadIds(new Set(admittingThreadsRef.current));
+    let sentComposerDraft: typeof composerDraft | undefined;
+    let composerCleared = false;
+    try {
+      flushPendingPromptPersistence(threadIdForSend);
+      const liveComposerSnapshot = composerEditorRef.current?.readSnapshot() ?? null;
+      const promptForSend = liveComposerSnapshot?.value ?? promptRef.current;
+      let composerImagesForSend = [...composerImages];
+      const composerFilesForSend = [...composerFiles];
+      const composerAssistantSelectionsForSend = [...composerAssistantSelections];
+      const composerFileCommentsForSend = [...composerFileComments];
+      const composerTerminalContextsForSend = [...composerTerminalContexts];
+      const composerPastedTextsForSend = [...composerPastedTexts];
+      const selectedComposerSkillsForSend = [...selectedComposerSkillsRef.current];
+      const selectedComposerMentionsForSend = [...selectedComposerMentionsRef.current];
+      const selectedProviderForSend = selectedProvider;
+      const selectedModelForSend = selectedModel;
+      const selectedPromptEffortForSend = selectedPromptEffort;
+      const selectedModelSelectionForSend = selectedModelSelection;
+      let selectedConnectionIdForSend = resolveSelectedConnection(
+        selectedProviderForSend,
+        selectedModelSelectionForSend.model,
+      );
+      const providerOptionsForDispatchForSend = providerOptionsForDispatch;
+      const capturedDraft =
+        useComposerDraftStore.getState().draftsByThreadId[threadIdForSend] ?? composerDraft;
+      const sentDraftUpdatedAt = readDraftUpdatedAt();
+      sentComposerDraft = { ...capturedDraft, prompt: promptForSend };
+      const pendingBlobAttachments = findPendingBlobComposerAttachments({
+        persistedAttachments: capturedDraft.persistedAttachments,
+        images: composerImagesForSend,
+      });
+      const initialSendState = deriveComposerSendState({
+        prompt: promptForSend,
+        imageCount: composerImagesForSend.length + pendingBlobAttachments.length,
+        fileCount: composerFilesForSend.length,
+        assistantSelectionCount: composerAssistantSelectionsForSend.length,
+        fileCommentCount: composerFileCommentsForSend.length,
+        terminalContexts: composerTerminalContextsForSend,
+        pastedTexts: composerPastedTextsForSend,
+      });
+      const initialHasNoStructuredComposerContext =
+        composerImagesForSend.length === 0 &&
+        pendingBlobAttachments.length === 0 &&
+        composerFilesForSend.length === 0 &&
+        composerAssistantSelectionsForSend.length === 0 &&
+        composerFileCommentsForSend.length === 0 &&
+        initialSendState.sendableTerminalContexts.length === 0 &&
+        initialSendState.sendablePastedTexts.length === 0 &&
+        selectedComposerMentionsForSend.length === 0;
+      if (initialHasNoStructuredComposerContext) {
+        if (initialSendState.trimmedPrompt.startsWith("/")) {
+          try {
+            const handledSlashCommand = await lateSendHandlers.handleStandaloneSlashCommand(
+              initialSendState.trimmedPrompt,
+            );
+            if (handledSlashCommand) return true;
+          } catch (error) {
+            setThreadError(
+              activeThread.id,
+              error instanceof Error ? error.message : "Failed to run the command.",
+            );
+            return false;
+          }
         }
       }
-    }
-    if (!initialSendState.hasSendableContent) {
-      if (initialSendState.expiredTerminalContextCount > 0) {
-        const toastCopy = buildExpiredTerminalContextToastCopy(
-          initialSendState.expiredTerminalContextCount,
-          "empty",
-        );
-        toastManager.add({
-          type: "warning",
-          title: toastCopy.title,
-          description: toastCopy.description,
-        });
-      }
-      return false;
-    }
-    const pendingPromptMatchesCapturedContent = (expectedThreadId: ThreadId) => {
-      const pending = pendingPromptPersistenceRef.current;
-      return (
-        pending === null ||
-        pending.threadId !== expectedThreadId ||
-        pending.prompt === promptForSend
-      );
-    };
-    const liveComposerStillOwnsCapturedContent = (expectedThreadId: ThreadId) => {
-      if (
-        promptRefThreadId.current !== expectedThreadId ||
-        !pendingPromptMatchesCapturedContent(expectedThreadId)
-      ) {
+      if (!initialSendState.hasSendableContent) {
+        if (initialSendState.expiredTerminalContextCount > 0) {
+          const toastCopy = buildExpiredTerminalContextToastCopy(
+            initialSendState.expiredTerminalContextCount,
+            "empty",
+          );
+          toastManager.add({
+            type: "warning",
+            title: toastCopy.title,
+            description: toastCopy.description,
+          });
+        }
         return false;
       }
-      const liveEditorPrompt =
-        composerEditorRef.current?.readSnapshot()?.value ?? promptRef.current;
-      return liveEditorPrompt === promptForSend;
-    };
-    const resolveComposerClearOwnership = (
-      expectedThreadId: ThreadId,
-    ): "active" | "old-thread" | "none" => {
-      const currentDraftOwnershipKey = composerDraftContentOwnershipKey(
-        useComposerDraftStore.getState().draftsByThreadId[expectedThreadId],
-      );
-      if (currentDraftOwnershipKey !== capturedDraftOwnershipKey) return "none";
-      if (liveComposerStillOwnsCapturedContent(expectedThreadId)) return "active";
-      if (
-        promptRefThreadId.current !== expectedThreadId &&
-        pendingPromptMatchesCapturedContent(expectedThreadId)
-      ) {
-        return "old-thread";
+
+      cancelPendingPromptPersistence();
+      composerEditorRef.current?.clear();
+      clearComposerDraftContent(threadIdForSend, {
+        preservePreviewUrls: true,
+        preservePersistedAssets: true,
+      });
+      promptRef.current = "";
+      setComposerCursor(0);
+      setComposerTrigger(null);
+      composerCleared = true;
+
+      if (pendingBlobAttachments.length > 0) {
+        const hydrated = await hydratePendingBlobComposerAttachments(pendingBlobAttachments);
+        composerImagesForSend = [...composerImagesForSend, ...hydrated];
       }
-      return "none";
-    };
-    const capturedRecoveryTurn: ComposerSubmission = {
-      id: randomUUID(),
-      kind: "chat",
-      createdAt: new Date().toISOString(),
-      previewText: promptForSend,
-      prompt: promptForSend,
-      images: [...composerImagesForSend],
-      files: [...composerFilesForSend],
-      assistantSelections: [...composerAssistantSelectionsForSend],
-      fileComments: [...composerFileCommentsForSend],
-      terminalContexts: [...composerTerminalContextsForSend],
-      pastedTexts: [...composerPastedTextsForSend],
-      skills: [...selectedComposerSkillsForSend],
-      mentions: [...selectedComposerMentionsForSend],
-      selectedProvider: selectedProviderForSend,
-      selectedModel: selectedModelForSend,
-      selectedPromptEffort: selectedPromptEffortForSend,
-      modelSelection: selectedModelSelectionForSend,
-      connectionId:
-        queuedChatTurn !== null
-          ? queuedChatTurn.connectionId
-          : Object.prototype.hasOwnProperty.call(
+      if (selectedConnectionIdForSend === undefined) {
+        // A managed login may complete while Settings is closing or unmounted,
+        // before its cache invalidation reaches this already-mounted composer.
+        // Re-read the authoritative Space snapshot at the admission boundary;
+        // this selects only the exact persisted default/route and never guesses.
+        const availableConnectionIds = runtimeModelsByProvider[
+          selectedModelSelectionForSend.provider
+        ].find(
+          (descriptor) => descriptor.slug === selectedModelSelectionForSend.model,
+        )?.availableConnectionIds;
+        const availableConnectionOptions =
+          availableConnectionIds === undefined ? {} : { availableConnectionIds };
+        const startedThreadBindingLoaded = context.kind === "persisted";
+        const startedThreadBindingConnectionId =
+          context.kind === "persisted" ? context.row.connectionId : undefined;
+        try {
+          selectedConnectionIdForSend = await resolveComposerConnectionAtAdmission({
+            snapshot: providerConnectionsQuery.data,
+            refreshSnapshot: async () => (await providerConnectionsQuery.refetch()).data,
+            refreshAvailableConnectionIds: async () =>
+              (
+                await api.provider.listModels({
+                  provider: selectedModelSelectionForSend.provider,
+                  ...(selectedModelSelectionForSend.provider === "opencode" &&
+                  providerModelDiscoveryCwd
+                    ? { cwd: providerModelDiscoveryCwd }
+                    : {}),
+                })
+              ).models.find((model) => model.slug === selectedModelSelectionForSend.model)
+                ?.availableConnectionIds,
+            provider: selectedModelSelectionForSend.provider,
+            model: selectedModelSelectionForSend.model,
+            ...availableConnectionOptions,
+            explicitSelection: {
+              specified: Object.prototype.hasOwnProperty.call(
                 selectedConnectionByProvider,
                 selectedModelSelectionForSend.provider,
-              )
-            ? (selectedConnectionByProvider[selectedModelSelectionForSend.provider] ?? null)
-            : (selectedConnectionIdForSend ?? null),
-      ...(providerOptionsForDispatchForSend !== undefined
-        ? { providerOptionsForDispatch: providerOptionsForDispatchForSend }
-        : {}),
-      ...(providerOptionsForDispatch ? { providerOptionsForDispatch } : {}),
-      runtimeMode: queuedChatTurn?.runtimeMode ?? runtimeMode,
-    };
-    const messageIdForSend = newMessageId();
-    const messageCreatedAt = new Date().toISOString();
-    const sendPreflightOwner = claimComposerSendPreflight(
-      activeThread.id,
-      capturedRecoveryTurn,
-      [
-        ...composerImagesForSend.map((image) => image.id),
-        ...pendingBlobAttachments.map((attachment) => attachment.id),
-      ],
-      messageIdForSend,
-    );
-    if (!sendPreflightOwner) return false;
-    recordChatLifecycleUiDiagnostic({
-      event: "composer-submission-claimed",
-      threadId: activeThread.id,
-      activeTurnId: activeThread.session?.activeTurnId ?? null,
-      activeTurnStartedAt: activeLatestTurn?.startedAt ?? null,
-      isWorking,
-      composerPromptLength: promptForSend.length,
-    });
-    let composerOwnershipTransferred = false;
-    const restoreTransferredComposer = () => {
-      if (!composerOwnershipTransferred) return;
-      composerOwnershipTransferred = false;
-      const restoredToComposer = useComposerDraftStore
-        .getState()
-        .restoreFailedComposerSubmission(activeThread.id, sendPreflightOwner.capturedSubmission);
-      if (restoredToComposer && capturedPersistedAttachments.length > 0) {
-        useComposerDraftStore.setState((state) => {
-          const current = state.draftsByThreadId[activeThread.id];
-          if (!current) return state;
-          const restoredIds = new Set(
-            capturedPersistedAttachments.map((attachment) => attachment.id),
-          );
-          return {
-            draftsByThreadId: {
-              ...state.draftsByThreadId,
-              [activeThread.id]: {
-                ...current,
-                persistedAttachments: [
-                  ...current.persistedAttachments.filter(
-                    (attachment) => !restoredIds.has(attachment.id),
-                  ),
-                  ...capturedPersistedAttachments,
-                ],
-              },
-            },
-          };
-        });
-      }
-      recordChatLifecycleUiDiagnostic({
-        event: "composer-submission-restored",
-        threadId: activeThread.id,
-        activeTurnId: activeThread.session?.activeTurnId ?? null,
-        activeTurnStartedAt: activeLatestTurn?.startedAt ?? null,
-        isWorking,
-        composerPromptLength: promptForSend.length,
-      });
-    };
-    const releaseSendPreflight = (options?: { restoreComposer?: boolean }) => {
-      if (options?.restoreComposer) restoreTransferredComposer();
-      releaseComposerSendPreflight(sendPreflightOwner);
-    };
-    if (queuedChatTurn === null) {
-      const ownership = resolveComposerClearOwnership(activeThread.id);
-      if (ownership === "active") {
-        promptHistoryNavigationRef.current = null;
-        applyingPromptHistoryNavigationRef.current = false;
-        expectedPromptHistoryPromptRef.current = null;
-        promptRef.current = "";
-        cancelPendingPromptPersistence();
-        clearComposerDraftContent(activeThread.id, {
-          preservePreviewUrls: true,
-          preservePersistedAssets: true,
-        });
-        composerEditorRef.current?.clear();
-        setComposerHighlightedItemId(null);
-        setComposerCursor(0);
-        setComposerTrigger(null);
-        composerOwnershipTransferred = true;
-      } else if (ownership === "old-thread") {
-        clearComposerDraftContent(activeThread.id, {
-          preservePreviewUrls: true,
-          preservePersistedAssets: true,
-        });
-        composerOwnershipTransferred = true;
-      }
-      recordChatLifecycleUiDiagnostic({
-        event: "composer-visible-cleared",
-        threadId: activeThread.id,
-        activeTurnId: activeThread.session?.activeTurnId ?? null,
-        activeTurnStartedAt: activeLatestTurn?.startedAt ?? null,
-        isWorking,
-        composerPromptLength: promptForSend.length,
-        composerOwnership: ownership,
-      });
-      scheduleComposerFocus();
-    }
-    const detachCapturedHydratedImagesFromNewerDraft = () => {
-      if (
-        composerDraftContentOwnershipKey(
-          useComposerDraftStore.getState().draftsByThreadId[activeThread.id],
-        ) === capturedDraftOwnershipKey
-      )
-        return;
-      const capturedImageIds = new Set(pendingBlobAttachments.map((attachment) => attachment.id));
-      if (capturedImageIds.size === 0) return;
-      useComposerDraftStore.setState((state) => {
-        const current = state.draftsByThreadId[activeThread.id];
-        if (!current) return state;
-        return {
-          draftsByThreadId: {
-            ...state.draftsByThreadId,
-            [activeThread.id]: {
-              ...current,
-              images: current.images.filter((image) => !capturedImageIds.has(image.id)),
-              persistedAttachments: current.persistedAttachments.filter(
-                (attachment) => !capturedImageIds.has(attachment.id),
               ),
+              connectionId: selectedConnectionByProvider[selectedModelSelectionForSend.provider],
             },
-          },
-        };
-      });
-    };
-    const stopIfSendPreflightCancelled = () => {
-      if (!sendPreflightOwner.cancelled) return false;
-      restoreTransferredComposer();
-      releaseSendPreflight();
-      return true;
-    };
-    const preflightMessageText = appendPastedTextsToPrompt(
-      appendFileCommentsToPrompt(
-        appendTerminalContextsToPrompt(
-          appendAssistantSelectionsToPrompt(promptForSend, composerAssistantSelectionsForSend),
-          initialSendState.sendableTerminalContexts,
-        ),
-        composerFileCommentsForSend,
-      ),
-      initialSendState.sendablePastedTexts,
-    );
-    const preflightOutgoingText = formatOutgoingComposerPrompt({
-      provider: selectedProviderForSend,
-      model: selectedModelForSend,
-      effort: selectedPromptEffortForSend,
-      text:
-        preflightMessageText ||
-        (composerImagesForSend.length + pendingBlobAttachments.length > 0
-          ? IMAGE_ONLY_BOOTSTRAP_PROMPT
-          : ""),
-    });
-    const preflightSkills = filterPromptSkillReferences(
-      preflightOutgoingText,
-      selectedComposerSkillsForSend,
-      selectedProviderForSend,
-    );
-    const preflightMentions = filterPromptProviderMentionReferences(
-      preflightOutgoingText,
-      selectedComposerMentionsForSend,
-    );
-    const buildOptimisticAttachments = (images: readonly ComposerImageAttachment[]) =>
-      buildOptimisticComposerAttachments({
-        images,
-        files: composerFilesForSend,
-        assistantSelections: composerAssistantSelectionsForSend,
-      });
-    const setPreflightProjection = (images: readonly ComposerImageAttachment[]) => {
-      const attachments = buildOptimisticAttachments(images);
-      armTranscriptAutoFollow(activeThread.id);
-      setComposerSendPreflightProjection(sendPreflightOwner, {
-        id: messageIdForSend,
-        role: "user",
-        text: preflightOutgoingText,
-        dispatchMode,
-        ...(attachments.length > 0 ? { attachments } : {}),
-        ...(preflightSkills.length > 0 ? { skills: preflightSkills } : {}),
-        ...(preflightMentions.length > 0 ? { mentions: preflightMentions } : {}),
-        createdAt: messageCreatedAt,
-        streaming: false,
-        source: "native",
-      });
-    };
-    setPreflightProjection(composerImagesForSend);
-    // Legacy blob-backed images can exist without a hydrated live image right
-    // after reload. Hydrate them before a live send so they are not dropped.
-    if (queuedChatTurn === null) {
-      if (pendingBlobAttachments.length > 0) {
-        let hydratedPendingImages: ComposerImageAttachment[];
-        try {
-          hydratedPendingImages =
-            await hydratePendingBlobComposerAttachments(pendingBlobAttachments);
+            startedThreadBinding: {
+              loaded: startedThreadBindingLoaded,
+              connectionId: startedThreadBindingConnectionId,
+            },
+            hasThreadStarted,
+          });
         } catch (error) {
-          releaseSendPreflight({ restoreComposer: true });
           setThreadError(
             activeThread.id,
-            error instanceof Error ? error.message : "Failed to prepare message attachments.",
+            error instanceof Error ? error.message : "Failed to resolve the Connection.",
           );
           return false;
         }
-        if (hydratedPendingImages.length > 0) {
-          composerImagesForSend = [...composerImagesForSend, ...hydratedPendingImages];
-          updateComposerSendPreflightImages(sendPreflightOwner, composerImagesForSend);
-          setPreflightProjection(composerImagesForSend);
-          detachCapturedHydratedImagesFromNewerDraft();
+      }
+      // A first turn may omit the Connection and let the server resolve the
+      // Space's persisted default (or declared anonymous route). Once a harness
+      // has started, however, the exact durable binding remains mandatory.
+      if (selectedConnectionIdForSend === undefined && hasThreadStarted) {
+        setThreadError(activeThread.id, "Choose a Connection before sending this message.");
+        return false;
+      }
+      const runtimeModeForSend = runtimeMode;
+      const {
+        trimmedPrompt: trimmed,
+        sendableTerminalContexts: sendableComposerTerminalContexts,
+        expiredTerminalContextCount,
+        sendablePastedTexts: sendableComposerPastedTexts,
+        hasSendableContent,
+      } = deriveComposerSendState({
+        prompt: promptForSend,
+        imageCount: composerImagesForSend.length,
+        fileCount: composerFilesForSend.length,
+        assistantSelectionCount: composerAssistantSelectionsForSend.length,
+        fileCommentCount: composerFileCommentsForSend.length,
+        terminalContexts: composerTerminalContextsForSend,
+        pastedTexts: composerPastedTextsForSend,
+      });
+      const trimmedPromptForSend = trimmed;
+      if (!hasSendableContent) {
+        if (expiredTerminalContextCount > 0) {
+          const toastCopy = buildExpiredTerminalContextToastCopy(
+            expiredTerminalContextCount,
+            "empty",
+          );
+          toastManager.add({
+            type: "warning",
+            title: toastCopy.title,
+            description: toastCopy.description,
+          });
         }
-        if (stopIfSendPreflightCancelled()) return false;
-      }
-    }
-    if (selectedConnectionIdForSend === undefined && queuedChatTurn === null) {
-      // A managed login may complete while Settings is closing or unmounted,
-      // before its cache invalidation reaches this already-mounted composer.
-      // Re-read the authoritative Space snapshot at the admission boundary;
-      // this selects only the exact persisted default/route and never guesses.
-      const availableConnectionIds = runtimeModelsByProvider[
-        selectedModelSelectionForSend.provider
-      ].find(
-        (descriptor) => descriptor.slug === selectedModelSelectionForSend.model,
-      )?.availableConnectionIds;
-      const availableConnectionOptions =
-        availableConnectionIds === undefined ? {} : { availableConnectionIds };
-      const startedThreadBindingLoaded = serverThread !== undefined;
-      const startedThreadBindingConnectionId = serverThread?.connectionId;
-      try {
-        detachCapturedHydratedImagesFromNewerDraft();
-        selectedConnectionIdForSend = await resolveComposerConnectionAtAdmission({
-          snapshot: providerConnectionsQuery.data,
-          refreshSnapshot: async () => (await providerConnectionsQuery.refetch()).data,
-          refreshAvailableConnectionIds: async () =>
-            (
-              await api.provider.listModels({
-                provider: selectedModelSelectionForSend.provider,
-                ...(selectedModelSelectionForSend.provider === "opencode" &&
-                providerModelDiscoveryCwd
-                  ? { cwd: providerModelDiscoveryCwd }
-                  : {}),
-              })
-            ).models.find((model) => model.slug === selectedModelSelectionForSend.model)
-              ?.availableConnectionIds,
-          provider: selectedModelSelectionForSend.provider,
-          model: selectedModelSelectionForSend.model,
-          ...availableConnectionOptions,
-          explicitSelection: {
-            specified: Object.prototype.hasOwnProperty.call(
-              selectedConnectionByProvider,
-              selectedModelSelectionForSend.provider,
-            ),
-            connectionId: selectedConnectionByProvider[selectedModelSelectionForSend.provider],
-          },
-          startedThreadBinding: {
-            loaded: startedThreadBindingLoaded,
-            connectionId: startedThreadBindingConnectionId,
-          },
-          hasThreadStarted,
-        });
-      } catch (error) {
-        releaseSendPreflight({ restoreComposer: true });
-        setThreadError(
-          activeThread.id,
-          error instanceof Error ? error.message : "Failed to resolve the Connection.",
-        );
         return false;
       }
-      if (stopIfSendPreflightCancelled()) return false;
-    }
-    // A first turn may omit the Connection and let the server resolve the
-    // Space's persisted default (or declared anonymous route). Once a harness
-    // has started, however, the exact durable binding remains mandatory.
-    if (selectedConnectionIdForSend === undefined && hasThreadStarted) {
-      releaseSendPreflight({ restoreComposer: true });
-      setThreadError(activeThread.id, "Choose a Connection before sending this message.");
-      return false;
-    }
-    updateComposerSendPreflightResolvedAdmission(
-      sendPreflightOwner,
-      selectedConnectionIdForSend ?? null,
-      providerOptionsForDispatchForSend,
-    );
-    const runtimeModeForSend = queuedChatTurn?.runtimeMode ?? runtimeMode;
-    const {
-      trimmedPrompt: trimmed,
-      sendableTerminalContexts: sendableComposerTerminalContexts,
-      expiredTerminalContextCount,
-      sendablePastedTexts: sendableComposerPastedTexts,
-      hasSendableContent,
-    } = deriveComposerSendState({
-      prompt: promptForSend,
-      imageCount: composerImagesForSend.length,
-      fileCount: composerFilesForSend.length,
-      assistantSelectionCount: composerAssistantSelectionsForSend.length,
-      fileCommentCount: composerFileCommentsForSend.length,
-      terminalContexts: composerTerminalContextsForSend,
-      pastedTexts: composerPastedTextsForSend,
-    });
-    const trimmedPromptForSend = trimmed;
-    const hasNoStructuredComposerContext =
-      composerImagesForSend.length === 0 &&
-      composerFilesForSend.length === 0 &&
-      composerAssistantSelectionsForSend.length === 0 &&
-      composerFileCommentsForSend.length === 0 &&
-      sendableComposerTerminalContexts.length === 0 &&
-      sendableComposerPastedTexts.length === 0 &&
-      // Provider mentions are structured turn metadata.
-      selectedComposerMentionsForSend.length === 0;
-    const hasPromptOnlySendableContent = hasNoStructuredComposerContext;
-    if (hasPromptOnlySendableContent && !standaloneSlashCommandChecked) {
-      let handledSlashCommand: boolean;
-      try {
-        handledSlashCommand =
-          await lateSendHandlers.handleStandaloneSlashCommand(trimmedPromptForSend);
-      } catch (error) {
-        releaseSendPreflight({ restoreComposer: true });
-        setThreadError(
-          activeThread.id,
-          error instanceof Error ? error.message : "Failed to run the command.",
-        );
+      if (!activeProject) {
         return false;
       }
-      if (stopIfSendPreflightCancelled()) return false;
-      if (handledSlashCommand) {
-        releaseSendPreflight();
-        return true;
-      }
-    }
-    if (!hasSendableContent) {
-      releaseSendPreflight({ restoreComposer: true });
-      if (expiredTerminalContextCount > 0) {
-        const toastCopy = buildExpiredTerminalContextToastCopy(
-          expiredTerminalContextCount,
-          "empty",
-        );
-        toastManager.add({
-          type: "warning",
-          title: toastCopy.title,
-          description: toastCopy.description,
-        });
-      }
-      return false;
-    }
-    if (!activeProject) {
-      releaseSendPreflight({ restoreComposer: true });
-      return false;
-    }
-    if (sendInFlightRef.current && !isServerThread) {
-      releaseSendPreflight({ restoreComposer: true });
-      return false;
-    }
-    const threadIdForSend = activeThread.id;
-    if (queuedTurn == null) window.desktopBridge?.threadHome?.send({ threadId: threadIdForSend });
-    const isFirstMessage = !isServerThread || !hasNativeUserMessages;
-    const firstSendCreatedAt = new Date();
-    let firstComposerImageNameForTitle: string | null = null;
-    if (composerImagesForSend.length > 0) {
-      firstComposerImageNameForTitle = composerImagesForSend[0]?.name ?? null;
-    }
-    let titleSeed = trimmedPromptForSend;
-    if (!titleSeed) {
-      if (firstComposerImageNameForTitle) {
-        titleSeed = `Image: ${firstComposerImageNameForTitle}`;
-      } else if (composerFilesForSend.length > 0) {
-        titleSeed = `File: ${composerFilesForSend[0]?.name ?? "attachment"}`;
-      } else if (composerAssistantSelectionsForSend.length > 0) {
-        titleSeed = formatAssistantSelectionTitleSeed(composerAssistantSelectionsForSend.length);
-      } else if (sendableComposerTerminalContexts.length > 0) {
-        titleSeed = formatTerminalContextLabel(sendableComposerTerminalContexts[0]!);
-      } else if (composerFileCommentsForSend.length > 0) {
-        titleSeed = formatFileCommentTitleSeed(composerFileCommentsForSend.length);
-      } else if (sendableComposerPastedTexts.length > 0) {
-        titleSeed =
-          formatPastedTextTitleSeed(sendableComposerPastedTexts) ?? GENERIC_CHAT_THREAD_TITLE;
-      } else {
-        titleSeed = GENERIC_CHAT_THREAD_TITLE;
-      }
-    }
-    // Keep the optimistic label short while the server asks Codex for a better summary.
-    const title = buildPromptThreadTitleFallback(titleSeed);
-    const currentStoreState = useStore.getState();
-    const targetFolderIdForSend = activeProject.id;
-    const targetProjectDefaultModelSelectionForSend = activeProject.defaultModelSelection ?? null;
-    let nextRuntimeModeForSend = runtimeModeForSend;
-    const isFollowUpToActiveTurn =
-      phase === "connecting" || phase === "running" || isSendBusy || hasPendingTurnStart;
 
-    sendInFlightRef.current = true;
-    if (!isFollowUpToActiveTurn) {
-      beginLocalDispatch({ expectedUserMessageId: messageIdForSend });
-    }
-    const composerImagesSnapshot = [...composerImagesForSend];
-    const composerFilesSnapshot = [...composerFilesForSend];
-    const composerAssistantSelectionsSnapshot = [...composerAssistantSelectionsForSend];
-    const composerFileCommentsSnapshot = [...composerFileCommentsForSend];
-    const composerTerminalContextsSnapshot = [...sendableComposerTerminalContexts];
-    const composerPastedTextsSnapshot = [...sendableComposerPastedTexts];
-    const composerSkillsSnapshot = [...selectedComposerSkillsForSend];
-    const composerMentionsSnapshot = [...selectedComposerMentionsForSend];
-    // Trailing blocks are appended innermost-to-outermost: assistant selections,
-    // terminal contexts, file comments, then pasted text (outermost). The display
-    // extractors unwrap them in the reverse order.
-    const messageTextForSend = appendPastedTextsToPrompt(
-      appendFileCommentsToPrompt(
-        appendTerminalContextsToPrompt(
-          appendAssistantSelectionsToPrompt(promptForSend, composerAssistantSelectionsSnapshot),
-          composerTerminalContextsSnapshot,
+      window.desktopBridge?.threadHome?.send({ threadId: threadIdForSend });
+      const messageIdForSend = newMessageId();
+      const messageCreatedAt = new Date().toISOString();
+      let firstComposerImageNameForTitle: string | null = null;
+      if (composerImagesForSend.length > 0) {
+        firstComposerImageNameForTitle = composerImagesForSend[0]?.name ?? null;
+      }
+      let titleSeed = trimmedPromptForSend;
+      if (!titleSeed) {
+        if (firstComposerImageNameForTitle) {
+          titleSeed = `Image: ${firstComposerImageNameForTitle}`;
+        } else if (composerFilesForSend.length > 0) {
+          titleSeed = `File: ${composerFilesForSend[0]?.name ?? "attachment"}`;
+        } else if (composerAssistantSelectionsForSend.length > 0) {
+          titleSeed = formatAssistantSelectionTitleSeed(composerAssistantSelectionsForSend.length);
+        } else if (sendableComposerTerminalContexts.length > 0) {
+          titleSeed = formatTerminalContextLabel(sendableComposerTerminalContexts[0]!);
+        } else if (composerFileCommentsForSend.length > 0) {
+          titleSeed = formatFileCommentTitleSeed(composerFileCommentsForSend.length);
+        } else if (sendableComposerPastedTexts.length > 0) {
+          titleSeed =
+            formatPastedTextTitleSeed(sendableComposerPastedTexts) ?? GENERIC_CHAT_THREAD_TITLE;
+        } else {
+          titleSeed = GENERIC_CHAT_THREAD_TITLE;
+        }
+      }
+      // Keep the optimistic label short while the server asks Codex for a better summary.
+      const title = buildPromptThreadTitleFallback(titleSeed);
+      const targetFolderIdForSend = activeProject.id;
+      const targetProjectDefaultModelSelectionForSend = activeProject.defaultModelSelection ?? null;
+      let nextRuntimeModeForSend = runtimeModeForSend;
+      const composerImagesSnapshot = [...composerImagesForSend];
+      const composerFilesSnapshot = [...composerFilesForSend];
+      const composerAssistantSelectionsSnapshot = [...composerAssistantSelectionsForSend];
+      const composerFileCommentsSnapshot = [...composerFileCommentsForSend];
+      const composerTerminalContextsSnapshot = [...sendableComposerTerminalContexts];
+      const composerPastedTextsSnapshot = [...sendableComposerPastedTexts];
+      const composerSkillsSnapshot = [...selectedComposerSkillsForSend];
+      const composerMentionsSnapshot = [...selectedComposerMentionsForSend];
+      // Trailing blocks are appended innermost-to-outermost: assistant selections,
+      // terminal contexts, file comments, then pasted text (outermost). The display
+      // extractors unwrap them in the reverse order.
+      const messageTextForSend = appendPastedTextsToPrompt(
+        appendFileCommentsToPrompt(
+          appendTerminalContextsToPrompt(
+            appendAssistantSelectionsToPrompt(promptForSend, composerAssistantSelectionsSnapshot),
+            composerTerminalContextsSnapshot,
+          ),
+          composerFileCommentsSnapshot,
         ),
-        composerFileCommentsSnapshot,
-      ),
-      composerPastedTextsSnapshot,
-    );
-    const ownedPendingTurn: ComposerSubmission & { messageId: MessageId } = {
-      id: messageIdForSend,
-      kind: "chat",
-      createdAt: messageCreatedAt,
-      previewText: buildQueuedComposerPreviewText({
-        trimmedPrompt: trimmedPromptForSend,
+        composerPastedTextsSnapshot,
+      );
+
+      // Recovery uses the existing draft format and the same durable asset ids.
+      const persistedImages = await Promise.all(
+        composerImagesSnapshot.map(async (image) => ({
+          id: image.id,
+          name: image.name,
+          mimeType: image.mimeType,
+          sizeBytes: image.sizeBytes,
+          blobKey: await persistComposerAsset({
+            threadId: threadIdForSend,
+            assetId: image.id,
+            file: image.file,
+          }),
+        })),
+      );
+      const persistedFiles = await Promise.all(
+        composerFilesSnapshot.map(async (file) => ({
+          ...file,
+          assetKey:
+            file.assetKey ??
+            (await persistComposerAsset({
+              threadId: threadIdForSend,
+              assetId: file.id,
+              file: file.file,
+            })),
+        })),
+      );
+      const serializedDraft = serializeComposerThreadDraft({
+        ...capturedDraft,
+        prompt: promptForSend,
+        images: composerImagesSnapshot,
+        persistedAttachments: persistedImages,
+        files: persistedFiles,
+        assistantSelections: composerAssistantSelectionsSnapshot,
+        fileComments: composerFileCommentsSnapshot,
+        terminalContexts: composerTerminalContextsSnapshot,
+        pastedTexts: composerPastedTextsSnapshot,
+        skills: composerSkillsSnapshot,
+        mentions: composerMentionsSnapshot,
+        runtimeMode: runtimeModeForSend,
+      });
+      const recoveryDraft = JSON.stringify(serializedDraft);
+      const outgoingTextSeed =
+        messageTextForSend ||
+        (composerImagesSnapshot.length > 0 ? IMAGE_ONLY_BOOTSTRAP_PROMPT : "");
+      const outgoingMessageText = formatOutgoingComposerPrompt({
+        provider: selectedProviderForSend,
+        model: selectedModelForSend,
+        effort: selectedPromptEffortForSend,
+        text: outgoingTextSeed,
+      });
+      const mentionedSkillsForSend = filterPromptSkillReferences(
+        outgoingMessageText,
+        selectedComposerSkillsForSend,
+        selectedProviderForSend,
+      );
+      const mentionedPluginMentionsForSend = filterPromptProviderMentionReferences(
+        outgoingMessageText,
+        selectedComposerMentionsForSend,
+      );
+      const stagedTurnAttachments = await stageUploadComposerAttachments({
+        threadId: threadIdForSend,
         images: composerImagesSnapshot,
         files: composerFilesSnapshot,
         assistantSelections: composerAssistantSelectionsSnapshot,
-        terminalContexts: composerTerminalContextsSnapshot,
-        fileComments: composerFileCommentsSnapshot,
-        pastedTexts: composerPastedTextsSnapshot,
-      }),
-      messageId: messageIdForSend,
-      prompt: promptForSend,
-      images: composerImagesSnapshot,
-      files: composerFilesSnapshot,
-      assistantSelections: composerAssistantSelectionsSnapshot,
-      fileComments: composerFileCommentsSnapshot,
-      terminalContexts: composerTerminalContextsSnapshot,
-      pastedTexts: composerPastedTextsSnapshot,
-      skills: composerSkillsSnapshot,
-      mentions: composerMentionsSnapshot,
-      selectedProvider: selectedProviderForSend,
-      selectedModel: selectedModelForSend,
-      selectedPromptEffort: selectedPromptEffortForSend,
-      modelSelection: selectedModelSelectionForSend,
-      connectionId: selectedConnectionIdForSend ?? null,
-      ...(providerOptionsForDispatchForSend
-        ? { providerOptionsForDispatch: providerOptionsForDispatchForSend }
-        : {}),
-      runtimeMode: runtimeModeForSend,
-    };
-    if (sendPreflightOwner.cancelled) {
-      restoreTransferredComposer();
-      releaseSendPreflight();
-      sendInFlightRef.current = false;
-      resetLocalDispatch();
-      return false;
-    }
-    if (
-      !markComposerSendPreflightDispatching(sendPreflightOwner, messageIdForSend, ownedPendingTurn)
-    ) {
-      releaseSendPreflight({ restoreComposer: true });
-      sendInFlightRef.current = false;
-      resetLocalDispatch();
-      return false;
-    }
-    const outgoingTextSeed =
-      messageTextForSend || (composerImagesSnapshot.length > 0 ? IMAGE_ONLY_BOOTSTRAP_PROMPT : "");
-    const outgoingMessageText = formatOutgoingComposerPrompt({
-      provider: selectedProviderForSend,
-      model: selectedModelForSend,
-      effort: selectedPromptEffortForSend,
-      text: outgoingTextSeed,
-    });
-    const mentionedSkillsForSend = filterPromptSkillReferences(
-      outgoingMessageText,
-      selectedComposerSkillsForSend,
-      selectedProviderForSend,
-    );
-    const mentionedPluginMentionsForSend = filterPromptProviderMentionReferences(
-      outgoingMessageText,
-      selectedComposerMentionsForSend,
-    );
-    const turnAttachmentsPromise = stageUploadComposerAttachments({
-      threadId: threadIdForSend,
-      images: composerImagesSnapshot,
-      files: composerFilesSnapshot,
-      assistantSelections: composerAssistantSelectionsSnapshot,
-    });
-    const optimisticAttachments = buildOptimisticAttachments(composerImagesSnapshot);
-    setOptimisticUserMessages((existing) => [
-      ...existing,
-      {
-        id: messageIdForSend,
-        role: "user",
-        text: outgoingMessageText,
-        dispatchMode,
-        ...(optimisticAttachments.length > 0 ? { attachments: optimisticAttachments } : {}),
-        ...(mentionedSkillsForSend.length > 0 ? { skills: mentionedSkillsForSend } : {}),
-        ...(mentionedPluginMentionsForSend.length > 0
-          ? { mentions: mentionedPluginMentionsForSend }
-          : {}),
-        createdAt: messageCreatedAt,
-        streaming: false,
-        source: "native",
-      },
-    ]);
-    // Mark the transcript as anchored before the optimistic row lands so the
-    // re-snap effect on row count change pulls us to the new tail.
-    // A native smooth scroll traverses a virtualized transcript while row
-    // measurements are still changing. That produces large discontinuous
-    // jumps and competes with the list's causal-tail correction. A send is a
-    // discrete navigation to the newly admitted tail, so place it atomically.
-    armTranscriptAutoFollow(threadIdForSend);
-
-    setThreadError(threadIdForSend, null);
-    if (expiredTerminalContextCount > 0) {
-      const toastCopy = buildExpiredTerminalContextToastCopy(
-        expiredTerminalContextCount,
-        "omitted",
-      );
-      toastManager.add({
-        type: "warning",
-        title: toastCopy.title,
-        description: toastCopy.description,
       });
-    }
-    // Queued turns are dispatched from their captured snapshot, so this send path
-    // must not clear a separate live draft the user may already be editing.
-    const clearOwnership = resolveComposerClearOwnership(threadIdForSend);
-    if (queuedChatTurn === null && clearOwnership === "active") {
-      promptHistoryNavigationRef.current = null;
-      applyingPromptHistoryNavigationRef.current = false;
-      expectedPromptHistoryPromptRef.current = null;
-      promptRef.current = "";
-      cancelPendingPromptPersistence();
-      clearComposerDraftContent(threadIdForSend, { preservePreviewUrls: true });
-      // Clear Lexical in the same input event as admission. Waiting for the
-      // controlled-store round trip leaves accessibility/type-text insertions
-      // visible long enough to survive a steer and reappear as a stale draft.
-      composerEditorRef.current?.clear();
-      setComposerHighlightedItemId(null);
-      setComposerCursor(0);
-      setComposerTrigger(null);
-      // A clicked submit button steals focus; return it after the controlled
-      // draft reset so rapid follow-up typing lands in the composer.
-      scheduleComposerFocus();
-    } else if (queuedChatTurn === null && clearOwnership === "old-thread") {
-      // The renderer may have navigated while admission was pending. Clear the
-      // acknowledged old-thread store content, but never mutate the new
-      // thread's editor, prompt ref, or pending input timer.
-      clearComposerDraftContent(threadIdForSend, { preservePreviewUrls: true });
-    }
 
-    let turnStartSucceeded = false;
-    await (async () => {
+      handoffAttachmentPreviews(
+        messageIdForSend,
+        composerImagesSnapshot
+          .map((image) => image.previewUrl)
+          .filter((url) => url.startsWith("blob:")),
+      );
+      armTranscriptAutoFollow(threadIdForSend);
+      setThreadError(threadIdForSend, null);
+      if (expiredTerminalContextCount > 0) {
+        const copy = buildExpiredTerminalContextToastCopy(expiredTerminalContextCount, "omitted");
+        toastManager.add({ type: "warning", title: copy.title, description: copy.description });
+      }
       const threadCreateModelSelection: ModelSelection = buildModelSelection(
         selectedModelSelectionForSend.provider,
         selectedModelSelectionForSend.model ||
@@ -5146,26 +4345,15 @@ function ChatViewContent({
         selectedModelSelectionForSend.options,
       );
 
-      if (isServerThread) {
-        await persistThreadSettingsForNextTurn({
-          threadId: threadIdForSend,
-          createdAt: messageCreatedAt,
-          runtimeMode: nextRuntimeModeForSend,
-        });
-      }
-
-      if (!isFollowUpToActiveTurn) {
-        beginLocalDispatch();
-      }
-      const stagedTurnAttachments = await turnAttachmentsPromise;
-
       rememberCustomBinaryPathForDispatch({
         threadId: threadIdForSend,
         provider: selectedModelSelectionForSend.provider,
         providerOptions: providerOptionsForDispatchForSend,
       });
-      const sendResult = await stagedTurnAttachments.runWithDispatch(async (attachments) => {
+      await stagedTurnAttachments.runWithDispatch(async (attachments) => {
         const send: Omit<CleanCoreSendMessageInput, "threadId"> = {
+          draft: recoveryDraft,
+          draftUpdatedAt: sentDraftUpdatedAt,
           message: {
             messageId: messageIdForSend,
             text: outgoingMessageText,
@@ -5215,46 +4403,40 @@ function ChatViewContent({
         applyThreadCreationResponse(result);
         return result.sendResult;
       });
-      if (sendResult.delivery === "failed") failChatOperation(sendResult.error);
-      turnStartSucceeded = true;
-      releaseSendPreflight();
-      if (sendResult.delivery === "queued") {
-        setOptimisticUserMessages((current) =>
-          current.filter((message) => message.id !== messageIdForSend),
-        );
-        resetLocalDispatch();
-      }
-    })().catch(async (err: unknown) => {
-      // Uploads start in parallel with workspace/session preparation. If any
-      // earlier step fails, settle that promise and release every staged blob.
-      await turnAttachmentsPromise.then(
-        (staged) => staged.cleanup(),
-        () => undefined,
-      );
 
-      if (queuedChatTurn === null && !turnStartSucceeded && !sendPreflightOwner.cancelled) {
-        setOptimisticUserMessages((existing) => {
-          const removed = existing.filter((message) => message.id === messageIdForSend);
-          for (const message of removed) {
-            revokeUserMessagePreviewUrls(message);
-          }
-          const next = existing.filter((message) => message.id !== messageIdForSend);
-          return next.length === existing.length ? existing : next;
-        });
-        restoreTransferredComposer();
-      }
+      // Re-read the committed admission or recovery through the draft controller.
+      if (promptRefThreadId.current === threadIdForSend) await refreshCommittedDraft();
+      if (promptRefThreadId.current === threadIdForSend) scheduleComposerFocus();
+      return true;
+    } catch (error) {
+      const currentDraft = useComposerDraftStore.getState().draftsByThreadId[threadIdForSend];
+      if (
+        composerCleared &&
+        sentComposerDraft &&
+        (!currentDraft ||
+          (currentDraft.prompt.length === 0 &&
+            [
+              currentDraft.images,
+              currentDraft.persistedAttachments,
+              currentDraft.files,
+              currentDraft.assistantSelections,
+              currentDraft.fileComments,
+              currentDraft.pastedTexts,
+              currentDraft.terminalContexts,
+              currentDraft.skills,
+              currentDraft.mentions,
+            ].every((entries) => entries.length === 0)))
+      )
+        applyServerThreadDraft(threadIdForSend, sentComposerDraft);
       setThreadError(
         threadIdForSend,
-        err instanceof Error ? err.message : "Failed to send message.",
+        error instanceof Error ? error.message : "Failed to send message.",
       );
-    });
-    sendInFlightRef.current = false;
-    if (!turnStartSucceeded) {
-      releaseSendPreflight();
-      resetLocalDispatch();
+      return false;
+    } finally {
+      admittingThreadsRef.current.delete(threadIdForSend);
+      setAdmittingThreadIds(new Set(admittingThreadsRef.current));
     }
-
-    return turnStartSucceeded;
   };
 
   const onRespondToUserInput = useCallback(
@@ -5474,7 +4656,6 @@ function ChatViewContent({
           queuedCount: serverQueuedMessageIds.size,
           pendingUserInput: activePendingProgress !== null,
           sendBusy: isSendBusy,
-          steeringPending: false,
         }),
         send: async ({ expectedText, mode }) => {
           if (activePendingProgress !== null) {
@@ -5564,12 +4745,11 @@ function ChatViewContent({
         const api = readNativeApi();
         if (!api) return;
         try {
-          const result = await api.cleanCore.sendMessage({
+          await api.cleanCore.sendMessage({
             threadId,
             message,
             dispatchMode: "steer",
           });
-          if (result.delivery === "failed") failChatOperation(result.error);
           setThreadError(threadId, null);
         } catch (error) {
           setThreadError(
@@ -6443,7 +5623,9 @@ function ChatViewContent({
       }
       expectedPromptHistoryPromptRef.current = null;
       const dispatchMode =
-        (event.metaKey || event.ctrlKey) && hasLiveTurn && !sendInFlightRef.current
+        (event.metaKey || event.ctrlKey) &&
+        hasLiveTurn &&
+        !admittingThreadsRef.current.has(threadId)
           ? "steer"
           : "queue";
       void onSend(undefined, dispatchMode);

@@ -44,7 +44,6 @@ describe("deriveUnmountedThreadLiveState", () => {
       queuedCount: 2,
       pendingUserInput: false,
       sendBusy: true,
-      steeringPending: false,
     });
   });
 

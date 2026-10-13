@@ -18,7 +18,7 @@ import {
   type ProviderKind,
   type ProviderListModelsInput,
   type CleanCoreThreadSummary,
-  type CleanCoreSendResult,
+  type CleanCoreSendAdmission,
 } from "@penkra/contracts";
 import { Effect, Option } from "effect";
 import { describe, expect, it, vi } from "vitest";
@@ -80,7 +80,7 @@ const IDS = makeAgentCreationIds(
 );
 function makeHarness() {
   const rows = new Map<string, CleanCoreThreadSummary>();
-  const confirmations = new Map<string, CleanCoreSendResult>();
+  const confirmations = new Map<string, CleanCoreSendAdmission>();
   const sends: Array<
     Parameters<Parameters<typeof makeCreateThreadHandler>[0]["sender"]["send"]>[0]
   > = [];
@@ -224,23 +224,17 @@ function makeHarness() {
     sender: {
       runExclusive: (_threadId, action) => action,
       send: (input) =>
-        Effect.sync(() => {
+        Effect.gen(function* () {
           sends.push(input);
           const previous = confirmations.get(input.message.messageId);
           if (previous !== undefined) return previous;
-          if (launchFailure)
-            return {
-              delivery: "failed" as const,
-              threadId: input.threadId,
-              messageId: input.message.messageId,
-              error: "controlled launch failure",
-            };
+          if (launchFailure) return yield* Effect.fail(new Error("controlled launch failure"));
           deliveries++;
-          const result: CleanCoreSendResult = {
-            delivery: "started",
+          const result: CleanCoreSendAdmission = {
+            plan: "deliver",
             threadId: input.threadId,
             messageId: input.message.messageId,
-            turnId: TurnId.makeUnsafe("confirmed-turn"),
+            seq: 1,
           };
           confirmations.set(input.message.messageId, result);
           return result;
@@ -304,7 +298,7 @@ function resultText(result: McpToolCallResult): string {
   return block.text;
 }
 describe("clean-core agent creation retries", () => {
-  it("creates one child and returns the same native confirmation on retry", async () => {
+  it("creates one child and returns the same admission on retry", async () => {
     const h = makeHarness();
     const first = await invoke(h);
     const retry = await invoke(h);
@@ -314,7 +308,13 @@ describe("clean-core agent creation retries", () => {
     expect(h.deliveries).toBe(1);
     expect(h.sends.map((input) => input.message.messageId)).toEqual([IDS.messageId, IDS.messageId]);
     expect(h.sends.every((input) => input.message.senderThreadId === CALLER_THREAD_ID)).toBe(true);
-    expect(resultText(first)).toContain("confirmed-turn");
+    expect(JSON.parse(resultText(first)).sendAdmission).toEqual({
+      threadId: IDS.threadId,
+      messageId: IDS.messageId,
+      plan: "deliver",
+      seq: 1,
+    });
+    expect(JSON.parse(resultText(first))).not.toHaveProperty("turnId");
     expect(h.selectionCalls).toBe(1);
     expect(h.rows.get(IDS.threadId)?.createdByThreadId).toBe(CALLER_THREAD_ID);
     expect(IDS.threadId).toMatch(

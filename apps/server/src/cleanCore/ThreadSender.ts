@@ -8,12 +8,11 @@ import {
   ModelSelection,
   RuntimeMode,
   ThreadId,
-  TurnId,
   CleanCoreThreadRuntime,
   QUEUED_MESSAGE_EDIT_NONEMPTY_DRAFT_ERROR,
   QueuedEditDraftNotEmptyError,
   type CleanCoreInterruptResult,
-  type CleanCoreSendResult,
+  type CleanCoreSendAdmission,
   ProviderConnectionId,
   type CleanCoreSendMessageInput,
   ProviderKind,
@@ -26,10 +25,15 @@ import {
   CurrentManagedAttachmentPrincipal,
   type ManagedAttachmentPrincipal,
 } from "../managedAttachmentPrincipal.ts";
-import { setThreadState } from "./threadStore.ts";
 import { ThreadPublisher } from "./ThreadPublisher.ts";
-import { DraftSelection } from "./threadDraft.ts";
-import { deliverMessage, sendMessage, type SendDriver } from "./sendMessage.ts";
+import { nextCommittedDraftTimestamp } from "./threadDraftTimestamp.ts";
+import { resolveDraftSendSelection, DraftSelection } from "./threadDraft.ts";
+import {
+  deliverMessage,
+  sendMessage,
+  writeSendingMessage,
+  type SendDriver,
+} from "./sendMessage.ts";
 import { readThreadQueue, QueuedMessage } from "./threadQueue.ts";
 import { providerSupportsNativeTurnSteering } from "@penkra/shared/providerMetadata";
 
@@ -41,7 +45,7 @@ export class ThreadSender extends ServiceMap.Service<
       threadId: ThreadId,
       action: Effect.Effect<A, E, R>,
     ) => Effect.Effect<A, E, R>;
-    readonly send: (input: ThreadSendInput) => Effect.Effect<CleanCoreSendResult, Error>;
+    readonly send: (input: ThreadSendInput) => Effect.Effect<CleanCoreSendAdmission, Error>;
     readonly editQueued: (input: {
       threadId: ThreadId;
       messageId: string;
@@ -65,7 +69,6 @@ export const makeThreadSender = Effect.gen(function* () {
   const coordinator = yield* ProviderThreadSwitchCoordinator;
   const provider = yield* ProviderService;
   const managedAttachments = yield* ManagedAttachmentRepository;
-  const decodeDraftSelection = Schema.decodeUnknownSync(DraftSelection);
   const decodeDraftContent = Schema.decodeUnknownSync(
     Schema.Struct({
       prompt: Schema.String,
@@ -76,17 +79,10 @@ export const makeThreadSender = Effect.gen(function* () {
   const decodeQueue = Schema.decodeUnknownSync(Schema.Array(QueuedMessage));
   const attachmentPrincipal = (input: Parameters<SendDriver["dispatch"]>[0]) =>
     Effect.gen(function* () {
-      const queued = yield* readThreadQueue(input.threadId).pipe(
-        Effect.provideService(SqlClient.SqlClient, sql),
-      );
       const attachment = input.message.attachments.find(
         (attachment) => attachment.type !== "assistant-selection",
       );
-      if (
-        attachment === undefined ||
-        !queued.some((message) => message.messageId === input.message.messageId)
-      )
-        return yield* CurrentManagedAttachmentPrincipal;
+      if (attachment === undefined) return yield* CurrentManagedAttachmentPrincipal;
       const claimed = yield* managedAttachments.findClaimedById({ attachmentId: attachment.id });
       if (
         Option.isNone(claimed) ||
@@ -112,7 +108,7 @@ export const makeThreadSender = Effect.gen(function* () {
   const driver: SendDriver = {
     claimAttachments: (input) =>
       Effect.gen(function* () {
-        const principal = yield* attachmentPrincipal(input);
+        const principal = yield* CurrentManagedAttachmentPrincipal;
         const attachmentIds = input.message.attachments
           .filter((attachment) => attachment.type !== "assistant-selection")
           .map((attachment) => attachment.id);
@@ -132,8 +128,6 @@ export const makeThreadSender = Effect.gen(function* () {
       }).pipe(
         Effect.mapError((error) => (error instanceof Error ? error : new Error(String(error)))),
       ),
-    interrupt: (threadId) =>
-      provider.interruptTurn({ threadId: ThreadId.makeUnsafe(threadId) }).pipe(Effect.asVoid),
     dispatch: (input, mode) =>
       Effect.scoped(
         Effect.gen(function* () {
@@ -142,46 +136,18 @@ export const makeThreadSender = Effect.gen(function* () {
           const rows = yield* sql<{
             provider: string;
             model: string;
-            modelOptions: string | null;
             runtimeMode: string;
+            modelOptions: string | null;
             connectionId: ProviderConnectionId | null;
             workspaceRoot: string | null;
             draft: string | null;
           }>`SELECT t.draft, t.provider, t.model, t.model_options AS "modelOptions", t.runtime_mode AS "runtimeMode", t.connection_id AS "connectionId", f.workspace_root AS "workspaceRoot" FROM threads t JOIN projection_folders f ON f.folder_id = t.folder_id WHERE t.id = ${threadId}`;
           const row = rows[0];
           if (row === undefined) return yield* Effect.fail(new Error("The thread does not exist."));
-          const draft = row.draft === null ? {} : decodeDraftSelection(JSON.parse(row.draft));
-          const modelSelection =
-            input.modelSelection ??
-            draft.modelSelectionByProvider?.[
-              Schema.decodeUnknownSync(ProviderKind)(row.provider)
-            ] ??
-            Schema.decodeUnknownSync(ModelSelection)({
-              provider: row.provider,
-              model: row.model,
-              ...(row.modelOptions === null ? {} : { options: JSON.parse(row.modelOptions) }),
-            });
-          const draftConnection = draft.connectionSelectionByProvider?.[modelSelection.provider];
-          const connectionId =
-            input.connectionId !== undefined
-              ? input.connectionId
-              : draftConnection !== undefined
-                ? draftConnection
-                : row.connectionId;
-          const runtimeMode = Schema.decodeUnknownSync(RuntimeMode)(row.runtimeMode);
-          const reply = yield* Deferred.make<string, Error>();
-          const unsubscribe = publisher.subscribeDispatch(
-            threadId,
-            input.message.messageId,
-            (outcome) => {
-              Effect.runSync(
-                outcome.type === "failed"
-                  ? Deferred.fail(reply, new Error(outcome.error))
-                  : Deferred.succeed(reply, outcome.turnId),
-              );
-            },
+          const { modelSelection, connectionId, runtimeMode } = resolveDraftSendSelection(
+            row,
+            input,
           );
-          yield* Effect.addFinalizer(() => Effect.sync(unsubscribe));
           yield* coordinator.dispatchTurnStart({
             command: {
               type: "thread.turn.start",
@@ -195,7 +161,7 @@ export const makeThreadSender = Effect.gen(function* () {
                 ...(input.skills === undefined ? {} : { skills: input.skills }),
                 ...(input.mentions === undefined ? {} : { mentions: input.mentions }),
               },
-              dispatchMode: mode === "steer" ? "steer" : "queue",
+              dispatchMode: mode === "deliver" ? "queue" : "steer",
               dispatchOrigin: input.message.dispatchOrigin,
               ...(input.message.senderThreadId === null
                 ? {}
@@ -214,21 +180,27 @@ export const makeThreadSender = Effect.gen(function* () {
             attachmentPrincipal: principal,
             cwd: row.workspaceRoot ?? ensureDurableThreadWorkspace(threadId, serverConfig.stateDir),
           });
-          return yield* Deferred.await(reply);
         }),
       ),
   };
-  const lanes = new Map<string, { semaphore: Semaphore.Semaphore; users: number }>();
-  const withLane = <A, E, R>(threadId: string, action: Effect.Effect<A, E, R>) =>
+  const lanes = new Map<
+    string,
+    { admission: Semaphore.Semaphore; delivery: Semaphore.Semaphore; users: number }
+  >();
+  const withLane = <A, E, R>(
+    threadId: string,
+    action: Effect.Effect<A, E, R>,
+    kind: "admission" | "delivery" = "admission",
+  ) =>
     Effect.suspend(() => {
       let lane = lanes.get(threadId);
       if (lane === undefined) {
-        lane = { semaphore: Semaphore.makeUnsafe(1), users: 0 };
+        lane = { admission: Semaphore.makeUnsafe(1), delivery: Semaphore.makeUnsafe(1), users: 0 };
         lanes.set(threadId, lane);
       }
       lane.users += 1;
       const acquired = lane;
-      return acquired.semaphore
+      return acquired[kind]
         .withPermits(1)(action)
         .pipe(
           Effect.ensuring(
@@ -239,56 +211,78 @@ export const makeThreadSender = Effect.gen(function* () {
           ),
         );
     });
+  const waitForPendingAdmission = (threadId: string) =>
+    Effect.gen(function* () {
+      while (
+        yield* Effect.scoped(
+          Effect.gen(function* () {
+            const changed = yield* Deferred.make<void>();
+            const unsubscribe = publisher.subscribe(threadId, () =>
+              Effect.runSync(Deferred.succeed(changed, undefined)),
+            );
+            yield* Effect.addFinalizer(() => Effect.sync(unsubscribe));
+            const pending = yield* sql`SELECT 1 FROM thread_items WHERE thread_id=${threadId}
+        AND kind='user' AND status='sending' LIMIT 1`;
+            if (pending.length === 0) return false;
+            yield* Deferred.await(changed);
+            return true;
+          }),
+        )
+      ) {}
+    });
   const deliverHead = (threadId: string) =>
     Effect.gen(function* () {
-      const rows = yield* sql<{
-        state: string;
-        queue: string;
-        provider: string;
-        archivedAt: string | null;
-        deletedAt: string | null;
-      }>`SELECT state, queue, provider, archived_at AS "archivedAt", deleted_at AS "deletedAt" FROM threads WHERE id = ${threadId}`;
-      const thread = rows[0];
-      if (
-        thread === undefined ||
-        thread.state === "running" ||
-        thread.archivedAt !== null ||
-        thread.deletedAt !== null
-      )
-        return;
-      const queue = decodeQueue(JSON.parse(thread.queue));
-      const head = queue[0];
-      if (head === undefined) return;
-      const result = yield* deliverMessage(
-        publisher,
-        driver,
-        {
-          threadId,
-          message: head,
-          dispatchMode: "queue",
-          supportsSteer: providerSupportsNativeTurnSteering(thread.provider),
-        },
-        "deliver",
-        null,
+      yield* waitForPendingAdmission(threadId);
+      const request = yield* withLane(
+        threadId,
+        sql.withTransaction(
+          Effect.gen(function* () {
+            const [thread] = yield* sql<{
+              state: string;
+              queue: string;
+              provider: string;
+              model: string;
+              runtimeMode: string;
+              modelOptions: string | null;
+              connectionId: ProviderConnectionId | null;
+              draft: string | null;
+              archivedAt: string | null;
+              deletedAt: string | null;
+            }>`
+        SELECT state,queue,provider,model,runtime_mode AS "runtimeMode",model_options AS "modelOptions",connection_id AS "connectionId",draft,
+        archived_at AS "archivedAt",deleted_at AS "deletedAt" FROM threads WHERE id=${threadId}`;
+            if (
+              thread === undefined ||
+              thread.state === "running" ||
+              thread.archivedAt !== null ||
+              thread.deletedAt !== null
+            )
+              return null;
+            const pending =
+              yield* sql`SELECT 1 FROM thread_items WHERE thread_id=${threadId} AND kind='user' AND status='sending' LIMIT 1`;
+            if (pending.length > 0) return null;
+            const queue = decodeQueue(JSON.parse(thread.queue));
+            const head = queue[0];
+            if (head === undefined) return null;
+            const input = {
+              threadId,
+              message: head,
+              dispatchMode: "queue" as const,
+              supportsSteer: providerSupportsNativeTurnSteering(thread.provider),
+              ...resolveDraftSendSelection(thread),
+            };
+            yield* writeSendingMessage(input, "deliver");
+            return input;
+          }),
+        ),
       );
-      if (result.delivery === "failed") {
-        yield* setThreadState(threadId, "error", null, result.error, new Date().toISOString());
-        publisher.publish({ threadId });
-        return;
-      }
-      const remaining = queue.slice(1);
-      yield* sql`UPDATE threads SET queue = ${JSON.stringify(remaining)}, updated_at = ${new Date().toISOString()} WHERE id = ${threadId}`;
+      if (request === null) return;
       publisher.publish({ threadId });
+      yield* withLane(threadId, deliverMessage(publisher, driver, request, "deliver"), "delivery");
     }).pipe(Effect.provideService(SqlClient.SqlClient, sql));
   const unsubscribe = publisher.subscribeProvider((event) => {
-    const threadIds =
-      event.type === "turn.ended"
-        ? [event.threadId]
-        : event.type === "provider.exited"
-          ? event.threadIds
-          : [];
-    for (const threadId of threadIds)
-      Effect.runSync(Effect.forkIn(withLane(threadId, deliverHead(threadId)), scope));
+    const threadIds = event.type === "turn.ended" ? [event.threadId] : [];
+    for (const threadId of threadIds) Effect.runSync(Effect.forkIn(deliverHead(threadId), scope));
   });
   yield* Effect.addFinalizer(() => Effect.sync(unsubscribe));
   const removeQueued = (
@@ -309,7 +303,8 @@ export const makeThreadSender = Effect.gen(function* () {
             else {
               const stored = yield* sql<{
                 draft: string | null;
-              }>`SELECT draft FROM threads WHERE id = ${input.threadId}`;
+                draftUpdatedAt: string | null;
+              }>`SELECT draft,draft_updated_at AS "draftUpdatedAt" FROM threads WHERE id = ${input.threadId}`;
               if (stored[0]!.draft !== null) {
                 const content = decodeDraftContent(JSON.parse(stored[0]!.draft));
                 if (
@@ -337,15 +332,18 @@ export const makeThreadSender = Effect.gen(function* () {
                   (a) => a.type === "assistant-selection",
                 ),
               });
-              yield* sql`UPDATE threads SET queue = ${JSON.stringify(remaining)}, draft = ${draft}, draft_updated_at = ${draftUpdatedAt}, updated_at = ${draftUpdatedAt} WHERE id = ${input.threadId}`;
+              const committedAt = nextCommittedDraftTimestamp(
+                stored[0]!.draftUpdatedAt,
+                draftUpdatedAt,
+              );
+              yield* sql`UPDATE threads SET queue = ${JSON.stringify(remaining)}, draft = ${draft}, draft_updated_at = ${committedAt}, updated_at = ${committedAt} WHERE id = ${input.threadId}`;
             }
             return { wasHead: queue[0]?.messageId === input.messageId };
           }),
         );
         if (changed !== null) {
           publisher.publish({ threadId: input.threadId });
-          if (changed.wasHead)
-            yield* Effect.forkIn(withLane(input.threadId, deliverHead(input.threadId)), scope);
+          if (changed.wasHead) yield* Effect.forkIn(deliverHead(input.threadId), scope);
         }
         return { ...input, removed: changed !== null };
       }).pipe(Effect.provideService(SqlClient.SqlClient, sql)),
@@ -359,25 +357,9 @@ export const makeThreadSender = Effect.gen(function* () {
       if (rows[0] === undefined) return yield* Effect.fail(new Error("The thread does not exist."));
       return Schema.decodeUnknownSync(CleanCoreThreadRuntime)(rows[0]);
     });
-  const readConfirmation = (input: ThreadSendInput) =>
-    Effect.gen(function* () {
-      const delivered = yield* sql<{
-        turnId: string;
-        data: string;
-      }>`SELECT turn_id AS "turnId", data FROM thread_items WHERE thread_id = ${input.threadId} AND source_id = ${input.message.messageId} AND kind = 'user' AND status = 'sent'`;
-      if (delivered[0] === undefined) return null;
-      const confirmation = Schema.decodeUnknownSync(
-        Schema.Struct({ delivery: Schema.Literals(["started", "steered", "interrupted"]) }),
-      )(JSON.parse(delivered[0].data));
-      return {
-        threadId: input.threadId,
-        messageId: input.message.messageId,
-        delivery: confirmation.delivery,
-        turnId: Schema.decodeUnknownSync(TurnId)(delivered[0].turnId),
-      };
-    });
   return {
-    runExclusive: withLane,
+    runExclusive: <A, E, R>(threadId: ThreadId, action: Effect.Effect<A, E, R>) =>
+      withLane(threadId, withLane(threadId, action, "delivery")),
     queuedThread: (messageId: string) =>
       Effect.gen(function* () {
         let after: string | null = null;
@@ -423,84 +405,55 @@ export const makeThreadSender = Effect.gen(function* () {
       withLane(
         input.threadId,
         Effect.gen(function* () {
-          const delivered = yield* readConfirmation(input);
-          if (delivered !== null) return delivered;
-          const currentRows = yield* sql<{
+          const [current] = yield* sql<{
             provider: string;
+            model: string;
+            runtimeMode: string;
+            modelOptions: string | null;
             connectionId: ProviderConnectionId | null;
             draft: string | null;
             state: string;
-            archivedAt: string | null;
-            deletedAt: string | null;
-          }>`SELECT provider, connection_id AS "connectionId", draft, state, archived_at AS "archivedAt", deleted_at AS "deletedAt" FROM threads WHERE id = ${input.threadId}`;
-          const current = currentRows[0];
-          const failed = (error: string) => ({
-            threadId: input.threadId,
-            messageId: input.message.messageId,
-            delivery: "failed" as const,
-            error,
-          });
-          if (current === undefined || current.deletedAt !== null)
-            return failed("The thread does not exist.");
-          if (current.archivedAt !== null)
-            return failed("This thread is archived. Unarchive it to send messages.");
-          if (
-            input.modelSelection !== undefined &&
-            input.modelSelection.provider !== current.provider
-          )
-            return failed(
-              "This thread uses a different provider. To use another provider, start a new thread.",
-            );
-          const rows = yield* sql<{
-            provider: string;
-          }>`SELECT provider FROM threads WHERE id = ${input.threadId}`;
-          const row = rows[0];
-          if (row === undefined)
-            return {
-              threadId: input.threadId,
-              messageId: input.message.messageId,
-              delivery: "failed" as const,
-              error: "The thread does not exist.",
-            };
-          if (current.state !== "running") yield* deliverHead(input.threadId);
-          const retried = yield* readConfirmation(input);
-          if (retried !== null) return retried;
-          const queue = yield* readThreadQueue(input.threadId);
-          const position = queue.findIndex(
-            (message) => message.messageId === input.message.messageId,
-          );
-          if (position !== -1 && (input.dispatchMode === "queue" || current.state !== "running")) {
-            const runtime = yield* getRuntime(input.threadId);
-            return {
-              threadId: input.threadId,
-              messageId: input.message.messageId,
-              delivery: "queued" as const,
-              position: position + 1,
-              queueLength: queue.length,
-              runningTurnId: runtime.activeTurnId,
-            };
-          }
-          const draftSelection =
-            current.draft === null ? {} : decodeDraftSelection(JSON.parse(current.draft));
-          const selectedConnectionId =
-            input.connectionId !== undefined
-              ? input.connectionId
-              : draftSelection.connectionSelectionByProvider?.[
-                  Schema.decodeUnknownSync(ProviderKind)(current.provider)
-                ];
-          const result = yield* sendMessage(publisher, driver, {
+            activeTurnId: string | null;
+          }>`SELECT provider,model,runtime_mode AS "runtimeMode",model_options AS "modelOptions",connection_id AS "connectionId",
+        draft,state,active_turn_id AS "activeTurnId" FROM threads WHERE id=${input.threadId}`;
+          if (current === undefined)
+            return yield* Effect.fail(new Error("The thread does not exist."));
+          const capturedDraft =
+            input.draft === undefined
+              ? {}
+              : Schema.decodeUnknownSync(DraftSelection)(JSON.parse(input.draft));
+          const selection = resolveDraftSendSelection(current, {
             ...input,
-            message: position === -1 ? input.message : queue[position]!,
-            dispatchMode: current.state === "running" ? input.dispatchMode : "queue",
-            supportsSteer:
-              providerSupportsNativeTurnSteering(row.provider) &&
-              (selectedConnectionId === undefined || selectedConnectionId === current.connectionId),
+            ...(capturedDraft.runtimeMode === undefined
+              ? {}
+              : { runtimeMode: capturedDraft.runtimeMode }),
           });
-          if (position !== -1 && result.delivery !== "failed" && result.delivery !== "queued") {
-            yield* sql`UPDATE threads SET queue = ${JSON.stringify(queue.filter((message) => message.messageId !== input.message.messageId))} WHERE id = ${input.threadId}`;
-            publisher.publish({ threadId: input.threadId });
+          const [existing] = yield* sql`SELECT 1 FROM thread_items WHERE thread_id=${input.threadId}
+        AND source_id=${input.message.messageId} AND kind='user'`;
+          const request = {
+            ...input,
+            ...selection,
+            supportsSteer:
+              providerSupportsNativeTurnSteering(current.provider) &&
+              selection.connectionId === current.connectionId,
+          };
+          const admission = yield* sendMessage(publisher, driver, request);
+          if (admission.plan === "queue") {
+            if (current.state !== "running")
+              yield* Effect.forkIn(deliverHead(input.threadId), scope);
+          } else if (existing === undefined) {
+            yield* Effect.forkIn(
+              withLane(
+                input.threadId,
+                deliverMessage(publisher, driver, request, admission.plan).pipe(
+                  Effect.provideService(SqlClient.SqlClient, sql),
+                ),
+                "delivery",
+              ),
+              scope,
+            );
           }
-          return result;
+          return admission;
         }).pipe(Effect.provideService(SqlClient.SqlClient, sql)),
       ),
   };

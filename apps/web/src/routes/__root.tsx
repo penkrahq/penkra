@@ -45,7 +45,6 @@ import {
 } from "../lib/serverReactQuery";
 import { ensureNativeApi, readNativeApi } from "../nativeApi";
 import { finalizePromotedDraftThreads, markPromotedDraftThreads } from "../composerDraftStore";
-import { advanceComposerSendPreflightAppliedSequence } from "../composerSendPreflight";
 import {
   recordChatLifecycleSyncDiagnostic,
   recordChatSyncPublicationDiagnostic,
@@ -688,7 +687,6 @@ function EventRouter() {
       }
 
       if (latestApplied) {
-        advanceComposerSendPreflightAppliedSequence(latestApplied.appliedSequence);
         acknowledgeAppliedSyncSequence(latestApplied);
       }
     };

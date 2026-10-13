@@ -79,8 +79,8 @@ it.effect("web creation is idempotent and a send on its running thread is queued
         queuedAt: at,
       },
     });
-    assert.equal(result.delivery, "queued");
-    if (result.delivery === "queued") {
+    assert.equal(result.plan, "queue");
+    if (result.plan === "queue") {
       assert.equal(result.position, 1);
       assert.equal(result.queueLength, 1);
     }

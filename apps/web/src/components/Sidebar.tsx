@@ -50,7 +50,6 @@ import { cn } from "~/lib/utils";
 import { useAppSettings } from "../appSettings";
 import type { LastThreadRoute } from "../chatRouteRestore";
 import { useComposerDraftStore } from "../composerDraftStore";
-import { useComposerSendActivityThreadIds } from "../composerSendPreflight";
 import { recordSidebarLifecycleDiagnostic } from "../sidebarLifecycleDiagnostics";
 import { isElectron } from "../env";
 import { useFeedbackDialogStore } from "../feedbackDialogStore";
@@ -354,7 +353,6 @@ export default function Sidebar() {
   const toggleProject = useStore((store) => store.toggleProject);
   const setProjectExpanded = useStore((store) => store.setProjectExpanded);
   const draftThreadsByThreadId = useComposerDraftStore((store) => store.draftThreadsByThreadId);
-  const localSendOwnerThreadIds = useComposerSendActivityThreadIds();
   const homeDir = useWorkspacePathsStore((store) => store.homeDir);
   const { authState: desktopAccountAuthState } = useDesktopAccountAuthState();
   const accountName = resolveDesktopAccountName(desktopAccountAuthState);
@@ -544,10 +542,8 @@ export default function Sidebar() {
         thread,
         lastVisitedAt: thread.lastVisitedAt,
         dismissedStatusKey: dismissedThreadStatusKeyByThreadId[thread.id],
-        isPromotedDraftPending: draftThreadsByThreadId[thread.id]?.promotedTo !== undefined,
-        hasLocalSendOwner: localSendOwnerThreadIds.has(thread.id),
       }),
-    [dismissedThreadStatusKeyByThreadId, draftThreadsByThreadId, localSendOwnerThreadIds],
+    [dismissedThreadStatusKeyByThreadId],
   );
 
   useEffect(() => {
@@ -557,7 +553,6 @@ export default function Sidebar() {
       .map(([threadId]) => threadId as ThreadId);
     const diagnosticThreadIds = new Set([
       ...(activeSidebarThreadId ? [activeSidebarThreadId] : []),
-      ...localSendOwnerThreadIds,
       ...promotedDraftIds,
       ...sidebarThreads
         .filter(
@@ -594,12 +589,10 @@ export default function Sidebar() {
         latestTurnCompletedAt: thread?.latestTurn?.completedAt ?? null,
         derivedStatusLabel: status?.label ?? null,
         derivedWorkStatus: workStatus,
-        hasLocalSendOwner: localSendOwnerThreadIds.has(threadId),
       });
     }
   }, [
     draftThreadsByThreadId,
-    localSendOwnerThreadIds,
     resolveThreadStatusForSidebar,
     sidebarThreads,
     activeSidebarThreadId,

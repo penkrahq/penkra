@@ -192,19 +192,9 @@ alive and running. That is a real outcome, not a mess to clean up: keep the succ
 report them, and retry only the failed call with its original `requestId` and inputs. Restarting
 from the beginning creates duplicate work in the user's sidebar.
 
-Create returns the first request's stable `turnId`. Poll and collect it with
-`penkra threads read --thread-id <id> --turn-id <turn-id>` while doing other useful work between
-checks. `queued` and `running` are non-terminal; `completed`, `error`, `interrupted`, and
-`cancelled` are terminal. The same read returns the turn's output items, so no separate collection
-operation is needed.
-
-For example, to start two independent reviews: call `context` if you need your current folder or
-permission state; call `models list --availability available` for the intended provider; then call `threads create` twice,
-with request IDs such as `review-api-contract` and `review-ui-states`. Give each Thread the files,
-constraints, and expected result it needs in its own prompt. Keep both returned Thread/turn pairs
-and read those exact turns until terminal. If the second creation reports that its Thread may
-already exist, retain the first result and retry only the second call with the exact same request ID
-and inputs.
+Create returns a stable Thread ID and `sendAdmission` for its initial message. Read the
+thread for the provider outcome. Separate creations stay independent: keep each returned
+Thread ID and retry only a failed call with the same request ID and inputs.
 
 `penkra threads send` posts a follow-up such as "continue" into a _different_ existing
 Thread. It records an agent-authored message carrying the user role and starts another turn, which
@@ -212,15 +202,14 @@ is why it must never target the Thread you are running in — doing so would put
 mouth and stack a second turn on the one already executing. The command rejects that target. In the
 UI these messages are marked "Sent by agent," so the user can tell them apart.
 
-Send returns `threadId`, `messageId`, and exactly one provider-confirmed `delivery`:
+Send returns `threadId`, `messageId`, and a committed admission:
 
-- `started`: this message's provider turn started; includes `turnId`.
-- `steered`: the provider acknowledged native steering; includes the running `turnId`.
-- `interrupted`: the old turn ended and this message's new turn started; includes `turnId`.
-- `queued`: persisted but not delivered; includes `position` (1 = next), `queueLength`, and `runningTurnId` (null when blocked by an error). It has no `turnId`.
-- `failed`: not delivered and not in the transcript; includes the provider's unchanged `error`.
+- `plan: deliver|steer|interrupt-deliver` includes the transcript `seq`.
+- `plan: queue` includes `position` (1 = next) and `queueLength`.
 
-The response waits for the relevant provider event or acknowledgement. There is no time estimate. Use `penkra threads read --thread-id <id>` for output.
+The reply confirms persistence. Read the thread for the outcome: the message becomes
+sent, or it is removed with an error and the draft restored. A rejection before admission
+is an error and writes nothing. Use `penkra threads read --thread-id <id>` for output.
 
 Read ordinary conversational history with `penkra threads read`: it returns messages and selected
 conversational activity as typed transcript items. For discovery, pass one literal `query` or a

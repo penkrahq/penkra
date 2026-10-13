@@ -70,7 +70,6 @@ function folderStates(folderId: FolderId): ReadonlyArray<AppThreadState> {
           count: live?.queuedCount ?? queuedCountForThread(threadId),
           hasAppSubmission: false,
         },
-        steering: { pending: live?.steeringPending ?? false, hasAppSubmission: false },
         updatedAt: row.updatedAt,
       },
     ];

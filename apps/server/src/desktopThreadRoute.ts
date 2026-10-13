@@ -18,8 +18,8 @@ import {
   persistReservedManagedAttachment,
   reserveManagedAttachmentUpload,
 } from "./managedAttachmentStore";
-import { OrchestrationEngineService } from "./orchestration/Services/OrchestrationEngine";
-import { ProviderThreadSwitchCoordinator } from "./orchestration/Services/ProviderThreadSwitchCoordinator";
+import { ThreadSender } from "./cleanCore/ThreadSender";
+import { CurrentManagedAttachmentPrincipal } from "./managedAttachmentPrincipal";
 import { ProjectionSnapshotQuery } from "./orchestration/Services/ProjectionSnapshotQuery";
 import { ManagedAttachmentRepository } from "./persistence/Services/ManagedAttachments";
 import { authorizeDesktopShutdown } from "./serverShutdown";
@@ -45,8 +45,7 @@ export const desktopThreadRouteLayer = HttpRouter.add(
         { status: auth.status },
       );
     const snapshotQuery = yield* ProjectionSnapshotQuery;
-    const engine = yield* OrchestrationEngineService;
-    const switchCoordinator = yield* ProviderThreadSwitchCoordinator;
+    const sender = yield* ThreadSender;
     const attachments = yield* ManagedAttachmentRepository;
     const runtimeStartup = yield* ServerRuntimeStartup;
     const sql = yield* SqlClient.SqlClient;
@@ -77,15 +76,15 @@ export const desktopThreadRouteLayer = HttpRouter.add(
             after: input.after,
           }).pipe(Effect.provideService(SqlClient.SqlClient, sql)),
         ),
-      dispatch: (command) =>
-        Effect.runPromise(runtimeStartup.enqueueCommand(engine.dispatch(command))),
-      dispatchTurn: (command, ownerId) =>
+      send: (input, ownerId) =>
         Effect.runPromise(
           runtimeStartup.enqueueCommand(
-            switchCoordinator.dispatchTurnStart({
-              command,
-              attachmentPrincipal: { ownerKind: "session", ownerId },
-            }),
+            sender.send(input).pipe(
+              Effect.provideService(CurrentManagedAttachmentPrincipal, {
+                ownerKind: "session" as const,
+                ownerId,
+              }),
+            ),
           ),
         ),
       stageAttachment: async ({ threadId, ownerId, type, attachment }) => {

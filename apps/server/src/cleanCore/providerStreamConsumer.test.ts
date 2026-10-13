@@ -849,3 +849,42 @@ it.effect("a failed turn-marker insert rolls back running state and publishes no
     }),
   ),
 );
+
+it.effect("a provider user echo preserves the admitted row until settlement", () =>
+  withDb(
+    Effect.gen(function* () {
+      yield* runMigrations();
+      yield* seedThreadFolderFixture("core-test-folder", "space-1");
+      yield* createThread(baseThread);
+      const publisher = makeThreadPublisher();
+      const item = {
+        threadId: baseThread.id,
+        sourceId: "admitted",
+        kind: "user" as const,
+        status: "sending",
+        text: "prompt",
+        data: JSON.stringify({ plan: "deliver" }),
+        createdAt: baseThread.createdAt,
+        updatedAt: baseThread.createdAt,
+      };
+      yield* upsertThreadItem(item);
+      const sql = yield* SqlClient.SqlClient;
+      const before = yield* sql`SELECT * FROM thread_items WHERE source_id='admitted'`;
+      yield* applyProviderEvent(publisher, {
+        type: "item",
+        threadId: baseThread.id,
+        item: {
+          ...item,
+          status: "sent",
+          data: null,
+          turnId: "native",
+          updatedAt: "2026-10-09T00:00:01.000Z",
+        },
+      });
+      assert.deepStrictEqual(
+        yield* sql`SELECT * FROM thread_items WHERE source_id='admitted'`,
+        before,
+      );
+    }),
+  ),
+);

@@ -186,7 +186,6 @@ interface AppStore extends AppState {
   applyShellEvent: (event: OrchestrationShellStreamEvent) => void;
   applyOrchestrationEvents: (events: ReadonlyArray<OrchestrationEvent>) => void;
   applyOrchestrationEventsHotPath: (events: ReadonlyArray<OrchestrationEvent>) => void;
-  acknowledgePendingStartCancellation: (threadId: ThreadId, messageId: MessageId) => void;
   evictThreadDetail: (threadId: ThreadId) => void;
   evictThreadDetails: (threadIds: readonly ThreadId[]) => void;
   markThreadDetailSyncFailed: (threadId: ThreadId) => void;
@@ -223,14 +222,6 @@ export const useStore = create<AppStore>((set) => ({
         updateSidebarSummary: false,
       }),
     ),
-  acknowledgePendingStartCancellation: (threadId, messageId) =>
-    set((state) => {
-      if (state.pendingStartCancellationByThreadId?.[threadId]?.messageId !== messageId)
-        return state;
-      const { [threadId]: _consumed, ...pendingStartCancellationByThreadId } =
-        state.pendingStartCancellationByThreadId;
-      return { ...state, pendingStartCancellationByThreadId };
-    }),
   evictThreadDetail: (threadId) =>
     set((state) => evictThreadDetailFromClientState(state, threadId)),
   // Dropping a batch of leases evicts several threads at once. Every store update

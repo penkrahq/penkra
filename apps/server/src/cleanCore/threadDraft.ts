@@ -7,6 +7,7 @@
 import { Effect, Schema } from "effect";
 import {
   ModelSelection,
+  RuntimeMode,
   ProviderKind,
   ProviderConnectionId,
   type CleanCoreSendMessageInput,
@@ -50,6 +51,7 @@ export const setThreadDraft = (
   });
 
 export const DraftSelection = Schema.Struct({
+  runtimeMode: Schema.optionalKey(RuntimeMode),
   modelSelectionByProvider: Schema.optionalKey(
     Schema.Record(ProviderKind, Schema.optionalKey(ModelSelection)),
   ),
@@ -63,7 +65,11 @@ export const DraftSelection = Schema.Struct({
 export function draftAfterSend(
   draft: string | null,
   provider: string,
-  selection: Pick<CleanCoreSendMessageInput, "modelSelection" | "connectionId"> | undefined,
+  selection:
+    | (Pick<CleanCoreSendMessageInput, "modelSelection" | "connectionId"> & {
+        runtimeMode?: typeof RuntimeMode.Type;
+      })
+    | undefined,
 ): string | null {
   const current = draft === null ? {} : Schema.decodeUnknownSync(DraftSelection)(JSON.parse(draft));
   const modelSelectionByProvider = { ...current.modelSelectionByProvider };
@@ -77,7 +83,9 @@ export function draftAfterSend(
   if (
     Object.keys(modelSelectionByProvider).length === 0 &&
     Object.keys(connectionSelectionByProvider).length === 0 &&
-    activeProvider == null
+    activeProvider == null &&
+    current.runtimeMode === undefined &&
+    selection?.runtimeMode === undefined
   )
     return null;
   return JSON.stringify({
@@ -87,5 +95,68 @@ export function draftAfterSend(
     modelSelectionByProvider,
     connectionSelectionByProvider,
     ...(activeProvider === undefined ? {} : { activeProvider }),
+    ...((selection?.runtimeMode ?? current.runtimeMode)
+      ? { runtimeMode: selection?.runtimeMode ?? current.runtimeMode }
+      : {}),
   });
+}
+
+/** Snapshot the selection when a message leaves the draft or queue. */
+export function resolveDraftSendSelection(
+  row: {
+    draft: string | null;
+    provider: string;
+    model: string;
+    modelOptions: string | null;
+    connectionId: typeof ProviderConnectionId.Type | null;
+    runtimeMode: string;
+  },
+  requested: Pick<CleanCoreSendMessageInput, "modelSelection" | "connectionId"> & {
+    runtimeMode?: typeof RuntimeMode.Type;
+  } = {},
+) {
+  const provider = Schema.decodeUnknownSync(ProviderKind)(row.provider);
+  const draft =
+    row.draft === null ? {} : Schema.decodeUnknownSync(DraftSelection)(JSON.parse(row.draft));
+  const modelSelection =
+    requested.modelSelection ??
+    draft.modelSelectionByProvider?.[provider] ??
+    Schema.decodeUnknownSync(ModelSelection)({
+      provider,
+      model: row.model,
+      ...(row.modelOptions === null ? {} : { options: JSON.parse(row.modelOptions) }),
+    });
+  const draftConnection = draft.connectionSelectionByProvider?.[modelSelection.provider];
+  const connectionId =
+    requested.connectionId !== undefined
+      ? requested.connectionId
+      : draftConnection !== undefined
+        ? draftConnection
+        : row.connectionId;
+  return {
+    modelSelection,
+    connectionId,
+    runtimeMode: Schema.decodeUnknownSync(RuntimeMode)(
+      requested.runtimeMode ?? draft.runtimeMode ?? row.runtimeMode,
+    ),
+  };
+}
+
+/** Recovery cannot replace text or structured context composed after a send. */
+export function isThreadDraftEmpty(draft: string | null): boolean {
+  if (draft === null) return true;
+  const value = JSON.parse(draft) as Record<string, unknown>;
+  return (
+    !(typeof value.prompt === "string" && value.prompt.length > 0) &&
+    [
+      "attachments",
+      "files",
+      "assistantSelections",
+      "terminalContexts",
+      "fileComments",
+      "pastedTexts",
+      "skills",
+      "mentions",
+    ].every((key) => !Array.isArray(value[key]) || value[key].length === 0)
+  );
 }

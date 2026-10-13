@@ -4,7 +4,8 @@
 // Layer: Server clean core
 // Exports: QueuedMessage, planSend, readThreadQueue, enqueueMessage
 
-import type { CleanCoreSendMessageInput } from "@penkra/contracts";
+import type { CleanCoreSendMessageInput, RuntimeMode } from "@penkra/contracts";
+import { nextCommittedDraftTimestamp } from "./threadDraftTimestamp.ts";
 import { draftAfterSend } from "./threadDraft.ts";
 import { Schema, Effect } from "effect";
 import * as SqlClient from "effect/unstable/sql/SqlClient";
@@ -45,7 +46,11 @@ export const readThreadQueue = (threadId: string) =>
 export const enqueueMessage = (
   threadId: string,
   message: QueuedMessage,
-  selection?: Pick<CleanCoreSendMessageInput, "modelSelection" | "connectionId">,
+  selection?: Pick<CleanCoreSendMessageInput, "modelSelection" | "connectionId"> & {
+    runtimeMode?: RuntimeMode;
+  },
+  sentDraft?: string,
+  sentDraftUpdatedAt?: string | null,
 ) =>
   Effect.gen(function* () {
     const sql = yield* SqlClient.SqlClient;
@@ -59,15 +64,13 @@ export const enqueueMessage = (
     `;
     const queue = [...decodeQueue(JSON.parse(rows[0]!.queue!)), message];
     const thread = rows[0]!;
-    const draft = draftAfterSend(
-      thread.draft,
-      thread.provider,
-      thread.draftUpdatedAt !== null && thread.draftUpdatedAt > message.queuedAt
-        ? undefined
-        : selection,
-    );
-
     const changedAt = new Date().toISOString();
-    yield* sql`UPDATE threads SET queue = ${JSON.stringify(queue)}, draft = ${draft}, draft_updated_at = ${changedAt}, updated_at = ${changedAt} WHERE id = ${threadId}`;
+    if (sentDraft !== undefined && thread.draftUpdatedAt === (sentDraftUpdatedAt ?? null)) {
+      const draft = draftAfterSend(thread.draft, thread.provider, selection);
+      const draftUpdatedAt = nextCommittedDraftTimestamp(thread.draftUpdatedAt, changedAt);
+      yield* sql`UPDATE threads SET queue=${JSON.stringify(queue)},draft=${draft},draft_updated_at=${draftUpdatedAt},updated_at=${changedAt} WHERE id=${threadId}`;
+    } else {
+      yield* sql`UPDATE threads SET queue=${JSON.stringify(queue)},updated_at=${changedAt} WHERE id=${threadId}`;
+    }
     return queue;
   });

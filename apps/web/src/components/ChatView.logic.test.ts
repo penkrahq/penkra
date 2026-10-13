@@ -6,18 +6,14 @@ import {
   appendVoiceTranscriptToPrompt,
   buildComposerMenuSelectionKey,
   buildTranscriptAutoFollowSignal,
-  createLocalDispatchSnapshot,
-  deriveChatActivity,
   derivePromptHistoryFromMessages,
   isComposerCursorOnFirstLine,
   isComposerCursorOnLastLine,
-  type LocalDispatchSnapshot,
   promptStillMatchesActiveHistoryBrowse,
   resolvePromptHistoryNavigation,
   deriveComposerSendState,
   deriveComposerVoiceState,
   describeVoiceRecordingStartError,
-  hasServerAcknowledgedLocalDispatch,
   isVoiceAuthExpiredMessage,
   resolveActiveThreadTitle,
   resolveCommittedProviderModel,
@@ -56,7 +52,6 @@ describe("composer Continue eligibility", () => {
     hiddenTurnId: null,
     continueInFlight: false,
     sendBusy: false,
-    sendPreflight: false,
     connecting: false,
     hasSendableContent: false,
   };
@@ -81,7 +76,6 @@ describe("composer Continue eligibility", () => {
     ["content", { hasSendableContent: true }],
     ["in-flight continue", { continueInFlight: true }],
     ["in-flight send", { sendBusy: true }],
-    ["send preflight", { sendPreflight: true }],
     ["hydration", { hydration: "loading" as const }],
     ["model", { model: null }],
     ["connecting", { connecting: true }],
@@ -107,39 +101,6 @@ describe("composer Continue eligibility", () => {
         shouldShowComposerContinue({ ...baseline, thread: { ...thread, ...change } as Thread }),
       ).toBe(false);
     }
-  });
-});
-
-describe("chat activity", () => {
-  it("is busy immediately for an admitted send and remains busy for the active turn", () => {
-    expect(
-      deriveChatActivity({
-        hasLiveTurn: false,
-        latestTurnLive: false,
-        isSendBusy: true,
-        hasPendingTurnStart: false,
-      }),
-    ).toEqual({ busy: true, controllable: true });
-
-    expect(
-      deriveChatActivity({
-        hasLiveTurn: true,
-        latestTurnLive: true,
-        isSendBusy: false,
-        hasPendingTurnStart: false,
-      }),
-    ).toEqual({ busy: true, controllable: true });
-  });
-
-  it("stays idle when only the provider transport is connecting", () => {
-    expect(
-      deriveChatActivity({
-        hasLiveTurn: false,
-        latestTurnLive: false,
-        isSendBusy: false,
-        hasPendingTurnStart: false,
-      }),
-    ).toEqual({ busy: false, controllable: false });
   });
 });
 
@@ -924,220 +885,19 @@ describe("buildExpiredTerminalContextToastCopy", () => {
   });
 });
 
-describe("hasServerAcknowledgedLocalDispatch", () => {
-  const localDispatch: LocalDispatchSnapshot = {
-    startedAt: "2026-04-13T00:00:00.000Z",
-    expectedUserMessageId: "message-for-dispatch" as never,
-    latestTurnTurnId: null,
-    latestTurnRequestedAt: null,
-    latestTurnStartedAt: null,
-    latestTurnCompletedAt: null,
-    sessionOrchestrationStatus: "ready",
-    sessionUpdatedAt: "2026-04-13T00:00:00.000Z",
-  };
-  const firstTurnLocalDispatch: LocalDispatchSnapshot = {
-    startedAt: "2026-04-13T00:00:00.000Z",
-    expectedUserMessageId: "message-first-send" as never,
-    latestTurnTurnId: null,
-    latestTurnRequestedAt: null,
-    latestTurnStartedAt: null,
-    latestTurnCompletedAt: null,
-    sessionOrchestrationStatus: null,
-    sessionUpdatedAt: null,
-  };
-
-  it.each(["failed", "starting", "steering", "queued", "accepted"] as const)(
-    "uses explicit %s delivery for the exact first-send message",
-    (state) => {
-      const input = {
-        localDispatch: firstTurnLocalDispatch,
-        phase: "disconnected" as const,
-        latestTurn: null,
-        session: null,
-        hasPendingUserInput: false,
-        threadError: null,
-        messages: [
-          {
-            id: firstTurnLocalDispatch.expectedUserMessageId!,
-            role: "user" as const,
-            delivery: { state, queued: false, sequence: 10 },
-          },
-        ],
-      };
-      expect(hasServerAcknowledgedLocalDispatch(input)).toBe(state === "failed");
-      expect(
-        hasServerAcknowledgedLocalDispatch({
-          ...input,
-          messages: [{ ...input.messages[0]!, id: "unrelated-message" as never }],
-        }),
-      ).toBe(false);
-    },
-  );
-
-  it("stays pending until the server-side thread/session snapshot changes", () => {
-    expect(
-      hasServerAcknowledgedLocalDispatch({
-        localDispatch,
-        phase: "ready",
-        latestTurn: null,
-        session: {
-          provider: "codex",
-          status: "ready",
-          orchestrationStatus: "ready",
-          createdAt: "2026-04-13T00:00:00.000Z",
-          updatedAt: "2026-04-13T00:00:00.000Z",
-        },
-        hasPendingUserInput: false,
-        threadError: null,
-      }),
-    ).toBe(false);
-  });
-
-  it("acknowledges the local send once the latest turn snapshot changes", () => {
-    expect(
-      hasServerAcknowledgedLocalDispatch({
-        localDispatch,
-        phase: "ready",
-        latestTurn: {
-          turnId: "turn-1" as never,
-          state: "running",
-          requestedAt: "2026-04-13T00:00:01.000Z",
-          startedAt: null,
-          completedAt: null,
-          assistantMessageId: null,
-        },
-        session: {
-          provider: "codex",
-          status: "ready",
-          orchestrationStatus: "ready",
-          createdAt: "2026-04-13T00:00:00.000Z",
-          updatedAt: "2026-04-13T00:00:01.000Z",
-        },
-        hasPendingUserInput: false,
-        threadError: null,
-      }),
-    ).toBe(true);
-  });
-
-  it("keeps the first-turn optimistic timer alive through a null-to-ready session bootstrap", () => {
-    expect(
-      hasServerAcknowledgedLocalDispatch({
-        localDispatch: firstTurnLocalDispatch,
-        phase: "ready",
-        latestTurn: null,
-        session: {
-          provider: "claudeAgent",
-          status: "ready",
-          orchestrationStatus: "ready",
-          createdAt: "2026-04-13T00:00:00.000Z",
-          updatedAt: "2026-04-13T00:00:01.000Z",
-        },
-        hasPendingUserInput: false,
-        threadError: null,
-      }),
-    ).toBe(false);
-  });
-
-  it("keeps the optimistic send active in the ready-state gap before turn start", () => {
-    expect(
-      hasServerAcknowledgedLocalDispatch({
-        localDispatch: firstTurnLocalDispatch,
-        phase: "ready",
-        latestTurn: null,
-        session: {
-          provider: "codex",
-          status: "ready",
-          orchestrationStatus: "ready",
-          createdAt: "2026-04-13T00:00:00.000Z",
-          updatedAt: "2026-04-13T00:00:01.000Z",
-        },
-        hasPendingUserInput: false,
-        threadError: null,
-      }),
-    ).toBe(false);
-  });
-
-  it("keeps a reopened stopped session optimistic until the new turn is projected", () => {
-    expect(
-      hasServerAcknowledgedLocalDispatch({
-        localDispatch: {
-          startedAt: "2026-04-13T00:00:00.000Z",
-          expectedUserMessageId: "message-after-stop" as never,
-          latestTurnTurnId: "previous-turn" as never,
-          latestTurnRequestedAt: "2026-04-13T00:00:00.000Z",
-          latestTurnStartedAt: "2026-04-13T00:00:01.000Z",
-          latestTurnCompletedAt: "2026-04-13T00:00:02.000Z",
-          sessionOrchestrationStatus: "stopped",
-          sessionUpdatedAt: "2026-04-13T00:00:02.000Z",
-        },
-        phase: "ready",
-        latestTurn: {
-          turnId: "previous-turn" as never,
-          state: "completed",
-          requestedAt: "2026-04-13T00:00:00.000Z",
-          startedAt: "2026-04-13T00:00:01.000Z",
-          completedAt: "2026-04-13T00:00:02.000Z",
-          assistantMessageId: null,
-        },
-        session: {
-          provider: "codex",
-          status: "ready",
-          orchestrationStatus: "ready",
-          createdAt: "2026-04-13T00:00:00.000Z",
-          updatedAt: "2026-04-13T00:00:03.000Z",
-        },
-        hasPendingUserInput: false,
-        threadError: null,
-      }),
-    ).toBe(false);
-  });
-
-  it("stays optimistic while the authoritative session is only starting", () => {
-    expect(
-      hasServerAcknowledgedLocalDispatch({
-        localDispatch,
-        phase: "connecting",
-        latestTurn: null,
-        session: {
-          provider: "codex",
-          status: "connecting",
-          orchestrationStatus: "starting",
-          createdAt: "2026-04-13T00:00:00.000Z",
-          updatedAt: "2026-04-13T00:00:01.000Z",
-        },
-        hasPendingUserInput: false,
-        threadError: null,
-      }),
-    ).toBe(false);
-  });
-
-  it("still acknowledges non-ready session transitions without a latest turn snapshot", () => {
-    expect(
-      hasServerAcknowledgedLocalDispatch({
-        localDispatch: firstTurnLocalDispatch,
-        phase: "disconnected",
-        latestTurn: null,
-        session: null,
-        hasPendingUserInput: false,
-        threadError: "provider failed",
-      }),
-    ).toBe(true);
-  });
-});
-
 describe("thread detail hydration", () => {
-  it("keeps locally owned send feedback visible while a promoted shell hydrates", () => {
+  it("renders committed entries while a promoted shell hydrates", () => {
     expect(
       shouldRenderTranscriptDuringHydration({
         hydration: "loading",
-        optimisticMessageCount: 1,
+        messageCount: 1,
         isWorking: true,
       }),
     ).toBe(true);
     expect(
       shouldRenderTranscriptDuringHydration({
         hydration: "loading",
-        optimisticMessageCount: 0,
+        messageCount: 0,
         isWorking: false,
       }),
     ).toBe(false);

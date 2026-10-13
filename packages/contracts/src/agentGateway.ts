@@ -6,6 +6,7 @@
  * the same definition of an exact creation/wait plan.
  */
 import { Schema } from "effect";
+import { CleanCoreSendAdmission } from "./cleanCore";
 
 import { FolderId, MessageId, ProviderConnectionId, ThreadId, TurnId } from "./baseSchemas";
 import { ModelSelection, ProviderKind } from "./orchestration";
@@ -138,20 +139,6 @@ export const PenkraCapabilitiesResult = Schema.Struct({
 });
 export type PenkraCapabilitiesResult = typeof PenkraCapabilitiesResult.Type;
 
-export const PenkraCreatedThreadResult = Schema.Struct({
-  index: Schema.Int.check(Schema.isGreaterThanOrEqualTo(0)),
-  threadId: ThreadId,
-  folderId: FolderId,
-  title: Schema.String,
-  target: ModelSelection,
-  provider: ProviderKind,
-  model: Schema.String,
-  runtimeMode: Schema.Literals(["approval-required", "full-access"]),
-  messageId: MessageId,
-  turnId: TurnId,
-});
-export type PenkraCreatedThreadResult = typeof PenkraCreatedThreadResult.Type;
-
 export const PenkraCreateThreadResult = Schema.Struct({
   connectionId: Schema.optional(Schema.NullOr(ProviderConnectionId)),
   operationId: Schema.String,
@@ -164,6 +151,6 @@ export const PenkraCreateThreadResult = Schema.Struct({
   model: Schema.String,
   runtimeMode: Schema.Literals(["approval-required", "full-access"]),
   messageId: MessageId,
-  turnId: TurnId,
+  sendAdmission: CleanCoreSendAdmission,
 });
 export type PenkraCreateThreadResult = typeof PenkraCreateThreadResult.Type;

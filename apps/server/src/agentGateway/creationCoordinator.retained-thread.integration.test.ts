@@ -1,3 +1,4 @@
+import { settleMessage } from "../cleanCore/sendMessage";
 import { afterAll } from "vitest";
 import { ServerConfig } from "../config.ts";
 import { mkdtempSync, rmSync } from "node:fs";
@@ -12,7 +13,7 @@ import {
   ProviderConnectionId,
   type OrchestrationThreadShell,
 } from "@penkra/contracts";
-import { Effect, Option } from "effect";
+import { Deferred, Effect, Option } from "effect";
 import * as SqlClient from "effect/unstable/sql/SqlClient";
 import * as NodeSqliteClient from "../persistence/NodeSqliteClient.ts";
 import { runMigrations } from "../persistence/Migrations.ts";
@@ -33,7 +34,7 @@ import { findThread } from "../cleanCore/threadList.ts";
 import { makeCreateThreadHandler } from "./creationCoordinator.ts";
 
 it.effect(
-  "retains a single clean-core child through launch failure, retry, and repeated confirmation",
+  "retains a single clean-core child through launch failure, retry, and repeated admission",
   () =>
     Effect.gen(function* () {
       yield* runMigrations();
@@ -78,6 +79,8 @@ it.effect(
       });
       let failLaunch = true;
       let dispatches = 0;
+      const failureSettled = yield* Deferred.make<void>();
+      const successSettled = yield* Deferred.make<void>();
       const coordinator = {
         dispatchTurnStart: ({
           command,
@@ -85,12 +88,17 @@ it.effect(
           Effect.gen(function* () {
             dispatches++;
             if (failLaunch) {
-              publisher.publishDispatch({
-                type: "failed",
-                threadId: command.threadId,
-                messageId: command.message.messageId,
-                error: "controlled launch failure",
-              });
+              yield* settleMessage(
+                publisher,
+                {
+                  type: "failed",
+                  threadId: command.threadId,
+                  messageId: command.message.messageId,
+                  error: "controlled launch failure",
+                },
+                new Date().toISOString(),
+              );
+              yield* Deferred.succeed(failureSettled, undefined);
             } else {
               yield* setThreadState(command.threadId, "running", "confirmed-turn", null, at);
               publisher.publishProvider({
@@ -99,12 +107,17 @@ it.effect(
                 turnId: "confirmed-turn",
                 at,
               });
-              publisher.publishDispatch({
-                type: "acknowledged",
-                threadId: command.threadId,
-                messageId: command.message.messageId,
-                turnId: TurnId.makeUnsafe("confirmed-turn"),
-              });
+              yield* settleMessage(
+                publisher,
+                {
+                  type: "acknowledged",
+                  threadId: command.threadId,
+                  messageId: command.message.messageId,
+                  turnId: TurnId.makeUnsafe("confirmed-turn"),
+                },
+                new Date().toISOString(),
+              );
+              yield* Deferred.succeed(successSettled, undefined);
             }
             return { sequence: dispatches };
           }).pipe(Effect.provideService(SqlClient.SqlClient, sql), Effect.orDie),
@@ -168,8 +181,12 @@ it.effect(
         attachmentPrincipal: { ownerKind: "session" as const, ownerId: "fixture" },
       };
       const failed = yield* handler(input, context);
-      assert.isTrue(failed.isError);
-      assert.include(JSON.stringify(failed), "controlled launch failure");
+      assert.notEqual(failed.isError, true);
+      yield* Deferred.await(failureSettled);
+      const [failedThread] = yield* sql<{
+        last_error: string;
+      }>`SELECT last_error FROM threads WHERE id != ${callerId}`;
+      assert.equal(failedThread!.last_error, "controlled launch failure");
       const retained = yield* sql<{
         id: ThreadId;
         connectionId: string;
@@ -188,6 +205,7 @@ it.effect(
         sender: yield* newSender(),
       });
       assert.deepStrictEqual(yield* restartedHandler(input, context), retry);
+      yield* Deferred.await(successSettled);
       assert.equal(dispatches, 2);
       assert.equal((yield* sql`SELECT id FROM threads WHERE id != ${callerId}`).length, 1);
       assert.equal(

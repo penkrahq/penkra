@@ -178,7 +178,7 @@ export interface AgentTranscriptMessageItem extends AgentTranscriptItemBase {
   readonly text: string;
   readonly textRange?: { readonly start: number; readonly end: number; readonly total: number };
   readonly streaming: boolean;
-  readonly delivery: "queued" | "pending" | "delivered" | "failed";
+  readonly delivery: "queued" | "delivered" | "failed";
   readonly position?: number;
   readonly dispatchOrigin?: string;
 }
@@ -231,13 +231,10 @@ function transcriptOrder(
 
 function summarizeMessageDelivery(
   message: OrchestrationMessage,
-): "queued" | "pending" | "delivered" | "failed" {
+): "queued" | "delivered" | "failed" {
   switch (message.delivery?.state) {
     case "queued":
       return "queued";
-    case "starting":
-    case "steering":
-      return "pending";
     case "failed":
       return "failed";
     default:
@@ -416,7 +413,7 @@ export interface AgentThreadMessageSummary {
   readonly text: string;
   readonly truncated: boolean;
   readonly dispatchOrigin?: string;
-  readonly delivery: "queued" | "pending" | "delivered" | "failed";
+  readonly delivery: "queued" | "delivered" | "failed";
   readonly position?: number;
   readonly createdAt: string;
 }

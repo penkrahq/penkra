@@ -268,7 +268,7 @@ export const makeAgentGateway = Effect.gen(function* () {
     definition: {
       name: "penkra_create_thread",
       description:
-        "Use when work should run in a separate Penkra conversation. The returned turnId is a Penkra handle accepted by --turn-id; provider-native ids, when known, are reported separately as providerTurnId. Create one standalone Thread from a self-contained prompt and a target returned by `penkra models list --availability available`; optionally choose a Connection from `penkra connections list` and a folder from `penkra folders list`. Retrying the same requestId is idempotent. Separate create calls are independent and non-atomic, so retain successful Thread ids if a later call fails.",
+        "Use when work should run in a separate Penkra conversation. The returned sendAdmission confirms the initial message was persisted. Read the thread for the provider outcome. Create one standalone Thread from a self-contained prompt and a target returned by `penkra models list --availability available`; optionally choose a Connection from `penkra connections list` and a folder from `penkra folders list`. Retrying the same requestId is idempotent. Separate create calls are independent and non-atomic, so retain successful Thread ids if a later call fails.",
       inputSchema: {
         type: "object",
         properties: {
@@ -333,7 +333,7 @@ export const makeAgentGateway = Effect.gen(function* () {
     definition: {
       name: "penkra_send_message",
       description:
-        "Post an agent-authored follow-up into another existing Penkra thread. Never target the caller thread. By default the message waits behind the thread's running and queued work, in order. Pass now only when it must take effect right away; Penkra chooses the provider-specific way to deliver it. To switch the target thread's Connection or model, pass connectionId, modelSelection, or both. The switch takes effect when this message's turn starts and stays for later turns. The provider cannot change: to use another provider, create a new thread. Penkra never falls back to another account. The returned turnId is a Penkra handle accepted by --turn-id; provider-native ids, when known, appear separately as providerTurnId in thread reads. The delivery result confirms provider acceptance: started and interrupted return the new native turnId, steered returns the running turnId, queued returns position, queueLength and runningTurnId, and failed returns the unchanged provider error. Queued messages have no turnId.",
+        "Post an agent-authored follow-up into another existing Penkra thread. Never target the caller thread. By default the message waits behind the thread's running and queued work, in order. Pass now only when it must take effect right away; Penkra chooses the provider-specific way to deliver it. To switch the target thread's Connection or model, pass connectionId, modelSelection, or both. The switch takes effect when this message's turn starts and stays for later turns. The provider cannot change: to use another provider, create a new thread. Penkra never falls back to another account. The admission reply confirms persistence, not provider acceptance: deliver, steer and interrupt-deliver include the transcript seq; queue includes position and queueLength. Read the thread for the outcome. A rejection before admission is an error and writes nothing.",
       inputSchema: {
         type: "object",
         properties: {

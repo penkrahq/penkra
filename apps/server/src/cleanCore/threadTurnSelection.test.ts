@@ -25,13 +25,14 @@ it.effect("commits the copied native folder and selected account in one turn-adm
     });
     const sql = yield* SqlClient.SqlClient;
     yield* sql`UPDATE threads SET connection_id='old-account', native_state_id='old-native', provider_session_id='old-session' WHERE id='thread'`;
-    yield* sql`CREATE TABLE admission_writes(connection_id TEXT, native_state_id TEXT, provider_session_id TEXT, model TEXT)`;
-    yield* sql`CREATE TRIGGER record_admission AFTER UPDATE OF connection_id, native_state_id ON threads BEGIN INSERT INTO admission_writes VALUES (NEW.connection_id, NEW.native_state_id, NEW.provider_session_id, NEW.model); END`;
+    yield* sql`CREATE TABLE admission_writes(connection_id TEXT, native_state_id TEXT, provider_session_id TEXT, model TEXT, runtime_mode TEXT)`;
+    yield* sql`CREATE TRIGGER record_admission AFTER UPDATE OF connection_id, native_state_id ON threads BEGIN INSERT INTO admission_writes VALUES (NEW.connection_id, NEW.native_state_id, NEW.provider_session_id, NEW.model, NEW.runtime_mode); END`;
     const input = {
       threadId: ThreadId.makeUnsafe("thread"),
       modelSelection: { provider: "claudeAgent", model: "model-B" } as const,
       connectionId: ProviderConnectionId.makeUnsafe("new-account"),
       nativeState: { id: "copied-native", providerSessionId: "copied-session" },
+      runtimeMode: "approval-required" as const,
       updatedAt: "2026-10-11T00:00:01.000Z",
     };
     const before = yield* sql`SELECT * FROM threads WHERE id='thread'`;
@@ -52,6 +53,7 @@ it.effect("commits the copied native folder and selected account in one turn-adm
         native_state_id: "copied-native",
         provider_session_id: "copied-session",
         model: "model-B",
+        runtime_mode: "approval-required",
       },
     ]);
   }).pipe(Effect.provide(NodeSqliteClient.layerMemory())),

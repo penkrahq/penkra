@@ -11,7 +11,6 @@ const baseState = {
   summaryPresent: true,
   activeSidebarThreadId: "thread-promoted",
   draftPromotedTo: "thread-promoted",
-  hasLocalSendOwner: true,
   projectedWorkStatus: null,
   sessionStatus: null,
   sessionOrchestrationStatus: null,

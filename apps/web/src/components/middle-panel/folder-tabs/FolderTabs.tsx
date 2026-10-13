@@ -24,7 +24,6 @@ import { ThreadIdentityShared } from "~/components/middle-panel/thread-identity-
 import { IconButton } from "~/components/ui/icon-button";
 import { toastManager } from "~/components/ui/toast";
 import { useComposerDraftStore } from "~/composerDraftStore";
-import { useComposerSendActivityThreadIds } from "~/composerSendPreflight";
 import {
   resolveSidebarThreadSummaryStatus,
   resolveVisibleThreadWorkStatus,
@@ -157,7 +156,6 @@ function CanonicalFolderTabs(props: FolderTabsProps & { folderId: FolderId }) {
   const rowsById = useSidebarThreadRowsById();
   const draftThreadsByThreadId = useComposerDraftStore((state) => state.draftThreadsByThreadId);
   const composerDraftsByThreadId = useComposerDraftStore((state) => state.draftsByThreadId);
-  const localSendOwnerThreadIds = useComposerSendActivityThreadIds();
   const recordingThreadId = useVoiceSessionCoordinatorStore(
     (state) => state.capture?.origin.threadId ?? null,
   );
@@ -232,8 +230,6 @@ function CanonicalFolderTabs(props: FolderTabsProps & { folderId: FolderId }) {
         thread,
         lastVisitedAt: thread.lastVisitedAt,
         dismissedStatusKey: readSidebarUiState().dismissedThreadStatusKeyByThreadId[threadId],
-        isPromotedDraftPending: draftThreadsByThreadId[threadId]?.promotedTo !== undefined,
-        hasLocalSendOwner: localSendOwnerThreadIds.has(threadId),
       });
       return {
         id: thread.id,
@@ -277,7 +273,6 @@ function CanonicalFolderTabs(props: FolderTabsProps & { folderId: FolderId }) {
     rows,
     composerDraftsByThreadId,
     draftThreadsByThreadId,
-    localSendOwnerThreadIds,
     recordingThreadId,
     props.activeComposerProvider,
     props.activeThread.id,

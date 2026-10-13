@@ -381,12 +381,6 @@ export function isThreadActivelyWorking(thread: {
 export function resolveThreadStatusPill(input: {
   thread: ThreadStatusInput;
   hasPendingUserInput: boolean;
-  /** Local ownership bridges draft promotion until the first server lifecycle projection. */
-  isPromotedDraftPending?: boolean;
-  /** A shell summary exists for this thread, so promotion alone is no longer lifecycle evidence. */
-  hasCanonicalThreadSummary?: boolean;
-  /** The shared composer send registry still owns work for this thread. */
-  hasLocalSendOwner?: boolean;
 }): ThreadStatusPill | null {
   const { thread } = input;
   // A dead session cannot receive question answers anymore — drop the
@@ -416,20 +410,6 @@ export function resolveThreadStatusPill(input: {
       colorClass: "text-orange-600 dark:text-orange-300/90",
       dotClass: "bg-orange-500 dark:bg-orange-300/90",
       pulse: false,
-      dismissible: false,
-    };
-  }
-
-  if (
-    (input.isPromotedDraftPending && !input.hasCanonicalThreadSummary) ||
-    input.hasLocalSendOwner ||
-    thread.pendingTurnStartMessageId != null
-  ) {
-    return {
-      label: "Working",
-      colorClass: "text-sky-600 dark:text-sky-300/80",
-      dotClass: "bg-sky-500 dark:bg-sky-300/80",
-      pulse: true,
       dismissible: false,
     };
   }
@@ -482,8 +462,6 @@ export function resolveSidebarThreadSummaryStatus(input: {
   readonly thread: import("../types").SidebarThreadSummary;
   readonly lastVisitedAt: string | undefined;
   readonly dismissedStatusKey?: string | undefined;
-  readonly isPromotedDraftPending?: boolean;
-  readonly hasLocalSendOwner?: boolean;
 }): ThreadStatusPill | null {
   return resolveThreadStatusPill({
     thread: {
@@ -492,13 +470,6 @@ export function resolveSidebarThreadSummaryStatus(input: {
       dismissedStatusKey: input.dismissedStatusKey,
     },
     hasPendingUserInput: input.thread.hasPendingUserInput,
-    ...(input.isPromotedDraftPending === undefined
-      ? {}
-      : { isPromotedDraftPending: input.isPromotedDraftPending }),
-    hasCanonicalThreadSummary: true,
-    ...(input.hasLocalSendOwner === undefined
-      ? {}
-      : { hasLocalSendOwner: input.hasLocalSendOwner }),
   });
 }
 

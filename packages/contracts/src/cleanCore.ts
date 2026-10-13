@@ -104,6 +104,8 @@ export const CleanCoreQueuedMessage = Schema.Struct({
 export type CleanCoreQueuedMessage = typeof CleanCoreQueuedMessage.Type;
 export const CleanCoreSendMessageInput = Schema.Struct({
   threadId: ThreadId,
+  draft: Schema.optional(Schema.String),
+  draftUpdatedAt: Schema.optional(Schema.NullOr(IsoDateTime)),
   message: CleanCoreQueuedMessage,
   dispatchMode: Schema.Literals(["queue", "steer"]),
   modelSelection: Schema.optional(ModelSelection),
@@ -412,32 +414,27 @@ export const CLEAN_CORE_WS_CHANNELS = {
 } as const;
 
 /** Provider-confirmed send outcomes (TODO 2.4); queued messages have no turn yet. */
-export const CleanCoreSendResult = Schema.Union([
+export const CleanCoreSendAdmission = Schema.Union([
   Schema.Struct({
     threadId: ThreadId,
     messageId: Schema.String,
-    delivery: Schema.Literals(["started", "steered", "interrupted"]),
-    turnId: TurnId,
+    plan: Schema.Literals(["deliver", "steer", "interrupt-deliver"]),
+    seq: NonNegativeInt,
   }),
   Schema.Struct({
     threadId: ThreadId,
     messageId: Schema.String,
-    delivery: Schema.Literal("queued"),
+    plan: Schema.Literal("queue"),
     position: PositiveInt,
     queueLength: PositiveInt,
-    runningTurnId: Schema.NullOr(TurnId),
-  }),
-  Schema.Struct({
-    threadId: ThreadId,
-    messageId: Schema.String,
-    delivery: Schema.Literal("failed"),
-    error: Schema.String,
   }),
 ]);
-export type CleanCoreSendResult = typeof CleanCoreSendResult.Type;
+export type CleanCoreSendAdmission = typeof CleanCoreSendAdmission.Type;
 
 export const CleanCoreCreateAndSendThreadInput = Schema.Struct({
   thread: CleanCoreCreateThreadInput,
+  draft: CleanCoreSendMessageInput.fields.draft,
+  draftUpdatedAt: CleanCoreSendMessageInput.fields.draftUpdatedAt,
   message: CleanCoreSendMessageInput.fields.message,
   dispatchMode: CleanCoreSendMessageInput.fields.dispatchMode,
   modelSelection: CleanCoreSendMessageInput.fields.modelSelection,
@@ -450,7 +447,7 @@ export const CleanCoreCreateAndSendThreadInput = Schema.Struct({
 export type CleanCoreCreateAndSendThreadInput = typeof CleanCoreCreateAndSendThreadInput.Type;
 export const CleanCoreCreateAndSendThreadResponse = Schema.Struct({
   ...CleanCoreCreateThreadResponse.fields,
-  sendResult: CleanCoreSendResult,
+  sendResult: CleanCoreSendAdmission,
 });
 export type CleanCoreCreateAndSendThreadResponse = typeof CleanCoreCreateAndSendThreadResponse.Type;
 

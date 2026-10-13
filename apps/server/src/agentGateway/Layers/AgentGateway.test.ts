@@ -1004,27 +1004,19 @@ function makeHarnessLayer(
             interruptedTurnId: TurnId.makeUnsafe("native-turn"),
           }),
         send: (input: ThreadSendInput) =>
-          Effect.sync(() => {
+          Effect.gen(function* () {
             sent.push(input);
             if (options.sendSelectionError)
-              return {
-                threadId: input.threadId,
-                messageId: input.message.messageId,
-                delivery: "failed" as const,
-                error: options.sendSelectionError.message,
-              };
+              return yield* Effect.fail(new Error(options.sendSelectionError.message));
             if (options.rejectArchivedCommands)
-              return {
-                threadId: input.threadId,
-                messageId: input.message.messageId,
-                delivery: "failed" as const,
-                error: "This thread is archived. Unarchive it to send messages.",
-              };
+              return yield* Effect.fail(
+                new Error("This thread is archived. Unarchive it to send messages."),
+              );
             return {
               threadId: input.threadId,
               messageId: input.message.messageId,
-              delivery: "started" as const,
-              turnId: TurnId.makeUnsafe("provider-confirmed-turn"),
+              plan: "deliver" as const,
+              seq: 1,
             };
           }),
       }),
@@ -2899,7 +2891,13 @@ describe("AgentGateway", () => {
       const payload = toolResultJson(response.result);
       assert.equal(payload.provider, "opencode");
       assert.equal(typeof payload.messageId, "string");
-      assert.equal(typeof payload.turnId, "string");
+      assert.deepEqual(payload.sendAdmission, {
+        threadId: payload.threadId,
+        messageId: payload.messageId,
+        plan: "deliver",
+        seq: 1,
+      });
+      assert.isFalse("turnId" in payload);
 
       assert.equal(harness.dispatched.length, 0);
       assert.equal(harness.sent.length, 1);
@@ -2911,7 +2909,6 @@ describe("AgentGateway", () => {
       assert.equal(harness.sent[0]!.message.dispatchOrigin, "agent");
       assert.equal(harness.sent[0]!.message.text, "analyze the feature");
       assert.equal(payload.messageId, harness.sent[0]!.message.messageId);
-      assert.equal(payload.turnId, "provider-confirmed-turn");
     }).pipe(Effect.provide(gatewayLayer));
   });
 
@@ -3175,7 +3172,8 @@ describe("AgentGateway", () => {
         assert.isUndefined(turn.connectionId);
         assert.isUndefined(turn.modelSelection);
         assert.equal(turn.threadId, "thread-child");
-        assert.equal(toolResultJson(response.result).turnId, "provider-confirmed-turn");
+        assert.equal(toolResultJson(response.result).plan, "deliver");
+        assert.equal(toolResultJson(response.result).seq, 1);
         assert.equal(toolResultJson(response.result).messageId, turn.message.messageId);
       }
     }).pipe(Effect.provide(gatewayLayer));
@@ -3200,7 +3198,8 @@ describe("AgentGateway", () => {
       if (turn) {
         assert.equal(turn.dispatchMode, "queue");
         assert.equal(payload.messageId, turn.message.messageId);
-        assert.equal(payload.turnId, "provider-confirmed-turn");
+        assert.equal(payload.plan, "deliver");
+        assert.equal(payload.seq, 1);
       }
     }).pipe(Effect.provide(gatewayLayer));
   });
@@ -3252,10 +3251,9 @@ describe("AgentGateway", () => {
         name: "penkra_send_message",
         args: { threadId: "thread-child", message: "Try the selected route." },
       });
-      assert.isFalse(isToolError(response.result));
-      assert.equal(toolResultJson(response.result).delivery, "failed");
-      assert.equal(
-        toolResultJson(response.result).error,
+      assert.isTrue(isToolError(response.result));
+      assert.include(
+        toolErrorText(response.result),
         "The selected Connection can't be used for this thread. Choose a Connection for the thread's provider.",
       );
     }).pipe(Effect.provide(gatewayLayer));
@@ -3282,9 +3280,8 @@ describe("AgentGateway", () => {
           name: "penkra_send_message",
           args: { threadId: "thread-child", message: "Try the selected route." },
         });
-        assert.isFalse(isToolError(response.result));
-        assert.equal(toolResultJson(response.result).delivery, "failed");
-        assert.equal(toolResultJson(response.result).error, message);
+        assert.isTrue(isToolError(response.result));
+        assert.include(toolErrorText(response.result), message);
       }).pipe(Effect.provide(gatewayLayer));
     });
   }
@@ -3305,7 +3302,8 @@ describe("AgentGateway", () => {
       assert.isFalse(isToolError(response.result), toolErrorText(response.result));
       // The projection snapshot can lag the runtime in both directions, so
       // the gateway must not downgrade; the reactor rechecks live state.
-      assert.equal(typeof toolResultJson(response.result).turnId, "string");
+      assert.equal(toolResultJson(response.result).plan, "deliver");
+      assert.equal(toolResultJson(response.result).seq, 1);
       const turn = harness.sent[0]!;
       if (turn) {
         assert.equal(turn.dispatchMode, "steer");
@@ -3447,10 +3445,9 @@ describe("AgentGateway", () => {
         name: "penkra_send_message",
         args: { threadId: "thread-child", message: "Continue." },
       });
-      assert.isFalse(isToolError(response.result));
-      assert.equal(toolResultJson(response.result).delivery, "failed");
-      assert.equal(
-        toolResultJson(response.result).error,
+      assert.isTrue(isToolError(response.result));
+      assert.include(
+        toolErrorText(response.result),
         "This thread is archived. Unarchive it to send messages.",
       );
       assert.equal(

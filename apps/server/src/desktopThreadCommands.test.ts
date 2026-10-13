@@ -52,9 +52,13 @@ function harness() {
     thread: {} as import("@penkra/contracts").CleanCoreThreadSummary,
     created: true,
   }));
-  const dispatch = vi.fn(async () => ({ sequence: 1 }));
   const updateThread = vi.fn(async () => undefined);
-  const dispatchTurn = vi.fn(async () => ({ sequence: 1 }));
+  const send = vi.fn(async (input: import("@penkra/contracts").CleanCoreSendMessageInput) => ({
+    threadId: input.threadId,
+    messageId: input.message.messageId,
+    plan: "deliver" as const,
+    seq: 1,
+  }));
   const stageAttachment = vi.fn(async () => ({
     type: "file" as const,
     id: "file",
@@ -75,8 +79,7 @@ function harness() {
     getThread: async (id) => rows.find((row) => row.id === id) ?? null,
     listThreads,
     createThread,
-    dispatch,
-    dispatchTurn,
+    send,
     updateThread,
     stageAttachment,
   });
@@ -84,8 +87,7 @@ function harness() {
     commands,
     listThreads,
     createThread,
-    dispatch,
-    dispatchTurn,
+    send,
     updateThread,
     stageAttachment,
     setGate: (value: Promise<void>) => {
@@ -138,17 +140,14 @@ for (const windows of ["zero windows", "one window", "window closes mid-operatio
       const value = await result;
       if (method === "create") {
         expect(h.createThread).toHaveBeenCalledOnce();
-        expect(h.dispatch).not.toHaveBeenCalled();
       }
       if (method === "archive") {
         expect(h.updateThread).toHaveBeenCalledOnce();
-        expect(h.dispatch).not.toHaveBeenCalled();
       }
       if (method === "reorder") {
         expect(h.updateThread).toHaveBeenCalledOnce();
-        expect(h.dispatch).not.toHaveBeenCalled();
       }
-      if (method === "send") expect(h.dispatchTurn).toHaveBeenCalledOnce();
+      if (method === "send") expect(h.send).toHaveBeenCalledOnce();
       if (method === "compose") expect(value).toHaveProperty("composeId");
     });
   });

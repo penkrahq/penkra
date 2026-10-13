@@ -3,12 +3,10 @@
 // Exports: Normal and hot-path event batch reducers.
 
 import {
-  type MessageDelivery,
   type OrchestrationEvent,
   type OrchestrationPendingInteraction,
   type ThreadId,
 } from "@penkra/contracts";
-import { providerSupportsNativeTurnSteering } from "@penkra/shared/providerMetadata";
 
 import { isSessionRunningTurn, latestTurnMatchesTurnId } from "./session-logic";
 import { shouldInterruptProvisionalCompletion } from "@penkra/shared/turnContinuation";
@@ -29,11 +27,6 @@ import {
 import { applyThreadUpdate } from "./storeProjection";
 import type { AppState } from "./storeState";
 import type { ChatMessage, Thread } from "./types";
-
-function withoutDeliveryFailureEvidence(delivery: MessageDelivery): MessageDelivery {
-  const { failurePhase: _failurePhase, failureDetail: _failureDetail, ...current } = delivery;
-  return current;
-}
 
 type ThreadMessageSentEvent = Extract<OrchestrationEvent, { type: "thread.message-sent" }>;
 type ThreadActivityAppendedEvent = Extract<
@@ -509,173 +502,6 @@ function applyOrchestrationEvent(
         },
       );
 
-    case "thread.message-delivery-set": {
-      const cancellation = state.pendingStartCancellationByThreadId?.[event.payload.threadId];
-      let deliveryState = state;
-      if (
-        cancellation?.messageId === event.payload.messageId &&
-        event.payload.state === "accepted"
-      ) {
-        const { [event.payload.threadId]: _consumed, ...pendingStartCancellationByThreadId } =
-          state.pendingStartCancellationByThreadId ?? {};
-        deliveryState = { ...state, pendingStartCancellationByThreadId };
-      }
-      return applyThreadUpdate(
-        deliveryState,
-        event.payload.threadId,
-        (thread) => {
-          const isRequeued = event.payload.state === "queued" && event.payload.queued === true;
-          const failedBeforeDispatch =
-            event.payload.state === "failed" &&
-            event.payload.failurePhase === "before-provider-dispatch";
-          const targetDelivery = thread.messages.find(
-            (message) => message.id === event.payload.messageId,
-          )?.delivery;
-          const targetDeliveryState = targetDelivery?.state;
-          const nativeSteer = providerSupportsNativeTurnSteering(
-            thread.session?.provider ?? thread.modelSelection.provider,
-          );
-          const isUnacceptedAttempt =
-            targetDeliveryState === "starting" || targetDeliveryState === "steering";
-          const appliesDelivery =
-            targetDelivery !== undefined &&
-            event.sequence >= targetDelivery.sequence &&
-            (!failedBeforeDispatch || isUnacceptedAttempt || targetDeliveryState === "queued");
-          const failsQueuedMessage =
-            appliesDelivery && failedBeforeDispatch && targetDeliveryState === "queued";
-          const acceptsSteerOwner =
-            event.payload.state === "accepted" &&
-            nativeSteer &&
-            targetDeliveryState === "steering" &&
-            thread.pendingTurnStartMessageId === event.payload.messageId;
-          // A native steer rides an existing provider turn; it never owns a
-          // new-turn admission. Retire stale ownership from an older projection.
-          const clearsPendingTurnStart =
-            acceptsSteerOwner ||
-            (isRequeued &&
-              appliesDelivery &&
-              thread.pendingTurnStartMessageId === event.payload.messageId) ||
-            (appliesDelivery &&
-              failedBeforeDispatch &&
-              isUnacceptedAttempt &&
-              thread.pendingTurnStartMessageId === event.payload.messageId);
-          const ownsStartingSession =
-            appliesDelivery &&
-            failedBeforeDispatch &&
-            isUnacceptedAttempt &&
-            thread.pendingTurnStartMessageId === event.payload.messageId &&
-            thread.session?.orchestrationStatus === "starting" &&
-            thread.session.activeTurnId == null;
-          const existingQueuedMessageIds = thread.queuedMessageIds ?? [];
-          const queuedMessageIds = failsQueuedMessage
-            ? existingQueuedMessageIds.filter((messageId) => messageId !== event.payload.messageId)
-            : isRequeued && appliesDelivery
-              ? existingQueuedMessageIds.includes(event.payload.messageId)
-                ? existingQueuedMessageIds
-                : [...existingQueuedMessageIds, event.payload.messageId]
-              : existingQueuedMessageIds;
-          return {
-            ...thread,
-            messages: thread.messages
-              .map((message) =>
-                message.id === event.payload.messageId &&
-                message.delivery !== undefined &&
-                appliesDelivery
-                  ? {
-                      ...message,
-                      delivery: {
-                        ...withoutDeliveryFailureEvidence(message.delivery),
-                        state: event.payload.state,
-                        ...(event.payload.queued !== undefined
-                          ? { queued: event.payload.queued }
-                          : {}),
-                        sequence: event.sequence,
-                        ...(event.payload.failurePhase !== undefined
-                          ? { failurePhase: event.payload.failurePhase }
-                          : {}),
-                        ...(event.payload.failureDetail !== undefined
-                          ? { failureDetail: event.payload.failureDetail }
-                          : {}),
-                      },
-                      completedAt: event.payload.updatedAt,
-                    }
-                  : message,
-              )
-              .toSorted(compareChatMessagesForTranscript),
-            ...(clearsPendingTurnStart ? { pendingTurnStartMessageId: null } : {}),
-            ...(failedBeforeDispatch &&
-            appliesDelivery &&
-            (isUnacceptedAttempt || failsQueuedMessage) &&
-            event.payload.turnId !== undefined &&
-            thread.latestTurn?.turnId === event.payload.turnId &&
-            (thread.latestTurn.state === "running" || thread.latestTurn.state === "queued") &&
-            thread.latestTurn.startedAt === null
-              ? {
-                  latestTurn: {
-                    ...thread.latestTurn,
-                    state: "error" as const,
-                    completedAt: event.payload.updatedAt,
-                  },
-                }
-              : {}),
-            ...(event.payload.state === "accepted" &&
-            event.payload.terminalState !== undefined &&
-            event.payload.terminalCompletedAt !== undefined &&
-            event.payload.turnId !== undefined &&
-            thread.latestTurn?.turnId === event.payload.turnId &&
-            thread.latestTurn.state === "running"
-              ? {
-                  latestTurn: {
-                    ...thread.latestTurn,
-                    state: event.payload.terminalState,
-                    completedAt: event.payload.terminalCompletedAt,
-                  },
-                }
-              : {}),
-            ...(ownsStartingSession && thread.session && event.payload.failureDetail !== undefined
-              ? {
-                  error: normalizeThreadErrorMessage(event.payload.failureDetail),
-                  errorSource: undefined,
-                  session: {
-                    ...thread.session,
-                    status: "error" as const,
-                    orchestrationStatus: "error" as const,
-                    activeTurnId: undefined,
-                    lastError: event.payload.failureDetail,
-                    updatedAt: event.payload.updatedAt,
-                  },
-                }
-              : {}),
-            ...(failsQueuedMessage && event.payload.failureDetail !== undefined
-              ? thread.error !== null && thread.errorSource !== "delivery"
-                ? {}
-                : normalizeThreadErrorMessage(thread.session?.lastError) !== null
-                  ? {
-                      error: normalizeThreadErrorMessage(thread.session?.lastError),
-                      errorSource: undefined,
-                    }
-                  : {
-                      error: normalizeThreadErrorMessage(event.payload.failureDetail),
-                      errorSource: "delivery" as const,
-                    }
-              : {}),
-            queuedMessageIds,
-            updatedAt: resolveEventUpdatedAt(thread, event.payload.updatedAt),
-          };
-        },
-        {
-          ...options,
-          updateSidebarSummary:
-            options?.updateSidebarSummary === true ||
-            (event.payload.state === "failed" &&
-              event.payload.failurePhase === "before-provider-dispatch") ||
-            (event.payload.state === "accepted" &&
-              event.payload.terminalState !== undefined &&
-              event.payload.terminalCompletedAt !== undefined),
-        },
-      );
-    }
-
     case "thread.provider-lifecycle-write-skipped":
       return state;
 
@@ -743,28 +569,6 @@ function applyOrchestrationEvent(
         { ...options, updateSidebarSummary: false },
       );
 
-    case "thread.turn-steer-queued-requested":
-      return applyThreadUpdate(
-        state,
-        event.payload.threadId,
-        (thread) => ({
-          ...thread,
-          messages: thread.messages.map((message) =>
-            message.id === event.payload.messageId &&
-            message.delivery !== undefined &&
-            event.sequence >= message.delivery.sequence
-              ? {
-                  ...message,
-                  dispatchMode: "steer",
-                  delivery: { ...message.delivery, state: "steering", sequence: event.sequence },
-                }
-              : message,
-          ),
-          updatedAt: resolveEventUpdatedAt(thread, event.payload.createdAt),
-        }),
-        { ...options, updateSidebarSummary: false },
-      );
-
     case "thread.session-stop-requested":
       return applyThreadUpdate(
         state,
@@ -801,78 +605,6 @@ function applyOrchestrationEvent(
               (thread.updatedAt ?? thread.createdAt) > event.occurredAt
                 ? thread.updatedAt
                 : event.occurredAt,
-          };
-        },
-        {
-          ...options,
-          updateSidebarSummary: true,
-        },
-      );
-
-    case "thread.turn-start-requested":
-      return applyThreadUpdate(
-        state,
-        event.payload.threadId,
-        (thread) => {
-          const modelSelection =
-            event.payload.modelSelection !== undefined
-              ? normalizeModelSelection(event.payload.modelSelection, thread.modelSelection)
-              : thread.modelSelection;
-          const deliveryState: NonNullable<ChatMessage["delivery"]>["state"] =
-            event.payload.dispatchMode === "steer" ? "steering" : "starting";
-          const nativeSteer =
-            event.payload.dispatchMode === "steer" &&
-            providerSupportsNativeTurnSteering(thread.session?.provider ?? modelSelection.provider);
-          const existingQueuedMessageIds = thread.queuedMessageIds ?? [];
-          const queuedMessageIds = existingQueuedMessageIds.filter(
-            (messageId) => messageId !== event.payload.messageId,
-          );
-          if (
-            modelSelection === thread.modelSelection &&
-            thread.pendingTurnStartMessageId === event.payload.messageId &&
-            queuedMessageIds.length === existingQueuedMessageIds.length &&
-            thread.messages.some(
-              (message) =>
-                message.id === event.payload.messageId &&
-                message.delivery?.state === deliveryState &&
-                message.delivery.sequence >= event.sequence,
-            ) &&
-            (thread.updatedAt ?? thread.createdAt) >= event.payload.createdAt
-          ) {
-            return thread;
-          }
-          return {
-            ...thread,
-            modelSelection,
-            messages: thread.messages
-              .map((message) =>
-                message.id === event.payload.messageId &&
-                message.delivery !== undefined &&
-                event.sequence >= message.delivery.sequence
-                  ? {
-                      ...message,
-                      delivery: {
-                        ...withoutDeliveryFailureEvidence(message.delivery),
-                        state: deliveryState,
-                        sequence: event.sequence,
-                      },
-                    }
-                  : message,
-              )
-              .toSorted(compareChatMessagesForTranscript),
-            // `pendingTurnStartMessageId` bridges admission to provider start.
-            // A native steer already has a running provider turn; a provider
-            // without live steering promotes the intent as replacement work.
-            ...(nativeSteer
-              ? thread.pendingTurnStartMessageId === undefined
-                ? {}
-                : { pendingTurnStartMessageId: thread.pendingTurnStartMessageId }
-              : { pendingTurnStartMessageId: event.payload.messageId }),
-            queuedMessageIds,
-            updatedAt:
-              (thread.updatedAt ?? thread.createdAt) > event.payload.createdAt
-                ? thread.updatedAt
-                : event.payload.createdAt,
           };
         },
         {
@@ -958,50 +690,6 @@ function applyOrchestrationEvent(
           updateSidebarSummary:
             options?.updateSidebarSummary === true || threadActivityUpdatesSummary(event),
         },
-      );
-
-    case "thread.turn-start-cancelled":
-      return applyThreadUpdate(
-        {
-          ...state,
-          pendingStartCancellationByThreadId: {
-            ...(state.pendingStartCancellationByThreadId ?? {}),
-            [event.payload.threadId]: {
-              messageId: event.payload.messageId,
-              sequence: event.sequence,
-            },
-          },
-        },
-        event.payload.threadId,
-        (thread) => {
-          const messages = thread.messages.filter(
-            (message) => message.id !== event.payload.messageId,
-          );
-          const existingQueuedMessageIds = thread.queuedMessageIds ?? [];
-          const queuedMessageIds = existingQueuedMessageIds.filter(
-            (messageId) => messageId !== event.payload.messageId,
-          );
-          if (
-            messages.length === thread.messages.length &&
-            queuedMessageIds.length === existingQueuedMessageIds.length &&
-            thread.pendingTurnStartMessageId === null
-          ) {
-            return thread;
-          }
-          return {
-            ...thread,
-            messages,
-            queuedMessageIds,
-            ...(thread.pendingTurnStartMessageId === event.payload.messageId
-              ? { pendingTurnStartMessageId: null }
-              : {}),
-            updatedAt:
-              (thread.updatedAt ?? thread.createdAt) > event.occurredAt
-                ? thread.updatedAt
-                : event.occurredAt,
-          };
-        },
-        { ...options, recomputeSummarySignals: true, updateSidebarSummary: true },
       );
 
     case "thread.conversation-rolled-back":

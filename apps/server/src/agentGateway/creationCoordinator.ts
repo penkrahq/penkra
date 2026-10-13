@@ -178,11 +178,6 @@ export const makeCreateThreadHandler = (dependencies: CreationCoordinatorDepende
           queuedAt: at,
         },
       });
-      if (result.delivery === "failed") return yield* Effect.fail(new ToolInputError(result.error));
-      if (result.delivery === "queued")
-        return yield* Effect.fail(
-          new ToolInputError("The thread's initial message is queued behind running work."),
-        );
       if (created.created && dependencies.onThreadCreated !== undefined)
         yield* dependencies.onThreadCreated(context.callerThreadId, ids.threadId).pipe(
           Effect.catch((error) =>
@@ -204,7 +199,7 @@ export const makeCreateThreadHandler = (dependencies: CreationCoordinatorDepende
           runtimeMode: created.thread.runtimeMode,
           connectionId: created.thread.connectionId,
           messageId: ids.messageId,
-          turnId: result.turnId,
+          sendAdmission: result,
         }),
       );
     }).pipe(
