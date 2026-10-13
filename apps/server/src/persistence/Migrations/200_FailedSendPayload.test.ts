@@ -30,31 +30,29 @@ const seed = Effect.gen(function* () {
   ] as const)
     yield* sql`INSERT INTO thread_items (thread_id,seq,source_id,kind,status,text,created_at,updated_at) VALUES ('thread',${seq},${String(seq)},${kind},${status},'Keep',${at},${at})`;
 });
-it.effect(
-  "drops incomplete dev-only sends and recovery, preserving other rows and foreign keys",
-  () =>
-    Effect.gen(function* () {
-      yield* seed;
-      yield* migrate;
-      const sql = yield* SqlClient.SqlClient;
-      assert.deepStrictEqual(
-        (yield* sql<{ seq: number }>`SELECT seq FROM thread_items ORDER BY seq`).map(
-          (row) => row.seq,
-        ),
-        [1, 4],
-      );
-      const names = (yield* sql<{ name: string }>`PRAGMA table_info(thread_items)`).map(
-        (row) => row.name,
-      );
-      assert.isFalse(names.includes("recovery_draft"));
-      assert.isTrue(names.includes("send_payload"));
-      assert.deepStrictEqual(yield* sql`SELECT id,title FROM threads`, [
-        { id: "thread", title: "Keep" },
-      ]);
-      assert.deepStrictEqual(yield* sql`PRAGMA foreign_key_check`, []);
-    }).pipe(Effect.provide(NodeSqliteClient.layerMemory())),
+it.effect("preserves historical messages without resend payloads and drops only recovery", () =>
+  Effect.gen(function* () {
+    yield* seed;
+    yield* migrate;
+    const sql = yield* SqlClient.SqlClient;
+    assert.deepStrictEqual(
+      (yield* sql<{ seq: number }>`SELECT seq FROM thread_items ORDER BY seq`).map(
+        (row) => row.seq,
+      ),
+      [1, 2, 3, 4],
+    );
+    const names = (yield* sql<{ name: string }>`PRAGMA table_info(thread_items)`).map(
+      (row) => row.name,
+    );
+    assert.isFalse(names.includes("recovery_draft"));
+    assert.isTrue(names.includes("send_payload"));
+    assert.deepStrictEqual(yield* sql`SELECT id,title FROM threads`, [
+      { id: "thread", title: "Keep" },
+    ]);
+    assert.deepStrictEqual(yield* sql`PRAGMA foreign_key_check`, []);
+  }).pipe(Effect.provide(NodeSqliteClient.layerMemory())),
 );
-it.effect("rolls back column replacement and outstanding-row deletion on failure", () =>
+it.effect("rolls back column replacement and historical-state mapping on failure", () =>
   Effect.gen(function* () {
     yield* seed;
     const sql = yield* SqlClient.SqlClient;

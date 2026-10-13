@@ -23,8 +23,14 @@ export default Effect.gen(function* () {
             WHERE json_extract(attachment.value,'$.id')=OLD.attachment_id))
     ) BEGIN SELECT RAISE(ABORT,'managed attachment claim owner is immutable'); END`;
 
-  // Only dev builds ran 197. Their outstanding rows have no complete native input.
-  yield* sql`DELETE FROM thread_items WHERE kind='user' AND status IN ('sending','failed') AND send_payload IS NULL`;
+  // Preserve history without making it a retry cohort. Unacknowledged legacy
+  // delivery states are failed, with no payload; only new admissions own one.
+  yield* sql`UPDATE thread_items SET status='failed' WHERE kind='user' AND (
+    status IN ('sending','queued') OR EXISTS (
+      SELECT 1 FROM projection_thread_messages m
+      WHERE m.thread_id=thread_items.thread_id AND m.message_id=thread_items.source_id
+      AND m.delivery_state IN ('failed','starting','steering','queued')
+    ))`;
   yield* sql`ALTER TABLE thread_items DROP COLUMN recovery_draft`;
   yield* sql`CREATE INDEX idx_thread_items_failed_send ON thread_items(thread_id,seq) WHERE kind='user' AND status='failed'`;
 });
