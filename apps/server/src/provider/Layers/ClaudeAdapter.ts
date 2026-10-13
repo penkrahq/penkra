@@ -8,6 +8,7 @@
  */
 
 import { spawn as spawnChildProcess } from "node:child_process";
+import { watch } from "node:fs";
 import type {
   AgentInfo,
   CanUseTool,
@@ -446,7 +447,6 @@ export interface ClaudeAdapterLiveOptions {
   readonly nativeEventLogPath?: string;
   readonly nativeEventLogger?: EventNdjsonLogger;
   // Interval for polling a live workflow's transcript directory. Tests shrink it.
-  readonly workflowRuntimePollIntervalMs?: number;
   readonly spawnClaudeCodeProcess?: (options: ClaudeSpawnOptions) => ClaudeOwnedProcess;
   readonly teardownProcessTree?: typeof teardownProviderProcessTree;
 }
@@ -707,7 +707,6 @@ function readClaudeModelRefusalFallback(message: unknown): ClaudeModelRefusalFal
   };
 }
 
-const DEFAULT_WORKFLOW_RUNTIME_POLL_INTERVAL_MS = 2_000;
 // Synthetic description for poller-emitted task.progress events; consumers key
 // off payload.workflowAgents, not this text.
 const WORKFLOW_AGENTS_PROGRESS_DESCRIPTION = "Workflow agents";
@@ -3244,14 +3243,8 @@ function makeClaudeAdapter(options?: ClaudeAdapterLiveOptions) {
         return undefined;
       });
 
-    const workflowRuntimePollInterval = Duration.millis(
-      options?.workflowRuntimePollIntervalMs ?? DEFAULT_WORKFLOW_RUNTIME_POLL_INTERVAL_MS,
-    );
-
-    // Polls a live workflow's transcript directory (journal.jsonl + per-agent
-    // transcripts) and emits task.progress events carrying per-agent runtime
-    // snapshots. Runs detached like streamFiber; exits when the workflow
-    // settles or the session stops, and is interrupted eagerly on both.
+    // Read workflow transcripts on native filesystem changes. The scoped watcher
+    // closes when the workflow settles or the session stops.
     const startWorkflowRuntimePoller = (
       context: ClaudeSessionContext,
       taskId: string,
@@ -3263,42 +3256,58 @@ function makeClaudeAdapter(options?: ClaudeAdapterLiveOptions) {
       const state = makeClaudeWorkflowRuntimeState();
       context.workflowRuntimeStates.set(taskId, state);
       let lastEmitted = "";
-      const loop = Effect.gen(function* () {
-        while (!context.stopped && context.liveWorkflowTaskIds.has(taskId)) {
-          yield* Effect.sleep(workflowRuntimePollInterval);
-          const changed = yield* collectClaudeWorkflowRuntime(fileSystem, transcriptDir, state);
-          if (!changed) {
-            continue;
-          }
-          const snapshots = claudeWorkflowRuntimeSnapshots(
-            state,
-            context.workflowAgentLabels.get(taskId) ?? [],
+      const changes = Stream.callback<void, Error>((queue) =>
+        Effect.gen(function* () {
+          const watcher = yield* Effect.acquireRelease(
+            Effect.try(() =>
+              watch(transcriptDir, { recursive: true }, () => {
+                Queue.offerUnsafe(queue, undefined);
+              }),
+            ),
+            (watcher) => Effect.sync(() => watcher.close()),
           );
-          if (snapshots.length === 0) {
-            continue;
-          }
-          const fingerprint = JSON.stringify(snapshots);
-          if (fingerprint === lastEmitted) {
-            continue;
-          }
-          lastEmitted = fingerprint;
-          const stamp = yield* makeEventStamp();
-          yield* offerRuntimeEvent(context, {
-            type: "task.progress",
-            eventId: stamp.eventId,
-            provider: PROVIDER,
-            createdAt: stamp.createdAt,
-            threadId: context.session.threadId,
-            ...(context.turnState ? { turnId: asCanonicalTurnId(context.turnState.turnId) } : {}),
-            payload: {
-              taskId: RuntimeTaskId.makeUnsafe(taskId),
-              description: WORKFLOW_AGENTS_PROGRESS_DESCRIPTION,
-              workflowAgents: snapshots,
-            },
-            providerRefs: nativeProviderRefs(context),
-          });
-        }
-      });
+          watcher.on("error", (cause) => Queue.failCauseUnsafe(queue, Cause.fail(cause)));
+          Queue.offerUnsafe(queue, undefined);
+        }),
+      );
+      const loop = changes.pipe(
+        Stream.runForEach(() =>
+          Effect.gen(function* () {
+            if (context.stopped || !context.liveWorkflowTaskIds.has(taskId)) return;
+            const changed = yield* collectClaudeWorkflowRuntime(fileSystem, transcriptDir, state);
+            if (!changed) {
+              return;
+            }
+            const snapshots = claudeWorkflowRuntimeSnapshots(
+              state,
+              context.workflowAgentLabels.get(taskId) ?? [],
+            );
+            if (snapshots.length === 0) {
+              return;
+            }
+            const fingerprint = JSON.stringify(snapshots);
+            if (fingerprint === lastEmitted) {
+              return;
+            }
+            lastEmitted = fingerprint;
+            const stamp = yield* makeEventStamp();
+            yield* offerRuntimeEvent(context, {
+              type: "task.progress",
+              eventId: stamp.eventId,
+              provider: PROVIDER,
+              createdAt: stamp.createdAt,
+              threadId: context.session.threadId,
+              ...(context.turnState ? { turnId: asCanonicalTurnId(context.turnState.turnId) } : {}),
+              payload: {
+                taskId: RuntimeTaskId.makeUnsafe(taskId),
+                description: WORKFLOW_AGENTS_PROGRESS_DESCRIPTION,
+                workflowAgents: snapshots,
+              },
+              providerRefs: nativeProviderRefs(context),
+            });
+          }),
+        ),
+      );
       const fiber = Effect.runFork(loop);
       context.workflowRuntimePollers.set(taskId, fiber);
       fiber.addObserver(() => {

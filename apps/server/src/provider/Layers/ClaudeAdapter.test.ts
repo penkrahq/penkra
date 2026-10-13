@@ -236,7 +236,6 @@ function makeHarness(config?: {
   readonly nativeEventLogger?: ClaudeAdapterLiveOptions["nativeEventLogger"];
   readonly cwd?: string;
   readonly baseDir?: string;
-  readonly workflowRuntimePollIntervalMs?: number;
   readonly gatewayCredentials?: AgentGatewayCredentialsShape;
 }) {
   const query = new FakeClaudeQuery();
@@ -260,11 +259,6 @@ function makeHarness(config?: {
     ...(config?.nativeEventLogPath
       ? {
           nativeEventLogPath: config.nativeEventLogPath,
-        }
-      : {}),
-    ...(config?.workflowRuntimePollIntervalMs !== undefined
-      ? {
-          workflowRuntimePollIntervalMs: config.workflowRuntimePollIntervalMs,
         }
       : {}),
   };
@@ -3186,9 +3180,9 @@ await agent("Draft the spec", { label: "delta-agent", phase: "Two" });
     );
   });
 
-  it.effect("polls the workflow transcript directory into live agent snapshots", () => {
+  it.effect("watches the workflow transcript directory into live agent snapshots", () => {
     const transcriptDir = mkdtempSync(path.join(os.tmpdir(), "claude-workflow-transcripts-"));
-    const harness = makeHarness({ workflowRuntimePollIntervalMs: 25 });
+    const harness = makeHarness();
     return Effect.gen(function* () {
       yield* Effect.addFinalizer(() =>
         Effect.sync(() => rmSync(transcriptDir, { recursive: true, force: true })),
@@ -3359,7 +3353,7 @@ await agent("Draft the spec", { label: "delta-agent", phase: "Two" });
 
   it.effect("backfills live-observed effort into the settled workflow snapshots", () => {
     const transcriptDir = mkdtempSync(path.join(os.tmpdir(), "claude-workflow-effort-"));
-    const harness = makeHarness({ workflowRuntimePollIntervalMs: 25 });
+    const harness = makeHarness();
     return Effect.gen(function* () {
       yield* Effect.addFinalizer(() =>
         Effect.sync(() => rmSync(transcriptDir, { recursive: true, force: true })),
