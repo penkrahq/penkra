@@ -4,10 +4,9 @@ import { Stream } from "effect";
 import type { ThreadPublisher } from "./threadStore.ts";
 
 export const threadChangeStream = (publisher: ThreadPublisher, threadId: string) =>
-  Stream.fromPubSub(publisher.threadChanges).pipe(
-    Stream.filter((change) => change.threadId === threadId),
-    Stream.map((change) => ({ threadId: ThreadId.makeUnsafe(change.threadId) })),
-  );
+  publisher.threadChanges
+    .stream(threadId)
+    .pipe(Stream.map((change) => ({ threadId: ThreadId.makeUnsafe(change.threadId) })));
 
 export const sidebarChangeStream = (publisher: ThreadPublisher) =>
-  Stream.fromPubSub(publisher.sidebarChanges);
+  publisher.sidebarChanges.stream();

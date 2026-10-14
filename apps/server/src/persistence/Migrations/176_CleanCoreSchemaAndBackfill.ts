@@ -250,7 +250,8 @@ export default Effect.gen(function* () {
           'skills', json(COALESCE(m.skills_json, 'null')),
           'mentions', json(COALESCE(m.mentions_json, 'null')),
           'dispatchMode', m.dispatch_mode,
-          'dispatchOrigin', m.dispatch_origin
+          'dispatchOrigin', m.dispatch_origin,
+          'senderThreadId', m.sender_thread_id
         ),
         '{}'
       ),

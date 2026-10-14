@@ -7,7 +7,7 @@ import {
   QUEUED_MESSAGE_EDIT_NONEMPTY_DRAFT_ERROR,
   QueuedEditDraftNotEmptyError,
   type CleanCoreThreadSummary,
-  type CleanCoreSendMessageInput,
+  type CleanCoreUserSendMessageInput,
   DEFAULT_MODEL_BY_PROVIDER,
   MessageId,
   type ModelSelection,
@@ -4320,7 +4320,7 @@ function ChatViewContent({
         providerOptions: providerOptionsForDispatchForSend,
       });
       await stagedTurnAttachments.runWithDispatch(async (attachments) => {
-        const send: Omit<CleanCoreSendMessageInput, "threadId"> = {
+        const send: Omit<CleanCoreUserSendMessageInput, "threadId"> = {
           draftUpdatedAt: sentDraftUpdatedAt,
           runtimeMode: runtimeModeForSend,
           message: {
@@ -4333,7 +4333,6 @@ function ChatViewContent({
                 assistantMessageId: MessageId.makeUnsafe(selection.assistantMessageId),
               })),
             ],
-            origin: { _tag: "user" as const },
             queuedAt: messageCreatedAt,
           },
           modelSelection: selectedModelSelectionForSend,

@@ -251,7 +251,7 @@ export const WorkspaceWatcherLive = Layer.effect(
       Effect.promise(() => manager.start()),
       () => Effect.promise(() => manager.close()),
     );
-    const navigationFiber = yield* Stream.fromPubSub(publisher.sidebarChanges).pipe(
+    const navigationFiber = yield* publisher.sidebarChanges.stream("navigation").pipe(
       Stream.filter((change) => change.kind === "navigation"),
       Stream.runForEach(() =>
         Effect.promise(() => manager.reconcile()).pipe(

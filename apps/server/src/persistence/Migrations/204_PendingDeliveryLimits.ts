@@ -1,9 +1,7 @@
 // Purpose: Verify old pending work satisfies the admission invariant before bounded delivery starts.
-import { CleanCoreQueuedMessage } from "@penkra/contracts";
 import { Effect, Schema } from "effect";
 import * as SqlClient from "effect/unstable/sql/SqlClient";
-import { decodeSendPayload } from "../../cleanCore/sendPayload.ts";
-import { encodeUserItemAdmission } from "../../cleanCore/userItemAdmission.ts";
+import { QueuedMessage203, SendPayload204, validatePending204 } from "./userItemShapes203.ts";
 
 export default Effect.gen(function* () {
   const sql = yield* SqlClient.SqlClient;
@@ -21,8 +19,8 @@ export default Effect.gen(function* () {
     for (const row of rows) {
       const original = JSON.parse(row.payload);
       const stored = JSON.stringify({ ...original, deliveryRequestId: original.deliveryMessageId });
-      const payload = decodeSendPayload(stored);
-      yield* encodeUserItemAdmission(payload, false);
+      const payload = Schema.decodeUnknownSync(SendPayload204)(JSON.parse(stored));
+      validatePending204(payload);
       yield* sql`UPDATE thread_items SET send_payload=${stored} WHERE thread_id=${row.threadId} AND seq=${row.seq}`;
       payloads++;
     }
@@ -37,14 +35,11 @@ export default Effect.gen(function* () {
       queue: string;
     }>`SELECT id,queue FROM threads WHERE id>${afterId} ORDER BY id LIMIT 50`;
     for (const row of rows) {
-      const messages = Schema.decodeUnknownSync(Schema.Array(CleanCoreQueuedMessage))(
+      const messages = Schema.decodeUnknownSync(Schema.Array(QueuedMessage203))(
         JSON.parse(row.queue),
       );
       for (const message of messages) {
-        yield* encodeUserItemAdmission(
-          { message, skills: message.skills, mentions: message.mentions },
-          false,
-        );
+        validatePending204({ message, skills: message.skills, mentions: message.mentions });
         queued++;
       }
     }

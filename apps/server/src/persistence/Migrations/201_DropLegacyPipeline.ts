@@ -3,6 +3,24 @@ import { Effect } from "effect";
 import * as SqlClient from "effect/unstable/sql/SqlClient";
 export default Effect.gen(function* () {
   const sql = yield* SqlClient.SqlClient;
+  // Repair the 176 omission before removing its source. Already-dropped sources
+  // are handled honestly as unknown historical senders by migration 203.
+  const legacyMessages =
+    yield* sql`SELECT 1 FROM sqlite_master WHERE type='table' AND name='projection_thread_messages'`;
+  if (legacyMessages.length) {
+    const [before] = yield* sql<{ count: number }>`SELECT count(*) AS count FROM thread_items i
+      JOIN projection_thread_messages m ON m.thread_id=i.thread_id AND m.message_id=i.source_id
+      WHERE i.kind='user' AND m.dispatch_origin='agent' AND m.sender_thread_id IS NOT NULL
+        AND json_extract(i.data,'$.senderThreadId') IS NULL`;
+    yield* sql`UPDATE thread_items AS i SET data=json_set(COALESCE(data,'{}'),'$.senderThreadId',
+      (SELECT m.sender_thread_id FROM projection_thread_messages m WHERE m.thread_id=i.thread_id AND m.message_id=i.source_id))
+      WHERE i.kind='user' AND json_extract(i.data,'$.senderThreadId') IS NULL AND EXISTS
+        (SELECT 1 FROM projection_thread_messages m WHERE m.thread_id=i.thread_id AND m.message_id=i.source_id
+          AND m.dispatch_origin='agent' AND m.sender_thread_id IS NOT NULL)`;
+    yield* Effect.logInfo("Preserved agent senders before legacy table removal", {
+      restored: before!.count,
+    });
+  }
   yield* sql`DROP VIEW IF EXISTS thread_activities_read`;
   const tables = [
     "provider_intent_outbox_reconciliations",

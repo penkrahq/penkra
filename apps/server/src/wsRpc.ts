@@ -336,7 +336,12 @@ const makeWsRpcHandlersLayer = () =>
         [WS_METHODS.cleanCoreSendMessage]: (input) =>
           rpcEffect(
             runtimeStartup.enqueueCommand(
-              Effect.flatMap(Effect.service(ThreadSender), (sender) => sender.send(input)),
+              Effect.flatMap(Effect.service(ThreadSender), (sender) =>
+                sender.send({
+                  ...input,
+                  message: { ...input.message, origin: { _tag: "user" } },
+                }),
+              ),
             ),
             "Failed to send the message",
           ),

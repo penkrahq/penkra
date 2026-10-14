@@ -66,7 +66,7 @@ import type {
   CleanCoreCreateAndSendThreadInput,
   CleanCoreCreateAndSendThreadResponse,
   CleanCoreThreadSummary,
-  CleanCoreSendMessageInput,
+  CleanCoreUserSendMessageInput,
   CleanCoreSendAdmission,
   CleanCoreQueuedMessageInput,
   CleanCoreQueuedMessageResult,
@@ -1050,7 +1050,7 @@ export interface NativeApi {
     ) => Promise<CleanCoreGetNavigationResult>;
     getFolders: (input: CleanCoreGetFoldersInput) => Promise<CleanCoreGetFoldersResult>;
     getThread: (input: CleanCoreGetThreadShellInput) => Promise<CleanCoreThreadSummary | null>;
-    sendMessage: (input: CleanCoreSendMessageInput) => Promise<CleanCoreSendAdmission>;
+    sendMessage: (input: CleanCoreUserSendMessageInput) => Promise<CleanCoreSendAdmission>;
     steerQueued: (input: CleanCoreQueuedMessageInput) => Promise<CleanCoreSendAdmission>;
     cancelQueuedMessage: (
       input: CleanCoreQueuedMessageInput,

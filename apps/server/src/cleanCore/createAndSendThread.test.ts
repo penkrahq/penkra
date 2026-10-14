@@ -128,7 +128,6 @@ for (const nativeFails of [false, true]) {
             messageId: MessageId.makeUnsafe("first-message"),
             text: "hello",
             attachments: [],
-            origin: { _tag: "user" as const },
             queuedAt: at,
           },
         } satisfies CleanCoreCreateAndSendThreadInput;

@@ -7,7 +7,8 @@ import { encodeUserItemAdmission } from "./userItemAdmission.ts";
 
 export const createAndSendThread = (input: CleanCoreCreateAndSendThreadInput) =>
   Effect.gen(function* () {
-    const { thread, ...send } = input;
+    const { thread, ...client } = input;
+    const send = { ...client, message: { ...client.message, origin: { _tag: "user" as const } } };
     yield* encodeUserItemAdmission(send, send.dispatchMode === "steer");
     const created = yield* createThreadFromClient(thread);
     const sender = yield* ThreadSender;

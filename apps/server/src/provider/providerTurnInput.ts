@@ -9,8 +9,8 @@ import type {
   ProviderSkillReference,
   ThreadId,
 } from "@penkra/contracts";
-import { Effect } from "effect";
-import { decodeUserItemData } from "@penkra/shared/userItemData";
+import { Effect, Schema } from "effect";
+import { SendingMessageOrigin } from "@penkra/contracts";
 import type { ThreadReadsShape } from "../cleanCore/ThreadReads.ts";
 import { buildInlineSkillInstructions } from "./skillPromptInjection.ts";
 import {
@@ -48,7 +48,7 @@ export function normalizeSkillMentionTextForProvider(input: {
 export function formatUserTurnMember(
   message: Pick<CleanCoreQueuedMessage, "text" | "origin">,
 ): string {
-  const { origin } = decodeUserItemData({ origin: message.origin, attachments: [] });
+  const origin = Schema.decodeUnknownSync(SendingMessageOrigin)(message.origin);
   if (origin._tag === "user") return message.text;
   return [
     "<agent_message_sender>",

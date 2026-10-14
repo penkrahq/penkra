@@ -49,30 +49,29 @@ export const admitSendingPayload = (
     const data = yield* encodeUserItemAdmission(input, plan !== "deliver");
     const selected: Array<{ sourceId: string; payload: StoredSendPayload }> = [];
     let attachments = 0;
-    let bounds = { raw: 0, leading: 0, trailing: 0, hasText: false };
+    // Keep the exact trimmed body length plus its not-yet-visible trailing
+    // whitespace. This avoids rebuilding every growing prefix (quadratic work).
+    let bounds = { chars: 0, trailing: 0 };
     const measure = (message: QueuedMessage) => {
       const part = formatUserTurnMember(message);
       const separator = selected.length ? "\n\n".length : 0;
-      const visible = part.trim().length > 0;
-      const raw = bounds.raw + separator + part.length;
+      const trimmed = part.trim();
+      if (!trimmed)
+        return {
+          chars: bounds.chars,
+          trailing: bounds.chars ? bounds.trailing + separator + part.length : 0,
+        };
+      const body = part.trimEnd();
       return {
-        raw,
-        hasText: bounds.hasText || visible,
-        leading: bounds.hasText
-          ? bounds.leading
-          : visible
-            ? bounds.raw + separator + part.length - part.trimStart().length
-            : raw,
-        trailing: visible
-          ? part.length - part.trimEnd().length
-          : bounds.hasText
-            ? bounds.trailing + separator + part.length
-            : 0,
+        chars: bounds.chars
+          ? bounds.chars + bounds.trailing + separator + body.length
+          : trimmed.length,
+        trailing: part.length - body.length,
       };
     };
     const fits = (message: QueuedMessage, next: typeof bounds) =>
       attachments + message.attachments.length <= PROVIDER_SEND_TURN_MAX_ATTACHMENTS &&
-      next.raw - next.leading - next.trailing <= PROVIDER_SEND_TURN_MAX_INPUT_CHARS;
+      next.chars <= PROVIDER_SEND_TURN_MAX_INPUT_CHARS;
     let after = 0;
     let complete = false;
     while (!complete) {
