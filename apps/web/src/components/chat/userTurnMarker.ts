@@ -16,6 +16,7 @@ export function resolveUserTurnMarker(message: {
   readonly origin?: MessageOrigin | undefined;
   readonly steered?: true | undefined;
 }): UserTurnMarkerKind | null {
+  if (message.origin?._tag === "recovery") return null;
   if (message.origin?._tag === "agent") {
     return "agent";
   }

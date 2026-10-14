@@ -198,12 +198,22 @@ export function threadItemToChatMessage(item: CleanCoreThreadItem): ChatMessage 
  * activities used. Items are already oldest-first, but the result is sorted by
  * `seq` so ordering never depends on the caller.
  */
+export function isVisibleThreadMessageItem(item: CleanCoreThreadItem): boolean {
+  return (
+    item.kind === "text" ||
+    (item.kind === "user" &&
+      decodeUserItemData(item.data === null ? {} : JSON.parse(item.data)).origin._tag !==
+        "recovery")
+  );
+}
+
 export function threadItemsToTimelineEntries(
   items: ReadonlyArray<CleanCoreThreadItem>,
 ): TimelineEntry[] {
   const ordered = [...items].toSorted((left, right) => left.seq - right.seq);
   const entries: TimelineEntry[] = [];
   for (const item of ordered) {
+    if (item.kind === "user" && !isVisibleThreadMessageItem(item)) continue;
     if (item.kind === "user" || item.kind === "text") {
       entries.push({
         id: item.sourceId,

@@ -296,3 +296,14 @@ it("turn timing records do not add a transcript or work-log row", () => {
   expect(threadItemsToTimelineEntries([turn, item("text")])).toHaveLength(1);
   expect(threadItemsToTimelineEntries([turn, item("text")])[0]?.id).toBe("s-7");
 });
+
+it("hides recovery user items entirely while retaining the assistant response", () => {
+  const entries = threadItemsToTimelineEntries([
+    item("user", {
+      seq: 1,
+      data: JSON.stringify({ origin: { _tag: "recovery" }, attachments: [] }),
+    }),
+    item("text", { seq: 2, sourceId: "answer", text: "Continued work" }),
+  ]);
+  expect(entries.map((entry) => entry.id)).toEqual(["answer"]);
+});

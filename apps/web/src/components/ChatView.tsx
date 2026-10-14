@@ -220,6 +220,7 @@ import { useThreadItems } from "../useThreadItems";
 import {
   threadItemsToTimelineEntries,
   threadItemToChatMessage,
+  isVisibleThreadMessageItem,
   threadItemToActivity,
 } from "./chat/threadItemMappers";
 import {
@@ -792,9 +793,7 @@ function ChatViewContent({
         ? undefined
         : {
             ...serverThreadShell,
-            messages: threadItems
-              .filter((item) => item.kind === "user" || item.kind === "text")
-              .map(threadItemToChatMessage),
+            messages: threadItems.filter(isVisibleThreadMessageItem).map(threadItemToChatMessage),
             activities: threadItems
               .filter(
                 (item) => item.kind !== "user" && item.kind !== "text" && item.kind !== "turn",
@@ -2958,7 +2957,7 @@ function ChatViewContent({
   // Auto-follow keys on the clean-core message items (user/text seq/updated rows),
   // the transcript's only source; work rows must not re-stick the transcript.
   const transcriptAutoFollowSignal = useMemo(() => {
-    const messageItems = threadItems.filter((item) => item.kind === "user" || item.kind === "text");
+    const messageItems = threadItems.filter(isVisibleThreadMessageItem);
     const tail = messageItems.at(-1);
     return buildTranscriptAutoFollowSignal({
       messageCount: messageItems.length,
@@ -3607,7 +3606,7 @@ function ChatViewContent({
         ? []
         : Schema.decodeUnknownSync(Schema.Array(CleanCoreQueuedMessage))(
             JSON.parse(canonicalThread.queue),
-          ),
+          ).filter((message) => message.origin._tag !== "recovery"),
     [canonicalThread],
   );
 

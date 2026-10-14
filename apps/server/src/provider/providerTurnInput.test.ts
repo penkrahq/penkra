@@ -12,6 +12,7 @@ import { describe, expect, it, vi } from "vitest";
 
 import {
   buildProviderTurnInput,
+  formatUserTurnMember,
   normalizeSkillMentionTextForProvider,
   resolveProviderTurnContext,
 } from "./providerTurnInput.ts";
@@ -119,4 +120,9 @@ describe("provider turn prompt preparation", () => {
       await rm(directory, { recursive: true, force: true });
     }
   });
+});
+
+it("passes recovery text to the provider unchanged", () => {
+  const text = "Continue the existing task.";
+  expect(formatUserTurnMember({ text, origin: { _tag: "recovery" } })).toBe(text);
 });

@@ -61,11 +61,8 @@ export const ButtonSend = forwardRef<HTMLButtonElement, ButtonSendProps>(functio
         visualState === "hover"
           ? "cursor-pointer bg-[color-mix(in_srgb,var(--color-background-button-primary)_90%,transparent)] text-[var(--color-text-button-primary)]"
           : null,
-        visualState === "disabled" || visualState === "sending"
+        visualState === "disabled" || visualState === "sending" || visualState === "stopping"
           ? "bg-[color-mix(in_srgb,var(--color-text-foreground)_12%,transparent)] text-[var(--color-text-foreground-tertiary)]"
-          : null,
-        visualState === "stopping"
-          ? "w-auto px-2 text-xs bg-[var(--color-background-button-primary)] text-[var(--color-text-button-primary)]"
           : null,
         className,
       )}
@@ -76,9 +73,7 @@ export const ButtonSend = forwardRef<HTMLButtonElement, ButtonSendProps>(functio
       type={type}
       {...props}
     >
-      {visualState === "stopping" ? (
-        "Stopping…"
-      ) : visualState === "sending" ? (
+      {visualState === "sending" || visualState === "stopping" ? (
         <IconLoader2 aria-hidden="true" className="size-3.5 animate-spin" />
       ) : visualState === "stop" ? (
         <IconSquareFilled aria-hidden="true" className="size-2" />

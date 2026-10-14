@@ -278,18 +278,20 @@ export function packAgentTranscriptPage(input: {
     ]);
   const source = [
     ...(include.has("messages")
-      ? input.messages.map((message) => ({
-          itemType: "message" as const,
-          id: message.id as string,
-          sequence:
-            message.delivery?.queued === true &&
-            message.delivery.state !== "queued" &&
-            message.delivery.sequence !== undefined
-              ? message.delivery.sequence
-              : message.sequence,
-          createdAt: message.createdAt,
-          message,
-        }))
+      ? input.messages
+          .filter((message) => message.origin?._tag !== "recovery")
+          .map((message) => ({
+            itemType: "message" as const,
+            id: message.id as string,
+            sequence:
+              message.delivery?.queued === true &&
+              message.delivery.state !== "queued" &&
+              message.delivery.sequence !== undefined
+                ? message.delivery.sequence
+                : message.sequence,
+            createdAt: message.createdAt,
+            message,
+          }))
       : []),
     ...input.activities.flatMap((activity) => {
       const classified = activityInclude(activity);
@@ -477,7 +479,8 @@ export function paginateThreadMessages(input: {
       READ_THREAD_MAX_MESSAGE_CHARS,
     ),
   );
-  const total = input.messages.length;
+  const visibleMessages = input.messages.filter((message) => message.origin?._tag !== "recovery");
+  const total = visibleMessages.length;
   // endExclusive is the transcript index right after the newest message of
   // this page; the cursor carries the start of the previous (newer) page.
   let endExclusive = total;
@@ -496,7 +499,7 @@ export function paginateThreadMessages(input: {
   const queuedPositions = new Map(
     queuedMessageIds.map((messageId, index) => [messageId, index + 1] as const),
   );
-  const messages = input.messages.slice(startInclusive, endExclusive).map((message, offset) => {
+  const messages = visibleMessages.slice(startInclusive, endExclusive).map((message, offset) => {
     const { text, truncated } = truncateMessageText(message.text, maxChars);
     return {
       index: startInclusive + offset,

@@ -89,3 +89,20 @@ describe("reconstructed continuation", () => {
     expect(prompt).toContain("<new-user-message>\n\nContinue the plan");
   });
 });
+
+it("retains hidden recovery prompts as literal provider history", () => {
+  const text = "Continue the existing task.";
+  const selected = selectReconstructedContinuation({
+    threadId: "thread-1",
+    currentInput: "New request",
+    hasOlder: false,
+    currentMessageId: "new",
+    items: [
+      {
+        ...message("recovery", "turn-1", 1, text),
+        data: JSON.stringify({ origin: { _tag: "recovery" }, attachments: [] }),
+      },
+    ],
+  });
+  expect(selected.messages[0]).toMatchObject({ text, origin: { _tag: "recovery" } });
+});

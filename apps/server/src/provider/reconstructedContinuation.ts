@@ -41,6 +41,7 @@ function transcriptMessage(message: ContinuationMessage) {
     ...(message.truncated ? { truncated: message.truncated } : {}),
   };
 }
+// Recovery prompts are hidden in public reads, but remain literal provider history.
 function continuationMessage(item: ThreadItemRecord): ContinuationMessage {
   const metadata =
     item.kind === "user"
