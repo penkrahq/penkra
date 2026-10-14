@@ -25,7 +25,7 @@ export const OPENCODE_IMAGE_TRANSFORM_PLUGIN_FILE_NAME = "penkra-image-transform
 export const OPENCODE_IMAGE_TRANSFORM_PLUGIN_SOURCE = `// The smallest observed provider cap is 4 (HerWebCraft: "At most 4 image(s)").
 // Go routes the same model to upstreams capped at 20/64 without limit metadata,
 // so use one global cap; measured back-references are mostly k-1/k-2.
-export const IMAGE_BUDGET = 4;
+const IMAGE_BUDGET = 4;
 const IMAGE_MIME_PREFIX = "image/";
 
 // Match only the SDK FilePartInput shape: type "file" with an image/ mime.
