@@ -1,0 +1,34 @@
+{
+  "effort": {
+    "threadId": "selection-thread",
+    "harness": "claudeAgent",
+    "connectionId": "selection-claude-managed",
+    "connectionLabel": "Claude",
+    "previousConnectionId": "selection-claude-managed",
+    "previousModelId": "claude-sonnet-5",
+    "installationId": "selection-claude-installation",
+    "internalProviderId": null,
+    "modelId": "claude-sonnet-5",
+    "modelLabel": "claude-sonnet-5",
+    "nativeStateId": "selection-native",
+    "providerSessionId": "native-session",
+    "changed": false,
+    "requiresNativeStateMaterialization": false
+  },
+  "model": {
+    "threadId": "selection-thread",
+    "harness": "claudeAgent",
+    "connectionId": "selection-claude-managed",
+    "connectionLabel": "Claude",
+    "previousConnectionId": "selection-claude-managed",
+    "previousModelId": "claude-sonnet-5",
+    "installationId": "selection-claude-installation",
+    "internalProviderId": null,
+    "modelId": "claude-opus-4-7",
+    "modelLabel": "Opus 4.7",
+    "nativeStateId": "selection-native",
+    "providerSessionId": "native-session",
+    "changed": true,
+    "requiresNativeStateMaterialization": false
+  }
+}

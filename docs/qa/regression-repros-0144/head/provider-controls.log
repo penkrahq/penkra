@@ -1,0 +1,34 @@
+$ vitest run --maxWorkers=1 --no-file-parallelism  src/provider/Layers/OpenCodeAdapter.test.ts src/provider/Layers/CodexAdapter.test.ts src/provider/Layers/ClaudeAdapter.test.ts src/provider/Layers/ProviderTurnSelectionResolver.test.ts src/cleanCore/providerStreamConsumer.test.ts -t "QA0144|maps codex model options|updates model on sendTurn|folders compacted thread state|projects task lifecycle|forwards Claude task progress summaries|TodoWrite|plan updates"
+
+ RUN  v4.1.11 /Users/emmanuelgyekyeatta-penkra/Penkra/qa-0144-ns7tff4p/head/apps/server
+
+ ❯ src/provider/Layers/OpenCodeAdapter.test.ts (65 tests | 1 failed | 64 skipped) 22ms
+   × QA0144 OpenCode selected model wire 21ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  src/provider/Layers/OpenCodeAdapter.test.ts > QA0144 OpenCode selected model wire
+Error: Provider adapter validation failed (opencode) in startSession: OpenCode session start requires a resolved managed launch.
+ ❯ Object.<anonymous> src/provider/Layers/OpenCodeAdapter.ts:3213:15
+    3211|           if (!launch)
+    3212|             return yield* Effect.fail(
+    3213|               new ProviderAdapterValidationError({
+       |               ^
+    3214|                 provider,
+    3215|                 operation: "startSession",
+ ❯ next ../../../../00000000-0000-4000-8000-000000000000/penkra-worktrees/release-0143/node_modules/.bun/effect@https+++pkg.pr.new+Effect-TS+effect-smol+effect@8881a9b/node_modules/effect/src/internal/effect.ts:1264:25
+ ❯ Object.~effect/Effect/evaluate ../../../../00000000-0000-4000-8000-000000000000/penkra-worktrees/release-0143/node_modules/.bun/effect@https+++pkg.pr.new+Effect-TS+effect-smol+effect@8881a9b/node_modules/effect/src/internal/effect.ts:1277:23
+ ❯ FiberImpl.runLoop ../../../../00000000-0000-4000-8000-000000000000/penkra-worktrees/release-0143/node_modules/.bun/effect@https+++pkg.pr.new+Effect-TS+effect-smol+effect@8881a9b/node_modules/effect/src/internal/effect.ts:626:39
+ ❯ runLoop ../../../../00000000-0000-4000-8000-000000000000/penkra-worktrees/release-0143/node_modules/.bun/effect@https+++pkg.pr.new+Effect-TS+effect-smol+effect@8881a9b/node_modules/effect/src/internal/effect.ts:587:22
+ ❯ evaluate ../../../../00000000-0000-4000-8000-000000000000/penkra-worktrees/release-0143/node_modules/.bun/effect@https+++pkg.pr.new+Effect-TS+effect-smol+effect@8881a9b/node_modules/effect/src/internal/effect.ts:1018:14
+ ❯ resume ../../../../00000000-0000-4000-8000-000000000000/penkra-worktrees/release-0143/node_modules/.bun/effect@https+++pkg.pr.new+Effect-TS+effect-smol+effect@8881a9b/node_modules/effect/src/Effect.ts:23146:12
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
+
+
+ Test Files  1 failed | 4 passed (5)
+      Tests  1 failed | 11 passed | 247 skipped (259)
+   Start at  23:42:38
+   Duration  12.05s (transform 4.50s, setup 0ms, import 9.41s, tests 1.79s, environment 0ms)
+
+error: script "test" exited with code 1

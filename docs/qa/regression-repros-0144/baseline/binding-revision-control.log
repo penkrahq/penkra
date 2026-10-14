@@ -1,0 +1,9 @@
+$ vitest run --maxWorkers=1 --no-file-parallelism  src/orchestration/Layers/ProviderCommandReactor.test.ts src/orchestration/Layers/ProviderThreadSwitchCoordinator.test.ts -t "QA0144|journals a model-only change"
+
+ RUN  v4.1.11 /Users/emmanuelgyekyeatta-penkra/Penkra/qa-0144-ns7tff4p/baseline/apps/server
+
+
+ Test Files  2 passed (2)
+      Tests  11 passed | 196 skipped (207)
+   Start at  23:46:07
+   Duration  12.35s (transform 3.23s, setup 0ms, import 4.58s, tests 7.46s, environment 0ms)

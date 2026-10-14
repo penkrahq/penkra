@@ -1,0 +1,308 @@
+[
+  {
+    "provider": "claudeAgent",
+    "type": "task.progress",
+    "legacyProjection": [
+      {
+        "id": "qa-claudeAgent",
+        "createdAt": "2026-10-13T22:00:00.000Z",
+        "tone": "info",
+        "kind": "task.progress",
+        "summary": "Reasoning update",
+        "payload": {
+          "taskId": "qa-task",
+          "detail": "Checked the desktop rollout",
+          "description": "Reviewing the release",
+          "summary": "Checked the desktop rollout"
+        },
+        "turnId": "qa-turn"
+      }
+    ],
+    "canonical": null,
+    "work": [
+      {
+        "id": "qa-claudeAgent",
+        "createdAt": "2026-10-13T22:00:00.000Z",
+        "turnId": "qa-turn",
+        "label": "Reasoning update",
+        "tone": "info",
+        "activityKind": "task.progress",
+        "detail": "Checked the desktop rollout",
+        "toolTitle": "Reasoning update"
+      }
+    ],
+    "panel": null
+  },
+  {
+    "provider": "claudeAgent",
+    "type": "turn.tasks.updated",
+    "legacyProjection": [
+      {
+        "id": "qa-claudeAgent",
+        "createdAt": "2026-10-13T22:00:00.000Z",
+        "tone": "info",
+        "kind": "turn.tasks.updated",
+        "summary": "Tasks updated",
+        "payload": {
+          "tasks": [
+            {
+              "task": "Inspect release",
+              "status": "completed"
+            },
+            {
+              "task": "Verify runtime",
+              "status": "inProgress"
+            }
+          ],
+          "explanation": "Release checks"
+        },
+        "turnId": "qa-turn"
+      }
+    ],
+    "canonical": null,
+    "work": [
+      {
+        "id": "qa-claudeAgent",
+        "createdAt": "2026-10-13T22:00:00.000Z",
+        "turnId": "qa-turn",
+        "label": "Tasks updated",
+        "tone": "info",
+        "activityKind": "turn.tasks.updated",
+        "toolTitle": "Tasks updated"
+      }
+    ],
+    "panel": {
+      "createdAt": "2026-10-13T22:00:00.000Z",
+      "turnId": "qa-turn",
+      "explanation": "Release checks",
+      "tasks": [
+        {
+          "task": "Inspect release",
+          "status": "completed"
+        },
+        {
+          "task": "Verify runtime",
+          "status": "inProgress"
+        }
+      ]
+    }
+  },
+  {
+    "provider": "claudeAgent",
+    "type": "thread.state.changed",
+    "legacyProjection": [
+      {
+        "id": "qa-claudeAgent",
+        "createdAt": "2026-10-13T22:00:00.000Z",
+        "tone": "info",
+        "kind": "context-compaction",
+        "summary": "Context compacted",
+        "payload": {
+          "state": "compacted",
+          "detail": {
+            "source": "provider"
+          }
+        },
+        "turnId": "qa-turn"
+      }
+    ],
+    "canonical": null,
+    "work": [
+      {
+        "id": "qa-claudeAgent",
+        "createdAt": "2026-10-13T22:00:00.000Z",
+        "turnId": "qa-turn",
+        "label": "Context compacted",
+        "tone": "info",
+        "activityKind": "context-compaction",
+        "toolTitle": "Context compacted"
+      }
+    ],
+    "panel": null
+  },
+  {
+    "provider": "claudeAgent",
+    "type": "item.completed",
+    "legacyProjection": [
+      {
+        "id": "provider-item:claudeAgent:qa-thread:qa-compaction:context-compaction",
+        "createdAt": "2026-10-13T22:00:00.000Z",
+        "tone": "info",
+        "kind": "context-compaction",
+        "summary": "Context compacted",
+        "payload": {
+          "compactionId": "qa-compaction",
+          "itemType": "context_compaction",
+          "status": "completed"
+        },
+        "turnId": "qa-turn"
+      }
+    ],
+    "canonical": null,
+    "work": [
+      {
+        "id": "provider-item:claudeAgent:qa-thread:qa-compaction:context-compaction",
+        "createdAt": "2026-10-13T22:00:00.000Z",
+        "turnId": "qa-turn",
+        "label": "Context compacted",
+        "tone": "info",
+        "activityKind": "context-compaction",
+        "toolTitle": "Context compacted"
+      }
+    ],
+    "panel": null
+  },
+  {
+    "provider": "codex",
+    "type": "task.progress",
+    "legacyProjection": [
+      {
+        "id": "qa-codex",
+        "createdAt": "2026-10-13T22:00:00.000Z",
+        "tone": "info",
+        "kind": "task.progress",
+        "summary": "Reasoning update",
+        "payload": {
+          "taskId": "qa-task",
+          "detail": "Checked the desktop rollout",
+          "description": "Reviewing the release",
+          "summary": "Checked the desktop rollout"
+        },
+        "turnId": "qa-turn"
+      }
+    ],
+    "canonical": null,
+    "work": [
+      {
+        "id": "qa-codex",
+        "createdAt": "2026-10-13T22:00:00.000Z",
+        "turnId": "qa-turn",
+        "label": "Reasoning update",
+        "tone": "info",
+        "activityKind": "task.progress",
+        "detail": "Checked the desktop rollout",
+        "toolTitle": "Reasoning update"
+      }
+    ],
+    "panel": null
+  },
+  {
+    "provider": "codex",
+    "type": "turn.tasks.updated",
+    "legacyProjection": [
+      {
+        "id": "qa-codex",
+        "createdAt": "2026-10-13T22:00:00.000Z",
+        "tone": "info",
+        "kind": "turn.tasks.updated",
+        "summary": "Tasks updated",
+        "payload": {
+          "tasks": [
+            {
+              "task": "Inspect release",
+              "status": "completed"
+            },
+            {
+              "task": "Verify runtime",
+              "status": "inProgress"
+            }
+          ],
+          "explanation": "Release checks"
+        },
+        "turnId": "qa-turn"
+      }
+    ],
+    "canonical": null,
+    "work": [
+      {
+        "id": "qa-codex",
+        "createdAt": "2026-10-13T22:00:00.000Z",
+        "turnId": "qa-turn",
+        "label": "Tasks updated",
+        "tone": "info",
+        "activityKind": "turn.tasks.updated",
+        "toolTitle": "Tasks updated"
+      }
+    ],
+    "panel": {
+      "createdAt": "2026-10-13T22:00:00.000Z",
+      "turnId": "qa-turn",
+      "explanation": "Release checks",
+      "tasks": [
+        {
+          "task": "Inspect release",
+          "status": "completed"
+        },
+        {
+          "task": "Verify runtime",
+          "status": "inProgress"
+        }
+      ]
+    }
+  },
+  {
+    "provider": "codex",
+    "type": "thread.state.changed",
+    "legacyProjection": [
+      {
+        "id": "qa-codex",
+        "createdAt": "2026-10-13T22:00:00.000Z",
+        "tone": "info",
+        "kind": "context-compaction",
+        "summary": "Context compacted",
+        "payload": {
+          "state": "compacted",
+          "detail": {
+            "source": "provider"
+          }
+        },
+        "turnId": "qa-turn"
+      }
+    ],
+    "canonical": null,
+    "work": [
+      {
+        "id": "qa-codex",
+        "createdAt": "2026-10-13T22:00:00.000Z",
+        "turnId": "qa-turn",
+        "label": "Context compacted",
+        "tone": "info",
+        "activityKind": "context-compaction",
+        "toolTitle": "Context compacted"
+      }
+    ],
+    "panel": null
+  },
+  {
+    "provider": "codex",
+    "type": "item.completed",
+    "legacyProjection": [
+      {
+        "id": "provider-item:codex:qa-thread:qa-compaction:context-compaction",
+        "createdAt": "2026-10-13T22:00:00.000Z",
+        "tone": "info",
+        "kind": "context-compaction",
+        "summary": "Context compacted",
+        "payload": {
+          "compactionId": "qa-compaction",
+          "itemType": "context_compaction",
+          "status": "completed"
+        },
+        "turnId": "qa-turn"
+      }
+    ],
+    "canonical": null,
+    "work": [
+      {
+        "id": "provider-item:codex:qa-thread:qa-compaction:context-compaction",
+        "createdAt": "2026-10-13T22:00:00.000Z",
+        "turnId": "qa-turn",
+        "label": "Context compacted",
+        "tone": "info",
+        "activityKind": "context-compaction",
+        "toolTitle": "Context compacted"
+      }
+    ],
+    "panel": null
+  }
+]

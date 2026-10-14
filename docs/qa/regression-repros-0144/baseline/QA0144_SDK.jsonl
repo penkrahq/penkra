@@ -1,0 +1,6 @@
+{"from":"high","to":"max","spawnSettings":{"autoCompactEnabled":true,"autoCompactWindow":200000,"effortLevel":"high"},"liveFlags":[],"closed":0,"setModel":[]}
+{"from":"max","to":"high","spawnEffort":"max","spawnSettings":{"autoCompactEnabled":true,"autoCompactWindow":200000},"liveFlags":[],"closed":0,"setModel":[]}
+{"from":"high","to":"low","spawnSettings":{"autoCompactEnabled":true,"autoCompactWindow":200000,"effortLevel":"high"},"liveFlags":[{"effortLevel":"low"}],"closed":0,"setModel":[]}
+{"from":"high","to":"max","spawnSettings":{"autoCompactEnabled":true,"autoCompactWindow":200000,"effortLevel":"high"},"liveFlags":[],"closed":0,"setModel":[]}
+{"from":"max","to":"high","spawnEffort":"max","spawnSettings":{"autoCompactEnabled":true,"autoCompactWindow":200000},"liveFlags":[],"closed":0,"setModel":[]}
+{"from":"high","to":"low","spawnSettings":{"autoCompactEnabled":true,"autoCompactWindow":200000,"effortLevel":"high"},"liveFlags":[{"effortLevel":"low"}],"closed":0,"setModel":[]}

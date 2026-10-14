@@ -1,0 +1,169 @@
+--- a/vitest.config.ts
++++ b/vitest.config.ts
+@@ -4,6 +4,7 @@
+ export default defineConfig({
+   resolve: {
+     alias: [
++      { find: /^@penkra\/shared\//, replacement: `${path.resolve(import.meta.dirname, "./packages/shared/src")}/` },
+       {
+         find: /^@penkra\/contracts$/,
+         replacement: path.resolve(import.meta.dirname, "./packages/contracts/src/index.ts"),
+--- a/apps/server/package.json
++++ b/apps/server/package.json
+@@ -22,7 +22,7 @@
+     "build": "node scripts/cli.ts build",
+     "start": "node dist/index.mjs",
+     "typecheck": "tsc --noEmit",
+-    "test": "vitest run --maxWorkers=1 --no-file-parallelism --silent=passed-only"
++    "test": "vitest run --maxWorkers=1 --no-file-parallelism "
+   },
+   "dependencies": {
+     "@anthropic-ai/claude-agent-sdk": "0.3.207",
+--- a/apps/web/package.json
++++ b/apps/web/package.json
+@@ -11,7 +11,7 @@
+     "build-storybook": "storybook build",
+     "typecheck": "tsc --noEmit",
+     "test": "vitest run --passWithNoTests --silent=passed-only",
+-    "test:browser": "vitest run --config vitest.browser.config.ts",
++    "test:browser": "vitest run --config qa-browser.config.ts",
+     "test:browser:chat-view": "vitest run --config vitest.browser.chat-view.config.ts",
+     "test:browser:components": "vitest run --config vitest.browser.components.config.ts",
+     "test:browser:install": "playwright install --with-deps chromium",
+--- /dev/null
++++ b/apps/web/qa-browser.config.ts
+@@ -0,0 +1,4 @@
++import { mergeConfig } from "vitest/config";
++import browserConfig from "./vitest.browser.config.ts";
++import path from "node:path";
++export default mergeConfig(browserConfig, {resolve: {alias: [{find: /^@penkra\/contracts$/, replacement: path.resolve(import.meta.dirname, "../../packages/contracts/src/index.ts")}, {find: /^@penkra\/shared\//, replacement: path.resolve(import.meta.dirname, "../../packages/shared/src")+"/"}]}, server: {port: 5898, strictPort: true, host: "127.0.0.1"}});
+--- a/apps/server/src/provider/Layers/ClaudeAdapter.test.ts
++++ b/apps/server/src/provider/Layers/ClaudeAdapter.test.ts
+@@ -1,3 +1,4 @@
++import { appendFileSync } from "node:fs";
+ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+ import os from "node:os";
+ import path from "node:path";
+@@ -8913,3 +8914,16 @@
+     );
+   });
+ });
++
++for (const [from, to] of [["high", "max"], ["max", "high"], ["high", "low"]] as const) {
++  it.effect(`QA0144 effort ${from} to ${to}`, () => {
++    const harness = makeHarness({ baseDir: process.env.PENKRA_HOME, cwd: process.env.PENKRA_HOME });
++    return Effect.gen(function* () {
++      const adapter = yield* ClaudeAdapter;
++      const session = yield* adapter.startSession({ threadId: THREAD_ID, provider: "claudeAgent", runtimeMode: "full-access", modelSelection: { provider: "claudeAgent", model: "claude-opus-4-8", options: { effort: from } } });
++      yield* adapter.sendTurn({ threadId: session.threadId, input: "Continue the review.", attachments: [], modelSelection: { provider: "claudeAgent", model: "claude-opus-4-8", options: { effort: to } } });
++      appendFileSync(process.env.PENKRA_HOME + "/QA0144_SDK.jsonl", JSON.stringify({ from, to, spawnEffort: harness.getLastCreateQueryInput()?.options.effort, spawnSettings: harness.getLastCreateQueryInput()?.options.settings, liveFlags: harness.query.applyFlagSettingsCalls, closed: harness.query.closeCalls, setModel: harness.query.setModelCalls }) + "\n");
++      assert.equal(harness.query.closeCalls, 0);
++    }).pipe(Effect.provideService(Random.Random, makeDeterministicRandomService()), Effect.provide(harness.layer));
++  });
++}
+--- a/apps/server/src/provider/Layers/OpenCodeAdapter.test.ts
++++ b/apps/server/src/provider/Layers/OpenCodeAdapter.test.ts
+@@ -5436,3 +5436,14 @@
+     });
+   });
+ });
++
++it("QA0144 OpenCode selected model wire", async () => {
++ const runtime = createMockOpenCodeRuntime();
++ await Effect.runPromise(Effect.gen(function* () {
++  const adapter = yield* OpenCodeAdapter;
++  yield* adapter.startSession({provider: "opencode", threadId: asThreadId("qa-wire"), runtimeMode: "full-access", modelSelection: {provider: "opencode", model: "openai/gpt-5"}});
++  yield* adapter.sendTurn({threadId: asThreadId("qa-wire"), input: "Continue the review.", attachments: [], modelSelection: {provider: "opencode", model: "openai/gpt-5.4", options: {variant: "high"}}});
++ }).pipe(Effect.provide(makeOpenCodeAdapterLive({runtime: runtime.runtime}).pipe(Layer.provideMerge(ServerConfig.layerTest(process.env.PENKRA_HOME!, process.env.PENKRA_HOME!)), Layer.provideMerge(NodeServices.layer)))));
++ fs.writeFileSync(process.env.PENKRA_HOME + "/opencode-wire.json", JSON.stringify(runtime.promptCalls, null, 2));
++ expect(runtime.promptCalls[0]).toMatchObject({model: {providerID: "openai", modelID: "gpt-5.4"}, variant: "high"});
++});
+--- /dev/null
++++ b/apps/server/src/qa-events.test.ts
+@@ -0,0 +1,27 @@
++import { it, expect } from "vitest";
++import { writeFileSync } from "node:fs";
++import { projectProviderRuntimeActivities } from "./orchestration/providerRuntimeActivityProjection.ts";
++import { deriveWorkLogEntries } from "../../web/src/workLog.ts";
++import { deriveActiveTaskListState } from "../../web/src/session-logic.ts";
++
++it("QA0144 identical event presentation", () => {
++ const records = [];
++ for (const provider of ["claudeAgent", "codex"] as const) {
++  const base = { eventId: `qa-${provider}`, provider, threadId: "qa-thread", turnId: "qa-turn", createdAt: "2026-10-13T22:00:00.000Z" };
++  for (const event of [
++   {...base, type: "task.progress", payload: {taskId: "qa-task", description: "Reviewing the release", summary: "Checked the desktop rollout"}},
++   {...base, type: "turn.tasks.updated", payload: {tasks: [{task: "Inspect release", status: "completed"}, {task: "Verify runtime", status: "inProgress"}], explanation: "Release checks"}},
++   {...base, type: "thread.state.changed", payload: {state: "compacted", detail: {source: "provider"}}},
++   {...base, itemId: "qa-compaction", type: "item.completed", payload: {itemType: "context_compaction", status: "completed"}}
++  ]) {
++   const old = projectProviderRuntimeActivities(event as any);
++   const canonical = null;
++   const delivered = old;
++   const record = {provider, type: event.type, legacyProjection: old, canonical, work: deriveWorkLogEntries(delivered as any, "qa-turn" as any), panel: deriveActiveTaskListState(delivered as any, "qa-turn" as any)};
++   records.push(record);
++   console.log("QA0144_EVENT", JSON.stringify(record));
++  }
++ }
++ writeFileSync(process.env.PENKRA_HOME + "/events.json", JSON.stringify(records, null, 2));
++ expect(records).toHaveLength(8);
++});
+--- /dev/null
++++ b/apps/web/src/components/chat/qa-presentation.browser.tsx
+@@ -0,0 +1,15 @@
++import "../../index.css";
++import { page } from "vitest/browser";
++import { it, expect, vi } from "vitest";
++import { render } from "vitest-browser-react";
++import { TimelineWorkEntryRow } from "./TimelineWorkEntryRow";
++const records = [{"provider": "claudeAgent", "type": "task.progress", "legacyProjection": [{"id": "qa-claudeAgent", "createdAt": "2026-10-13T22:00:00.000Z", "tone": "info", "kind": "task.progress", "summary": "Reasoning update", "payload": {"taskId": "qa-task", "detail": "Checked the desktop rollout", "description": "Reviewing the release", "summary": "Checked the desktop rollout"}, "turnId": "qa-turn"}], "canonical": null, "work": [{"id": "qa-claudeAgent", "createdAt": "2026-10-13T22:00:00.000Z", "turnId": "qa-turn", "label": "Reasoning update", "tone": "info", "activityKind": "task.progress", "detail": "Checked the desktop rollout", "toolTitle": "Reasoning update"}], "panel": null}, {"provider": "claudeAgent", "type": "turn.tasks.updated", "legacyProjection": [{"id": "qa-claudeAgent", "createdAt": "2026-10-13T22:00:00.000Z", "tone": "info", "kind": "turn.tasks.updated", "summary": "Tasks updated", "payload": {"tasks": [{"task": "Inspect release", "status": "completed"}, {"task": "Verify runtime", "status": "inProgress"}], "explanation": "Release checks"}, "turnId": "qa-turn"}], "canonical": null, "work": [{"id": "qa-claudeAgent", "createdAt": "2026-10-13T22:00:00.000Z", "turnId": "qa-turn", "label": "Tasks updated", "tone": "info", "activityKind": "turn.tasks.updated", "toolTitle": "Tasks updated"}], "panel": {"createdAt": "2026-10-13T22:00:00.000Z", "turnId": "qa-turn", "explanation": "Release checks", "tasks": [{"task": "Inspect release", "status": "completed"}, {"task": "Verify runtime", "status": "inProgress"}]}}, {"provider": "claudeAgent", "type": "thread.state.changed", "legacyProjection": [{"id": "qa-claudeAgent", "createdAt": "2026-10-13T22:00:00.000Z", "tone": "info", "kind": "context-compaction", "summary": "Context compacted", "payload": {"state": "compacted", "detail": {"source": "provider"}}, "turnId": "qa-turn"}], "canonical": null, "work": [{"id": "qa-claudeAgent", "createdAt": "2026-10-13T22:00:00.000Z", "turnId": "qa-turn", "label": "Context compacted", "tone": "info", "activityKind": "context-compaction", "toolTitle": "Context compacted"}], "panel": null}, {"provider": "claudeAgent", "type": "item.completed", "legacyProjection": [{"id": "provider-item:claudeAgent:qa-thread:qa-compaction:context-compaction", "createdAt": "2026-10-13T22:00:00.000Z", "tone": "info", "kind": "context-compaction", "summary": "Context compacted", "payload": {"compactionId": "qa-compaction", "itemType": "context_compaction", "status": "completed"}, "turnId": "qa-turn"}], "canonical": null, "work": [{"id": "provider-item:claudeAgent:qa-thread:qa-compaction:context-compaction", "createdAt": "2026-10-13T22:00:00.000Z", "turnId": "qa-turn", "label": "Context compacted", "tone": "info", "activityKind": "context-compaction", "toolTitle": "Context compacted"}], "panel": null}, {"provider": "codex", "type": "task.progress", "legacyProjection": [{"id": "qa-codex", "createdAt": "2026-10-13T22:00:00.000Z", "tone": "info", "kind": "task.progress", "summary": "Reasoning update", "payload": {"taskId": "qa-task", "detail": "Checked the desktop rollout", "description": "Reviewing the release", "summary": "Checked the desktop rollout"}, "turnId": "qa-turn"}], "canonical": null, "work": [{"id": "qa-codex", "createdAt": "2026-10-13T22:00:00.000Z", "turnId": "qa-turn", "label": "Reasoning update", "tone": "info", "activityKind": "task.progress", "detail": "Checked the desktop rollout", "toolTitle": "Reasoning update"}], "panel": null}, {"provider": "codex", "type": "turn.tasks.updated", "legacyProjection": [{"id": "qa-codex", "createdAt": "2026-10-13T22:00:00.000Z", "tone": "info", "kind": "turn.tasks.updated", "summary": "Tasks updated", "payload": {"tasks": [{"task": "Inspect release", "status": "completed"}, {"task": "Verify runtime", "status": "inProgress"}], "explanation": "Release checks"}, "turnId": "qa-turn"}], "canonical": null, "work": [{"id": "qa-codex", "createdAt": "2026-10-13T22:00:00.000Z", "turnId": "qa-turn", "label": "Tasks updated", "tone": "info", "activityKind": "turn.tasks.updated", "toolTitle": "Tasks updated"}], "panel": {"createdAt": "2026-10-13T22:00:00.000Z", "turnId": "qa-turn", "explanation": "Release checks", "tasks": [{"task": "Inspect release", "status": "completed"}, {"task": "Verify runtime", "status": "inProgress"}]}}, {"provider": "codex", "type": "thread.state.changed", "legacyProjection": [{"id": "qa-codex", "createdAt": "2026-10-13T22:00:00.000Z", "tone": "info", "kind": "context-compaction", "summary": "Context compacted", "payload": {"state": "compacted", "detail": {"source": "provider"}}, "turnId": "qa-turn"}], "canonical": null, "work": [{"id": "qa-codex", "createdAt": "2026-10-13T22:00:00.000Z", "turnId": "qa-turn", "label": "Context compacted", "tone": "info", "activityKind": "context-compaction", "toolTitle": "Context compacted"}], "panel": null}, {"provider": "codex", "type": "item.completed", "legacyProjection": [{"id": "provider-item:codex:qa-thread:qa-compaction:context-compaction", "createdAt": "2026-10-13T22:00:00.000Z", "tone": "info", "kind": "context-compaction", "summary": "Context compacted", "payload": {"compactionId": "qa-compaction", "itemType": "context_compaction", "status": "completed"}, "turnId": "qa-turn"}], "canonical": null, "work": [{"id": "provider-item:codex:qa-thread:qa-compaction:context-compaction", "createdAt": "2026-10-13T22:00:00.000Z", "turnId": "qa-turn", "label": "Context compacted", "tone": "info", "activityKind": "context-compaction", "toolTitle": "Context compacted"}], "panel": null}];
++it("QA0144 render delivered provider work rows", async () => {
++ const work = records.flatMap(row => row.work);
++ const screen = await render(<div>{work.map((entry, i) => <TimelineWorkEntryRow key={i} workEntry={entry as any} chatMetaFontSizePx={12} markdownCwd={undefined} onImageExpand={vi.fn()} />)}</div>);
++ try {
++  const text = document.body.textContent;
++  expect(text).toContain("Checked the desktop rollout"); expect(text).toContain("Tasks updated"); expect(text).toContain("Context compacted");
++  await page.screenshot({path: "/Users/emmanuelgyekyeatta-penkra/Penkra/qa-0144-ns7tff4p/baseline/qa-logs/presentation.png"});
++ } finally { await screen.unmount(); }
++});
+--- a/apps/server/src/orchestration/Layers/ProviderCommandReactor.test.ts
++++ b/apps/server/src/orchestration/Layers/ProviderCommandReactor.test.ts
+@@ -1,3 +1,4 @@
++import { appendFileSync } from "node:fs";
+ // FILE: ProviderCommandReactor.test.ts
+ // Purpose: Verifies provider intent orchestration, queueing, rollback, and native-session flows.
+ // Layer: Orchestration integration tests
+@@ -11347,4 +11348,33 @@
+     expect(harness.startSession).not.toHaveBeenCalled();
+     expect(harness.stopSession).not.toHaveBeenCalled();
+   });
++
++  for (const advanceRevision of [false, true]) {
++  for (const scenario of [
++    {provider: "claudeAgent", from: "claude-opus-4-8", to: "claude-opus-4-8", fromEffort: "high", toEffort: "max"},
++    {provider: "claudeAgent", from: "claude-opus-4-8", to: "claude-opus-4-8", fromEffort: "max", toEffort: "high"},
++    {provider: "claudeAgent", from: "claude-sonnet-5", to: "claude-opus-4-8"},
++    {provider: "codex", from: "gpt-5.5", to: "gpt-5.6-sol"},
++    {provider: "opencode", from: "opencode-go/kimi-k2.5", to: "opencode-go/glm-5.1"},
++  ] as const) {
++   it(`QA0144 admission revision-${advanceRevision} ${scenario.provider} ${scenario.from} ${scenario.fromEffort ?? ""} to ${scenario.to} ${scenario.toEffort ?? ""}`, async () => {
++    const selection = {provider: scenario.provider, model: scenario.from, ...(scenario.fromEffort ? {options: {effort: scenario.fromEffort}} : {})} as ModelSelection;
++    const harness = await createHarness({threadModelSelection: selection, sessionModelSwitch: "in-session"});
++    const now = new Date().toISOString();
++    const send = (id: string, modelSelection: ModelSelection) => Effect.runPromise(harness.engine.dispatch({ type: "thread.turn.start", connectionId: TEST_CONNECTION_ID, bindingRevision: (advanceRevision && id === "second") ? 1 : 0, commandId: CommandId.makeUnsafe(`qa-${id}`), threadId: ThreadId.makeUnsafe("thread-1"), message: {messageId: asMessageId(`qa-msg-${id}`), role: "user", text: "Continue the release review.", attachments: []}, modelSelection, runtimeMode: "approval-required", createdAt: now }));
++    await send("first", selection);
++    await waitFor(() => harness.sendTurn.mock.calls.length === 1);
++    harness.setRuntimeSessionTurnState({threadId: "thread-1", status: "ready"});
++    await Effect.runPromise(harness.engine.dispatch({type: "thread.session.set", commandId: CommandId.makeUnsafe("qa-ready"), threadId: ThreadId.makeUnsafe("thread-1"), session: {threadId: ThreadId.makeUnsafe("thread-1"), providerName: scenario.provider, runtimeMode: "approval-required", status: "ready", activeTurnId: null, lastError: null, updatedAt: now}, createdAt: now}));
++    const next = {provider: scenario.provider, model: scenario.to, ...(scenario.toEffort ? {options: {effort: scenario.toEffort}} : {})} as ModelSelection;
++    if (advanceRevision) harness.setBindingRevision(1);
++    const before = performance.now();
++    await send("second", next);
++    await waitFor(() => harness.sendTurn.mock.calls.length === 2);
++    appendFileSync(process.env.PENKRA_HOME + "/QA0144_ADMISSION.jsonl", JSON.stringify({scenario, advanceRevision, elapsedMs: performance.now()-before, stops: harness.stopSession.mock.calls, starts: harness.startSession.mock.calls.map(call => ({modelSelection: call[1]?.modelSelection, resumeCursor: call[1]?.resumeCursor})), sends: harness.sendTurn.mock.calls.map(call => call[0]?.modelSelection), projected: (await readHarnessThread(harness))?.modelSelection}) + "\n");
++    expect(harness.sendTurn.mock.calls[1]?.[0]?.modelSelection).toEqual(next);
++    expect(harness.startSession.mock.calls.length).toBe((scenario.toEffort || advanceRevision) ? 2 : 1);
++   });
++  }
++  }
+ });

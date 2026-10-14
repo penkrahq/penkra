@@ -1,0 +1,23 @@
+$ vitest run --maxWorkers=1 --no-file-parallelism  src/provider/Layers/OpenCodeAdapter.test.ts src/cleanCore/providerStreamConsumer.test.ts -t "QA0144"
+
+ RUN  v4.1.11 /Users/emmanuelgyekyeatta-penkra/Penkra/qa-0144-ns7tff4p/head/apps/server
+
+ ❯ src/provider/Layers/OpenCodeAdapter.test.ts (65 tests | 1 failed | 64 skipped) 28ms
+   × QA0144 OpenCode selected model wire 27ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  src/provider/Layers/OpenCodeAdapter.test.ts > QA0144 OpenCode selected model wire
+ReferenceError: fs is not defined
+ ❯ src/provider/Layers/OpenCodeAdapter.test.ts:5347:2
+
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
+
+
+ Test Files  1 failed | 1 passed (2)
+      Tests  1 failed | 1 passed | 88 skipped (90)
+   Start at  23:43:47
+   Duration  2.92s (transform 1.56s, setup 0ms, import 2.38s, tests 298ms, environment 0ms)
+
+error: script "test" exited with code 1

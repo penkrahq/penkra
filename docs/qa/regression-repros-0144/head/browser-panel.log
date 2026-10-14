@@ -1,0 +1,47 @@
+$ vitest run --config qa-browser.config.ts src/components/ChatView.browser.tsx -t "does not mount a task-progress panel|does not expose provider task progress"
+
+ RUN  v4.1.11 /Users/emmanuelgyekyeatta-penkra/Penkra/qa-0144-ns7tff4p/head/apps/web
+
+11:44:53 PM [vite] (client) Re-optimizing dependencies because lockfile has changed
+11:44:54 PM [vite] (client) [optimizer] scanning dependencies...
+11:44:56 PM [vite] (client) [optimizer] bundling dependencies...
+Browserslist: browsers data (caniuse-lite) is 7 months old. Please run:
+  npx update-browserslist-db@latest
+  Why you should do it regularly: https://github.com/browserslist/update-db#readme
+ ❯ |chromium| src/components/ChatView.browser.tsx (90 tests | 2 failed | 88 skipped) 66107ms
+     × does not mount a task-progress panel above the composer 45817ms
+     × does not expose provider task progress for active turns 20258ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 2 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  |chromium| src/components/ChatView.browser.tsx > ChatView timeline estimator parity (full app) > does not mount a task-progress panel above the composer
+ FAIL  |chromium| src/components/ChatView.browser.tsx > ChatView timeline estimator parity (full app) > does not expose provider task progress for active turns
+AssertionError: Active thread detail did not hydrate.: expected false to be true // Object.is equality
+
+Failure screenshots:
+  - src/components/__screenshots__/ChatView.browser.tsx/ChatView-timeline-estimator-parity--full-app--does-not-mount-a-task-progress-panel-above-the-composer-1.png
+  - src/components/__screenshots__/ChatView.browser.tsx/ChatView-timeline-estimator-parity--full-app--does-not-expose-provider-task-progress-for-active-turns-1.png
+
+[32m- Expected[39m
+[31m+ Received[39m
+
+[32m- true[39m
+[31m+ false[39m
+
+ ❯ vi.waitFor.timeout src/components/ChatView.browser.tsx:2760:8
+    2758|         expectedThread.messages.every((message) => hydratedMessageIdSe…
+    2759|         "Active thread detail did not hydrate.",
+    2760|       ).toBe(true);
+       |        ^
+    2761|     },
+    2762|     { timeout: 20_000, interval: 16 },
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/2]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  2 failed | 88 skipped (90)
+   Start at  23:44:52
+   Duration  77.62s (transform 0ms, setup 0ms, import 6.88s, tests 66.11s, environment 0ms)
+
+error: script "test:browser" exited with code 1

@@ -1,0 +1,261 @@
+--- a/vitest.config.ts
++++ b/vitest.config.ts
+@@ -4,6 +4,7 @@
+ export default defineConfig({
+   resolve: {
+     alias: [
++      { find: /^@penkra\/shared\//, replacement: `${path.resolve(import.meta.dirname, "./packages/shared/src")}/` },
+       {
+         find: /^@penkra\/contracts$/,
+         replacement: path.resolve(import.meta.dirname, "./packages/contracts/src/index.ts"),
+--- a/apps/server/package.json
++++ b/apps/server/package.json
+@@ -22,7 +22,7 @@
+     "build": "node scripts/cli.ts build",
+     "start": "node dist/index.mjs",
+     "typecheck": "tsc --noEmit",
+-    "test": "vitest run --maxWorkers=1 --no-file-parallelism --silent=passed-only"
++    "test": "vitest run --maxWorkers=1 --no-file-parallelism "
+   },
+   "dependencies": {
+     "@anthropic-ai/claude-agent-sdk": "0.3.207",
+--- a/apps/web/package.json
++++ b/apps/web/package.json
+@@ -11,7 +11,7 @@
+     "build-storybook": "storybook build",
+     "typecheck": "tsc --noEmit",
+     "test": "vitest run --passWithNoTests --silent=passed-only",
+-    "test:browser": "vitest run --config vitest.browser.config.ts",
++    "test:browser": "vitest run --config qa-browser.config.ts",
+     "test:browser:chat-view": "vitest run --config vitest.browser.chat-view.config.ts",
+     "test:browser:components": "vitest run --config vitest.browser.components.config.ts",
+     "test:browser:install": "playwright install --with-deps chromium",
+--- /dev/null
++++ b/apps/web/qa-browser.config.ts
+@@ -0,0 +1,4 @@
++import { mergeConfig } from "vitest/config";
++import browserConfig from "./vitest.browser.config.ts";
++import path from "node:path";
++export default mergeConfig(browserConfig, {resolve: {alias: [{find: /^@penkra\/contracts$/, replacement: path.resolve(import.meta.dirname, "../../packages/contracts/src/index.ts")}, {find: /^@penkra\/shared\//, replacement: path.resolve(import.meta.dirname, "../../packages/shared/src")+"/"}]}, server: {port: 5899, strictPort: true, host: "127.0.0.1"}});
+--- a/apps/server/src/provider/Layers/ClaudeAdapter.test.ts
++++ b/apps/server/src/provider/Layers/ClaudeAdapter.test.ts
+@@ -1,3 +1,4 @@
++import { appendFileSync } from "node:fs";
+ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+ import os from "node:os";
+ import path from "node:path";
+@@ -8453,3 +8454,16 @@
+     );
+   });
+ });
++
++for (const [from, to] of [["high", "max"], ["max", "high"], ["high", "low"]] as const) {
++  it.effect(`QA0144 effort ${from} to ${to}`, () => {
++    const harness = makeHarness({ baseDir: process.env.PENKRA_HOME, cwd: process.env.PENKRA_HOME });
++    return Effect.gen(function* () {
++      const adapter = yield* ClaudeAdapter;
++      const session = yield* adapter.startSession({ threadId: THREAD_ID, provider: "claudeAgent", runtimeMode: "full-access", modelSelection: { provider: "claudeAgent", model: "claude-opus-4-8", options: { effort: from } } });
++      yield* adapter.sendTurn({ threadId: session.threadId, input: "Continue the review.", attachments: [], modelSelection: { provider: "claudeAgent", model: "claude-opus-4-8", options: { effort: to } } });
++      appendFileSync(process.env.PENKRA_HOME + "/QA0144_SDK.jsonl", JSON.stringify({ from, to, spawnEffort: harness.getLastCreateQueryInput()?.options.effort, spawnSettings: harness.getLastCreateQueryInput()?.options.settings, liveFlags: harness.query.applyFlagSettingsCalls, closed: harness.query.closeCalls, setModel: harness.query.setModelCalls }) + "\n");
++      assert.equal(harness.query.closeCalls, 0);
++    }).pipe(Effect.provideService(Random.Random, makeDeterministicRandomService()), Effect.provide(harness.layer));
++  });
++}
+--- a/apps/server/src/provider/Layers/OpenCodeAdapter.test.ts
++++ b/apps/server/src/provider/Layers/OpenCodeAdapter.test.ts
+@@ -1,3 +1,4 @@
++import { writeFileSync as qaWriteFileSync } from "node:fs";
+ import { ProviderConnectionId, ThreadId } from "@penkra/contracts";
+ import * as NodeServices from "@effect/platform-node/NodeServices";
+ import type {
+@@ -5336,3 +5337,14 @@
+     });
+   });
+ });
++
++it("QA0144 OpenCode selected model wire", async () => {
++ const runtime = createMockOpenCodeRuntime();
++ await Effect.runPromise(Effect.gen(function* () {
++  const adapter = yield* OpenCodeAdapter;
++  yield* adapter.startSession({provider: "opencode", threadId: asThreadId("qa-wire"), runtimeMode: "full-access", managedLaunch: {binaryPath: "/qa/fake-opencode", profileRoot: process.env.PENKRA_HOME!, nativeStateRoot: process.env.PENKRA_HOME!, isolationKey: "qa-wire", connectionId: null, childEnvironment: () => ({})}, modelSelection: {provider: "opencode", model: "openai/gpt-5"}});
++  yield* adapter.sendTurn({threadId: asThreadId("qa-wire"), input: "Continue the review.", attachments: [], modelSelection: {provider: "opencode", model: "openai/gpt-5.4", options: {variant: "high"}}});
++ }).pipe(Effect.provide(makeOpenCodeAdapterLive({runtime: runtime.runtime}).pipe(Layer.provideMerge(ServerConfig.layerTest(process.env.PENKRA_HOME!, process.env.PENKRA_HOME!)), Layer.provideMerge(NodeServices.layer)))));
++ qaWriteFileSync(process.env.PENKRA_HOME + "/opencode-wire.json", JSON.stringify(runtime.promptCalls, null, 2));
++ expect(runtime.promptCalls[0]).toMatchObject({model: {providerID: "openai", modelID: "gpt-5.4"}, variant: "high"});
++});
+--- /dev/null
++++ b/apps/server/src/qa-events.test.ts
+@@ -0,0 +1,28 @@
++import { it, expect } from "vitest";
++import { writeFileSync } from "node:fs";
++import { projectProviderRuntimeActivities } from "./orchestration/providerRuntimeActivityProjection.ts";
++import { deriveWorkLogEntries } from "../../web/src/workLog.ts";
++import { deriveActiveTaskListState } from "../../web/src/session-logic.ts";
++import { toCleanCoreProviderEvents } from "./cleanCore/providerEventBridge.ts";
++
++it("QA0144 identical event presentation", () => {
++ const records = [];
++ for (const provider of ["claudeAgent", "codex"] as const) {
++  const base = { eventId: `qa-${provider}`, provider, threadId: "qa-thread", turnId: "qa-turn", createdAt: "2026-10-13T22:00:00.000Z" };
++  for (const event of [
++   {...base, type: "task.progress", payload: {taskId: "qa-task", description: "Reviewing the release", summary: "Checked the desktop rollout"}},
++   {...base, type: "turn.tasks.updated", payload: {tasks: [{task: "Inspect release", status: "completed"}, {task: "Verify runtime", status: "inProgress"}], explanation: "Release checks"}},
++   {...base, type: "thread.state.changed", payload: {state: "compacted", detail: {source: "provider"}}},
++   {...base, itemId: "qa-compaction", type: "item.completed", payload: {itemType: "context_compaction", status: "completed"}}
++  ]) {
++   const old = projectProviderRuntimeActivities(event as any);
++   const canonical = toCleanCoreProviderEvents(event as any);
++   const delivered = canonical.filter((entry: any) => entry.type === "item" && entry.item.data).map((entry: any) => ({id: entry.item.sourceId, createdAt: entry.item.createdAt, turnId: entry.item.turnId, ...JSON.parse(entry.item.data)}));
++   const record = {provider, type: event.type, legacyProjection: old, canonical, work: deriveWorkLogEntries(delivered as any, "qa-turn" as any), panel: deriveActiveTaskListState(delivered as any, "qa-turn" as any)};
++   records.push(record);
++   console.log("QA0144_EVENT", JSON.stringify(record));
++  }
++ }
++ writeFileSync(process.env.PENKRA_HOME + "/events.json", JSON.stringify(records, null, 2));
++ expect(records).toHaveLength(8);
++});
+--- /dev/null
++++ b/apps/web/src/components/chat/qa-presentation.browser.tsx
+@@ -0,0 +1,15 @@
++import "../../index.css";
++import { page } from "vitest/browser";
++import { it, expect, vi } from "vitest";
++import { render } from "vitest-browser-react";
++import { TimelineWorkEntryRow } from "./TimelineWorkEntryRow";
++const records = [{"provider": "claudeAgent", "type": "task.progress", "legacyProjection": [{"id": "qa-claudeAgent", "createdAt": "2026-10-13T22:00:00.000Z", "tone": "info", "kind": "task.progress", "summary": "Reasoning update", "payload": {"taskId": "qa-task", "detail": "Checked the desktop rollout", "description": "Reviewing the release", "summary": "Checked the desktop rollout"}, "turnId": "qa-turn"}], "canonical": [], "work": [], "panel": null}, {"provider": "claudeAgent", "type": "turn.tasks.updated", "legacyProjection": [{"id": "qa-claudeAgent", "createdAt": "2026-10-13T22:00:00.000Z", "tone": "info", "kind": "turn.tasks.updated", "summary": "Tasks updated", "payload": {"tasks": [{"task": "Inspect release", "status": "completed"}, {"task": "Verify runtime", "status": "inProgress"}], "explanation": "Release checks"}, "turnId": "qa-turn"}], "canonical": [], "work": [], "panel": null}, {"provider": "claudeAgent", "type": "thread.state.changed", "legacyProjection": [{"id": "qa-claudeAgent", "createdAt": "2026-10-13T22:00:00.000Z", "tone": "info", "kind": "context-compaction", "summary": "Context compacted", "payload": {"state": "compacted", "detail": {"source": "provider"}}, "turnId": "qa-turn"}], "canonical": [], "work": [], "panel": null}, {"provider": "claudeAgent", "type": "item.completed", "legacyProjection": [{"id": "provider-item:claudeAgent:qa-thread:qa-compaction:context-compaction", "createdAt": "2026-10-13T22:00:00.000Z", "tone": "info", "kind": "context-compaction", "summary": "Context compacted", "payload": {"compactionId": "qa-compaction", "itemType": "context_compaction", "status": "completed"}, "turnId": "qa-turn"}], "canonical": [{"type": "item", "threadId": "qa-thread", "item": {"threadId": "qa-thread", "sourceId": "qa-compaction", "turnId": "qa-turn", "kind": "notice", "status": "done", "text": null, "data": "{\"tone\":\"info\",\"kind\":\"context-compaction\",\"summary\":\"Context compacted\",\"payload\":{\"compactionId\":\"qa-compaction\",\"itemType\":\"context_compaction\",\"status\":\"completed\"}}", "createdAt": "2026-10-13T22:00:00.000Z", "updatedAt": "2026-10-13T22:00:00.000Z"}}], "work": [{"id": "qa-compaction", "createdAt": "2026-10-13T22:00:00.000Z", "turnId": "qa-turn", "label": "Context compacted", "tone": "info", "activityKind": "context-compaction", "toolTitle": "Context compacted"}], "panel": null}, {"provider": "codex", "type": "task.progress", "legacyProjection": [{"id": "qa-codex", "createdAt": "2026-10-13T22:00:00.000Z", "tone": "info", "kind": "task.progress", "summary": "Reasoning update", "payload": {"taskId": "qa-task", "detail": "Checked the desktop rollout", "description": "Reviewing the release", "summary": "Checked the desktop rollout"}, "turnId": "qa-turn"}], "canonical": [], "work": [], "panel": null}, {"provider": "codex", "type": "turn.tasks.updated", "legacyProjection": [{"id": "qa-codex", "createdAt": "2026-10-13T22:00:00.000Z", "tone": "info", "kind": "turn.tasks.updated", "summary": "Tasks updated", "payload": {"tasks": [{"task": "Inspect release", "status": "completed"}, {"task": "Verify runtime", "status": "inProgress"}], "explanation": "Release checks"}, "turnId": "qa-turn"}], "canonical": [], "work": [], "panel": null}, {"provider": "codex", "type": "thread.state.changed", "legacyProjection": [{"id": "qa-codex", "createdAt": "2026-10-13T22:00:00.000Z", "tone": "info", "kind": "context-compaction", "summary": "Context compacted", "payload": {"state": "compacted", "detail": {"source": "provider"}}, "turnId": "qa-turn"}], "canonical": [], "work": [], "panel": null}, {"provider": "codex", "type": "item.completed", "legacyProjection": [{"id": "provider-item:codex:qa-thread:qa-compaction:context-compaction", "createdAt": "2026-10-13T22:00:00.000Z", "tone": "info", "kind": "context-compaction", "summary": "Context compacted", "payload": {"compactionId": "qa-compaction", "itemType": "context_compaction", "status": "completed"}, "turnId": "qa-turn"}], "canonical": [{"type": "item", "threadId": "qa-thread", "item": {"threadId": "qa-thread", "sourceId": "qa-compaction", "turnId": "qa-turn", "kind": "notice", "status": "done", "text": null, "data": "{\"tone\":\"info\",\"kind\":\"context-compaction\",\"summary\":\"Context compacted\",\"payload\":{\"compactionId\":\"qa-compaction\",\"itemType\":\"context_compaction\",\"status\":\"completed\"}}", "createdAt": "2026-10-13T22:00:00.000Z", "updatedAt": "2026-10-13T22:00:00.000Z"}}], "work": [{"id": "qa-compaction", "createdAt": "2026-10-13T22:00:00.000Z", "turnId": "qa-turn", "label": "Context compacted", "tone": "info", "activityKind": "context-compaction", "toolTitle": "Context compacted"}], "panel": null}];
++it("QA0144 render delivered provider work rows", async () => {
++ const work = records.flatMap(row => row.work);
++ const screen = await render(<div>{work.map((entry, i) => <TimelineWorkEntryRow key={i} workEntry={entry as any} chatMetaFontSizePx={12} markdownCwd={undefined} onImageExpand={vi.fn()} />)}</div>);
++ try {
++  const text = document.body.textContent;
++  expect(text).not.toContain("Checked the desktop rollout"); expect(text).not.toContain("Tasks updated"); expect(text).toContain("Context compacted");
++  await page.screenshot({path: "/Users/emmanuelgyekyeatta-penkra/Penkra/qa-0144-ns7tff4p/head/qa-logs/presentation.png"});
++ } finally { await screen.unmount(); }
++});
+--- /dev/null
++++ b/apps/server/src/cleanCore/qa-admission.test.ts
+@@ -0,0 +1,82 @@
++import { appendFileSync } from "node:fs";
++import { it, expect, vi } from "vitest";
++import { Effect, Layer, Option } from "effect";
++import * as SqlClient from "effect/unstable/sql/SqlClient";
++import * as NodeServices from "@effect/platform-node/NodeServices";
++import { ThreadId, TurnId, MessageId } from "@penkra/contracts";
++import { runMigrations } from "../persistence/Migrations.ts";
++import * as NodeSqliteClient from "../persistence/NodeSqliteClient.ts";
++import { seedThreadFolderFixture } from "./threadFixtures.ts";
++import { createThread } from "./threadStore.ts";
++import { ThreadPublisherLive } from "./ThreadPublisher.ts";
++import { TurnDispatchLive } from "./turnDispatch.ts";
++import { ProviderService } from "../provider/Services/ProviderService.ts";
++import { ProviderSessionDirectory } from "../provider/Services/ProviderSessionDirectory.ts";
++import { ProviderNativeStateMaterializer } from "../provider/Services/ProviderNativeStateMaterializer.ts";
++import { ProviderTurnSelectionResolver } from "../provider/Services/ProviderTurnSelectionResolver.ts";
++import { ProviderLaunchResolver } from "../provider/Services/ProviderLaunchResolver.ts";
++import { ManagedAttachmentRepository } from "../persistence/Services/ManagedAttachments.ts";
++import { ProviderAuthCircuits } from "../provider/providerAuthCircuit.ts";
++import { ServerSettingsService } from "../serverSettings.ts";
++import { ServerConfig } from "../config.ts";
++import { makeProviderThreadSwitchCoordinator } from "../orchestration/Layers/ProviderThreadSwitchCoordinator.ts";
++import { ThreadLanesLive } from "./ThreadLanes.ts";
++import { resolveDraftSendSelection, setThreadDraft } from "./threadDraft.ts";
++import { ThreadPublisher } from "./ThreadPublisher.ts";
++import { resolvePreferredComposerModelSelection } from "../../../web/src/composerDraftModels.ts";
++vi.mock("../provider/admittedThreadRuntime.ts", () => ({
++ resolveSelectedThreadRuntime: () => Effect.succeed({requiresReconstruction: false, resumeCursor: {qaNativeId: "retained-native-session"}, managedLaunch: {profileRoot: process.env.PENKRA_HOME, nativeStateRoot: process.env.PENKRA_HOME, binaryPath: "/qa/fake-provider"}})
++}));
++
++for (const scenario of [
++ {provider: "claudeAgent", from: "claude-opus-4-8", to: "claude-opus-4-8", fromEffort: "high", toEffort: "max"},
++ {provider: "claudeAgent", from: "claude-opus-4-8", to: "claude-opus-4-8", fromEffort: "max", toEffort: "high"},
++ {provider: "claudeAgent", from: "claude-sonnet-5", to: "claude-opus-4-8"},
++ {provider: "codex", from: "gpt-5.5", to: "gpt-5.6-sol"},
++ {provider: "opencode", from: "opencode-go/kimi-k2.5", to: "opencode-go/glm-5.1"},
++] as const) {
++ it(`QA0144 admission ${scenario.provider} ${scenario.from} ${scenario.fromEffort ?? ""} to ${scenario.to} ${scenario.toEffort ?? ""}`, async () => {
++  const tid = ThreadId.makeUnsafe("qa-thread");
++  const calls: any[] = [];
++  const next: any = {provider: scenario.provider, model: scenario.to, ...(scenario.toEffort ? {options: {effort: scenario.toEffort}} : {})};
++  let sessions: any[] = [{threadId: tid, runtimeMode: "full-access", model: scenario.from, provider: scenario.provider}];
++  const provider = {
++   listSessions: () => Effect.succeed(sessions),
++   stopSession: (input: any) => Effect.sleep(Number(process.env.QA_STOP_DELAY_MS ?? 0)).pipe(Effect.andThen(Effect.sync(() => { calls.push({method: "stop", input}); sessions=[]; }))),
++   startSession: (_tid: any, input: any) => Effect.sleep(Number(process.env.QA_START_DELAY_MS ?? 0)).pipe(Effect.andThen(Effect.sync(() => { calls.push({method: "start", modelSelection: input.modelSelection, resumeCursor: input.resumeCursor}); sessions=[{threadId: tid, runtimeMode: input.runtimeMode}]; return sessions[0]; }))),
++   sendTurn: (input: any) => Effect.sync(() => { calls.push({method: "send", modelSelection: input.modelSelection}); return {threadId: tid, turnId: TurnId.makeUnsafe("qa-turn")}; })
++  };
++  const deps = Layer.mergeAll(
++   NodeSqliteClient.layerMemory(), ThreadPublisherLive, ThreadLanesLive,
++   ServerConfig.layerTest(process.env.PENKRA_HOME!, process.env.PENKRA_HOME!).pipe(Layer.provide(NodeServices.layer)),
++   Layer.succeed(ProviderService, provider as any),
++   Layer.succeed(ProviderSessionDirectory, {getBinding: () => Effect.succeed(Option.none())} as any),
++   Layer.succeed(ProviderNativeStateMaterializer, {} as any),
++   Layer.succeed(ProviderLaunchResolver, {} as any),
++   Layer.succeed(ManagedAttachmentRepository, {} as any),
++   Layer.succeed(ProviderAuthCircuits, {get: () => Effect.succeed([])} as any),
++   Layer.succeed(ServerSettingsService, {getSettings: Effect.succeed({providers: {[scenario.provider]: {enabled: true}}})} as any),
++   Layer.succeed(ProviderTurnSelectionResolver, {resolveExisting: () => Effect.succeed({threadId: tid, harness: scenario.provider, connectionId: "qa-account", previousConnectionId: "qa-account", modelId: scenario.to, previousModelId: scenario.from, nativeStateId: "qa-native", providerSessionId: "retained-native-session", changed: scenario.to !== scenario.from, requiresNativeStateMaterialization: false, installationId: "qa-install", connectionLabel: "QA", modelLabel: "QA", internalProviderId: null})} as any)
++  );
++  const layer = Layer.mergeAll(deps, TurnDispatchLive.pipe(Layer.provide(deps)));
++  await Effect.runPromise(Effect.scoped(Effect.gen(function* () {
++   yield* runMigrations(); yield* seedThreadFolderFixture("qa-folder", "qa-space");
++   yield* createThread({id: tid, folderId: "qa-folder", spaceId: "qa-space", provider: scenario.provider, model: scenario.from, runtimeMode: "full-access", title: "QA", createdBy: "user", createdAt: "2026-10-13T22:00:00.000Z"});
++   const sql = yield* SqlClient.SqlClient; const pub = yield* ThreadPublisher;
++   yield* sql`UPDATE threads SET connection_id='qa-account', native_state_id='qa-native', provider_session_id='retained-native-session', model_options=${scenario.fromEffort ? JSON.stringify({effort: scenario.fromEffort}) : null} WHERE id=${tid}`;
++   const draft = {activeProvider: scenario.provider, modelSelectionByProvider: {[scenario.provider]: next}};
++   yield* setThreadDraft(pub, tid, JSON.stringify(draft), "2026-10-13T22:00:01.000Z");
++   const [before] = yield* sql`SELECT draft, provider, model, model_options AS "modelOptions", connection_id AS "connectionId", runtime_mode AS "runtimeMode" FROM threads WHERE id=${tid}`;
++   const picker = resolvePreferredComposerModelSelection({draft, threadModelSelection: {provider: scenario.provider, model: scenario.from}, projectModelSelection: null} as any);
++   const resolved = resolveDraftSendSelection(before as any);
++   const coordinator = yield* makeProviderThreadSwitchCoordinator;
++   const started = performance.now();
++   yield* coordinator.dispatchTurnStart({command: {threadId: tid, message: {messageId: MessageId.makeUnsafe("qa-message"), text: "Continue the release review.", attachments: []}, modelSelection: resolved.modelSelection, connectionId: resolved.connectionId, runtimeMode: "full-access", dispatchMode: "queue", createdAt: "2026-10-13T22:00:02.000Z"}, attachmentPrincipal: {kind: "local-loopback"} as any});
++   const elapsedMs = performance.now()-started;
++   const [after] = yield* sql`SELECT model, model_options, native_state_id, provider_session_id FROM threads WHERE id=${tid}`;
++   appendFileSync(process.env.PENKRA_HOME + "/QA0144_ADMISSION.jsonl", JSON.stringify({scenario, picker, before, after, calls, elapsedMs}) + "\n");
++   expect(calls.map(call => call.method)).toEqual(scenario.toEffort ? ["send"] : ["stop", "start", "send"]);
++   expect(after.model).toBe(scenario.to);
++  })).pipe(Effect.provide(layer)));
++ });
++}
+--- a/apps/server/src/provider/Layers/ProviderTurnSelectionResolver.test.ts
++++ b/apps/server/src/provider/Layers/ProviderTurnSelectionResolver.test.ts
+@@ -593,4 +593,13 @@
+         }
+       }),
+   );
++
++ it.effect("QA0144 resolver effort versus model", () => Effect.gen(function* () {
++  threadHarness = "claudeAgent"; threadExists = true; connectionLifecycle = "active"; installationLifecycle = "active"; modelAvailable = true;
++  const resolver = yield* fixtureResolver();
++  const effort = yield* resolver.resolveExisting({threadId, connectionId: claudeConnectionId, modelSelection: {provider: "claudeAgent", model: "claude-sonnet-5", options: {effort: "max"}}});
++  const model = yield* resolver.resolveExisting({threadId, connectionId: claudeConnectionId, modelSelection: {provider: "claudeAgent", model: "claude-opus-4-7"}});
++  assert.isFalse(effort.changed); assert.isTrue(model.changed);
++  (yield* Effect.promise(() => import("node:fs"))).writeFileSync(process.env.PENKRA_HOME + "/resolver.json", JSON.stringify({effort, model}, null, 2));
++ }));
+ });
+--- a/apps/server/src/cleanCore/providerStreamConsumer.test.ts
++++ b/apps/server/src/cleanCore/providerStreamConsumer.test.ts
+@@ -1,3 +1,4 @@
++import { applyProviderRuntimeEvent } from "./providerStreamConsumer.ts";
+ import { observePublisher } from "./threadPublisherTestHelpers.ts";
+ import { toCleanCoreProviderEvents } from "./providerEventBridge.ts";
+ import { listThreadItemsPage } from "./threadItemsPage.ts";
+@@ -947,3 +948,18 @@
+     }),
+   ),
+ );
++
++it.effect("QA0144 persist ignored events and compaction control", () => withDb(Effect.gen(function* () {
++ const sql = yield* SqlClient.SqlClient; const publisher = makeThreadPublisher();
++ yield* runMigrations(); yield* seedThreadFolderFixture("core-test-folder", "space-1"); yield* createThread(baseThread);
++ const results: any[]=[];
++ for (const provider of ["claudeAgent", "codex"] as const) {
++  for (const [type, payload] of [["task.progress", {taskId: "qa-task", summary: "Checked rollout"}], ["turn.tasks.updated", {tasks: [{task:"Review", status:"inProgress"}]}], ["thread.state.changed", {state:"compacted"}], ["item.completed", {itemType:"context_compaction",status:"completed"}]] as const) {
++   const event = {type, payload, provider, threadId:"thread-1",turnId:"turn-qa", eventId:`qa-${provider}-${type}`,createdAt:"2026-10-13T22:00:00.000Z", ...(type==="item.completed" ? {itemId: `qa-item-${provider}`} : {})};
++   yield* applyProviderRuntimeEvent(publisher, event as any);
++   results.push({provider,type, rows: yield* sql`SELECT kind, source_id, data FROM thread_items WHERE thread_id='thread-1'`});
++  }
++ }
++ yield* Effect.promise(() => fs.writeFile(process.env.PENKRA_HOME + "/persisted-events.json",JSON.stringify(results,null,2)));
++ assert.equal(results[0].rows.length,0); assert.equal(results[1].rows.length,0); assert.equal(results[2].rows.length,0); assert.equal(results[3].rows.length,1); assert.equal(results[7].rows.length,2);
++})));

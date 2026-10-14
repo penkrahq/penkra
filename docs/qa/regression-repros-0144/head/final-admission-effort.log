@@ -1,0 +1,9 @@
+$ vitest run --maxWorkers=1 --no-file-parallelism  src/provider/Layers/ClaudeAdapter.test.ts src/cleanCore/qa-admission.test.ts -t "QA0144"
+
+ RUN  v4.1.11 /Users/emmanuelgyekyeatta-penkra/Penkra/qa-0144-ns7tff4p/head/apps/server
+
+
+ Test Files  2 passed (2)
+      Tests  8 passed | 117 skipped (125)
+   Start at  23:40:12
+   Duration  4.35s (transform 1.60s, setup 0ms, import 2.67s, tests 1.44s, environment 0ms)

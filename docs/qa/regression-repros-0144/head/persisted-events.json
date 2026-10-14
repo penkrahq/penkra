@@ -1,0 +1,77 @@
+[
+  {
+    "provider": "claudeAgent",
+    "type": "task.progress",
+    "rows": []
+  },
+  {
+    "provider": "claudeAgent",
+    "type": "turn.tasks.updated",
+    "rows": []
+  },
+  {
+    "provider": "claudeAgent",
+    "type": "thread.state.changed",
+    "rows": []
+  },
+  {
+    "provider": "claudeAgent",
+    "type": "item.completed",
+    "rows": [
+      {
+        "kind": "notice",
+        "source_id": "qa-item-claudeAgent",
+        "data": "{\"tone\":\"info\",\"kind\":\"context-compaction\",\"summary\":\"Context compacted\",\"payload\":{\"compactionId\":\"qa-item-claudeAgent\",\"itemType\":\"context_compaction\",\"status\":\"completed\"}}"
+      }
+    ]
+  },
+  {
+    "provider": "codex",
+    "type": "task.progress",
+    "rows": [
+      {
+        "kind": "notice",
+        "source_id": "qa-item-claudeAgent",
+        "data": "{\"tone\":\"info\",\"kind\":\"context-compaction\",\"summary\":\"Context compacted\",\"payload\":{\"compactionId\":\"qa-item-claudeAgent\",\"itemType\":\"context_compaction\",\"status\":\"completed\"}}"
+      }
+    ]
+  },
+  {
+    "provider": "codex",
+    "type": "turn.tasks.updated",
+    "rows": [
+      {
+        "kind": "notice",
+        "source_id": "qa-item-claudeAgent",
+        "data": "{\"tone\":\"info\",\"kind\":\"context-compaction\",\"summary\":\"Context compacted\",\"payload\":{\"compactionId\":\"qa-item-claudeAgent\",\"itemType\":\"context_compaction\",\"status\":\"completed\"}}"
+      }
+    ]
+  },
+  {
+    "provider": "codex",
+    "type": "thread.state.changed",
+    "rows": [
+      {
+        "kind": "notice",
+        "source_id": "qa-item-claudeAgent",
+        "data": "{\"tone\":\"info\",\"kind\":\"context-compaction\",\"summary\":\"Context compacted\",\"payload\":{\"compactionId\":\"qa-item-claudeAgent\",\"itemType\":\"context_compaction\",\"status\":\"completed\"}}"
+      }
+    ]
+  },
+  {
+    "provider": "codex",
+    "type": "item.completed",
+    "rows": [
+      {
+        "kind": "notice",
+        "source_id": "qa-item-codex",
+        "data": "{\"tone\":\"info\",\"kind\":\"context-compaction\",\"summary\":\"Context compacted\",\"payload\":{\"compactionId\":\"qa-item-codex\",\"itemType\":\"context_compaction\",\"status\":\"completed\"}}"
+      },
+      {
+        "kind": "notice",
+        "source_id": "qa-item-claudeAgent",
+        "data": "{\"tone\":\"info\",\"kind\":\"context-compaction\",\"summary\":\"Context compacted\",\"payload\":{\"compactionId\":\"qa-item-claudeAgent\",\"itemType\":\"context_compaction\",\"status\":\"completed\"}}"
+      }
+    ]
+  }
+]

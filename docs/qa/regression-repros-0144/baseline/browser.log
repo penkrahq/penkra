@@ -1,0 +1,15 @@
+$ vitest run --config qa-browser.config.ts src/components/chat/qa-presentation.browser.tsx src/components/ChatView.browser.tsx -t "QA0144|does not mount a task-progress panel|does not expose provider task progress"
+
+ RUN  v4.1.11 /Users/emmanuelgyekyeatta-penkra/Penkra/qa-0144-ns7tff4p/baseline/apps/web
+
+11:41:59 PM [vite] (client) Re-optimizing dependencies because lockfile has changed
+11:42:05 PM [vite] (client) [optimizer] scanning dependencies...
+11:42:14 PM [vite] (client) [optimizer] bundling dependencies...
+Browserslist: browsers data (caniuse-lite) is 7 months old. Please run:
+  npx update-browserslist-db@latest
+  Why you should do it regularly: https://github.com/browserslist/update-db#readme
+
+ Test Files  2 passed (2)
+      Tests  3 passed | 110 skipped (113)
+   Start at  23:41:59
+   Duration  73.54s (transform 0ms, setup 0ms, import 52.42s, tests 2.93s, environment 0ms)

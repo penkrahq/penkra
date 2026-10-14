@@ -1,0 +1,9 @@
+$ vitest run --maxWorkers=1 --no-file-parallelism  src/qa-events.test.ts src/orchestration/Layers/ProviderCommandReactor.test.ts src/provider/Layers/ClaudeAdapter.test.ts -t "QA0144"
+
+ RUN  v4.1.11 /Users/emmanuelgyekyeatta-penkra/Penkra/qa-0144-ns7tff4p/baseline/apps/server
+
+
+ Test Files  3 passed (3)
+      Tests  9 passed | 293 skipped (302)
+   Start at  23:39:02
+   Duration  8.06s (transform 2.51s, setup 0ms, import 3.80s, tests 3.89s, environment 0ms)

@@ -1,0 +1,9 @@
+$ vitest run --maxWorkers=1 --no-file-parallelism  src/provider/Layers/OpenCodeAdapter.test.ts src/provider/Layers/CodexAdapter.test.ts src/provider/Layers/ClaudeAdapter.test.ts src/provider/Layers/ProviderTurnSelectionResolver.test.ts src/cleanCore/providerStreamConsumer.test.ts -t "QA0144|maps codex model options|updates model on sendTurn|maps Codex task and reasoning|forwards Claude task progress summaries|TodoWrite"
+
+ RUN  v4.1.11 /Users/emmanuelgyekyeatta-penkra/Penkra/qa-0144-ns7tff4p/head/apps/server
+
+
+ Test Files  5 passed (5)
+      Tests  13 passed | 246 skipped (259)
+   Start at  23:44:50
+   Duration  6.43s (transform 2.63s, setup 0ms, import 4.97s, tests 887ms, environment 0ms)
