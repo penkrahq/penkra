@@ -15,6 +15,7 @@ import * as SqlClient from "effect/unstable/sql/SqlClient";
 import type { CleanCoreProviderEvent } from "./providerStreamConsumer.ts";
 import { capThreadItemData, THREAD_ITEM_DATA_LIMIT_BYTES } from "./threadItemData.ts";
 import { makeInvalidationHub, type InvalidationHub } from "./invalidationHub.ts";
+import { appendToolOutputWindow, type RawOutputWindow } from "./toolOutputWindow.ts";
 
 export type ThreadItemKind =
   | "user"
@@ -139,8 +140,16 @@ export const upsertThreadItem = (input: ThreadItemInput) =>
           )
           ON CONFLICT (thread_id, source_id) DO UPDATE SET
             status = excluded.status,
-            text = CASE WHEN ${input.text === undefined ? 0 : 1}=1 THEN excluded.text ELSE thread_items.text END,
-            data = excluded.data,
+            ${input.text === undefined ? sql`` : sql`text = excluded.text,`}
+            turn_id = COALESCE(excluded.turn_id, thread_items.turn_id),
+            data = CASE WHEN ${input.kind} = 'tool'
+              AND json_type(thread_items.data, '$.payload.data.rawOutput') = 'object'
+              AND COALESCE(length(json_extract(excluded.data, '$.payload.data.rawOutput.output')), 0) = 0
+              AND COALESCE(length(json_extract(excluded.data, '$.payload.data.rawOutput.stdout')), 0) = 0
+              AND COALESCE(length(json_extract(excluded.data, '$.payload.data.rawOutput.stderr')), 0) = 0
+              THEN json_set(COALESCE(excluded.data, '{}'), '$.payload.data.rawOutput',
+                json(json_extract(thread_items.data, '$.payload.data.rawOutput')))
+              ELSE excluded.data END,
             send_payload = CASE WHEN ${input.sendPayload === undefined ? 0 : 1}=1 THEN excluded.send_payload ELSE thread_items.send_payload END,
             admission_plan = CASE WHEN ${input.admissionPlan === undefined ? 0 : 1}=1 THEN excluded.admission_plan ELSE thread_items.admission_plan END,
             updated_at = excluded.updated_at
@@ -537,7 +546,7 @@ export const settleRunningItems = (threadId: string, at: string, turnId?: string
 export const appendThreadItemText = (
   threadId: string,
   sourceId: string,
-  kind: "text" | "reasoning" | "tool",
+  kind: "text" | "reasoning",
   delta: string,
   at: string,
   turnId?: string | null,
@@ -556,6 +565,40 @@ export const appendThreadItemText = (
         text = COALESCE(thread_items.text, '') || excluded.text,
         turn_id = COALESCE(excluded.turn_id, thread_items.turn_id),
         status = 'streaming',
+        updated_at = excluded.updated_at
+    `;
+  });
+
+/** Command output never rewrites searchable text or changes tool lifecycle state. */
+export const appendToolOutput = (
+  threadId: string,
+  sourceId: string,
+  delta: string,
+  at: string,
+  turnId?: string | null,
+) =>
+  Effect.gen(function* () {
+    const sql = yield* SqlClient.SqlClient;
+    const [row] = yield* sql<{ output: string | null }>`
+      SELECT json_extract(data, '$.payload.data.rawOutput') AS output
+      FROM thread_items WHERE thread_id=${threadId} AND source_id=${sourceId}
+    `;
+    const window = appendToolOutputWindow(
+      row?.output ? (JSON.parse(row.output) as RawOutputWindow) : null,
+      delta,
+    );
+    yield* sql`
+      INSERT INTO thread_items (
+        thread_id, seq, source_id, turn_id, kind, status, text, data, created_at, updated_at
+      ) VALUES (
+        ${threadId},
+        (SELECT COALESCE(MAX(seq), 0) + 1 FROM thread_items WHERE thread_id=${threadId}),
+        ${sourceId}, ${turnId ?? null}, 'tool', 'running', NULL,
+        json_set('{}', '$.payload.data.rawOutput', json(${JSON.stringify(window)})), ${at}, ${at}
+      )
+      ON CONFLICT (thread_id, source_id) DO UPDATE SET
+        data = json_set(COALESCE(thread_items.data, '{}'), '$.payload.data.rawOutput',
+          json(${JSON.stringify(window)})),
         updated_at = excluded.updated_at
     `;
   });

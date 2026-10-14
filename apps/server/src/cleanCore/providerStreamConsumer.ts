@@ -19,6 +19,7 @@ import { writeProviderConnectionFacts } from "./providerConnectionFacts.ts";
 import {
   answerQuestion,
   appendThreadItemText,
+  appendToolOutput,
   setThreadState,
   settleRunningItems,
   upsertThreadItem,
@@ -123,14 +124,16 @@ const writeProviderEvent = (event: CleanCoreProviderEvent) =>
         return [event.threadId];
       }
       case "delta": {
-        yield* appendThreadItemText(
-          event.threadId,
-          event.sourceId,
-          event.kind,
-          event.delta,
-          event.at,
-          event.turnId,
-        );
+        yield* event.kind === "tool"
+          ? appendToolOutput(event.threadId, event.sourceId, event.delta, event.at, event.turnId)
+          : appendThreadItemText(
+              event.threadId,
+              event.sourceId,
+              event.kind,
+              event.delta,
+              event.at,
+              event.turnId,
+            );
         return [event.threadId];
       }
       case "question.answered": {
@@ -217,6 +220,43 @@ export const applyProviderRuntimeEvent = (
     for (let index = 0; index < events.length; index++) {
       publishProviderEvent(publisher, events[index]!, changes[index]!);
     }
+  });
+
+/** Drain only the deltas already waiting, in order, with one commit and invalidation per thread. */
+export const applyProviderDeltaRun = (
+  publisher: ThreadPublisher,
+  events: ReadonlyArray<ProviderRuntimeEvent>,
+) =>
+  Effect.gen(function* () {
+    const sql = yield* SqlClient.SqlClient;
+    type Delta = Extract<CleanCoreProviderEvent, { type: "delta" }>;
+    const runs: Array<{ event: Delta; parts: string[] }> = [];
+    for (const runtimeEvent of events) {
+      for (const event of toCleanCoreProviderEvents(runtimeEvent)) {
+        if (event.type !== "delta") continue;
+        const previous = runs.at(-1);
+        if (
+          previous &&
+          previous.event.threadId === event.threadId &&
+          previous.event.sourceId === event.sourceId &&
+          previous.event.kind === event.kind
+        ) {
+          previous.parts.push(event.delta);
+          previous.event = { ...event };
+        } else runs.push({ event, parts: [event.delta] });
+      }
+    }
+    if (runs.length === 0) return;
+    const changed = new Set<string>();
+    yield* sql.withTransaction(
+      Effect.gen(function* () {
+        for (const { event, parts } of runs) {
+          yield* writeProviderEvent({ ...event, delta: parts.join("") });
+          changed.add(event.threadId);
+        }
+      }),
+    );
+    for (const threadId of changed) publisher.publish({ threadId });
   });
 
 /**

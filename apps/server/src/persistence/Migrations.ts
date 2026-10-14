@@ -1,3 +1,4 @@
+import Migration0207 from "./Migrations/207_FinalTextSearchAndToolOutput.ts";
 import Migration0206 from "./Migrations/206_HiddenRecoveryMessages.ts";
 import Migration0202 from "./Migrations/202_FoldProviderState.ts";
 import Migration0203 from "./Migrations/203_CanonicalUserItemData.ts";
@@ -427,6 +428,7 @@ export const migrationEntries = [
   [204, "PendingDeliveryLimits", Migration0204],
   [205, "RestoreReasoningDisplay", Migration0205],
   [206, "HiddenRecoveryMessages", Migration0206],
+  [207, "FinalTextSearchAndToolOutput", Migration0207],
 ] as const;
 
 export const makeMigrationLoader = (throughId?: number) =>

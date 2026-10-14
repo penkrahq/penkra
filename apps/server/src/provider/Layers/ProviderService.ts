@@ -1,4 +1,7 @@
-import { consumeProviderRuntimeEvent } from "../../cleanCore/providerStreamConsumer.ts";
+import {
+  applyProviderDeltaRun,
+  consumeProviderRuntimeEvent,
+} from "../../cleanCore/providerStreamConsumer.ts";
 import { makeReasoningSummaryBuffer } from "../../cleanCore/providerReasoningSummary.ts";
 import { ConnectionRateLimits } from "../../providerUsage/ConnectionRateLimits.ts";
 import { ProviderAuthCircuits } from "../providerAuthCircuit.ts";
@@ -130,6 +133,10 @@ export interface ProviderServiceLiveOptions {
   readonly consumeRuntimeEvent?: (
     event: ProviderRuntimeEvent,
   ) => Effect.Effect<ProviderRuntimeEvent | null, unknown>;
+  /** Commit one ordered run of content deltas before its observer fan-out. */
+  readonly consumeRuntimeDeltaRun?: (
+    events: ReadonlyArray<ProviderRuntimeEvent>,
+  ) => Effect.Effect<void, unknown>;
   /** Persist an exact provider-native cursor into the managed thread binding. */
   readonly persistNativeResumeCursor?: (input: {
     readonly threadId: ThreadId;
@@ -1179,10 +1186,46 @@ const makeProviderService = (options?: ProviderServiceLiveOptions) =>
         }),
       );
 
+    const processRuntimeEvents = (events: ReadonlyArray<ProviderRuntimeEvent>) =>
+      Effect.gen(function* () {
+        let index = 0;
+        while (index < events.length) {
+          const event = events[index]!;
+          const current = (event: ProviderRuntimeEvent) =>
+            event.lifecycleGeneration === undefined ||
+            lifecycle.currentGeneration(event.threadId) === event.lifecycleGeneration;
+          if (
+            event.type !== "content.delta" ||
+            !current(event) ||
+            !options?.consumeRuntimeDeltaRun
+          ) {
+            yield* processRuntimeEvent(event);
+            index++;
+            continue;
+          }
+          const run: ProviderRuntimeEvent[] = [];
+          while (index < events.length) {
+            const next = events[index]!;
+            if (next.type !== "content.delta" || !current(next)) break;
+            run.push(normalizeProviderRuntimeEvent(next));
+            index++;
+          }
+          yield* Effect.uninterruptible(
+            Effect.gen(function* () {
+              yield* options.consumeRuntimeDeltaRun!(run);
+              for (const delta of run) {
+                if (canonicalEventLogger) yield* canonicalEventLogger.write(delta, null);
+                yield* PubSub.publish(runtimeEventPubSub, delta);
+              }
+            }),
+          );
+        }
+      });
+
     // The provider stream itself is the completion boundary. A failed canonical
     // write fails the consumer; there is no journal replay, retry or quarantine.
     yield* Effect.forEach(adapters, (adapter) =>
-      Stream.runForEach(adapter.streamEvents, processRuntimeEvent).pipe(
+      Stream.runForEachArray(adapter.streamEvents, processRuntimeEvents).pipe(
         Effect.orDie,
         Effect.forkIn(runtimeEventProducerScope),
       ),
@@ -2474,6 +2517,12 @@ export function makeManagedProviderServiceLive(options?: ProviderServiceLiveOpti
             Effect.provideService(ConnectionRateLimits, rateLimits),
             Effect.provideService(ProviderAuthCircuits, circuits),
             Effect.as(event),
+          );
+        },
+        consumeRuntimeDeltaRun: (events) => {
+          const prepared = events.map(prepareReasoning).filter((event) => event !== null);
+          return applyProviderDeltaRun(publisher, prepared).pipe(
+            Effect.provideService(SqlClient.SqlClient, sql),
           );
         },
         persistNativeResumeCursor: ({ threadId, provider, resumeCursor }) =>
