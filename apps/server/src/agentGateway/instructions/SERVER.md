@@ -202,6 +202,8 @@ is why it must never target the Thread you are running in — doing so would put
 mouth and stack a second turn on the one already executing. The command rejects that target. In the
 UI these messages are marked "Sent by agent," so the user can tell them apart.
 
+Before sending, read the target Thread's `status` and `queuedTurns`. A busy
+target returns a queue admission immediately; Penkra does not wait for it.
 Send returns `threadId`, `messageId`, and a committed admission:
 
 - `plan: deliver|steer|interrupt-deliver` includes the transcript `seq`.
@@ -213,13 +215,16 @@ only messages your own Thread queued. This uses the stored message, not the
 composer, and returns the same admission shape as send. To send new text now,
 use `penkra threads send --thread-id <id> --message '...' --now` instead.
 
-The reply confirms persistence. Read the thread for the outcome: the message becomes
-delivered, or remains failed in the transcript with the thread error. The composer is
-untouched. The next send includes failed messages in order with the new message;
-they become delivered together only after provider acceptance. A failed queued head
-stays at position 1 until the user edits, removes or resends it. There is no automatic
-retry. A rejection before admission is an error and writes nothing. Use
-`penkra threads read --thread-id <id>` for output.
+The reply confirms persistence, not provider acceptance. Read the Thread for the
+outcome with `penkra threads read --thread-id <id>`; the composer is untouched.
+Agent and user messages follow the same rules. A failed direct message stays
+Failed with its full payload and joins the next send in order. Pending messages
+that cannot fit one turn go in oldest-first runs; nothing is discarded or
+replaced by a pointer, and later runs follow on turn end. Each run becomes
+delivered together only after provider acceptance. A failed queued head stays
+at position 1 with `last_error` until the next send retries it or the user edits
+or removes it. There is no automatic retry of a failed delivery. Rejection before
+admission is an error and writes nothing.
 
 Read ordinary conversational history with `penkra threads read`: it returns messages and selected
 conversational activity as typed transcript items. For discovery, pass one literal `query` or a
