@@ -9,7 +9,7 @@ import { HttpRouter, HttpServerRequest, HttpServerResponse } from "effect/unstab
 
 import { ServerConfig } from "./config";
 import { ThreadLifecycle } from "./cleanCore/threadLifecycle.ts";
-import { findThread, listFolderThreads } from "./cleanCore/threadList.ts";
+import { findThread, listThreads } from "./cleanCore/threadList.ts";
 import { moveSidebarItem } from "./cleanCore/threadStore.ts";
 import { ThreadPublisher } from "./cleanCore/ThreadPublisher.ts";
 import * as SqlClient from "effect/unstable/sql/SqlClient";
@@ -70,7 +70,7 @@ export const desktopThreadRouteLayer = HttpRouter.add(
         ),
       listThreads: (input) =>
         Effect.runPromise(
-          listFolderThreads({
+          listThreads({
             spaceId: SpaceId.makeUnsafe(input.spaceId),
             folderId: FolderId.makeUnsafe(input.folderId),
             after: input.after,

@@ -118,7 +118,7 @@ export interface ThreadListPage {
 
 /**
  * One (space, folder) page of threads in the sidebar order, bounded by a
- * keyset cursor. Deleted rows are excluded in SQL. The index
+ * keyset cursor. Archived and deleted rows are excluded before pagination. The index
  * `idx_threads_sidebar_order` matches this exact order.
  */
 interface ThreadPageInput {
@@ -127,7 +127,7 @@ interface ThreadPageInput {
   readonly after?: ThreadListCursor | null | undefined;
   readonly limit?: number | undefined;
 }
-const readThreadPage = (input: ThreadPageInput, includeArchived: boolean) =>
+export const listThreads = (input: ThreadPageInput) =>
   Effect.gen(function* () {
     const sql = yield* SqlClient.SqlClient;
     const limit = input.limit ?? THREADS_PAGE_SIZE;
@@ -142,7 +142,7 @@ const readThreadPage = (input: ThreadPageInput, includeArchived: boolean) =>
       WHERE space_id = ${input.spaceId}
         AND folder_id IS ${input.folderId}
         AND deleted_at IS NULL
-        AND (${includeArchived ? 1 : 0} = 1 OR archived_at IS NULL)
+        AND archived_at IS NULL
         AND (
           ${hasAfter} = 0
           OR COALESCE(sidebar_sort_order, 0) > ${afterOrder}
@@ -173,11 +173,6 @@ const readThreadPage = (input: ThreadPageInput, includeArchived: boolean) =>
           : null,
     } satisfies ThreadListPage;
   });
-
-export const listThreads = (input: ThreadPageInput) => readThreadPage(input, true);
-/** Folder API pages omit archived rows and use the same sidebar keyset order. */
-export const listFolderThreads = (input: Omit<ThreadPageInput, "limit">) =>
-  readThreadPage(input, false);
 
 /** Indexed single-row read for creation and publisher consumers. */
 export const findThread = (threadId: ThreadId) =>

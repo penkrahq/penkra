@@ -4,7 +4,7 @@ import { FolderId, SpaceId, ThreadId, TurnId } from "@penkra/contracts";
 import { Effect } from "effect";
 import * as SqlClient from "effect/unstable/sql/SqlClient";
 
-import { listThreads, listFolderThreads, findThread, listRunningThreads } from "./threadList.ts";
+import { listThreads, findThread, listRunningThreads } from "./threadList.ts";
 import { createThread, makeThreadPublisher, upsertThreadItem } from "./threadStore.ts";
 import { applyProviderEvent } from "./providerStreamConsumer.ts";
 import { runMigrations } from "../persistence/Migrations.ts";
@@ -113,7 +113,7 @@ it.effect("pages folder members in sidebar order and excludes archived and delet
       }
       yield* sql`UPDATE threads SET deleted_at = '2026-10-10T00:00:01.000Z' WHERE id = 'folder-thread-51'`;
       yield* sql`UPDATE threads SET archived_at = '2026-10-10T00:00:01.000Z' WHERE id = 'folder-thread-52'`;
-      const first = yield* listFolderThreads({
+      const first = yield* listThreads({
         spaceId: SpaceId.makeUnsafe("space"),
         folderId,
         after: null,
@@ -122,7 +122,7 @@ it.effect("pages folder members in sidebar order and excludes archived and delet
       assert.equal(first.threads[0]!.id, "folder-thread-00");
       assert.equal(first.threads.at(-1)!.id, "folder-thread-49");
       assert.isNotNull(first.nextCursor);
-      const next = yield* listFolderThreads({
+      const next = yield* listThreads({
         spaceId: SpaceId.makeUnsafe("space"),
         folderId,
         after: first.nextCursor,
@@ -132,7 +132,7 @@ it.effect("pages folder members in sidebar order and excludes archived and delet
         ["folder-thread-50"],
       );
       assert.isNull(next.nextCursor);
-      const empty = yield* listFolderThreads({
+      const empty = yield* listThreads({
         spaceId: SpaceId.makeUnsafe("space"),
         folderId: FolderId.makeUnsafe("empty-folder"),
         after: null,
