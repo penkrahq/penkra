@@ -13,6 +13,7 @@ import {
   type CleanCoreSendAdmission,
   ProviderConnectionId,
   type CleanCoreSendMessageInput,
+  type CleanCoreQueuedMessageInput,
 } from "@penkra/contracts";
 import { Effect, Layer, Option, PubSub, Schema, ServiceMap, Stream } from "effect";
 import * as SqlClient from "effect/unstable/sql/SqlClient";
@@ -48,6 +49,10 @@ export class ThreadSender extends ServiceMap.Service<
       action: Effect.Effect<A, E, R>,
     ) => Effect.Effect<A, E, R>;
     readonly send: (input: ThreadSendInput) => Effect.Effect<CleanCoreSendAdmission, Error>;
+    readonly steerQueued: (
+      input: CleanCoreQueuedMessageInput,
+      callerThreadId?: ThreadId,
+    ) => Effect.Effect<CleanCoreSendAdmission, Error>;
     readonly editQueued: (input: {
       threadId: ThreadId;
       messageId: string;
@@ -158,12 +163,11 @@ export const makeThreadSender = Effect.gen(function* () {
             modelOptions: string | null;
             connectionId: ProviderConnectionId | null;
             workspaceRoot: string | null;
-            draft: string | null;
-          }>`SELECT t.draft, t.provider, t.model, t.model_options AS "modelOptions", t.runtime_mode AS "runtimeMode", t.connection_id AS "connectionId", f.workspace_root AS "workspaceRoot" FROM threads t JOIN projection_folders f ON f.folder_id = t.folder_id WHERE t.id = ${threadId}`;
+          }>`SELECT t.provider, t.model, t.model_options AS "modelOptions", t.runtime_mode AS "runtimeMode", t.connection_id AS "connectionId", f.workspace_root AS "workspaceRoot" FROM threads t JOIN projection_folders f ON f.folder_id = t.folder_id WHERE t.id = ${threadId}`;
           const row = rows[0];
           if (row === undefined) return yield* Effect.fail(new Error("The thread does not exist."));
           const { modelSelection, connectionId, runtimeMode } = resolveDraftSendSelection(
-            row,
+            { ...row, draft: null },
             input,
           );
           yield* coordinator.dispatchTurnStart({
@@ -410,6 +414,125 @@ export const makeThreadSender = Effect.gen(function* () {
           yield* provider.interruptTurn({ threadId });
           return { threadId, interruptRequested: true, interruptedTurnId: runtime.activeTurnId };
         }),
+      ),
+    steerQueued: (input: CleanCoreQueuedMessageInput, callerThreadId?: ThreadId) =>
+      withLane(
+        input.threadId,
+        Effect.gen(function* () {
+          const result = yield* sql.withTransaction(
+            Effect.gen(function* () {
+              const [thread] = yield* sql<{
+                provider: string;
+                model: string;
+                runtimeMode: string;
+                modelOptions: string | null;
+                connectionId: ProviderConnectionId | null;
+                state: string;
+                archivedAt: string | null;
+                deletedAt: string | null;
+              }>`SELECT provider,model,runtime_mode AS "runtimeMode",model_options AS "modelOptions",
+              connection_id AS "connectionId",state,archived_at AS "archivedAt",deleted_at AS "deletedAt"
+              FROM threads WHERE id=${input.threadId}`;
+              if (!thread || thread.deletedAt !== null)
+                return yield* Effect.fail(new Error("The thread does not exist."));
+              if (thread.archivedAt !== null)
+                return yield* Effect.fail(
+                  new Error("This thread is archived. Unarchive it to steer a queued message."),
+                );
+              const queue = yield* readThreadQueue(input.threadId);
+              const message = queue.find((entry) => entry.messageId === input.messageId);
+              if (!message)
+                return yield* Effect.fail(new Error("The message is no longer queued."));
+              if (
+                callerThreadId !== undefined &&
+                (message.origin._tag !== "agent" ||
+                  message.origin.senderThreadId !== callerThreadId)
+              )
+                return yield* Effect.fail(
+                  new Error("An agent may steer only a message its own thread queued."),
+                );
+              const [existing] = yield* sql<{
+                seq: number;
+                plan: "deliver" | "steer" | "interrupt-deliver";
+              }>`
+              SELECT seq,admission_plan AS plan FROM thread_items WHERE thread_id=${input.threadId}
+                AND source_id=${input.messageId} AND kind='user' AND status='sending'`;
+              if (existing)
+                return {
+                  admission: {
+                    ...input,
+                    plan: existing.plan,
+                    seq: existing.seq,
+                  },
+                  delivery: null,
+                };
+              const pendingPrefix = yield* sql`SELECT 1 FROM thread_items
+                WHERE thread_id=${input.threadId} AND kind='user' AND status='sending'
+                  AND json_extract(send_payload,'$.deliveryRequestId')=${input.messageId} LIMIT 1`;
+              if (pendingPrefix.length)
+                return {
+                  admission: {
+                    ...input,
+                    plan: "queue" as const,
+                    position: queue.findIndex((entry) => entry.messageId === input.messageId) + 1,
+                    queueLength: queue.length,
+                  },
+                  delivery: null,
+                };
+              const running =
+                thread.state === "running" || (yield* driver.isRunning(input.threadId));
+              const plan = running
+                ? providerSupportsNativeTurnSteering(thread.provider)
+                  ? ("steer" as const)
+                  : ("interrupt-deliver" as const)
+                : ("deliver" as const);
+              const selected = yield* writeSendingMessage(
+                {
+                  threadId: input.threadId,
+                  message,
+                  skills: message.skills,
+                  mentions: message.mentions,
+                  dispatchMode: "steer",
+                  supportsSteer: providerSupportsNativeTurnSteering(thread.provider),
+                  ...resolveDraftSendSelection({ ...thread, draft: null }),
+                },
+                plan,
+                yield* attachmentPrincipal({
+                  threadId: input.threadId,
+                  message,
+                  dispatchMode: "steer",
+                  supportsSteer: false,
+                }),
+              );
+              return {
+                admission: selected.includesRequested
+                  ? { ...input, plan: selected.delivery.plan, seq: selected.seq }
+                  : {
+                      ...input,
+                      plan: "queue" as const,
+                      position: 1,
+                      queueLength: selected.queueLength,
+                    },
+                delivery: selected.delivery,
+              };
+            }),
+          );
+          publisher.publish({ threadId: input.threadId });
+          if (result.delivery !== null) {
+            const delivery = result.delivery;
+            yield* Effect.forkIn(
+              withLane(
+                input.threadId,
+                deliverMessage(publisher, driver, delivery.input, delivery.plan).pipe(
+                  Effect.provideService(SqlClient.SqlClient, sql),
+                ),
+                "delivery",
+              ),
+              scope,
+            );
+          }
+          return result.admission;
+        }).pipe(Effect.provideService(SqlClient.SqlClient, sql)),
       ),
     send: (input: ThreadSendInput) =>
       withLane(

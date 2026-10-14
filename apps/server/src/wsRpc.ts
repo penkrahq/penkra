@@ -340,6 +340,13 @@ const makeWsRpcHandlersLayer = () =>
             ),
             "Failed to send the message",
           ),
+        [WS_METHODS.cleanCoreSteerQueued]: (input) =>
+          rpcEffect(
+            runtimeStartup.enqueueCommand(
+              Effect.flatMap(Effect.service(ThreadSender), (sender) => sender.steerQueued(input)),
+            ),
+            "Failed to steer the queued message",
+          ),
         [WS_METHODS.cleanCoreCancelQueuedMessage]: (input) =>
           rpcEffect(
             Effect.flatMap(Effect.service(ThreadSender), (sender) =>

@@ -421,6 +421,11 @@ export const WsCleanCoreSendMessageRpc = Rpc.make(WS_METHODS.cleanCoreSendMessag
   success: CleanCoreSendAdmission,
   error: WsRpcError,
 });
+export const WsCleanCoreSteerQueuedRpc = Rpc.make(WS_METHODS.cleanCoreSteerQueued, {
+  payload: CleanCoreQueuedMessageInput,
+  success: CleanCoreSendAdmission,
+  error: WsRpcError,
+});
 export const WsCleanCoreCancelQueuedMessageRpc = Rpc.make(WS_METHODS.cleanCoreCancelQueuedMessage, {
   payload: CleanCoreQueuedMessageInput,
   success: CleanCoreQueuedMessageResult,
@@ -563,6 +568,7 @@ export const WsBootstrapRpcGroup = RpcGroup.make(WsBootstrapNegotiateRpc);
 export const WsFeatureRpcGroup = RpcGroup.make(
   WsCleanCoreGetThreadRpc,
   WsCleanCoreSendMessageRpc,
+  WsCleanCoreSteerQueuedRpc,
   WsCleanCoreCancelQueuedMessageRpc,
   WsCleanCoreEditQueuedMessageRpc,
   WsCleanCoreCreateThreadRpc,

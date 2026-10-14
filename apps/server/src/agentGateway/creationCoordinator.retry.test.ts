@@ -223,6 +223,7 @@ function makeHarness() {
     },
     sender: {
       resumeQueuedForConnection: () => Effect.void,
+      steerQueued: () => Effect.die("unused queued steer"),
       runExclusive: (_threadId, action) => action,
       send: (input) =>
         Effect.gen(function* () {

@@ -211,6 +211,7 @@ const TEST_TOOL_COMMANDS: Readonly<Record<string, ReadonlyArray<string>>> = {
   penkra_read_thread: ["penkra", "threads", "read"],
   penkra_create_thread: ["penkra", "threads", "create"],
   penkra_send_message: ["penkra", "threads", "send"],
+  penkra_steer_message: ["penkra", "threads", "steer"],
   penkra_interrupt_thread: ["penkra", "threads", "interrupt"],
   penkra_archive_thread: ["penkra", "threads", "archive"],
   penkra_unarchive_thread: ["penkra", "threads", "unarchive"],
@@ -935,6 +936,7 @@ function makeHarnessLayer(
     Layer.provide(
       Layer.succeed(ThreadSender, {
         resumeQueuedForConnection: () => Effect.void,
+        steerQueued: () => Effect.die("unused queued steer"),
         runExclusive: (_threadId, action) => action,
         getRuntime: () => Effect.succeed({ state: "idle", activeTurnId: null }),
         editQueued: () => Effect.die("Gateway does not edit composer drafts"),
