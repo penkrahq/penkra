@@ -23,6 +23,7 @@ import type { CleanCoreThreadItem } from "@penkra/contracts";
 
 import type { PendingUserInput } from "../../pendingInteractionDerivation";
 import type { PenkraMcpToolStatus } from "../../lib/toolCallLabel";
+import { toAttachmentPreviewUrl } from "../../lib/wsHttpUrl";
 import type { ChatMessage } from "../../types";
 import type { ChatAttachment } from "../../types";
 import { deriveWorkLogEntries, type TimelineEntry, type WorkLogEntry } from "../../workLog";
@@ -153,6 +154,14 @@ export function threadItemToUserContent(item: CleanCoreThreadItem): ThreadItemUs
   return {
     text: item.text ?? "",
     ...data,
+    attachments: data.attachments.map((attachment) =>
+      attachment.type === "image"
+        ? {
+            ...attachment,
+            previewUrl: toAttachmentPreviewUrl(`/attachments/${encodeURIComponent(attachment.id)}`),
+          }
+        : attachment,
+    ),
     skills: data.skills ?? [],
     mentions: data.mentions ?? [],
   };

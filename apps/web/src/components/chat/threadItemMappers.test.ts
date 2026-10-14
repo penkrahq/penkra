@@ -1,3 +1,4 @@
+import { buildExpandedImagePreview } from "./ExpandedImagePreview";
 import type { CleanCoreThreadItem } from "@penkra/contracts";
 import { describe, expect, it } from "vitest";
 
@@ -167,6 +168,32 @@ describe("threadItemToChatMessage", () => {
     expect(message.attachments).toHaveLength(1);
     expect(message.steered).toBe(true);
     expect(message.streaming).toBe(false);
+  });
+
+  it("gives a persisted PNG its preview and expansion source", () => {
+    const message = threadItemToChatMessage(
+      item("user", {
+        data: JSON.stringify({
+          origin: { _tag: "user" },
+          attachments: [
+            {
+              type: "image",
+              id: "att_v2_png",
+              name: "screenshot.png",
+              mimeType: "image/png",
+              sizeBytes: 2688,
+            },
+          ],
+        }),
+      }),
+    );
+    const image = message.attachments![0]!;
+    expect(image.type).toBe("image");
+    if (image.type !== "image") throw new Error("Expected the PNG image");
+    expect(image.previewUrl).toContain("/attachments/att_v2_png");
+    expect(buildExpandedImagePreview([image], image.id)?.images[0]?.src).toContain(
+      "/attachments/att_v2_png",
+    );
   });
 
   it("maps sender attribution from item data for another thread's send", () => {
