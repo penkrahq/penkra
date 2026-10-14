@@ -24,6 +24,7 @@ async function loadPluginSource(source: string): Promise<PluginHooks> {
   const mod = (await import(pathToFileURL(file).href)) as {
     PenkraOpenCodeImageTransform: () => Promise<PluginHooks>;
   };
+  expect(Object.keys(mod)).toEqual(["PenkraOpenCodeImageTransform"]);
   return mod.PenkraOpenCodeImageTransform();
 }
 
