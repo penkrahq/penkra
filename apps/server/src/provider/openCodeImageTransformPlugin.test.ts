@@ -40,7 +40,7 @@ function fileImagePart(id: string, filePath: string) {
 }
 
 describe("OpenCode image transform plugin", () => {
-  it("keeps image parts only in the newest user message", async () => {
+  it("labels older top-level images while keeping the newest user images", async () => {
     const hooks = await loadPluginSource(OPENCODE_IMAGE_TRANSFORM_PLUGIN_SOURCE);
     const messages = [
       {
@@ -48,7 +48,10 @@ describe("OpenCode image transform plugin", () => {
         parts: [{ type: "text", text: "one" }, fileImagePart("f1", "/tmp/a.png")],
       },
       { info: { role: "assistant" }, parts: [{ type: "text", text: "ok" }] },
-      { info: { role: "user" }, parts: [fileImagePart("f2", "/tmp/b.png")] },
+      {
+        info: { role: "user" },
+        parts: Array.from({ length: 4 }, (_, i) => fileImagePart(`f2-${i}`, "/tmp/b.png")),
+      },
     ];
 
     await hooks["experimental.chat.messages.transform"]({}, { messages });
@@ -64,45 +67,76 @@ describe("OpenCode image transform plugin", () => {
       },
     ]);
     expect(messages[1]!.parts).toEqual([{ type: "text", text: "ok" }]);
-    expect(messages[2]!.parts).toEqual([fileImagePart("f2", "/tmp/b.png")]);
+    expect(messages[2]!.parts).toEqual(
+      Array.from({ length: 4 }, (_, i) => fileImagePart(`f2-${i}`, "/tmp/b.png")),
+    );
   });
 
-  it("replaces images in assistant and tool-result messages of any nesting", async () => {
+  it("removes old tool images, labels output and preserves non-images and deeper values", async () => {
     const hooks = await loadPluginSource(OPENCODE_IMAGE_TRANSFORM_PLUGIN_SOURCE);
-    const nestedImage = fileImagePart("f-tool", "/tmp/screenshot.png");
-    const messages = [
-      {
-        info: { role: "assistant" },
-        parts: [
-          {
-            type: "tool",
-            tool: "read",
-            state: { status: "completed", attachments: [nestedImage] },
-          },
-        ],
-      },
-      { info: { role: "user" }, parts: [fileImagePart("f-new", "/tmp/newest.png")] },
-    ];
-
-    await hooks["experimental.chat.messages.transform"]({}, { messages });
-
-    expect((messages[0]!.parts as Array<Record<string, unknown>>)[0]).toEqual({
+    const pdf = { type: "file", mime: "application/pdf", url: "file:///tmp/a.pdf" };
+    const nested = fileImagePart("nested", "/tmp/nested.png");
+    const tool = {
       type: "tool",
-      tool: "read",
-      state: {
-        status: "completed",
-        attachments: [
-          {
-            id: "f-tool",
-            sessionID: "session-1",
-            messageID: "message-1",
-            type: "text",
-            text: "[image: /tmp/screenshot.png]",
-          },
-        ],
+      state: { output: "Read", attachments: [fileImagePart("old", "/tmp/old.png"), pdf], nested },
+    };
+    const messages = [
+      { info: { role: "assistant" }, parts: [tool] },
+      {
+        info: { role: "user" },
+        parts: Array.from({ length: 4 }, (_, i) => fileImagePart(`new-${i}`, "/tmp/new.png")),
       },
-    });
-    expect(messages[1]!.parts).toEqual([fileImagePart("f-new", "/tmp/newest.png")]);
+    ];
+    await hooks["experimental.chat.messages.transform"]({}, { messages });
+    expect(tool.state.attachments).toEqual([pdf]);
+    expect(tool.state.attachments[0]).toBe(pdf);
+    expect(tool.state.output).toBe("Read\n[image: /tmp/old.png]");
+    expect(tool.state.nested).toBe(nested);
+  });
+
+  it("keeps the newest four current-turn tool screenshots", async () => {
+    const hooks = await loadPluginSource(OPENCODE_IMAGE_TRANSFORM_PLUGIN_SOURCE);
+    const tools = Array.from({ length: 5 }, (_, i) => ({
+      type: "tool",
+      state: { output: "Read", attachments: [fileImagePart(`shot-${i}`, `/tmp/shot-${i}.png`)] },
+    }));
+    const messages = [
+      { info: { role: "user" }, parts: [{ type: "text", text: "Screenshot" }] },
+      { info: { role: "assistant" }, parts: tools },
+    ];
+    await hooks["experimental.chat.messages.transform"]({}, { messages });
+    expect(tools[0]!.state.attachments).toEqual([]);
+    expect(tools[0]!.state.output).toBe("Read\n[image: /tmp/shot-0.png]");
+    for (let i = 1; i < 5; i++)
+      expect(tools[i]!.state.attachments).toEqual([
+        fileImagePart(`shot-${i}`, `/tmp/shot-${i}.png`),
+      ]);
+    for (const tool of tools)
+      for (const attachment of tool.state.attachments) {
+        expect(typeof attachment.mime).toBe("string");
+        expect(typeof attachment.url).toBe("string");
+      }
+  });
+
+  it("keeps all six newest-user images and labels every other image", async () => {
+    const hooks = await loadPluginSource(OPENCODE_IMAGE_TRANSFORM_PLUGIN_SOURCE);
+    const userImages = Array.from({ length: 6 }, (_, i) =>
+      fileImagePart(`user-${i}`, `/tmp/user-${i}.png`),
+    );
+    const tool = {
+      type: "tool",
+      state: { output: null, attachments: [fileImagePart("tool", "/tmp/tool.png")] },
+    };
+    const messages = [
+      { info: { role: "assistant" }, parts: [fileImagePart("old", "/tmp/old.png")] },
+      { info: { role: "user" }, parts: userImages },
+      { info: { role: "assistant" }, parts: [tool] },
+    ];
+    await hooks["experimental.chat.messages.transform"]({}, { messages });
+    expect(messages[0]!.parts[0]).toMatchObject({ type: "text", text: "[image: /tmp/old.png]" });
+    expect(messages[1]!.parts).toEqual(userImages);
+    expect(tool.state.attachments).toEqual([]);
+    expect(tool.state.output).toBeNull();
   });
 
   it("handles data: URLs, falling back to the filename or mime", async () => {
@@ -130,7 +164,10 @@ describe("OpenCode image transform plugin", () => {
           },
         ],
       },
-      { info: { role: "user" }, parts: [fileImagePart("f-new", "/tmp/newest.png")] },
+      {
+        info: { role: "user" },
+        parts: Array.from({ length: 4 }, (_, i) => fileImagePart(`f-new-${i}`, "/tmp/newest.png")),
+      },
     ];
 
     await hooks["experimental.chat.messages.transform"]({}, { messages });
@@ -168,7 +205,10 @@ describe("OpenCode image transform plugin", () => {
           { id: "remote", type: "file", mime: "image/gif", url: "https://example.com/x.gif" },
         ],
       },
-      { info: { role: "user" }, parts: [fileImagePart("f-new", "/tmp/newest.png")] },
+      {
+        info: { role: "user" },
+        parts: Array.from({ length: 4 }, (_, i) => fileImagePart(`f-new-${i}`, "/tmp/newest.png")),
+      },
     ];
 
     await hooks["experimental.chat.messages.transform"]({}, { messages });
@@ -192,7 +232,10 @@ describe("OpenCode image transform plugin", () => {
     };
     const messages = [
       { info: { role: "user" }, parts: [pdfPart] },
-      { info: { role: "user" }, parts: [fileImagePart("f-new", "/tmp/newest.png")] },
+      {
+        info: { role: "user" },
+        parts: Array.from({ length: 4 }, (_, i) => fileImagePart(`f-new-${i}`, "/tmp/newest.png")),
+      },
     ];
 
     await hooks["experimental.chat.messages.transform"]({}, { messages });
@@ -200,7 +243,7 @@ describe("OpenCode image transform plugin", () => {
     expect(messages[0]!.parts).toEqual([pdfPart]);
   });
 
-  it("keeps a 25-image conversation usable: only the newest keeps image parts", async () => {
+  it("keeps a 25-image conversation usable: the newest four keep image parts", async () => {
     const hooks = await loadPluginSource(OPENCODE_IMAGE_TRANSFORM_PLUGIN_SOURCE);
     const messages = Array.from({ length: 25 }, (_, index) => ({
       info: { role: "user" },
@@ -209,7 +252,7 @@ describe("OpenCode image transform plugin", () => {
 
     await hooks["experimental.chat.messages.transform"]({}, { messages });
 
-    for (let index = 0; index < 24; index += 1) {
+    for (let index = 0; index < 21; index += 1) {
       expect(messages[index]!.parts).toEqual([
         {
           id: `f${index}`,
@@ -220,12 +263,19 @@ describe("OpenCode image transform plugin", () => {
         },
       ]);
     }
+    for (let index = 21; index < 25; index++)
+      expect(messages[index]!.parts).toEqual([
+        fileImagePart(`f${index}`, `/tmp/image-${index}.png`),
+      ]);
     expect(messages[24]!.parts).toEqual([fileImagePart("f24", "/tmp/image-24.png")]);
   });
 
   it("writes the plugin file and returns its path", async () => {
     const home = await mkdtemp(path.join(os.tmpdir(), "penkra-opencode-plugin-home-"));
     const pluginPath = await ensureOpenCodeImageTransformPlugin(home);
+    expect(await readFile(pluginPath, "utf8")).toBe(OPENCODE_IMAGE_TRANSFORM_PLUGIN_SOURCE);
+    await writeFile(pluginPath, "stale plugin");
+    expect(await ensureOpenCodeImageTransformPlugin(home)).toBe(pluginPath);
     expect(await readFile(pluginPath, "utf8")).toBe(OPENCODE_IMAGE_TRANSFORM_PLUGIN_SOURCE);
   });
 });
