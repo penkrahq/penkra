@@ -1,0 +1,11 @@
+{
+  "sourceRevision": "b2b81bd032ac7ac9becac760dc7a7d12da11f1e3",
+  "sourceArchive": "/Users/emmanuelgyekyeatta-penkra/Penkra/qa-tab-activation-a9gf__bo/source",
+  "scratchHome": "/Users/emmanuelgyekyeatta-penkra/Penkra/qa-tab-activation-a9gf__bo/qa-home",
+  "serverPort": 3909,
+  "vitePort": 5909,
+  "electron": "44.4.1",
+  "bun": "1.4.0",
+  "system": "ProductName:\t\tmacOS\nProductVersion:\t\t26.3\nBuildVersion:\t\t25D125",
+  "productionTouched": false
+}

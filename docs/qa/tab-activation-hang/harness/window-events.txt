@@ -1,0 +1,16 @@
+  window.on("hide", () => {
+    traceAppTabWindow(window, "shell-window-hide");
+    void setAppTabWindowVisibility(rendererOwnerId, false);
+  });
+  window.on("show", () => {
+    traceAppTabWindow(window, "shell-window-show");
+    void setAppTabWindowVisibility(rendererOwnerId, true);
+  });
+  window.on("minimize", () => {
+    traceAppTabWindow(window, "shell-window-minimize");
+    void setAppTabWindowVisibility(rendererOwnerId, false);
+  });
+  window.on("restore", () => {
+    traceAppTabWindow(window, "shell-window-restore");
+    void setAppTabWindowVisibility(rendererOwnerId, true);
+  });

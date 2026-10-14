@@ -1,0 +1,1113 @@
+[app-tab-host] {
+  tabId: 'qa-browser-A',
+  rendererId: 2,
+  appId: 'com.penkra.browser',
+  spaceId: 'qa-space',
+  folderId: 'qa-folder',
+  threadId: 'qa-agent-thread',
+  sequence: 1,
+  monotonicMs: 553,
+  event: 'app-renderer-created'
+}
+[app-tab-host] {
+  tabId: 'qa-browser-A',
+  rendererId: 2,
+  sequence: 2,
+  monotonicMs: 554,
+  event: 'app-renderer-initial-load-requested'
+}
+[app-tab-host] {
+  tabId: 'qa-browser-A',
+  rendererId: 2,
+  sequence: 3,
+  monotonicMs: 557,
+  event: 'app-renderer-load-started'
+}
+[app-tab-host] {
+  windowId: 1,
+  visible: true,
+  sequence: 4,
+  monotonicMs: 754,
+  event: 'window-visibility-started'
+}
+[app-tab-host] {
+  windowId: 1,
+  visible: true,
+  sequence: 5,
+  monotonicMs: 755,
+  event: 'window-visibility-completed'
+}
+[app-tab-host] {
+  tabId: 'qa-browser-A',
+  rendererId: 2,
+  sequence: 6,
+  monotonicMs: 810,
+  event: 'app-renderer-navigated'
+}
+[app-tab-host] {
+  tabId: 'qa-browser-A',
+  rendererId: 2,
+  durationMs: 309,
+  sequence: 7,
+  monotonicMs: 821,
+  event: 'app-renderer-ready'
+}
+[app-tab-host] {
+  tabId: 'qa-browser-B',
+  rendererId: 4,
+  appId: 'com.penkra.browser',
+  spaceId: 'qa-space',
+  folderId: 'qa-folder',
+  threadId: 'qa-agent-thread',
+  sequence: 8,
+  monotonicMs: 850,
+  event: 'app-renderer-created'
+}
+[app-tab-host] {
+  tabId: 'qa-browser-B',
+  rendererId: 4,
+  sequence: 9,
+  monotonicMs: 851,
+  event: 'app-renderer-initial-load-requested'
+}
+[app-tab-host] {
+  tabId: 'qa-browser-B',
+  rendererId: 4,
+  sequence: 10,
+  monotonicMs: 852,
+  event: 'app-renderer-load-started'
+}
+[app-tab-host] {
+  tabId: 'qa-browser-A',
+  rendererId: 2,
+  sequence: 11,
+  monotonicMs: 866,
+  event: 'app-renderer-load-stopped'
+}
+[app-tab-host] {
+  tabId: 'qa-browser-B',
+  rendererId: 4,
+  sequence: 12,
+  monotonicMs: 931,
+  event: 'app-renderer-navigated'
+}
+[app-tab-host] {
+  tabId: 'qa-browser-B',
+  rendererId: 4,
+  durationMs: 118,
+  sequence: 13,
+  monotonicMs: 940,
+  event: 'app-renderer-ready'
+}
+[app-tab-host] {
+  tabId: 'qa-browser-B',
+  rendererId: 4,
+  sequence: 14,
+  monotonicMs: 943,
+  event: 'app-renderer-load-stopped'
+}
+(electron) 'console-message' arguments are deprecated and will be removed. Please use Event<WebContentsConsoleMessageEventParams> object instead.
+[qa-control] {
+  event: 'renderer-console',
+  level: 0,
+  message: '[vite] connecting...'
+}
+[qa-control] { event: 'renderer-console', level: 0, message: '[vite] connected.' }
+[qa-control] {
+  event: 'renderer-console',
+  level: 1,
+  message: '%cDownload the React DevTools for a better development experience: https://react.dev/link/react-devtools font-weight:bold'
+}
+[qa-control] {
+  event: 'renderer-console',
+  level: 2,
+  message: '%cElectron Security Warning (Insecure Content-Security-Policy) font-weight: bold; This renderer process has either no Content Security\n' +
+    '  Policy set or a policy with "unsafe-eval" enabled. This exposes users of\n' +
+    '  this app to unnecessary security risks.\n' +
+    '\n' +
+    'For more information and help, consult\n' +
+    'https://electronjs.org/docs/tutorial/security.\n' +
+    'This warning will not show up\n' +
+    'once the app is packaged.'
+}
+[app-tab-diagnostic] {
+  browserWindowId: 1,
+  rendererId: 1,
+  isVisible: true,
+  isMinimized: false,
+  isFocused: true,
+  rendererState: { visibilityState: 'visible', hasFocus: true },
+  sequence: 1,
+  monotonicMs: 1412,
+  event: 'shell-window-show'
+}
+[app-tab-host] {
+  windowId: 1,
+  visible: true,
+  sequence: 15,
+  monotonicMs: 2613,
+  event: 'window-visibility-started'
+}
+[app-tab-host] {
+  windowId: 1,
+  visible: true,
+  sequence: 16,
+  monotonicMs: 2614,
+  event: 'window-visibility-completed'
+}
+[app-tab-diagnostic] {
+  rendererMonotonicMs: 1676,
+  documentVisibility: 'visible',
+  documentHasFocus: false,
+  threadId: 'qa-agent-thread',
+  status: 'ready',
+  paneVisible: true,
+  rendererId: 1,
+  tabId: 'qa-browser-B',
+  sequence: 2,
+  monotonicMs: 2634,
+  event: 'renderer-pane-mounted'
+}
+[app-tab-diagnostic] {
+  rendererMonotonicMs: 1678,
+  documentVisibility: 'visible',
+  documentHasFocus: false,
+  threadId: 'qa-agent-thread',
+  width: 1,
+  animate: false,
+  status: 'ready',
+  paneVisible: true,
+  rendererId: 1,
+  tabId: 'qa-browser-B',
+  sequence: 3,
+  monotonicMs: 2634,
+  event: 'renderer-present-requested'
+}
+[app-tab-diagnostic] {
+  tabId: 'qa-browser-B',
+  rendererId: 1,
+  folderId: 'qa-folder',
+  threadId: 'qa-agent-thread',
+  animate: false,
+  bounds: { x: 1200, y: 46, width: 1, height: 722 },
+  sequence: 4,
+  monotonicMs: 2634,
+  event: 'shell-present-ipc'
+}
+[app-tab-host] {
+  tabId: 'qa-browser-B',
+  windowId: 1,
+  folderId: 'qa-folder',
+  threadId: 'qa-agent-thread',
+  ownerWindowId: null,
+  freezeDepth: 0,
+  appViewVisible: true,
+  sequence: 17,
+  monotonicMs: 2635,
+  event: 'present-started'
+}
+[app-tab-host] {
+  tabId: 'qa-browser-B',
+  folderId: 'qa-folder',
+  threadId: 'qa-agent-thread',
+  windowId: 1,
+  ownerWindowId: 1,
+  selectedAt: 1,
+  bounds: { x: 1199, y: 46, width: 1, height: 722 },
+  animate: false,
+  windowVisible: true,
+  windowMinimized: false,
+  appViewVisible: true,
+  appViewIndex: 0,
+  childViewCount: 1,
+  hostedPageVisible: false,
+  appViewLoading: false,
+  appViewCrashed: false,
+  hostedPageLoading: false,
+  sequence: 18,
+  monotonicMs: 2645,
+  event: 'present-applied'
+}
+[app-tab-diagnostic] {
+  tabId: 'qa-browser-B',
+  rendererId: 1,
+  folderId: 'qa-folder',
+  threadId: 'qa-agent-thread',
+  animate: false,
+  bounds: { x: 601, y: 46, width: 599, height: 722 },
+  sequence: 5,
+  monotonicMs: 2650,
+  event: 'shell-present-ipc'
+}
+[app-tab-host] {
+  tabId: 'qa-browser-B',
+  windowId: 1,
+  folderId: 'qa-folder',
+  threadId: 'qa-agent-thread',
+  ownerWindowId: 1,
+  freezeDepth: 0,
+  appViewVisible: true,
+  sequence: 19,
+  monotonicMs: 2650,
+  event: 'present-started'
+}
+[app-tab-host] {
+  tabId: 'qa-browser-B',
+  folderId: 'qa-folder',
+  threadId: 'qa-agent-thread',
+  windowId: 1,
+  ownerWindowId: 1,
+  selectedAt: 2,
+  bounds: { x: 601, y: 46, width: 599, height: 722 },
+  animate: false,
+  windowVisible: true,
+  windowMinimized: false,
+  appViewVisible: true,
+  appViewIndex: 0,
+  childViewCount: 1,
+  hostedPageVisible: false,
+  appViewLoading: false,
+  appViewCrashed: false,
+  hostedPageLoading: false,
+  sequence: 20,
+  monotonicMs: 2651,
+  event: 'present-applied'
+}
+[app-tab-diagnostic] {
+  rendererMonotonicMs: 1681,
+  documentVisibility: 'visible',
+  documentHasFocus: false,
+  threadId: 'qa-agent-thread',
+  width: 1,
+  animate: true,
+  status: 'ready',
+  paneVisible: true,
+  rendererId: 1,
+  tabId: 'qa-browser-B',
+  sequence: 6,
+  monotonicMs: 2651,
+  event: 'renderer-present-requested'
+}
+[app-tab-diagnostic] {
+  tabId: 'qa-browser-B',
+  rendererId: 1,
+  folderId: 'qa-folder',
+  threadId: 'qa-agent-thread',
+  animate: true,
+  bounds: { x: 1200, y: 46, width: 1, height: 722 },
+  sequence: 7,
+  monotonicMs: 2651,
+  event: 'shell-present-ipc'
+}
+[app-tab-host] {
+  tabId: 'qa-browser-B',
+  windowId: 1,
+  folderId: 'qa-folder',
+  threadId: 'qa-agent-thread',
+  ownerWindowId: 1,
+  freezeDepth: 0,
+  appViewVisible: true,
+  sequence: 21,
+  monotonicMs: 2651,
+  event: 'present-started'
+}
+[app-tab-host] {
+  tabId: 'qa-browser-B',
+  folderId: 'qa-folder',
+  threadId: 'qa-agent-thread',
+  windowId: 1,
+  ownerWindowId: 1,
+  selectedAt: 3,
+  bounds: { x: 1199, y: 46, width: 1, height: 722 },
+  animate: true,
+  windowVisible: true,
+  windowMinimized: false,
+  appViewVisible: true,
+  appViewIndex: 0,
+  childViewCount: 1,
+  hostedPageVisible: false,
+  appViewLoading: false,
+  appViewCrashed: false,
+  hostedPageLoading: false,
+  sequence: 22,
+  monotonicMs: 2652,
+  event: 'present-applied'
+}
+[app-tab-diagnostic] {
+  rendererMonotonicMs: 1681,
+  documentVisibility: 'visible',
+  documentHasFocus: true,
+  threadId: 'qa-agent-thread',
+  rendererId: 1,
+  tabId: 'qa-browser-B',
+  sequence: 8,
+  monotonicMs: 2652,
+  event: 'renderer-window-focused'
+}
+[app-tab-diagnostic] {
+  tabId: 'qa-browser-B',
+  rendererId: 1,
+  folderId: 'qa-folder',
+  threadId: 'qa-agent-thread',
+  animate: false,
+  bounds: { x: 601, y: 46, width: 599, height: 722 },
+  sequence: 9,
+  monotonicMs: 2662,
+  event: 'shell-present-ipc'
+}
+[app-tab-host] {
+  tabId: 'qa-browser-B',
+  windowId: 1,
+  folderId: 'qa-folder',
+  threadId: 'qa-agent-thread',
+  ownerWindowId: 1,
+  freezeDepth: 0,
+  appViewVisible: true,
+  sequence: 23,
+  monotonicMs: 2662,
+  event: 'present-started'
+}
+[app-tab-host] {
+  tabId: 'qa-browser-B',
+  folderId: 'qa-folder',
+  threadId: 'qa-agent-thread',
+  windowId: 1,
+  ownerWindowId: 1,
+  selectedAt: 4,
+  bounds: { x: 601, y: 46, width: 599, height: 722 },
+  animate: false,
+  windowVisible: true,
+  windowMinimized: false,
+  appViewVisible: true,
+  appViewIndex: 0,
+  childViewCount: 1,
+  hostedPageVisible: false,
+  appViewLoading: false,
+  appViewCrashed: false,
+  hostedPageLoading: false,
+  sequence: 24,
+  monotonicMs: 2663,
+  event: 'present-applied'
+}
+[app-tab-diagnostic] {
+  rendererMonotonicMs: 1704,
+  documentVisibility: 'visible',
+  documentHasFocus: true,
+  threadId: 'qa-agent-thread',
+  mode: 'live',
+  ownerWindowId: 1,
+  rendererId: 1,
+  tabId: 'qa-browser-B',
+  sequence: 10,
+  monotonicMs: 2678,
+  event: 'renderer-presentation-received'
+}
+[app-tab-diagnostic] {
+  rendererMonotonicMs: 1710,
+  documentVisibility: 'visible',
+  documentHasFocus: true,
+  threadId: 'qa-agent-thread',
+  mode: 'live',
+  ownerWindowId: 1,
+  rendererId: 1,
+  tabId: 'qa-browser-B',
+  sequence: 11,
+  monotonicMs: 2678,
+  event: 'renderer-presentation-received'
+}
+[app-tab-diagnostic] {
+  rendererMonotonicMs: 1711,
+  documentVisibility: 'visible',
+  documentHasFocus: true,
+  threadId: 'qa-agent-thread',
+  mode: 'live',
+  ownerWindowId: 1,
+  rendererId: 1,
+  tabId: 'qa-browser-B',
+  sequence: 12,
+  monotonicMs: 2678,
+  event: 'renderer-presentation-received'
+}
+[app-tab-diagnostic] {
+  rendererMonotonicMs: 1722,
+  documentVisibility: 'visible',
+  documentHasFocus: true,
+  threadId: 'qa-agent-thread',
+  mode: 'live',
+  ownerWindowId: 1,
+  rendererId: 1,
+  tabId: 'qa-browser-B',
+  sequence: 13,
+  monotonicMs: 2679,
+  event: 'renderer-presentation-received'
+}
+[app-tab-diagnostic] {
+  rendererMonotonicMs: 1976,
+  documentVisibility: 'visible',
+  documentHasFocus: true,
+  threadId: 'qa-agent-thread',
+  width: 600,
+  animate: false,
+  status: 'ready',
+  paneVisible: true,
+  rendererId: 1,
+  tabId: 'qa-browser-B',
+  sequence: 14,
+  monotonicMs: 2917,
+  event: 'renderer-present-requested'
+}
+[app-tab-diagnostic] {
+  tabId: 'qa-browser-B',
+  rendererId: 1,
+  folderId: 'qa-folder',
+  threadId: 'qa-agent-thread',
+  animate: false,
+  bounds: { x: 601, y: 46, width: 599, height: 722 },
+  sequence: 15,
+  monotonicMs: 2917,
+  event: 'shell-present-ipc'
+}
+[app-tab-host] {
+  tabId: 'qa-browser-B',
+  windowId: 1,
+  folderId: 'qa-folder',
+  threadId: 'qa-agent-thread',
+  ownerWindowId: 1,
+  freezeDepth: 0,
+  appViewVisible: true,
+  sequence: 25,
+  monotonicMs: 2918,
+  event: 'present-started'
+}
+[app-tab-host] {
+  tabId: 'qa-browser-B',
+  folderId: 'qa-folder',
+  threadId: 'qa-agent-thread',
+  windowId: 1,
+  ownerWindowId: 1,
+  selectedAt: 5,
+  bounds: { x: 601, y: 46, width: 599, height: 722 },
+  animate: false,
+  windowVisible: true,
+  windowMinimized: false,
+  appViewVisible: true,
+  appViewIndex: 0,
+  childViewCount: 1,
+  hostedPageVisible: false,
+  appViewLoading: false,
+  appViewCrashed: false,
+  hostedPageLoading: false,
+  sequence: 26,
+  monotonicMs: 2918,
+  event: 'present-applied'
+}
+[app-tab-diagnostic] {
+  rendererMonotonicMs: 1977,
+  documentVisibility: 'visible',
+  documentHasFocus: true,
+  threadId: 'qa-agent-thread',
+  mode: 'live',
+  ownerWindowId: 1,
+  rendererId: 1,
+  tabId: 'qa-browser-B',
+  sequence: 16,
+  monotonicMs: 2918,
+  event: 'renderer-presentation-received'
+}
+[qa-control] {
+  event: 'command-sent',
+  command: 'penkra tabs activate --tab-id qa-browser-A',
+  scope: {
+    spaceId: 'qa-space',
+    folderId: 'qa-folder',
+    threadId: 'qa-agent-thread',
+    callerTurnId: 'qa-turn'
+  },
+  before: {
+    renderer: {
+      open: true,
+      activePaneId: 'qa-browser-B',
+      width: null,
+      panes: [Array]
+    },
+    visible: false,
+    ownerId: null,
+    windowVisible: true,
+    windowMinimized: false
+  }
+}
+[qa-control] {
+  event: 'activation-claim-gated',
+  requestId: '9f4ab811-260a-441f-9a9d-08ace8d81565',
+  windowId: 1
+}
+[app-tab-diagnostic] {
+  rendererMonotonicMs: 2836,
+  documentVisibility: 'visible',
+  documentHasFocus: false,
+  threadId: 'qa-agent-thread',
+  rendererId: 1,
+  tabId: 'qa-browser-B',
+  sequence: 17,
+  monotonicMs: 3781,
+  event: 'renderer-window-blurred'
+}
+[app-tab-diagnostic] {
+  rendererMonotonicMs: 2838,
+  documentVisibility: 'hidden',
+  documentHasFocus: false,
+  threadId: 'qa-agent-thread',
+  rendererId: 1,
+  tabId: 'qa-browser-B',
+  sequence: 18,
+  monotonicMs: 3781,
+  event: 'renderer-document-visibility-changed'
+}
+[qa-control] {
+  event: 'gate-released',
+  windowVisible: false,
+  windowMinimized: false
+}
+[qa-control] {
+  event: 'activation-claim-result',
+  requestId: '9f4ab811-260a-441f-9a9d-08ace8d81565',
+  windowId: 1,
+  accepted: false
+}
+[qa-control] {
+  event: 'command-result',
+  caseId: 'b-hide-before-claim',
+  durationMs: 162.96725000000015,
+  command: 'penkra tabs activate --tab-id qa-browser-A',
+  scope: {
+    spaceId: 'qa-space',
+    folderId: 'qa-folder',
+    threadId: 'qa-agent-thread',
+    callerTurnId: 'qa-turn'
+  },
+  before: {
+    renderer: {
+      open: true,
+      activePaneId: 'qa-browser-B',
+      width: null,
+      panes: [Array]
+    },
+    visible: false,
+    ownerId: null,
+    windowVisible: true,
+    windowMinimized: false
+  },
+  ok: false,
+  error: {
+    message: 'TAB_ACTIVATION_CANCELLED: The chosen window can no longer show the App tab.\n' +
+      'The chosen window can no longer show the App tab.',
+    code: 'TAB_ACTIVATION_CANCELLED',
+    dispatched: undefined
+  },
+  after: {
+    renderer: {
+      open: true,
+      activePaneId: 'qa-browser-B',
+      width: null,
+      panes: [Array]
+    },
+    visible: false,
+    ownerId: null,
+    windowVisible: false,
+    windowMinimized: false
+  }
+}
+[qa-control] {
+  event: 'renderer-console',
+  level: 1,
+  message: 'QA toast [object Object]'
+}
+[app-tab-diagnostic] {
+  rendererMonotonicMs: 2942,
+  documentVisibility: 'visible',
+  documentHasFocus: false,
+  threadId: 'qa-agent-thread',
+  rendererId: 1,
+  tabId: 'qa-browser-B',
+  sequence: 19,
+  monotonicMs: 3883,
+  event: 'renderer-document-visibility-changed'
+}
+[app-tab-diagnostic] {
+  rendererMonotonicMs: 2962,
+  documentVisibility: 'hidden',
+  documentHasFocus: false,
+  threadId: 'qa-agent-thread',
+  rendererId: 1,
+  tabId: 'qa-browser-B',
+  sequence: 20,
+  monotonicMs: 3928,
+  event: 'renderer-document-visibility-changed'
+}
+[app-tab-host] {
+  windowId: 1,
+  visible: false,
+  sequence: 27,
+  monotonicMs: 4045,
+  event: 'window-visibility-started'
+}
+[app-tab-host] {
+  tabId: 'qa-browser-B',
+  windowId: 1,
+  visible: false,
+  presentationVisible: true,
+  ownerWindowId: 1,
+  appViewVisible: true,
+  sequence: 28,
+  monotonicMs: 4045,
+  event: 'window-visibility-tab'
+}
+[app-tab-host] {
+  tabId: 'qa-browser-B',
+  windowId: 1,
+  sequence: 29,
+  monotonicMs: 4045,
+  event: 'window-hide-replica-capture-started'
+}
+[app-tab-diagnostic] {
+  browserWindowId: 1,
+  rendererId: 1,
+  isVisible: false,
+  isMinimized: false,
+  isFocused: false,
+  rendererState: { visibilityState: 'hidden', hasFocus: false },
+  sequence: 21,
+  monotonicMs: 4046,
+  event: 'shell-window-hide'
+}
+[app-tab-host] {
+  tabId: 'qa-browser-B',
+  windowId: 1,
+  sequence: 30,
+  monotonicMs: 4063,
+  event: 'window-hide-replica-capture-completed'
+}
+[app-tab-host] {
+  tabId: 'qa-browser-B',
+  windowId: 1,
+  visibleRequested: true,
+  freezeDepth: 0,
+  appViewVisible: true,
+  hostedPageVisible: false,
+  sequence: 31,
+  monotonicMs: 4085,
+  event: 'window-hide-applied'
+}
+[app-tab-host] {
+  windowId: 1,
+  visible: false,
+  sequence: 32,
+  monotonicMs: 4086,
+  event: 'window-visibility-completed'
+}
+[app-tab-diagnostic] {
+  rendererMonotonicMs: 3124,
+  documentVisibility: 'hidden',
+  documentHasFocus: false,
+  threadId: 'qa-agent-thread',
+  mode: 'replica',
+  ownerWindowId: 1,
+  rendererId: 1,
+  tabId: 'qa-browser-B',
+  sequence: 22,
+  monotonicMs: 4092,
+  event: 'renderer-presentation-received'
+}
+[app-tab-host] {
+  windowId: 1,
+  visible: true,
+  sequence: 33,
+  monotonicMs: 4235,
+  event: 'window-visibility-started'
+}
+[app-tab-host] {
+  tabId: 'qa-browser-B',
+  windowId: 1,
+  visible: true,
+  presentationVisible: true,
+  ownerWindowId: null,
+  appViewVisible: true,
+  sequence: 34,
+  monotonicMs: 4235,
+  event: 'window-visibility-tab'
+}
+[app-tab-host] {
+  tabId: 'qa-browser-B',
+  windowId: 1,
+  folderId: 'qa-folder',
+  threadId: 'qa-agent-thread',
+  ownerWindowId: null,
+  freezeDepth: 0,
+  appViewVisible: true,
+  sequence: 35,
+  monotonicMs: 4235,
+  event: 'present-started'
+}
+[app-tab-host] {
+  tabId: 'qa-browser-B',
+  folderId: 'qa-folder',
+  threadId: 'qa-agent-thread',
+  windowId: 1,
+  ownerWindowId: 1,
+  selectedAt: 6,
+  bounds: { x: 601, y: 46, width: 599, height: 722 },
+  animate: false,
+  windowVisible: true,
+  windowMinimized: false,
+  appViewVisible: true,
+  appViewIndex: 0,
+  childViewCount: 1,
+  hostedPageVisible: false,
+  appViewLoading: false,
+  appViewCrashed: false,
+  hostedPageLoading: false,
+  sequence: 36,
+  monotonicMs: 4244,
+  event: 'present-applied'
+}
+[app-tab-host] {
+  tabId: 'qa-browser-B',
+  windowId: 1,
+  visibleRequested: true,
+  freezeDepth: 0,
+  appViewVisible: true,
+  hostedPageVisible: false,
+  sequence: 37,
+  monotonicMs: 4245,
+  event: 'window-show-applied'
+}
+[app-tab-host] {
+  windowId: 1,
+  visible: true,
+  sequence: 38,
+  monotonicMs: 4245,
+  event: 'window-visibility-completed'
+}
+[app-tab-host] {
+  windowId: 1,
+  visible: true,
+  sequence: 39,
+  monotonicMs: 4269,
+  event: 'window-visibility-started'
+}
+[app-tab-host] {
+  tabId: 'qa-browser-B',
+  windowId: 1,
+  visible: true,
+  presentationVisible: true,
+  ownerWindowId: 1,
+  appViewVisible: true,
+  sequence: 40,
+  monotonicMs: 4269,
+  event: 'window-visibility-tab'
+}
+[app-tab-host] {
+  tabId: 'qa-browser-B',
+  windowId: 1,
+  visibleRequested: true,
+  freezeDepth: 0,
+  appViewVisible: true,
+  hostedPageVisible: false,
+  sequence: 41,
+  monotonicMs: 4270,
+  event: 'window-show-applied'
+}
+[app-tab-host] {
+  windowId: 1,
+  visible: true,
+  sequence: 42,
+  monotonicMs: 4270,
+  event: 'window-visibility-completed'
+}
+[app-tab-diagnostic] {
+  rendererMonotonicMs: 3290,
+  documentVisibility: 'visible',
+  documentHasFocus: false,
+  threadId: 'qa-agent-thread',
+  rendererId: 1,
+  tabId: 'qa-browser-B',
+  sequence: 23,
+  monotonicMs: 4279,
+  event: 'renderer-document-visibility-changed'
+}
+[app-tab-diagnostic] {
+  rendererMonotonicMs: 3304,
+  documentVisibility: 'visible',
+  documentHasFocus: false,
+  threadId: 'qa-agent-thread',
+  mode: 'live',
+  ownerWindowId: 1,
+  rendererId: 1,
+  tabId: 'qa-browser-B',
+  sequence: 24,
+  monotonicMs: 4284,
+  event: 'renderer-presentation-received'
+}
+[app-tab-diagnostic] {
+  rendererMonotonicMs: 3305,
+  documentVisibility: 'visible',
+  documentHasFocus: false,
+  threadId: 'qa-agent-thread',
+  mode: 'live',
+  ownerWindowId: 1,
+  rendererId: 1,
+  tabId: 'qa-browser-B',
+  sequence: 25,
+  monotonicMs: 4284,
+  event: 'renderer-presentation-received'
+}
+[app-tab-diagnostic] {
+  rendererMonotonicMs: 3310,
+  documentVisibility: 'visible',
+  documentHasFocus: true,
+  threadId: 'qa-agent-thread',
+  rendererId: 1,
+  tabId: 'qa-browser-B',
+  sequence: 26,
+  monotonicMs: 4285,
+  event: 'renderer-window-focused'
+}
+[app-tab-diagnostic] {
+  rendererMonotonicMs: 3329,
+  documentVisibility: 'visible',
+  documentHasFocus: true,
+  threadId: 'qa-agent-thread',
+  mode: 'live',
+  ownerWindowId: 1,
+  rendererId: 1,
+  tabId: 'qa-browser-B',
+  sequence: 27,
+  monotonicMs: 4285,
+  event: 'renderer-presentation-received'
+}
+[app-tab-diagnostic] {
+  browserWindowId: 1,
+  rendererId: 1,
+  isVisible: true,
+  isMinimized: false,
+  isFocused: true,
+  rendererState: { visibilityState: 'visible', hasFocus: true },
+  sequence: 28,
+  monotonicMs: 4285,
+  event: 'shell-window-show'
+}
+[app-tab-diagnostic] {
+  rendererMonotonicMs: 4097,
+  documentVisibility: 'visible',
+  documentHasFocus: false,
+  threadId: 'qa-agent-thread',
+  rendererId: 1,
+  tabId: 'qa-browser-B',
+  sequence: 29,
+  monotonicMs: 5041,
+  event: 'renderer-window-blurred'
+}
+[app-tab-diagnostic] {
+  rendererMonotonicMs: 4412,
+  documentVisibility: 'hidden',
+  documentHasFocus: false,
+  threadId: 'qa-agent-thread',
+  rendererId: 1,
+  tabId: 'qa-browser-B',
+  sequence: 30,
+  monotonicMs: 5353,
+  event: 'renderer-document-visibility-changed'
+}
+[app-tab-host] {
+  windowId: 1,
+  visible: false,
+  sequence: 43,
+  monotonicMs: 5626,
+  event: 'window-visibility-started'
+}
+[app-tab-host] {
+  tabId: 'qa-browser-B',
+  windowId: 1,
+  visible: false,
+  presentationVisible: true,
+  ownerWindowId: 1,
+  appViewVisible: true,
+  sequence: 44,
+  monotonicMs: 5626,
+  event: 'window-visibility-tab'
+}
+[app-tab-host] {
+  tabId: 'qa-browser-B',
+  windowId: 1,
+  sequence: 45,
+  monotonicMs: 5626,
+  event: 'window-hide-replica-capture-started'
+}
+[app-tab-diagnostic] {
+  browserWindowId: 1,
+  rendererId: 1,
+  isVisible: false,
+  isMinimized: false,
+  isFocused: false,
+  rendererState: { visibilityState: 'hidden', hasFocus: false },
+  sequence: 31,
+  monotonicMs: 5627,
+  event: 'shell-window-hide'
+}
+[app-tab-host] {
+  tabId: 'qa-browser-B',
+  windowId: 1,
+  sequence: 46,
+  monotonicMs: 5645,
+  event: 'window-hide-replica-capture-completed'
+}
+[app-tab-host] {
+  tabId: 'qa-browser-B',
+  windowId: 1,
+  visibleRequested: true,
+  freezeDepth: 0,
+  appViewVisible: true,
+  hostedPageVisible: false,
+  sequence: 47,
+  monotonicMs: 5668,
+  event: 'window-hide-applied'
+}
+[app-tab-host] {
+  windowId: 1,
+  visible: false,
+  sequence: 48,
+  monotonicMs: 5668,
+  event: 'window-visibility-completed'
+}
+[app-tab-diagnostic] {
+  rendererMonotonicMs: 4704,
+  documentVisibility: 'hidden',
+  documentHasFocus: false,
+  threadId: 'qa-agent-thread',
+  mode: 'replica',
+  ownerWindowId: 1,
+  rendererId: 1,
+  tabId: 'qa-browser-B',
+  sequence: 32,
+  monotonicMs: 5676,
+  event: 'renderer-presentation-received'
+}
+[qa-control] {
+  event: 'command-sent',
+  command: 'penkra tabs activate --tab-id qa-browser-A',
+  scope: {
+    spaceId: 'qa-space',
+    folderId: 'qa-folder',
+    threadId: 'qa-agent-thread',
+    callerTurnId: 'qa-turn'
+  },
+  before: {
+    renderer: {
+      open: true,
+      activePaneId: 'qa-browser-B',
+      width: null,
+      panes: [Array]
+    },
+    visible: false,
+    ownerId: null,
+    windowVisible: false,
+    windowMinimized: false
+  }
+}
+[qa-control] {
+  event: 'command-result',
+  caseId: 'd-stable-hidden',
+  durationMs: 3.4652079999996204,
+  command: 'penkra tabs activate --tab-id qa-browser-A',
+  scope: {
+    spaceId: 'qa-space',
+    folderId: 'qa-folder',
+    threadId: 'qa-agent-thread',
+    callerTurnId: 'qa-turn'
+  },
+  before: {
+    renderer: {
+      open: true,
+      activePaneId: 'qa-browser-B',
+      width: null,
+      panes: [Array]
+    },
+    visible: false,
+    ownerId: null,
+    windowVisible: false,
+    windowMinimized: false
+  },
+  ok: false,
+  error: {
+    message: 'TAB_FOLDER_NOT_AVAILABLE: Folder "QA folder" is not open in any window.\n' +
+      'Folder "QA folder" is not open in any window.',
+    code: 'TAB_FOLDER_NOT_AVAILABLE',
+    dispatched: false
+  },
+  after: {
+    renderer: {
+      open: true,
+      activePaneId: 'qa-browser-B',
+      width: null,
+      panes: [Array]
+    },
+    visible: false,
+    ownerId: null,
+    windowVisible: false,
+    windowMinimized: false
+  }
+}
+[app-tab-diagnostic] {
+  rendererMonotonicMs: 9765,
+  documentVisibility: 'visible',
+  documentHasFocus: false,
+  threadId: 'qa-agent-thread',
+  rendererId: 1,
+  tabId: 'qa-browser-B',
+  sequence: 33,
+  monotonicMs: 10706,
+  event: 'renderer-document-visibility-changed'
+}
+[app-tab-diagnostic] {
+  rendererMonotonicMs: 9774,
+  documentVisibility: 'hidden',
+  documentHasFocus: false,
+  threadId: 'qa-agent-thread',
+  rendererId: 1,
+  tabId: 'qa-browser-B',
+  sequence: 34,
+  monotonicMs: 10740,
+  event: 'renderer-document-visibility-changed'
+}
+[app-tab-host] {
+  tabId: 'qa-browser-A',
+  reason: 'host-stopped',
+  rendererId: 2,
+  ownerWindowId: null,
+  sequence: 49,
+  monotonicMs: 11041,
+  event: 'tab-close-started'
+}
+[app-tab-host] {
+  tabId: 'qa-browser-B',
+  reason: 'host-stopped',
+  rendererId: 4,
+  ownerWindowId: null,
+  sequence: 50,
+  monotonicMs: 11148,
+  event: 'tab-close-started'
+}
+[app-tab-host] {
+  tabId: 'qa-browser-A',
+  rendererId: 2,
+  sequence: 51,
+  monotonicMs: 11256,
+  event: 'app-renderer-destroyed'
+}
+[app-tab-host] {
+  tabId: 'qa-browser-B',
+  rendererId: 4,
+  sequence: 52,
+  monotonicMs: 11259,
+  event: 'app-renderer-destroyed'
+}

@@ -1,0 +1,199 @@
+[
+  {
+    "caseId": "b-hide-before-claim",
+    "durationMs": 162.96725000000015,
+    "command": "penkra tabs activate --tab-id qa-browser-A",
+    "scope": {
+      "spaceId": "qa-space",
+      "folderId": "qa-folder",
+      "threadId": "qa-agent-thread",
+      "callerTurnId": "qa-turn"
+    },
+    "before": {
+      "renderer": {
+        "open": true,
+        "activePaneId": "qa-browser-B",
+        "width": null,
+        "panes": [
+          {
+            "appStatus": "ready",
+            "id": "qa-browser-A",
+            "kind": "app",
+            "appId": "com.penkra.browser",
+            "appSpaceId": "qa-space",
+            "appSlug": "browser",
+            "appName": "Browser",
+            "appRoute": "/",
+            "appIconDataUrl": null,
+            "appPresentationTitle": null,
+            "appPresentationIconUrl": null,
+            "appRendererId": 2
+          },
+          {
+            "appStatus": "ready",
+            "id": "qa-browser-B",
+            "kind": "app",
+            "appId": "com.penkra.browser",
+            "appSpaceId": "qa-space",
+            "appSlug": "browser",
+            "appName": "Browser",
+            "appRoute": "/",
+            "appIconDataUrl": null,
+            "appPresentationTitle": null,
+            "appPresentationIconUrl": null,
+            "appRendererId": 4
+          }
+        ]
+      },
+      "visible": false,
+      "ownerId": null,
+      "windowVisible": true,
+      "windowMinimized": false
+    },
+    "ok": false,
+    "error": {
+      "message": "TAB_ACTIVATION_CANCELLED: The chosen window can no longer show the App tab.\nThe chosen window can no longer show the App tab.",
+      "code": "TAB_ACTIVATION_CANCELLED"
+    },
+    "after": {
+      "renderer": {
+        "open": true,
+        "activePaneId": "qa-browser-B",
+        "width": null,
+        "panes": [
+          {
+            "appStatus": "ready",
+            "id": "qa-browser-A",
+            "kind": "app",
+            "appId": "com.penkra.browser",
+            "appSpaceId": "qa-space",
+            "appSlug": "browser",
+            "appName": "Browser",
+            "appRoute": "/",
+            "appIconDataUrl": null,
+            "appPresentationTitle": null,
+            "appPresentationIconUrl": null,
+            "appRendererId": 2
+          },
+          {
+            "appStatus": "ready",
+            "id": "qa-browser-B",
+            "kind": "app",
+            "appId": "com.penkra.browser",
+            "appSpaceId": "qa-space",
+            "appSlug": "browser",
+            "appName": "Browser",
+            "appRoute": "/",
+            "appIconDataUrl": null,
+            "appPresentationTitle": null,
+            "appPresentationIconUrl": null,
+            "appRendererId": 4
+          }
+        ]
+      },
+      "visible": false,
+      "ownerId": null,
+      "windowVisible": false,
+      "windowMinimized": false
+    }
+  },
+  {
+    "caseId": "d-stable-hidden",
+    "durationMs": 3.4652079999996204,
+    "command": "penkra tabs activate --tab-id qa-browser-A",
+    "scope": {
+      "spaceId": "qa-space",
+      "folderId": "qa-folder",
+      "threadId": "qa-agent-thread",
+      "callerTurnId": "qa-turn"
+    },
+    "before": {
+      "renderer": {
+        "open": true,
+        "activePaneId": "qa-browser-B",
+        "width": null,
+        "panes": [
+          {
+            "appStatus": "ready",
+            "id": "qa-browser-A",
+            "kind": "app",
+            "appId": "com.penkra.browser",
+            "appSpaceId": "qa-space",
+            "appSlug": "browser",
+            "appName": "Browser",
+            "appRoute": "/",
+            "appIconDataUrl": null,
+            "appPresentationTitle": null,
+            "appPresentationIconUrl": null,
+            "appRendererId": 2
+          },
+          {
+            "appStatus": "ready",
+            "id": "qa-browser-B",
+            "kind": "app",
+            "appId": "com.penkra.browser",
+            "appSpaceId": "qa-space",
+            "appSlug": "browser",
+            "appName": "Browser",
+            "appRoute": "/",
+            "appIconDataUrl": null,
+            "appPresentationTitle": null,
+            "appPresentationIconUrl": null,
+            "appRendererId": 4
+          }
+        ]
+      },
+      "visible": false,
+      "ownerId": null,
+      "windowVisible": false,
+      "windowMinimized": false
+    },
+    "ok": false,
+    "error": {
+      "message": "TAB_FOLDER_NOT_AVAILABLE: Folder \"QA folder\" is not open in any window.\nFolder \"QA folder\" is not open in any window.",
+      "code": "TAB_FOLDER_NOT_AVAILABLE",
+      "dispatched": false
+    },
+    "after": {
+      "renderer": {
+        "open": true,
+        "activePaneId": "qa-browser-B",
+        "width": null,
+        "panes": [
+          {
+            "appStatus": "ready",
+            "id": "qa-browser-A",
+            "kind": "app",
+            "appId": "com.penkra.browser",
+            "appSpaceId": "qa-space",
+            "appSlug": "browser",
+            "appName": "Browser",
+            "appRoute": "/",
+            "appIconDataUrl": null,
+            "appPresentationTitle": null,
+            "appPresentationIconUrl": null,
+            "appRendererId": 2
+          },
+          {
+            "appStatus": "ready",
+            "id": "qa-browser-B",
+            "kind": "app",
+            "appId": "com.penkra.browser",
+            "appSpaceId": "qa-space",
+            "appSlug": "browser",
+            "appName": "Browser",
+            "appRoute": "/",
+            "appIconDataUrl": null,
+            "appPresentationTitle": null,
+            "appPresentationIconUrl": null,
+            "appRendererId": 4
+          }
+        ]
+      },
+      "visible": false,
+      "ownerId": null,
+      "windowVisible": false,
+      "windowMinimized": false
+    }
+  }
+]

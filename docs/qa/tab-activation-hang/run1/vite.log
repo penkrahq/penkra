@@ -1,0 +1,10 @@
+$ vite --config qa-vite.config.ts
+
+  VITE v8.2.2  ready in 419 ms
+
+  ➜  Local:   http://127.0.0.1:5909/
+12:20:26 AM [vite] (client) [optimizer] bundling dependencies...
+12:20:27 AM [vite] (client) [optimizer] bundling dependencies...
+12:20:33 AM [vite] (client) [optimizer] bundling dependencies...
+12:20:38 AM [vite] (client) dependencies optimized: react-dom/client, @base-ui/react/dialog, @base-ui/react/input, @base-ui/react/merge-props, @base-ui/react/scroll-area, @base-ui/react/separator, @base-ui/react/tooltip, @base-ui/react/use-render, @tabler/icons-react, class-variance-authority, effect, effect/Effect, effect/Random, effect/Record, effect/Schema, effect/unstable/rpc/Rpc, effect/unstable/rpc/RpcGroup, react-icons/pi, react-icons/si, react-icons/vsc, tailwind-merge, zustand
+12:20:38 AM [vite] (client) optimized dependencies changed. reloading

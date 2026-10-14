@@ -1,0 +1,9 @@
+$ vitest run --passWithNoTests --silent=passed-only src/appTabActivation.test.ts src/appTabOpenedRouting.test.ts
+
+ RUN  v4.1.11 /Users/emmanuelgyekyeatta-penkra/Penkra/qa-tab-activation-a9gf__bo/source/apps/desktop
+
+
+ Test Files  2 passed (2)
+      Tests  15 passed (15)
+   Start at  00:27:19
+   Duration  357ms (transform 83ms, setup 0ms, import 120ms, tests 10ms, environment 0ms)
