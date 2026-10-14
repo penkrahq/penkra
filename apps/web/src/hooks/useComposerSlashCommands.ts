@@ -261,7 +261,6 @@ export function useComposerSlashCommands(input: {
           messageId: newMessageId(),
           text: messageText,
           attachments: [],
-          origin: { _tag: "user" as const },
           queuedAt: createdAt,
         },
         modelSelection: selectedModelSelection,

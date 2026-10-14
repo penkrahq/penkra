@@ -13,6 +13,7 @@ import * as SqlClient from "effect/unstable/sql/SqlClient";
 
 import type { CleanCoreProviderEvent } from "./providerStreamConsumer.ts";
 import { capThreadItemData, THREAD_ITEM_DATA_LIMIT_BYTES } from "./threadItemData.ts";
+import { makeInvalidationHub, type InvalidationHub } from "./invalidationHub.ts";
 
 export type ThreadItemKind =
   | "user"
@@ -42,8 +43,8 @@ export interface ThreadChange {
 }
 
 export interface ThreadPublisher {
-  readonly threadChanges: PubSub.PubSub<ThreadChange>;
-  readonly sidebarChanges: PubSub.PubSub<CleanCoreSidebarChange>;
+  readonly threadChanges: InvalidationHub<ThreadChange>;
+  readonly sidebarChanges: InvalidationHub<CleanCoreSidebarChange>;
   readonly providerEvents: PubSub.PubSub<CleanCoreProviderEvent>;
   readonly deliveryReady: PubSub.PubSub<ThreadChange>;
   readonly publishProvider: (event: CleanCoreProviderEvent) => void;
@@ -55,13 +56,22 @@ export interface ThreadPublisher {
 }
 
 export const makeThreadPublisher = (): ThreadPublisher => {
-  const threadChanges = Effect.runSync(PubSub.unbounded<ThreadChange>());
-  const sidebarChanges = Effect.runSync(PubSub.unbounded<CleanCoreSidebarChange>());
+  const threadChanges = makeInvalidationHub<ThreadChange>((change) => change.threadId);
+  const sidebarChanges = makeInvalidationHub<CleanCoreSidebarChange>(
+    (change) =>
+      change.kind === "thread" || change.kind === "thread.created"
+        ? `thread:${change.threadId}`
+        : change.kind === "folder.appTabs"
+          ? `tabs:${change.folderId}`
+          : "navigation",
+    (previous, next) =>
+      previous.kind === "thread.created" && next.kind === "thread" ? previous : next,
+  );
   const providerEvents = Effect.runSync(PubSub.unbounded<CleanCoreProviderEvent>());
   const deliveryReady = Effect.runSync(PubSub.unbounded<ThreadChange>());
   const publish = (change: ThreadChange) => {
-    PubSub.publishUnsafe(threadChanges, change);
-    PubSub.publishUnsafe(sidebarChanges, {
+    threadChanges.publish(change);
+    sidebarChanges.publish({
       kind: "thread",
       threadId: ThreadId.makeUnsafe(change.threadId),
     });
@@ -73,8 +83,8 @@ export const makeThreadPublisher = (): ThreadPublisher => {
     deliveryReady,
     publish,
     publishCreated: (change) => {
-      PubSub.publishUnsafe(threadChanges, change);
-      PubSub.publishUnsafe(sidebarChanges, {
+      threadChanges.publish(change);
+      sidebarChanges.publish({
         kind: "thread.created",
         threadId: ThreadId.makeUnsafe(change.threadId),
       });
@@ -83,14 +93,14 @@ export const makeThreadPublisher = (): ThreadPublisher => {
       PubSub.publishUnsafe(providerEvents, event);
     },
     publishSidebar: (change) => {
-      PubSub.publishUnsafe(sidebarChanges, change);
+      sidebarChanges.publish(change);
     },
     publishDeliveryReady: (change) => {
       PubSub.publishUnsafe(deliveryReady, change);
     },
     close: Effect.all([
-      PubSub.shutdown(threadChanges),
-      PubSub.shutdown(sidebarChanges),
+      threadChanges.close,
+      sidebarChanges.close,
       PubSub.shutdown(providerEvents),
       PubSub.shutdown(deliveryReady),
     ]).pipe(Effect.asVoid),

@@ -1,21 +1,21 @@
 // Purpose: Scoped PubSub observers for existing persistence tests; not imported by runtime code.
-import { Effect, Fiber, PubSub } from "effect";
+import { Effect, Fiber, PubSub, Stream } from "effect";
+import type { InvalidationHub } from "./invalidationHub.ts";
 
 export const observePublisher = <A>(
-  hub: PubSub.PubSub<A>,
+  hub: PubSub.PubSub<A> | InvalidationHub<A>,
   listener: (event: A) => void,
   accepts: (event: A) => boolean = () => true,
 ) =>
   Effect.gen(function* () {
-    const subscription = yield* PubSub.subscribe(hub);
     let active = true;
-    const fiber = yield* PubSub.take(subscription).pipe(
-      Effect.andThen((event) =>
+    const stream = "stream" in hub ? hub.stream() : Stream.fromPubSub(hub);
+    const fiber = yield* stream.pipe(
+      Stream.runForEach((event) =>
         Effect.sync(() => {
           if (active && accepts(event)) listener(event);
         }),
       ),
-      Effect.forever,
       Effect.forkScoped({ startImmediately: true }),
     );
     return () => {

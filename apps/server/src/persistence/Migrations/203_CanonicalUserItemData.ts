@@ -1,36 +1,49 @@
 // Purpose: Make every retained user item, queued input and delivery payload share one origin shape.
-import { CleanCoreQueuedMessage, UserItemData } from "@penkra/contracts";
-import { decodeUserItemData } from "@penkra/shared/userItemData";
+import { QueuedMessage203, UserItemData203 } from "./userItemShapes203.ts";
 import { Effect, Schema } from "effect";
 import * as SqlClient from "effect/unstable/sql/SqlClient";
 
 export default Effect.gen(function* () {
   const sql = yield* SqlClient.SqlClient;
-  const counts = { user: 0, agent: 0, steered: 0, items: 0, payloads: 0, queues: 0 };
+  const counts = {
+    user: 0,
+    agent: 0,
+    unknownHistoricalAgent: 0,
+    steered: 0,
+    items: 0,
+    payloads: 0,
+    queues: 0,
+  };
   const record = (value: unknown): Record<string, unknown> => {
     if (value === null || typeof value !== "object" || Array.isArray(value))
       throw new Error("Canonical user-item migration encountered a non-object record.");
     return value as Record<string, unknown>;
   };
-  const origin = (data: Record<string, unknown>) => {
+  const origin = (data: Record<string, unknown>, historical = false) => {
     const sender = data.senderThreadId;
     if (data.dispatchOrigin === "agent" || (typeof sender === "string" && sender.length > 0)) {
-      if (typeof sender !== "string" || sender.trim().length === 0)
+      if (typeof sender !== "string" || sender.trim().length === 0) {
+        if (historical) {
+          counts.agent++;
+          counts.unknownHistoricalAgent++;
+          return { _tag: "agent" };
+        }
         throw new Error("Canonical user-item migration encountered an agent without a sender.");
+      }
       counts.agent++;
       return { _tag: "agent", senderThreadId: sender };
     }
     counts.user++;
     return { _tag: "user" };
   };
-  const metadata = (value: unknown) => {
+  const metadata = (value: unknown, historical: boolean) => {
     const data = record(value);
     if (data.truncated === true)
       throw new Error("Canonical user-item migration cannot reconstruct truncated user metadata.");
     const steered = data.dispatchMode === "steer";
     if (steered) counts.steered++;
-    return decodeUserItemData({
-      origin: origin(data),
+    return Schema.decodeUnknownSync(UserItemData203)({
+      origin: origin(data, historical),
       attachments: data.attachments ?? [],
       ...(data.skills == null ? {} : { skills: data.skills }),
       ...(data.mentions == null ? {} : { mentions: data.mentions }),
@@ -40,8 +53,8 @@ export default Effect.gen(function* () {
   const message = (value: unknown) => {
     const data = record(value);
     const { senderThreadId: _sender, dispatchOrigin: _dispatch, ...rest } = data;
-    return Schema.encodeSync(CleanCoreQueuedMessage)(
-      Schema.decodeUnknownSync(CleanCoreQueuedMessage)({ ...rest, origin: origin(data) }),
+    return Schema.encodeSync(QueuedMessage203)(
+      Schema.decodeUnknownSync(QueuedMessage203)({ ...rest, origin: origin(data) }),
     );
   };
   yield* sql.withTransaction(
@@ -58,8 +71,13 @@ export default Effect.gen(function* () {
         SELECT thread_id AS "threadId",seq,data,send_payload AS payload FROM thread_items
         WHERE kind='user' AND (thread_id,seq)>(${afterThreadId},${after}) ORDER BY thread_id,seq LIMIT 50`;
         for (const row of rows) {
-          const data = Schema.encodeSync(UserItemData)(
-            metadata(row.data === null ? {} : JSON.parse(row.data)),
+          const data = Schema.encodeSync(UserItemData203)(
+            metadata(
+              row.data === null ? {} : JSON.parse(row.data),
+              // Historical rows have no operational payload; actual queue entries
+              // and retryable payloads are decoded separately with a required sender.
+              row.payload === null,
+            ),
           );
           let payload: string | null = null;
           if (row.payload !== null) {

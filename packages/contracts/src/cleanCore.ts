@@ -5,8 +5,8 @@ export {
   CleanCoreOpenQuestion,
 } from "./threadSummary";
 import { Schema } from "effect";
-import { MessageOrigin } from "./messageOrigin";
-export { MessageOrigin } from "./messageOrigin";
+import { MessageOrigin, SendingMessageOrigin } from "./messageOrigin";
+export { MessageOrigin, SendingMessageOrigin } from "./messageOrigin";
 import { ProviderSkillReference, ProviderMentionReference } from "./providerDiscovery";
 
 import {
@@ -114,7 +114,7 @@ export const CleanCoreQueuedMessage = Schema.Struct({
   messageId: MessageId,
   text: Schema.String,
   attachments: Schema.Array(ChatAttachment),
-  origin: MessageOrigin,
+  origin: SendingMessageOrigin,
   skills: UserItemData.fields.skills,
   mentions: UserItemData.fields.mentions,
   queuedAt: IsoDateTime,
@@ -135,6 +135,17 @@ export const CleanCoreSendMessageInput = Schema.Struct({
   mentions: Schema.optional(Schema.Array(ProviderMentionReference)),
 });
 export type CleanCoreSendMessageInput = typeof CleanCoreSendMessageInput.Type;
+/** Browser authorship is assigned by the server, never supplied by the client. */
+export const CleanCoreUserSendMessageInput = Schema.Struct({
+  ...CleanCoreSendMessageInput.fields,
+  message: Schema.Struct({
+    messageId: CleanCoreQueuedMessage.fields.messageId,
+    text: CleanCoreQueuedMessage.fields.text,
+    attachments: CleanCoreQueuedMessage.fields.attachments,
+    queuedAt: CleanCoreQueuedMessage.fields.queuedAt,
+  }),
+});
+export type CleanCoreUserSendMessageInput = typeof CleanCoreUserSendMessageInput.Type;
 export const CleanCoreQueuedMessageInput = Schema.Struct({
   threadId: ThreadId,
   messageId: MessageId,
@@ -467,7 +478,7 @@ export const CleanCoreCreateAndSendThreadInput = Schema.Struct({
   thread: CleanCoreCreateThreadInput,
   draftUpdatedAt: CleanCoreSendMessageInput.fields.draftUpdatedAt,
   runtimeMode: CleanCoreSendMessageInput.fields.runtimeMode,
-  message: CleanCoreSendMessageInput.fields.message,
+  message: CleanCoreUserSendMessageInput.fields.message,
   dispatchMode: CleanCoreSendMessageInput.fields.dispatchMode,
   modelSelection: CleanCoreSendMessageInput.fields.modelSelection,
   connectionId: CleanCoreSendMessageInput.fields.connectionId,
