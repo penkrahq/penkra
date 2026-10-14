@@ -20,13 +20,25 @@ quit only for a consistent read-only snapshot. Never copy a live SQLite file wit
 copy and never modify Production's database by hand.
 
 ```sh
-sqlite3 'file:<Production-state.sqlite>?mode=ro' "VACUUM INTO '<scratch>/state-copy.sqlite';"
-sqlite3 'file:<scratch>/state-copy.sqlite?mode=ro' 'PRAGMA integrity_check;'
+bun build apps/server/src/databaseMaintenance.ts --target=node --outfile='<scratch>/databaseMaintenance.mjs'
+node '<scratch>/databaseMaintenance.mjs' snapshot '<Production-state.sqlite>' '<scratch>/state-copy.sqlite'
+node '<scratch>/databaseMaintenance.mjs' verify '<scratch>/state-copy.sqlite'
 ```
 
-Reopen Penkra after the copy. Rehearse only on a fresh `VACUUM INTO` of that verified copy.
+The maintenance command acquires the same lifecycle lock as Penkra, requires SQLite 3.51.3
+or newer, and uses a read-only source with `VACUUM INTO`. Do not substitute the system SQLite
+or an ad-hoc database script. Reopen Penkra after the copy. Rehearse only on a fresh snapshot
+of that verified copy, never on Production.
 Report threads, messages, children preserved, native owners, native-folder moves, retained-folder
 cleanup, foreign keys, rollback, duration, size and free pages. Stop on any preservation failure.
+The rehearsal compares per-message hashes of text, creation time, authorship, available sender
+identity, attachments, skills, mentions and steering metadata—not just row counts:
+
+```sh
+node '<scratch>/databaseMaintenance.mjs' snapshot '<scratch>/state-copy.sqlite' '<scratch>/rehearsal.sqlite'
+bun build apps/server/src/persistence/rehearseCleanCore0144.ts --target=node --outfile='<scratch>/rehearseCleanCore0144.mjs'
+node '<scratch>/rehearseCleanCore0144.mjs' '<scratch>/rehearsal.sqlite'
+```
 
 ## Build and sign without installing
 
@@ -71,12 +83,15 @@ The detached agent performs the written transaction, logging each command and re
 1. Verify the candidate again; record its version and the current log boundaries.
 2. Register native process-exit watchers, ask Penkra to quit, and wait for exit without sleeps.
    Confirm with `lsof` that no process owns the database or sidecars. Before swapping the app,
-   require `PRAGMA integrity_check=ok` using `mode=ro` (without `immutable`, so SQLite reads WAL).
-   On failure, swap nothing, relaunch 0.14.3, and report the first 50 errors. Never edit/delete the
+   run the candidate's packaged `penkra-database verify` through its Electron executable with
+   `ELECTRON_RUN_AS_NODE=1`. This uses the canonical lifecycle lock and SQLite safety gate.
+   On failure, swap nothing, relaunch the recorded old version, and report the error. Never edit/delete the
    database or historical backups.
 3. Move `/Applications/Penkra.app` to the update directory, then install with `ditto` and verify.
 4. Launch the installed executable as an owned child. Watch new log writes and process exit.
-5. Request the new local `/status` after its listening event. It waits for server readiness and
+5. Observe the fresh `userdata/server-runtime.json` written after HTTP binds. Require its PID,
+   port and start time to match the new backend; watch its parent directory for atomic replacement.
+   Do not wait for the removed `Listening on http://` log line. Request its origin's `/status`. It waits for server readiness and
    reports the actual migration startup result plus `PENKRA_APP_VERSION`. Require the expected
    version and migration status `ok`. Log lines (including bootstrap warnings) are progress only,
    never a success or failure signal. There is no startup deadline; a snapshot and upgrade can
@@ -84,10 +99,14 @@ The detached agent performs the written transaction, logging each command and re
    record progress every minute without cancelling startup.
 6. On failure, stop the candidate, restore and launch the old bundle, and record the result.
    If migration committed, move the closed current `state.sqlite` and `-wal`/`-shm` into
-   `failed-db/`, copy `state.pre-0.14.4.sqlite` into place, and require read-only
-   `integrity_check=ok` before relaunching the old app. Never delete or edit either database or
-   backup. Keep both app bundles. Do not touch userdata's backup directory or `.corrupt` files.
-   The restored 0.14.3 app uses `/health` with `startupReady=true`; its `/status` is HTML, not JSON.
+   `failed-db/`, copy only the exact app-created `backupPath` from this launch's
+   `database.migration.backup_ready` event, and verify the snapshot and restored database with
+   the packaged maintenance command before relaunching. Record the exact path in `update.log`;
+   never select an older backup or assume `state.pre-0.14.4.sqlite` exists. A no-migrations
+   startup needs no database rollback. Never delete or edit either database or backup. Keep
+   both app bundles. Reading/copying that exact snapshot is allowed; never alter/delete files
+   in the backup directory or any `.corrupt` file. The restored 0.14.4 app uses `/status` JSON;
+   0.14.3 uses `/health` with `startupReady=true` (its `/status` is HTML).
 7. Write `update.log` and `report.md`, show a macOS notification, and exit after one attempt.
 
 Read the final report after Penkra reopens:

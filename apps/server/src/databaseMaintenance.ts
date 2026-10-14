@@ -14,7 +14,7 @@ import { assertSafeSqliteVersion } from "./persistence/SqliteSafety.ts";
 import { migrationBackupDirectory } from "./persistence/MigrationBackup.ts";
 
 const USAGE =
-  "Usage: penkra-database <verify|report> <absolute-database-path> | <compact|cutover> <absolute-source-path> <absolute-candidate-path>";
+  "Usage: penkra-database <verify|report> <absolute-database-path> | <snapshot|compact|cutover> <absolute-source-path> <absolute-candidate-path>";
 
 type DatabaseMaintenanceOutput = Pick<Console, "error" | "log">;
 
@@ -313,6 +313,52 @@ export async function verifyOfflinePenkraDatabase(dbPath: string): Promise<Penkr
   );
 }
 
+/** A closed, lifecycle-locked source is read-only; SQLite owns the consistent copy. */
+export async function snapshotOfflinePenkraDatabase(sourcePath: string, candidatePath: string) {
+  return Effect.runPromise(
+    withDatabaseLifecycleLock(
+      sourcePath,
+      withDatabaseLifecycleLock(
+        candidatePath,
+        Effect.tryPromise(async () => {
+          if (sourcePath === candidatePath)
+            throw new Error("Snapshot must differ from its source.");
+          const stat = await fs.lstat(sourcePath);
+          if (!stat.isFile() || stat.isSymbolicLink())
+            throw new Error("Snapshot source must be a regular database file.");
+          assertSafeSqliteVersion(process.versions.sqlite ?? "unknown");
+          const source = new DatabaseSync(sourcePath, { readOnly: true });
+          try {
+            inspectPenkraDatabaseHealth(
+              (sql) => source.prepare(sql).all() as Array<Record<string, unknown>>,
+            );
+            // VACUUM INTO refuses an existing non-empty destination. Refuse even an empty one.
+            try {
+              await fs.lstat(candidatePath);
+              throw new Error("Snapshot destination already exists.");
+            } catch (cause) {
+              if ((cause as NodeJS.ErrnoException).code !== "ENOENT") throw cause;
+            }
+            source.exec(`VACUUM INTO '${candidatePath.replaceAll("'", "''")}'`);
+            await fs.chmod(candidatePath, 0o600);
+          } finally {
+            source.close();
+          }
+          const candidate = new DatabaseSync(candidatePath, { readOnly: true });
+          try {
+            const health = inspectPenkraDatabaseHealth(
+              (sql) => candidate.prepare(sql).all() as Array<Record<string, unknown>>,
+            );
+            return { sourcePath, candidatePath, integrityCheck: "ok", ...health };
+          } finally {
+            candidate.close();
+          }
+        }),
+      ),
+    ),
+  );
+}
+
 export async function reportOfflinePenkraDatabase(dbPath: string): Promise<DatabaseStorageReport> {
   return Effect.runPromise(
     withDatabaseLifecycleLock(
@@ -370,9 +416,10 @@ export async function runDatabaseMaintenanceCli(
     (command !== "verify" &&
       command !== "report" &&
       command !== "compact" &&
+      command !== "snapshot" &&
       command !== "cutover") ||
     !dbPath ||
-    ((command === "compact" || command === "cutover") && !candidatePath)
+    ((command === "compact" || command === "cutover" || command === "snapshot") && !candidatePath)
   ) {
     output.error(USAGE);
     return 2;
@@ -381,20 +428,25 @@ export async function runDatabaseMaintenanceCli(
     output.error(`Database path must be absolute: ${dbPath}\n${USAGE}`);
     return 2;
   }
-  if ((command === "compact" || command === "cutover") && !path.isAbsolute(candidatePath!)) {
+  if (
+    (command === "compact" || command === "cutover" || command === "snapshot") &&
+    !path.isAbsolute(candidatePath!)
+  ) {
     output.error(`Candidate path must be absolute: ${candidatePath}\n${USAGE}`);
     return 2;
   }
 
   try {
     const result =
-      command === "cutover"
-        ? await cutoverOfflinePenkraDatabase(dbPath, candidatePath!)
-        : command === "compact"
-          ? await compactOfflinePenkraDatabase(dbPath, candidatePath!)
-          : command === "report"
-            ? await reportOfflinePenkraDatabase(dbPath)
-            : await verifyOfflinePenkraDatabase(dbPath);
+      command === "snapshot"
+        ? await snapshotOfflinePenkraDatabase(dbPath, candidatePath!)
+        : command === "cutover"
+          ? await cutoverOfflinePenkraDatabase(dbPath, candidatePath!)
+          : command === "compact"
+            ? await compactOfflinePenkraDatabase(dbPath, candidatePath!)
+            : command === "report"
+              ? await reportOfflinePenkraDatabase(dbPath)
+              : await verifyOfflinePenkraDatabase(dbPath);
     output.log(JSON.stringify({ status: "ok", databasePath: dbPath, ...result }, null, 2));
     return 0;
   } catch (cause) {
