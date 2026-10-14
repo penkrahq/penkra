@@ -1,0 +1,118 @@
+{
+  "revision": "a60fdf71f",
+  "trigger": "Exact setWindowVisibility(owner,false) signal; no native OS hide simulated",
+  "before": {
+    "epochMs": 1791975230030,
+    "shellVisible": true,
+    "shellMinimized": false,
+    "shellFocused": true,
+    "tabVisible": true,
+    "ownerWindowId": 1,
+    "childViews": [
+      {
+        "id": 4,
+        "visible": true
+      },
+      {
+        "id": 2,
+        "visible": true
+      }
+    ],
+    "pageId": 4,
+    "appId": 2,
+    "shellDocument": {
+      "visibility": "visible",
+      "focus": true,
+      "replica": false,
+      "text": "QA visibility shell"
+    },
+    "pageDocument": {
+      "visibility": "visible",
+      "focus": false,
+      "counter": 34
+    },
+    "presentation": {
+      "tabId": "qa-A",
+      "mode": "live",
+      "ownerWindowId": 1,
+      "appImage": false,
+      "pageImage": false
+    }
+  },
+  "after": {
+    "epochMs": 1791975230657,
+    "shellVisible": true,
+    "shellMinimized": false,
+    "shellFocused": false,
+    "tabVisible": false,
+    "ownerWindowId": 1,
+    "childViews": [
+      {
+        "id": 4,
+        "visible": true
+      },
+      {
+        "id": 2,
+        "visible": true
+      }
+    ],
+    "pageId": 4,
+    "appId": 2,
+    "shellDocument": {
+      "visibility": "visible",
+      "focus": false,
+      "replica": true,
+      "text": "QA visibility shell\nClick to use Browser in this window"
+    },
+    "pageDocument": {
+      "visibility": "visible",
+      "focus": false,
+      "counter": 47
+    },
+    "presentation": {
+      "tabId": "qa-A",
+      "mode": "replica",
+      "ownerWindowId": 1,
+      "appImage": true,
+      "pageImage": true
+    }
+  },
+  "restored": {
+    "epochMs": 1791975231292,
+    "shellVisible": true,
+    "shellMinimized": false,
+    "shellFocused": false,
+    "tabVisible": true,
+    "ownerWindowId": 1,
+    "childViews": [
+      {
+        "id": 4,
+        "visible": true
+      },
+      {
+        "id": 2,
+        "visible": true
+      }
+    ],
+    "pageId": 4,
+    "appId": 2,
+    "shellDocument": {
+      "visibility": "visible",
+      "focus": false,
+      "replica": false,
+      "text": "QA visibility shell"
+    },
+    "pageDocument": {
+      "visibility": "visible",
+      "focus": false,
+      "counter": 60
+    },
+    "presentation": {
+      "tabId": "qa-A",
+      "mode": "live",
+      "ownerWindowId": 1,
+      "appImage": false,
+      "pageImage": false
+    }
+  }
+}

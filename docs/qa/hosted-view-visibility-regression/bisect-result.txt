@@ -1,0 +1,13 @@
+d752139131f59082991a6c56d70845689fb3fd3b is the first bad commit
+commit d752139131f59082991a6c56d70845689fb3fd3b
+Author: EmmanuelPenkra <penkra.emmanuel@gmail.com>
+Date:   Sat Sep 26 01:32:27 2026 -0600
+
+    Fix detached tab command delivery
+
+ apps/desktop/src/appTabObserver.test.ts | 404 +++++++++++++++++++++++++++++++-
+ apps/desktop/src/appTabObserver.ts      | 317 ++++++++++++++++++++++---
+ apps/desktop/src/appTabViewHost.test.ts |  10 +
+ apps/desktop/src/appTabViewHost.ts      | 194 +++++++++++++--
+ apps/desktop/src/main.ts                |   1 +
+ 5 files changed, 862 insertions(+), 64 deletions(-)

@@ -1,0 +1,156 @@
+[
+  {
+    "label": "fix",
+    "commit": "24110c887032cdc78dfad2c74e7e5b32b5b06a7f",
+    "nativeViewPreserved": true,
+    "after": {
+      "epochMs": 1791975373675,
+      "shellVisible": true,
+      "shellMinimized": false,
+      "shellFocused": false,
+      "tabVisible": false,
+      "ownerWindowId": 1,
+      "childViews": [
+        {
+          "id": 4,
+          "visible": true
+        },
+        {
+          "id": 2,
+          "visible": true
+        }
+      ],
+      "pageId": 4,
+      "appId": 2,
+      "shellDocument": {
+        "visibility": "visible",
+        "focus": false,
+        "replica": true,
+        "text": "QA visibility shell\nClick to use Browser in this window"
+      },
+      "pageDocument": {
+        "visibility": "visible",
+        "focus": false,
+        "counter": 46
+      },
+      "presentation": {
+        "tabId": "qa-A",
+        "mode": "replica",
+        "ownerWindowId": 1,
+        "appImage": true,
+        "pageImage": true
+      }
+    }
+  },
+  {
+    "label": "parent",
+    "commit": "a60fdf71f4bca8df93f9df5b52fcc21729040d3d",
+    "nativeViewPreserved": true,
+    "after": {
+      "epochMs": 1791975230657,
+      "shellVisible": true,
+      "shellMinimized": false,
+      "shellFocused": false,
+      "tabVisible": false,
+      "ownerWindowId": 1,
+      "childViews": [
+        {
+          "id": 4,
+          "visible": true
+        },
+        {
+          "id": 2,
+          "visible": true
+        }
+      ],
+      "pageId": 4,
+      "appId": 2,
+      "shellDocument": {
+        "visibility": "visible",
+        "focus": false,
+        "replica": true,
+        "text": "QA visibility shell\nClick to use Browser in this window"
+      },
+      "pageDocument": {
+        "visibility": "visible",
+        "focus": false,
+        "counter": 47
+      },
+      "presentation": {
+        "tabId": "qa-A",
+        "mode": "replica",
+        "ownerWindowId": 1,
+        "appImage": true,
+        "pageImage": true
+      }
+    }
+  },
+  {
+    "label": "changed",
+    "commit": "d752139131f59082991a6c56d70845689fb3fd3b",
+    "nativeViewPreserved": false,
+    "after": {
+      "epochMs": 1791975268787,
+      "shellVisible": true,
+      "shellMinimized": false,
+      "shellFocused": true,
+      "tabVisible": false,
+      "ownerWindowId": null,
+      "childViews": [],
+      "pageId": 5,
+      "appId": 2,
+      "shellDocument": {
+        "visibility": "visible",
+        "focus": true,
+        "replica": true,
+        "text": "QA visibility shell\nClick to use Browser in this window"
+      },
+      "pageDocument": {
+        "visibility": "visible",
+        "focus": false,
+        "counter": 46
+      },
+      "presentation": {
+        "tabId": "qa-A",
+        "mode": "replica",
+        "ownerWindowId": 1,
+        "appImage": true,
+        "pageImage": true
+      }
+    }
+  },
+  {
+    "label": "head",
+    "commit": "8327fa1bcf82008acf3c66829cf91b5416669d4f",
+    "nativeViewPreserved": false,
+    "after": {
+      "epochMs": 1791975510635,
+      "shellVisible": true,
+      "shellMinimized": false,
+      "shellFocused": true,
+      "tabVisible": false,
+      "ownerWindowId": null,
+      "childViews": [],
+      "pageId": 5,
+      "appId": 2,
+      "shellDocument": {
+        "visibility": "visible",
+        "focus": true,
+        "replica": true,
+        "text": "QA visibility shell\nClick to use Browser in this window"
+      },
+      "pageDocument": {
+        "visibility": "visible",
+        "focus": false,
+        "counter": 48
+      },
+      "presentation": {
+        "tabId": "qa-A",
+        "mode": "replica",
+        "ownerWindowId": 1,
+        "appImage": true,
+        "pageImage": true
+      }
+    }
+  }
+]

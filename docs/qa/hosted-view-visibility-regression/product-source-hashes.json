@@ -1,0 +1,82 @@
+[
+  {
+    "revision": "fix",
+    "path": "apps/desktop/src/appTabViewHost.ts",
+    "sha256": "6157a4b4c56ec79107450a2296f22cddf8064032d6ff9e01d2b853cc98746369"
+  },
+  {
+    "revision": "fix",
+    "path": "apps/desktop/src/main.ts",
+    "sha256": "a6771d408c88b0cef4f79555e8ed4321c5b06d2b38661bbd17d5f8f5c9bc1ed6"
+  },
+  {
+    "revision": "fix",
+    "path": "apps/web/src/components/chat/AppDockPane.tsx",
+    "sha256": "dc5069646000b3c11469fcf6b2749a0fa1e4383e1d3f8d35a5021ec508a0b55a"
+  },
+  {
+    "revision": "fix",
+    "path": "apps/desktop/src/appTabObserver.ts",
+    "sha256": "d16b53ffb97498e139c225597765b728f4d135791ed75ce2077a13e0a943668e"
+  },
+  {
+    "revision": "parent",
+    "path": "apps/desktop/src/appTabViewHost.ts",
+    "sha256": "6157a4b4c56ec79107450a2296f22cddf8064032d6ff9e01d2b853cc98746369"
+  },
+  {
+    "revision": "parent",
+    "path": "apps/desktop/src/main.ts",
+    "sha256": "0af419b46b7ffa45bfc061c0402d66b71a66a196eefdc29285418b6e3aa63256"
+  },
+  {
+    "revision": "parent",
+    "path": "apps/web/src/components/chat/AppDockPane.tsx",
+    "sha256": "dc5069646000b3c11469fcf6b2749a0fa1e4383e1d3f8d35a5021ec508a0b55a"
+  },
+  {
+    "revision": "parent",
+    "path": "apps/desktop/src/appTabObserver.ts",
+    "sha256": "d16b53ffb97498e139c225597765b728f4d135791ed75ce2077a13e0a943668e"
+  },
+  {
+    "revision": "changed",
+    "path": "apps/desktop/src/appTabViewHost.ts",
+    "sha256": "41df1840163583c571c62778a1693c04f9cfc166c3158778b8f18b7674b407bf"
+  },
+  {
+    "revision": "changed",
+    "path": "apps/desktop/src/main.ts",
+    "sha256": "8f952de80be294714b4f017b672fa505560fb4abf71f08315d1b661af17179c5"
+  },
+  {
+    "revision": "changed",
+    "path": "apps/web/src/components/chat/AppDockPane.tsx",
+    "sha256": "dc5069646000b3c11469fcf6b2749a0fa1e4383e1d3f8d35a5021ec508a0b55a"
+  },
+  {
+    "revision": "changed",
+    "path": "apps/desktop/src/appTabObserver.ts",
+    "sha256": "2035b7edd3ddf6eb10d59cd9a4e86687c00693916256672a7788c8d27274037c"
+  },
+  {
+    "revision": "head",
+    "path": "apps/desktop/src/appTabViewHost.ts",
+    "sha256": "5cc39c95dbb8865aa15dbe7b71f95a996c939d5b2acff558f6a19cea10e4986f"
+  },
+  {
+    "revision": "head",
+    "path": "apps/desktop/src/main.ts",
+    "sha256": "a058dbb8997ba3a13b7bacf728fb5d7a3238d59b00dd5a705eb36039824f3393"
+  },
+  {
+    "revision": "head",
+    "path": "apps/web/src/components/chat/AppDockPane.tsx",
+    "sha256": "4ed7cbca8f5ef9a8a27252384dfc50ad0b0b7a67d9d1e8f3118fa4dc93a18174"
+  },
+  {
+    "revision": "head",
+    "path": "apps/desktop/src/appTabObserver.ts",
+    "sha256": "332dc0db747de5861a4c9270fa68ebb2f6d4e95c378d896cbf81bce8f3363da8"
+  }
+]

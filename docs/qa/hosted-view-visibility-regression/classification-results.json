@@ -1,0 +1,32 @@
+[
+  {
+    "revision": "981a34425^",
+    "sourceSha256": "36d3278c1ad356d7864aa5165307bfbeb4bdd86c91a18e638ad24155589ee6ed",
+    "source": "function appTabAgentPresentation(\n  tab: DesktopAppTabDescriptor,\n  threadId: string,\n): { state: \"active\" | \"background\" | \"window-hidden\" } {\n  const window = appTabAgentWindow(tab, threadId);\n  if (!window || !window.isVisible() || window.isMinimized()) return { state: \"window-hidden\" };\n  const tabs = desktopAppRuntime!.appTabs;\n  return {\n    state:\n      tabs.ownerWindowId(tab.id) === window.webContents.id && tabs.isVisible(tab.id)\n        ? \"active\"\n        : \"background\",\n  };\n}\n",
+    "premise": "One eligible visible caller-folder window. Old window selector fixture returns that window; selector routing itself not tested.",
+    "observedHostState": {
+      "ownerWindowId": null,
+      "tabVisible": false,
+      "shellVisible": true,
+      "shellMinimized": false
+    },
+    "result": {
+      "state": "background"
+    }
+  },
+  {
+    "revision": "981a34425",
+    "sourceSha256": "ddd7db8b1834bfd54ed047a34eb7c22da5ed49f133324536f19437a001e83b4e",
+    "source": "function appTabAgentPresentation(\n  tab: DesktopAppTabDescriptor,\n  _threadId: string,\n): { state: \"active\" | \"background\" | \"window-hidden\" } {\n  const tabs = desktopAppRuntime!.appTabs;\n  const ownerId = tabs.ownerWindowId(tab.id);\n  const window = shellWindows().find((candidate) => candidate.webContents.id === ownerId);\n  if (!window || !window.isVisible() || window.isMinimized()) return { state: \"window-hidden\" };\n  return {\n    state:\n      tabs.ownerWindowId(tab.id) === window.webContents.id && tabs.isVisible(tab.id)\n        ? \"active\"\n        : \"background\",\n  };\n}\n",
+    "premise": "One eligible visible caller-folder window. Old window selector fixture returns that window; selector routing itself not tested.",
+    "observedHostState": {
+      "ownerWindowId": null,
+      "tabVisible": false,
+      "shellVisible": true,
+      "shellMinimized": false
+    },
+    "result": {
+      "state": "window-hidden"
+    }
+  }
+]

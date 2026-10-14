@@ -1,0 +1,2474 @@
+[
+  {
+    "run": "parent",
+    "caseId": "app-loses-focus",
+    "events": [
+      {
+        "atMs": 5375.817541,
+        "event": "action-started",
+        "details": {
+          "event": "action-started",
+          "action": "outside-frame helper activate"
+        }
+      }
+    ]
+  },
+  {
+    "run": "parent",
+    "caseId": "minimize",
+    "events": [
+      {
+        "atMs": 9607.170208,
+        "event": "action-started",
+        "details": {
+          "event": "action-started",
+          "action": "shell.minimize"
+        }
+      },
+      {
+        "atMs": 10194.303416,
+        "event": "shell-window-minimize",
+        "details": {
+          "event": "shell-window-minimize",
+          "windowId": 1,
+          "rendererId": 1,
+          "isVisible": false,
+          "isMinimized": true,
+          "isFocused": false
+        }
+      },
+      {
+        "atMs": 10194.763125,
+        "event": "window-hide-replica-capture-started",
+        "details": {
+          "tabId": "qa-A",
+          "windowId": 1,
+          "sequence": 32,
+          "monotonicMs": 10195,
+          "event": "window-hide-replica-capture-started"
+        }
+      },
+      {
+        "atMs": 10195.762125,
+        "event": "shell-window-hide",
+        "details": {
+          "event": "shell-window-hide",
+          "windowId": 1,
+          "rendererId": 1,
+          "isVisible": false,
+          "isMinimized": true,
+          "isFocused": false
+        }
+      },
+      {
+        "atMs": 10196.059208,
+        "event": "window-hide-replica-capture-started",
+        "details": {
+          "tabId": "qa-A",
+          "windowId": 1,
+          "sequence": 35,
+          "monotonicMs": 10196,
+          "event": "window-hide-replica-capture-started"
+        }
+      },
+      {
+        "atMs": 10196.1885,
+        "event": "raw-window-hide",
+        "details": {
+          "event": "raw-window-hide",
+          "visible": false,
+          "minimized": true,
+          "focused": false
+        }
+      },
+      {
+        "atMs": 10204.071375,
+        "event": "raw-app-browser-window-blur",
+        "details": {
+          "event": "raw-app-browser-window-blur"
+        }
+      },
+      {
+        "atMs": 10204.489666,
+        "event": "raw-window-blur",
+        "details": {
+          "event": "raw-window-blur",
+          "visible": false,
+          "minimized": true,
+          "focused": false
+        }
+      },
+      {
+        "atMs": 10210.850375,
+        "event": "renderer-document-visibility-changed",
+        "details": {
+          "event": "renderer-document-visibility-changed",
+          "rendererMonotonicMs": 9255,
+          "documentVisibility": "hidden",
+          "documentHasFocus": false,
+          "deckId": "qa-folder",
+          "threadId": "qa-thread"
+        }
+      },
+      {
+        "atMs": 10228.213,
+        "event": "window-hide-replica-capture-completed",
+        "details": {
+          "tabId": "qa-A",
+          "windowId": 1,
+          "sequence": 36,
+          "monotonicMs": 10228,
+          "event": "window-hide-replica-capture-completed"
+        }
+      },
+      {
+        "atMs": 10228.86325,
+        "event": "window-hide-applied",
+        "details": {
+          "tabId": "qa-A",
+          "windowId": 1,
+          "visibleRequested": true,
+          "freezeDepth": 0,
+          "appViewVisible": true,
+          "hostedPageVisible": true,
+          "sequence": 37,
+          "monotonicMs": 10229,
+          "event": "window-hide-applied"
+        }
+      },
+      {
+        "atMs": 10238.024375,
+        "event": "window-hide-replica-capture-completed",
+        "details": {
+          "tabId": "qa-A",
+          "windowId": 1,
+          "sequence": 39,
+          "monotonicMs": 10238,
+          "event": "window-hide-replica-capture-completed"
+        }
+      },
+      {
+        "atMs": 10238.503125,
+        "event": "window-hide-applied",
+        "details": {
+          "tabId": "qa-A",
+          "windowId": 1,
+          "visibleRequested": true,
+          "freezeDepth": 0,
+          "appViewVisible": true,
+          "hostedPageVisible": true,
+          "sequence": 40,
+          "monotonicMs": 10238,
+          "event": "window-hide-applied"
+        }
+      },
+      {
+        "atMs": 13152.720416,
+        "event": "shell-window-restore",
+        "details": {
+          "event": "shell-window-restore",
+          "windowId": 1,
+          "rendererId": 1,
+          "isVisible": true,
+          "isMinimized": false,
+          "isFocused": true
+        }
+      },
+      {
+        "atMs": 13153.328333,
+        "event": "window-show-applied",
+        "details": {
+          "tabId": "qa-A",
+          "windowId": 1,
+          "visibleRequested": true,
+          "freezeDepth": 0,
+          "appViewVisible": true,
+          "hostedPageVisible": true,
+          "sequence": 44,
+          "monotonicMs": 13153,
+          "event": "window-show-applied"
+        }
+      },
+      {
+        "atMs": 13153.89075,
+        "event": "shell-window-show",
+        "details": {
+          "event": "shell-window-show",
+          "windowId": 1,
+          "rendererId": 1,
+          "isVisible": true,
+          "isMinimized": false,
+          "isFocused": true
+        }
+      },
+      {
+        "atMs": 13154.199125,
+        "event": "window-show-applied",
+        "details": {
+          "tabId": "qa-A",
+          "windowId": 1,
+          "visibleRequested": true,
+          "freezeDepth": 0,
+          "appViewVisible": true,
+          "hostedPageVisible": true,
+          "sequence": 48,
+          "monotonicMs": 13154,
+          "event": "window-show-applied"
+        }
+      },
+      {
+        "atMs": 13154.337375,
+        "event": "raw-window-show",
+        "details": {
+          "event": "raw-window-show",
+          "visible": true,
+          "minimized": false,
+          "focused": true
+        }
+      },
+      {
+        "atMs": 13154.913,
+        "event": "raw-app-browser-window-focus",
+        "details": {
+          "event": "raw-app-browser-window-focus"
+        }
+      },
+      {
+        "atMs": 13155.154958,
+        "event": "raw-window-focus",
+        "details": {
+          "event": "raw-window-focus",
+          "visible": true,
+          "minimized": false,
+          "focused": true
+        }
+      },
+      {
+        "atMs": 13172.890208,
+        "event": "renderer-document-visibility-changed",
+        "details": {
+          "event": "renderer-document-visibility-changed",
+          "rendererMonotonicMs": 12216,
+          "documentVisibility": "visible",
+          "documentHasFocus": true,
+          "deckId": "qa-folder",
+          "threadId": "qa-thread"
+        }
+      }
+    ]
+  },
+  {
+    "run": "parent",
+    "caseId": "cmd-h-equivalent",
+    "events": [
+      {
+        "atMs": 15782.357708,
+        "event": "action-started",
+        "details": {
+          "event": "action-started",
+          "action": "app.hide; Cmd-H native app-hide equivalent"
+        }
+      },
+      {
+        "atMs": 15804.290458,
+        "event": "raw-app-browser-window-blur",
+        "details": {
+          "event": "raw-app-browser-window-blur"
+        }
+      },
+      {
+        "atMs": 15804.564333,
+        "event": "raw-window-blur",
+        "details": {
+          "event": "raw-window-blur",
+          "visible": false,
+          "minimized": false,
+          "focused": false
+        }
+      },
+      {
+        "atMs": 15804.888791,
+        "event": "renderer-document-visibility-changed",
+        "details": {
+          "event": "renderer-document-visibility-changed",
+          "rendererMonotonicMs": 14850,
+          "documentVisibility": "hidden",
+          "documentHasFocus": false,
+          "deckId": "qa-folder",
+          "threadId": "qa-thread"
+        }
+      },
+      {
+        "atMs": 15806.012041,
+        "event": "raw-app-did-resign-active",
+        "details": {
+          "event": "raw-app-did-resign-active"
+        }
+      },
+      {
+        "atMs": 18589.03625,
+        "event": "raw-app-did-become-active",
+        "details": {
+          "event": "raw-app-did-become-active"
+        }
+      },
+      {
+        "atMs": 18592.707916,
+        "event": "renderer-document-visibility-changed",
+        "details": {
+          "event": "renderer-document-visibility-changed",
+          "rendererMonotonicMs": 17631,
+          "documentVisibility": "visible",
+          "documentHasFocus": false,
+          "deckId": "qa-folder",
+          "threadId": "qa-thread"
+        }
+      },
+      {
+        "atMs": 18593.50925,
+        "event": "raw-app-browser-window-focus",
+        "details": {
+          "event": "raw-app-browser-window-focus"
+        }
+      },
+      {
+        "atMs": 18593.773458,
+        "event": "raw-window-focus",
+        "details": {
+          "event": "raw-window-focus",
+          "visible": true,
+          "minimized": false,
+          "focused": true
+        }
+      },
+      {
+        "atMs": 18787.327166,
+        "event": "shell-window-show",
+        "details": {
+          "event": "shell-window-show",
+          "windowId": 1,
+          "rendererId": 1,
+          "isVisible": true,
+          "isMinimized": false,
+          "isFocused": true
+        }
+      },
+      {
+        "atMs": 18787.961916,
+        "event": "window-show-applied",
+        "details": {
+          "tabId": "qa-A",
+          "windowId": 1,
+          "visibleRequested": true,
+          "freezeDepth": 0,
+          "appViewVisible": true,
+          "hostedPageVisible": true,
+          "sequence": 64,
+          "monotonicMs": 18788,
+          "event": "window-show-applied"
+        }
+      },
+      {
+        "atMs": 18788.127,
+        "event": "raw-window-show",
+        "details": {
+          "event": "raw-window-show",
+          "visible": true,
+          "minimized": false,
+          "focused": true
+        }
+      }
+    ]
+  },
+  {
+    "run": "parent",
+    "caseId": "restore",
+    "events": []
+  },
+  {
+    "run": "parent",
+    "caseId": "unhide",
+    "events": []
+  },
+  {
+    "run": "parent",
+    "caseId": "space-return-first",
+    "events": [
+      {
+        "atMs": 36906.570375,
+        "event": "action-started",
+        "details": {
+          "event": "action-started",
+          "action": "focus existing first fullscreen Space"
+        }
+      },
+      {
+        "atMs": 36916.862,
+        "event": "raw-app-did-become-active",
+        "details": {
+          "event": "raw-app-did-become-active"
+        }
+      },
+      {
+        "atMs": 36919.616416,
+        "event": "raw-app-browser-window-focus",
+        "details": {
+          "event": "raw-app-browser-window-focus"
+        }
+      },
+      {
+        "atMs": 36919.824916,
+        "event": "raw-window-focus",
+        "details": {
+          "event": "raw-window-focus",
+          "visible": true,
+          "minimized": false,
+          "focused": true
+        }
+      },
+      {
+        "atMs": 37044.809791,
+        "event": "shell-window-show",
+        "details": {
+          "event": "shell-window-show",
+          "windowId": 1,
+          "rendererId": 1,
+          "isVisible": true,
+          "isMinimized": false,
+          "isFocused": true
+        }
+      },
+      {
+        "atMs": 37045.357625,
+        "event": "window-show-applied",
+        "details": {
+          "tabId": "qa-A",
+          "windowId": 1,
+          "visibleRequested": true,
+          "freezeDepth": 0,
+          "appViewVisible": true,
+          "hostedPageVisible": true,
+          "sequence": 110,
+          "monotonicMs": 37045,
+          "event": "window-show-applied"
+        }
+      },
+      {
+        "atMs": 37045.466833,
+        "event": "raw-window-show",
+        "details": {
+          "event": "raw-window-show",
+          "visible": true,
+          "minimized": false,
+          "focused": true
+        }
+      },
+      {
+        "atMs": 37045.653875,
+        "event": "renderer-document-visibility-changed",
+        "details": {
+          "event": "renderer-document-visibility-changed",
+          "rendererMonotonicMs": 36106,
+          "documentVisibility": "visible",
+          "documentHasFocus": true,
+          "deckId": "qa-folder",
+          "threadId": "qa-thread"
+        }
+      },
+      {
+        "atMs": 38453.58075,
+        "event": "raw-app-did-resign-active",
+        "details": {
+          "event": "raw-app-did-resign-active"
+        }
+      },
+      {
+        "atMs": 38457.898166,
+        "event": "raw-app-browser-window-blur",
+        "details": {
+          "event": "raw-app-browser-window-blur"
+        }
+      },
+      {
+        "atMs": 38457.991416,
+        "event": "raw-window-blur",
+        "details": {
+          "event": "raw-window-blur",
+          "visible": true,
+          "minimized": false,
+          "focused": false
+        }
+      },
+      {
+        "atMs": 38899.714083,
+        "event": "shell-window-hide",
+        "details": {
+          "event": "shell-window-hide",
+          "windowId": 1,
+          "rendererId": 1,
+          "isVisible": true,
+          "isMinimized": false,
+          "isFocused": false
+        }
+      },
+      {
+        "atMs": 38900.2395,
+        "event": "window-hide-replica-capture-started",
+        "details": {
+          "tabId": "qa-A",
+          "windowId": 1,
+          "sequence": 114,
+          "monotonicMs": 38900,
+          "event": "window-hide-replica-capture-started"
+        }
+      },
+      {
+        "atMs": 38900.517416,
+        "event": "raw-window-hide",
+        "details": {
+          "event": "raw-window-hide",
+          "visible": true,
+          "minimized": false,
+          "focused": false
+        }
+      },
+      {
+        "atMs": 38908.37575,
+        "event": "renderer-document-visibility-changed",
+        "details": {
+          "event": "renderer-document-visibility-changed",
+          "rendererMonotonicMs": 37961,
+          "documentVisibility": "hidden",
+          "documentHasFocus": false,
+          "deckId": "qa-folder",
+          "threadId": "qa-thread"
+        }
+      },
+      {
+        "atMs": 38919.964416,
+        "event": "window-hide-replica-capture-completed",
+        "details": {
+          "tabId": "qa-A",
+          "windowId": 1,
+          "sequence": 115,
+          "monotonicMs": 38920,
+          "event": "window-hide-replica-capture-completed"
+        }
+      },
+      {
+        "atMs": 38920.497,
+        "event": "window-hide-applied",
+        "details": {
+          "tabId": "qa-A",
+          "windowId": 1,
+          "visibleRequested": true,
+          "freezeDepth": 0,
+          "appViewVisible": true,
+          "hostedPageVisible": true,
+          "sequence": 116,
+          "monotonicMs": 38920,
+          "event": "window-hide-applied"
+        }
+      }
+    ]
+  },
+  {
+    "run": "parent",
+    "caseId": "space-switch-second",
+    "events": [
+      {
+        "atMs": 40410.01025,
+        "event": "action-started",
+        "details": {
+          "event": "action-started",
+          "action": "focus existing second fullscreen Space"
+        }
+      },
+      {
+        "atMs": 40446.452041,
+        "event": "raw-app-did-become-active",
+        "details": {
+          "event": "raw-app-did-become-active"
+        }
+      },
+      {
+        "atMs": 40450.79225,
+        "event": "raw-app-browser-window-focus",
+        "details": {
+          "event": "raw-app-browser-window-focus"
+        }
+      },
+      {
+        "atMs": 41282.721791,
+        "event": "raw-app-did-resign-active",
+        "details": {
+          "event": "raw-app-did-resign-active"
+        }
+      },
+      {
+        "atMs": 41285.940875,
+        "event": "raw-app-browser-window-blur",
+        "details": {
+          "event": "raw-app-browser-window-blur"
+        }
+      }
+    ]
+  },
+  {
+    "run": "changed",
+    "caseId": "app-loses-focus",
+    "events": [
+      {
+        "atMs": 5517.014833,
+        "event": "action-started",
+        "details": {
+          "event": "action-started",
+          "action": "outside-frame helper activate"
+        }
+      },
+      {
+        "atMs": 5610.060916,
+        "event": "raw-app-did-resign-active",
+        "details": {
+          "event": "raw-app-did-resign-active"
+        }
+      },
+      {
+        "atMs": 5612.52925,
+        "event": "raw-app-browser-window-blur",
+        "details": {
+          "event": "raw-app-browser-window-blur"
+        }
+      },
+      {
+        "atMs": 5612.787666,
+        "event": "raw-window-blur",
+        "details": {
+          "event": "raw-window-blur",
+          "visible": true,
+          "minimized": false,
+          "focused": false
+        }
+      }
+    ]
+  },
+  {
+    "run": "changed",
+    "caseId": "minimize",
+    "events": [
+      {
+        "atMs": 9759.844833,
+        "event": "action-started",
+        "details": {
+          "event": "action-started",
+          "action": "shell.minimize"
+        }
+      },
+      {
+        "atMs": 10334.462625,
+        "event": "shell-window-minimize",
+        "details": {
+          "event": "shell-window-minimize",
+          "windowId": 1,
+          "rendererId": 1,
+          "isVisible": false,
+          "isMinimized": true,
+          "isFocused": false
+        }
+      },
+      {
+        "atMs": 10334.930166,
+        "event": "window-hide-replica-capture-started",
+        "details": {
+          "tabId": "qa-A",
+          "windowId": 1,
+          "sequence": 32,
+          "monotonicMs": 10335,
+          "event": "window-hide-replica-capture-started"
+        }
+      },
+      {
+        "atMs": 10336.314041,
+        "event": "shell-window-hide",
+        "details": {
+          "event": "shell-window-hide",
+          "windowId": 1,
+          "rendererId": 1,
+          "isVisible": false,
+          "isMinimized": true,
+          "isFocused": false
+        }
+      },
+      {
+        "atMs": 10336.594291,
+        "event": "window-hide-replica-capture-started",
+        "details": {
+          "tabId": "qa-A",
+          "windowId": 1,
+          "sequence": 35,
+          "monotonicMs": 10337,
+          "event": "window-hide-replica-capture-started"
+        }
+      },
+      {
+        "atMs": 10336.756666,
+        "event": "raw-window-hide",
+        "details": {
+          "event": "raw-window-hide",
+          "visible": false,
+          "minimized": true,
+          "focused": false
+        }
+      },
+      {
+        "atMs": 10368.695875,
+        "event": "renderer-document-visibility-changed",
+        "details": {
+          "event": "renderer-document-visibility-changed",
+          "rendererMonotonicMs": 9180,
+          "documentVisibility": "hidden",
+          "documentHasFocus": false,
+          "deckId": "qa-folder",
+          "threadId": "qa-thread"
+        }
+      },
+      {
+        "atMs": 10377.96575,
+        "event": "window-hide-replica-capture-completed",
+        "details": {
+          "tabId": "qa-A",
+          "windowId": 1,
+          "sequence": 36,
+          "monotonicMs": 10378,
+          "event": "window-hide-replica-capture-completed"
+        }
+      },
+      {
+        "atMs": 10424.774125,
+        "event": "window-hide-applied",
+        "details": {
+          "tabId": "qa-A",
+          "windowId": 1,
+          "visibleRequested": true,
+          "freezeDepth": 0,
+          "appViewVisible": true,
+          "hostedPageVisible": true,
+          "sequence": 37,
+          "monotonicMs": 10425,
+          "event": "window-hide-applied"
+        }
+      },
+      {
+        "atMs": 10439.417916,
+        "event": "window-hide-replica-capture-completed",
+        "details": {
+          "tabId": "qa-A",
+          "windowId": 1,
+          "sequence": 39,
+          "monotonicMs": 10439,
+          "event": "window-hide-replica-capture-completed"
+        }
+      },
+      {
+        "atMs": 13190.155375,
+        "event": "shell-window-restore",
+        "details": {
+          "event": "shell-window-restore",
+          "windowId": 1,
+          "rendererId": 1,
+          "isVisible": true,
+          "isMinimized": false,
+          "isFocused": false
+        }
+      },
+      {
+        "atMs": 13191.58675,
+        "event": "shell-window-show",
+        "details": {
+          "event": "shell-window-show",
+          "windowId": 1,
+          "rendererId": 1,
+          "isVisible": true,
+          "isMinimized": false,
+          "isFocused": false
+        }
+      },
+      {
+        "atMs": 13193.285333,
+        "event": "raw-window-show",
+        "details": {
+          "event": "raw-window-show",
+          "visible": true,
+          "minimized": false,
+          "focused": false
+        }
+      },
+      {
+        "atMs": 13194.298041,
+        "event": "window-show-applied",
+        "details": {
+          "tabId": "qa-A",
+          "windowId": 1,
+          "visibleRequested": true,
+          "freezeDepth": 0,
+          "appViewVisible": true,
+          "hostedPageVisible": true,
+          "sequence": 49,
+          "monotonicMs": 13194,
+          "event": "window-show-applied"
+        }
+      },
+      {
+        "atMs": 13194.47175,
+        "event": "window-show-applied",
+        "details": {
+          "tabId": "qa-A",
+          "windowId": 1,
+          "visibleRequested": true,
+          "freezeDepth": 0,
+          "appViewVisible": true,
+          "hostedPageVisible": true,
+          "sequence": 51,
+          "monotonicMs": 13194,
+          "event": "window-show-applied"
+        }
+      },
+      {
+        "atMs": 13233.408125,
+        "event": "renderer-document-visibility-changed",
+        "details": {
+          "event": "renderer-document-visibility-changed",
+          "rendererMonotonicMs": 12039,
+          "documentVisibility": "visible",
+          "documentHasFocus": false,
+          "deckId": "qa-folder",
+          "threadId": "qa-thread"
+        }
+      }
+    ]
+  },
+  {
+    "run": "changed",
+    "caseId": "cmd-h-equivalent",
+    "events": [
+      {
+        "atMs": 15839.831041,
+        "event": "action-started",
+        "details": {
+          "event": "action-started",
+          "action": "app.hide; Cmd-H native app-hide equivalent"
+        }
+      },
+      {
+        "atMs": 15856.965916,
+        "event": "shell-window-hide",
+        "details": {
+          "event": "shell-window-hide",
+          "windowId": 1,
+          "rendererId": 1,
+          "isVisible": false,
+          "isMinimized": false,
+          "isFocused": false
+        }
+      },
+      {
+        "atMs": 15857.446041,
+        "event": "window-hide-replica-capture-started",
+        "details": {
+          "tabId": "qa-A",
+          "windowId": 1,
+          "sequence": 61,
+          "monotonicMs": 15857,
+          "event": "window-hide-replica-capture-started"
+        }
+      },
+      {
+        "atMs": 15857.70125,
+        "event": "raw-window-hide",
+        "details": {
+          "event": "raw-window-hide",
+          "visible": false,
+          "minimized": false,
+          "focused": false
+        }
+      },
+      {
+        "atMs": 15858.699125,
+        "event": "raw-app-did-resign-active",
+        "details": {
+          "event": "raw-app-did-resign-active"
+        }
+      },
+      {
+        "atMs": 15860.595,
+        "event": "raw-app-browser-window-blur",
+        "details": {
+          "event": "raw-app-browser-window-blur"
+        }
+      },
+      {
+        "atMs": 15860.866708,
+        "event": "raw-window-blur",
+        "details": {
+          "event": "raw-window-blur",
+          "visible": false,
+          "minimized": false,
+          "focused": false
+        }
+      },
+      {
+        "atMs": 15861.196041,
+        "event": "renderer-document-visibility-changed",
+        "details": {
+          "event": "renderer-document-visibility-changed",
+          "rendererMonotonicMs": 14691,
+          "documentVisibility": "hidden",
+          "documentHasFocus": false,
+          "deckId": "qa-folder",
+          "threadId": "qa-thread"
+        }
+      },
+      {
+        "atMs": 15870.4685,
+        "event": "window-hide-replica-capture-completed",
+        "details": {
+          "tabId": "qa-A",
+          "windowId": 1,
+          "sequence": 62,
+          "monotonicMs": 15870,
+          "event": "window-hide-replica-capture-completed"
+        }
+      },
+      {
+        "atMs": 15916.522833,
+        "event": "window-hide-applied",
+        "details": {
+          "tabId": "qa-A",
+          "windowId": 1,
+          "visibleRequested": true,
+          "freezeDepth": 0,
+          "appViewVisible": true,
+          "hostedPageVisible": true,
+          "sequence": 63,
+          "monotonicMs": 15917,
+          "event": "window-hide-applied"
+        }
+      },
+      {
+        "atMs": 15945.571583,
+        "event": "shell-window-show",
+        "details": {
+          "event": "shell-window-show",
+          "windowId": 1,
+          "rendererId": 1,
+          "isVisible": true,
+          "isMinimized": false,
+          "isFocused": false
+        }
+      },
+      {
+        "atMs": 15950.863375,
+        "event": "renderer-document-visibility-changed",
+        "details": {
+          "event": "renderer-document-visibility-changed",
+          "rendererMonotonicMs": 14794,
+          "documentVisibility": "visible",
+          "documentHasFocus": false,
+          "deckId": "qa-folder",
+          "threadId": "qa-thread"
+        }
+      },
+      {
+        "atMs": 16034.456416,
+        "event": "raw-window-show",
+        "details": {
+          "event": "raw-window-show",
+          "visible": true,
+          "minimized": false,
+          "focused": false
+        }
+      },
+      {
+        "atMs": 16034.635,
+        "event": "window-show-applied",
+        "details": {
+          "tabId": "qa-A",
+          "windowId": 1,
+          "visibleRequested": true,
+          "freezeDepth": 0,
+          "appViewVisible": true,
+          "hostedPageVisible": true,
+          "sequence": 69,
+          "monotonicMs": 16035,
+          "event": "window-show-applied"
+        }
+      },
+      {
+        "atMs": 18583.883875,
+        "event": "raw-app-did-become-active",
+        "details": {
+          "event": "raw-app-did-become-active"
+        }
+      },
+      {
+        "atMs": 18590.5405,
+        "event": "raw-app-browser-window-focus",
+        "details": {
+          "event": "raw-app-browser-window-focus"
+        }
+      },
+      {
+        "atMs": 18594.621041,
+        "event": "raw-window-focus",
+        "details": {
+          "event": "raw-window-focus",
+          "visible": true,
+          "minimized": false,
+          "focused": true
+        }
+      },
+      {
+        "atMs": 19179.874291,
+        "event": "raw-app-did-resign-active",
+        "details": {
+          "event": "raw-app-did-resign-active"
+        }
+      },
+      {
+        "atMs": 19182.367083,
+        "event": "raw-app-browser-window-blur",
+        "details": {
+          "event": "raw-app-browser-window-blur"
+        }
+      },
+      {
+        "atMs": 19182.62525,
+        "event": "raw-window-blur",
+        "details": {
+          "event": "raw-window-blur",
+          "visible": true,
+          "minimized": false,
+          "focused": false
+        }
+      }
+    ]
+  },
+  {
+    "run": "changed",
+    "caseId": "restore",
+    "events": []
+  },
+  {
+    "run": "changed",
+    "caseId": "unhide",
+    "events": []
+  },
+  {
+    "run": "changed",
+    "caseId": "space-return-first",
+    "events": [
+      {
+        "atMs": 36066.592583,
+        "event": "action-started",
+        "details": {
+          "event": "action-started",
+          "action": "focus existing first fullscreen Space"
+        }
+      },
+      {
+        "atMs": 36084.059916,
+        "event": "raw-app-did-become-active",
+        "details": {
+          "event": "raw-app-did-become-active"
+        }
+      },
+      {
+        "atMs": 36086.96725,
+        "event": "raw-app-browser-window-focus",
+        "details": {
+          "event": "raw-app-browser-window-focus"
+        }
+      },
+      {
+        "atMs": 36211.98775,
+        "event": "shell-window-show",
+        "details": {
+          "event": "shell-window-show",
+          "windowId": 1,
+          "rendererId": 1,
+          "isVisible": true,
+          "isMinimized": false,
+          "isFocused": false
+        }
+      },
+      {
+        "atMs": 36214.418125,
+        "event": "renderer-document-visibility-changed",
+        "details": {
+          "event": "renderer-document-visibility-changed",
+          "rendererMonotonicMs": 35059,
+          "documentVisibility": "visible",
+          "documentHasFocus": false,
+          "deckId": "qa-folder",
+          "threadId": "qa-thread"
+        }
+      },
+      {
+        "atMs": 36417.316583,
+        "event": "raw-window-show",
+        "details": {
+          "event": "raw-window-show",
+          "visible": true,
+          "minimized": false,
+          "focused": false
+        }
+      },
+      {
+        "atMs": 36417.503541,
+        "event": "window-show-applied",
+        "details": {
+          "tabId": "qa-A",
+          "windowId": 1,
+          "visibleRequested": true,
+          "freezeDepth": 0,
+          "appViewVisible": true,
+          "hostedPageVisible": true,
+          "sequence": 99,
+          "monotonicMs": 36417,
+          "event": "window-show-applied"
+        }
+      },
+      {
+        "atMs": 36479.530625,
+        "event": "raw-app-browser-window-blur",
+        "details": {
+          "event": "raw-app-browser-window-blur"
+        }
+      },
+      {
+        "atMs": 36479.640208,
+        "event": "raw-app-browser-window-focus",
+        "details": {
+          "event": "raw-app-browser-window-focus"
+        }
+      },
+      {
+        "atMs": 36479.712,
+        "event": "raw-window-focus",
+        "details": {
+          "event": "raw-window-focus",
+          "visible": true,
+          "minimized": false,
+          "focused": true
+        }
+      }
+    ]
+  },
+  {
+    "run": "changed",
+    "caseId": "space-switch-second",
+    "events": [
+      {
+        "atMs": 39485.622458,
+        "event": "action-started",
+        "details": {
+          "event": "action-started",
+          "action": "focus existing second fullscreen Space"
+        }
+      },
+      {
+        "atMs": 39492.511458,
+        "event": "raw-app-browser-window-blur",
+        "details": {
+          "event": "raw-app-browser-window-blur"
+        }
+      },
+      {
+        "atMs": 39492.594208,
+        "event": "raw-window-blur",
+        "details": {
+          "event": "raw-window-blur",
+          "visible": true,
+          "minimized": false,
+          "focused": false
+        }
+      },
+      {
+        "atMs": 39492.676,
+        "event": "raw-app-browser-window-focus",
+        "details": {
+          "event": "raw-app-browser-window-focus"
+        }
+      },
+      {
+        "atMs": 39874.039458,
+        "event": "shell-window-hide",
+        "details": {
+          "event": "shell-window-hide",
+          "windowId": 1,
+          "rendererId": 1,
+          "isVisible": true,
+          "isMinimized": false,
+          "isFocused": false
+        }
+      },
+      {
+        "atMs": 39874.479583,
+        "event": "window-hide-replica-capture-started",
+        "details": {
+          "tabId": "qa-A",
+          "windowId": 1,
+          "sequence": 103,
+          "monotonicMs": 39874,
+          "event": "window-hide-replica-capture-started"
+        }
+      },
+      {
+        "atMs": 39874.850333,
+        "event": "raw-window-hide",
+        "details": {
+          "event": "raw-window-hide",
+          "visible": true,
+          "minimized": false,
+          "focused": false
+        }
+      },
+      {
+        "atMs": 39897.215125,
+        "event": "window-hide-replica-capture-completed",
+        "details": {
+          "tabId": "qa-A",
+          "windowId": 1,
+          "sequence": 104,
+          "monotonicMs": 39897,
+          "event": "window-hide-replica-capture-completed"
+        }
+      },
+      {
+        "atMs": 39928.74025,
+        "event": "window-hide-applied",
+        "details": {
+          "tabId": "qa-A",
+          "windowId": 1,
+          "visibleRequested": true,
+          "freezeDepth": 0,
+          "appViewVisible": true,
+          "hostedPageVisible": true,
+          "sequence": 105,
+          "monotonicMs": 39929,
+          "event": "window-hide-applied"
+        }
+      },
+      {
+        "atMs": 39934.966625,
+        "event": "renderer-document-visibility-changed",
+        "details": {
+          "event": "renderer-document-visibility-changed",
+          "rendererMonotonicMs": 38721,
+          "documentVisibility": "hidden",
+          "documentHasFocus": false,
+          "deckId": "qa-folder",
+          "threadId": "qa-thread"
+        }
+      }
+    ]
+  },
+  {
+    "run": "head",
+    "caseId": "app-loses-focus",
+    "events": [
+      {
+        "atMs": 5576.068834,
+        "event": "immediate-action-baseline",
+        "details": {
+          "event": "immediate-action-baseline",
+          "visible": true,
+          "minimized": false,
+          "focused": true,
+          "tabVisible": true,
+          "appHidden": false
+        }
+      },
+      {
+        "atMs": 5576.177625,
+        "event": "action-started",
+        "details": {
+          "event": "action-started",
+          "action": "outside-frame helper activate"
+        }
+      },
+      {
+        "atMs": 5652.426459,
+        "event": "raw-app-did-resign-active",
+        "details": {
+          "event": "raw-app-did-resign-active"
+        }
+      },
+      {
+        "atMs": 5654.808875,
+        "event": "raw-app-browser-window-blur",
+        "details": {
+          "event": "raw-app-browser-window-blur"
+        }
+      },
+      {
+        "atMs": 5654.996417,
+        "event": "raw-window-blur",
+        "details": {
+          "event": "raw-window-blur",
+          "visible": true,
+          "minimized": false,
+          "focused": false
+        }
+      }
+    ]
+  },
+  {
+    "run": "head",
+    "caseId": "minimize",
+    "events": [
+      {
+        "atMs": 9715.552834,
+        "event": "action-started",
+        "details": {
+          "event": "action-started",
+          "action": "shell.minimize"
+        }
+      },
+      {
+        "atMs": 10291.541042,
+        "event": "shell-window-minimize",
+        "details": {
+          "event": "shell-window-minimize",
+          "windowId": 1,
+          "rendererId": 1,
+          "isVisible": false,
+          "isMinimized": true,
+          "isFocused": false
+        }
+      },
+      {
+        "atMs": 10292.088875,
+        "event": "window-hide-replica-capture-started",
+        "details": {
+          "tabId": "qa-A",
+          "windowId": 1,
+          "sequence": 37,
+          "monotonicMs": 10292,
+          "event": "window-hide-replica-capture-started"
+        }
+      },
+      {
+        "atMs": 10293.2175,
+        "event": "shell-window-hide",
+        "details": {
+          "event": "shell-window-hide",
+          "windowId": 1,
+          "rendererId": 1,
+          "isVisible": false,
+          "isMinimized": true,
+          "isFocused": false
+        }
+      },
+      {
+        "atMs": 10293.443375,
+        "event": "window-hide-replica-capture-started",
+        "details": {
+          "tabId": "qa-A",
+          "windowId": 1,
+          "sequence": 40,
+          "monotonicMs": 10293,
+          "event": "window-hide-replica-capture-started"
+        }
+      },
+      {
+        "atMs": 10293.562584,
+        "event": "raw-window-hide",
+        "details": {
+          "event": "raw-window-hide",
+          "visible": false,
+          "minimized": true,
+          "focused": false
+        }
+      },
+      {
+        "atMs": 10304.269709,
+        "event": "raw-app-browser-window-blur",
+        "details": {
+          "event": "raw-app-browser-window-blur"
+        }
+      },
+      {
+        "atMs": 10304.374167,
+        "event": "raw-window-blur",
+        "details": {
+          "event": "raw-window-blur",
+          "visible": false,
+          "minimized": true,
+          "focused": false
+        }
+      },
+      {
+        "atMs": 10304.733,
+        "event": "renderer-document-visibility-changed",
+        "details": {
+          "event": "renderer-document-visibility-changed",
+          "rendererMonotonicMs": 8946,
+          "documentVisibility": "hidden",
+          "documentHasFocus": false,
+          "threadId": "qa-thread"
+        }
+      },
+      {
+        "atMs": 10327.998,
+        "event": "window-hide-replica-capture-completed",
+        "details": {
+          "tabId": "qa-A",
+          "windowId": 1,
+          "sequence": 41,
+          "monotonicMs": 10328,
+          "event": "window-hide-replica-capture-completed"
+        }
+      },
+      {
+        "atMs": 10376.876292,
+        "event": "window-hide-applied",
+        "details": {
+          "tabId": "qa-A",
+          "windowId": 1,
+          "visibleRequested": true,
+          "freezeDepth": 0,
+          "appViewVisible": true,
+          "hostedPageVisible": true,
+          "sequence": 43,
+          "monotonicMs": 10377,
+          "event": "window-hide-applied"
+        }
+      },
+      {
+        "atMs": 10395.703459,
+        "event": "window-hide-replica-capture-completed",
+        "details": {
+          "tabId": "qa-A",
+          "windowId": 1,
+          "sequence": 45,
+          "monotonicMs": 10396,
+          "event": "window-hide-replica-capture-completed"
+        }
+      },
+      {
+        "atMs": 10722.672709,
+        "event": "raw-app-did-resign-active",
+        "details": {
+          "event": "raw-app-did-resign-active"
+        }
+      },
+      {
+        "atMs": 13144.054334,
+        "event": "shell-window-restore",
+        "details": {
+          "event": "shell-window-restore",
+          "windowId": 1,
+          "rendererId": 1,
+          "isVisible": true,
+          "isMinimized": false,
+          "isFocused": false
+        }
+      },
+      {
+        "atMs": 13145.249667,
+        "event": "shell-window-show",
+        "details": {
+          "event": "shell-window-show",
+          "windowId": 1,
+          "rendererId": 1,
+          "isVisible": true,
+          "isMinimized": false,
+          "isFocused": false
+        }
+      },
+      {
+        "atMs": 13148.679292,
+        "event": "raw-window-show",
+        "details": {
+          "event": "raw-window-show",
+          "visible": true,
+          "minimized": false,
+          "focused": false
+        }
+      },
+      {
+        "atMs": 13148.83275,
+        "event": "renderer-document-visibility-changed",
+        "details": {
+          "event": "renderer-document-visibility-changed",
+          "rendererMonotonicMs": 11801,
+          "documentVisibility": "visible",
+          "documentHasFocus": false,
+          "threadId": "qa-thread"
+        }
+      },
+      {
+        "atMs": 13150.436167,
+        "event": "window-show-applied",
+        "details": {
+          "tabId": "qa-A",
+          "windowId": 1,
+          "visibleRequested": true,
+          "freezeDepth": 0,
+          "appViewVisible": true,
+          "hostedPageVisible": true,
+          "sequence": 56,
+          "monotonicMs": 13150,
+          "event": "window-show-applied"
+        }
+      },
+      {
+        "atMs": 13150.698417,
+        "event": "window-show-applied",
+        "details": {
+          "tabId": "qa-A",
+          "windowId": 1,
+          "visibleRequested": true,
+          "freezeDepth": 0,
+          "appViewVisible": true,
+          "hostedPageVisible": true,
+          "sequence": 58,
+          "monotonicMs": 13151,
+          "event": "window-show-applied"
+        }
+      }
+    ]
+  },
+  {
+    "run": "head",
+    "caseId": "cmd-h-equivalent",
+    "events": [
+      {
+        "atMs": 15729.9615,
+        "event": "immediate-action-baseline",
+        "details": {
+          "event": "immediate-action-baseline",
+          "visible": true,
+          "minimized": false,
+          "focused": true,
+          "tabVisible": true,
+          "appHidden": false
+        }
+      },
+      {
+        "atMs": 15730.243084,
+        "event": "action-started",
+        "details": {
+          "event": "action-started",
+          "action": "app.hide; Cmd-H native app-hide equivalent"
+        }
+      },
+      {
+        "atMs": 15749.661209,
+        "event": "shell-window-hide",
+        "details": {
+          "event": "shell-window-hide",
+          "windowId": 1,
+          "rendererId": 1,
+          "isVisible": false,
+          "isMinimized": false,
+          "isFocused": false
+        }
+      },
+      {
+        "atMs": 15750.141334,
+        "event": "window-hide-replica-capture-started",
+        "details": {
+          "tabId": "qa-A",
+          "windowId": 1,
+          "sequence": 68,
+          "monotonicMs": 15750,
+          "event": "window-hide-replica-capture-started"
+        }
+      },
+      {
+        "atMs": 15750.373125,
+        "event": "raw-window-hide",
+        "details": {
+          "event": "raw-window-hide",
+          "visible": false,
+          "minimized": false,
+          "focused": false
+        }
+      },
+      {
+        "atMs": 15751.379792,
+        "event": "raw-app-did-resign-active",
+        "details": {
+          "event": "raw-app-did-resign-active"
+        }
+      },
+      {
+        "atMs": 15753.322959,
+        "event": "raw-app-browser-window-blur",
+        "details": {
+          "event": "raw-app-browser-window-blur"
+        }
+      },
+      {
+        "atMs": 15753.579125,
+        "event": "raw-window-blur",
+        "details": {
+          "event": "raw-window-blur",
+          "visible": false,
+          "minimized": false,
+          "focused": false
+        }
+      },
+      {
+        "atMs": 15753.900209,
+        "event": "renderer-document-visibility-changed",
+        "details": {
+          "event": "renderer-document-visibility-changed",
+          "rendererMonotonicMs": 14388,
+          "documentVisibility": "hidden",
+          "documentHasFocus": false,
+          "threadId": "qa-thread"
+        }
+      },
+      {
+        "atMs": 15764.006084,
+        "event": "window-hide-replica-capture-completed",
+        "details": {
+          "tabId": "qa-A",
+          "windowId": 1,
+          "sequence": 69,
+          "monotonicMs": 15764,
+          "event": "window-hide-replica-capture-completed"
+        }
+      },
+      {
+        "atMs": 15799.112375,
+        "event": "window-hide-applied",
+        "details": {
+          "tabId": "qa-A",
+          "windowId": 1,
+          "visibleRequested": true,
+          "freezeDepth": 0,
+          "appViewVisible": true,
+          "hostedPageVisible": true,
+          "sequence": 71,
+          "monotonicMs": 15799,
+          "event": "window-hide-applied"
+        }
+      },
+      {
+        "atMs": 15816.98225,
+        "event": "shell-window-show",
+        "details": {
+          "event": "shell-window-show",
+          "windowId": 1,
+          "rendererId": 1,
+          "isVisible": true,
+          "isMinimized": false,
+          "isFocused": false
+        }
+      },
+      {
+        "atMs": 15818.687459,
+        "event": "renderer-document-visibility-changed",
+        "details": {
+          "event": "renderer-document-visibility-changed",
+          "rendererMonotonicMs": 14473,
+          "documentVisibility": "visible",
+          "documentHasFocus": false,
+          "threadId": "qa-thread"
+        }
+      },
+      {
+        "atMs": 15916.72975,
+        "event": "raw-window-show",
+        "details": {
+          "event": "raw-window-show",
+          "visible": true,
+          "minimized": false,
+          "focused": false
+        }
+      },
+      {
+        "atMs": 15916.919667,
+        "event": "window-show-applied",
+        "details": {
+          "tabId": "qa-A",
+          "windowId": 1,
+          "visibleRequested": true,
+          "freezeDepth": 0,
+          "appViewVisible": true,
+          "hostedPageVisible": true,
+          "sequence": 78,
+          "monotonicMs": 15917,
+          "event": "window-show-applied"
+        }
+      },
+      {
+        "atMs": 18405.088,
+        "event": "raw-app-did-become-active",
+        "details": {
+          "event": "raw-app-did-become-active"
+        }
+      },
+      {
+        "atMs": 18420.562292,
+        "event": "raw-app-browser-window-focus",
+        "details": {
+          "event": "raw-app-browser-window-focus"
+        }
+      },
+      {
+        "atMs": 18420.848959,
+        "event": "raw-window-focus",
+        "details": {
+          "event": "raw-window-focus",
+          "visible": true,
+          "minimized": false,
+          "focused": true
+        }
+      }
+    ]
+  },
+  {
+    "run": "head",
+    "caseId": "restore",
+    "events": []
+  },
+  {
+    "run": "head",
+    "caseId": "unhide",
+    "events": []
+  },
+  {
+    "run": "head",
+    "caseId": "space-return-first",
+    "events": [
+      {
+        "atMs": 36077.573125,
+        "event": "action-started",
+        "details": {
+          "event": "action-started",
+          "action": "focus existing first fullscreen Space"
+        }
+      }
+    ]
+  },
+  {
+    "run": "head",
+    "caseId": "space-switch-second",
+    "events": [
+      {
+        "atMs": 39464.818209,
+        "event": "action-started",
+        "details": {
+          "event": "action-started",
+          "action": "focus existing second fullscreen Space"
+        }
+      }
+    ]
+  },
+  {
+    "run": "head-initial-native",
+    "caseId": "app-loses-focus",
+    "events": [
+      {
+        "atMs": 5148.747209,
+        "event": "action-started",
+        "details": {
+          "event": "action-started",
+          "action": "outside-frame helper activate"
+        }
+      }
+    ]
+  },
+  {
+    "run": "head-initial-native",
+    "caseId": "minimize",
+    "events": [
+      {
+        "atMs": 9299.848042,
+        "event": "action-started",
+        "details": {
+          "event": "action-started",
+          "action": "shell.minimize"
+        }
+      },
+      {
+        "atMs": 9887.5685,
+        "event": "shell-window-minimize",
+        "details": {
+          "event": "shell-window-minimize",
+          "windowId": 1,
+          "rendererId": 1,
+          "isVisible": false,
+          "isMinimized": true,
+          "isFocused": false
+        }
+      },
+      {
+        "atMs": 9888.059542,
+        "event": "window-hide-replica-capture-started",
+        "details": {
+          "tabId": "qa-A",
+          "windowId": 1,
+          "sequence": 37,
+          "monotonicMs": 9888,
+          "event": "window-hide-replica-capture-started"
+        }
+      },
+      {
+        "atMs": 9888.881459,
+        "event": "shell-window-hide",
+        "details": {
+          "event": "shell-window-hide",
+          "windowId": 1,
+          "rendererId": 1,
+          "isVisible": false,
+          "isMinimized": true,
+          "isFocused": false
+        }
+      },
+      {
+        "atMs": 9889.240209,
+        "event": "window-hide-replica-capture-started",
+        "details": {
+          "tabId": "qa-A",
+          "windowId": 1,
+          "sequence": 40,
+          "monotonicMs": 9889,
+          "event": "window-hide-replica-capture-started"
+        }
+      },
+      {
+        "atMs": 9889.368084,
+        "event": "raw-window-hide",
+        "details": {
+          "event": "raw-window-hide",
+          "visible": false,
+          "minimized": true,
+          "focused": false
+        }
+      },
+      {
+        "atMs": 9892.938417,
+        "event": "raw-app-browser-window-blur",
+        "details": {
+          "event": "raw-app-browser-window-blur"
+        }
+      },
+      {
+        "atMs": 9893.115959,
+        "event": "raw-window-blur",
+        "details": {
+          "event": "raw-window-blur",
+          "visible": false,
+          "minimized": true,
+          "focused": false
+        }
+      },
+      {
+        "atMs": 9896.050875,
+        "event": "renderer-document-visibility-changed",
+        "details": {
+          "event": "renderer-document-visibility-changed",
+          "rendererMonotonicMs": 9022,
+          "documentVisibility": "hidden",
+          "documentHasFocus": false,
+          "threadId": "qa-thread"
+        }
+      },
+      {
+        "atMs": 9915.722084,
+        "event": "window-hide-replica-capture-completed",
+        "details": {
+          "tabId": "qa-A",
+          "windowId": 1,
+          "sequence": 41,
+          "monotonicMs": 9916,
+          "event": "window-hide-replica-capture-completed"
+        }
+      },
+      {
+        "atMs": 9961.014334,
+        "event": "window-hide-applied",
+        "details": {
+          "tabId": "qa-A",
+          "windowId": 1,
+          "visibleRequested": true,
+          "freezeDepth": 0,
+          "appViewVisible": true,
+          "hostedPageVisible": true,
+          "sequence": 43,
+          "monotonicMs": 9961,
+          "event": "window-hide-applied"
+        }
+      },
+      {
+        "atMs": 9980.085834,
+        "event": "window-hide-replica-capture-completed",
+        "details": {
+          "tabId": "qa-A",
+          "windowId": 1,
+          "sequence": 45,
+          "monotonicMs": 9980,
+          "event": "window-hide-replica-capture-completed"
+        }
+      },
+      {
+        "atMs": 12755.288709,
+        "event": "shell-window-restore",
+        "details": {
+          "event": "shell-window-restore",
+          "windowId": 1,
+          "rendererId": 1,
+          "isVisible": true,
+          "isMinimized": false,
+          "isFocused": true
+        }
+      },
+      {
+        "atMs": 12756.595959,
+        "event": "shell-window-show",
+        "details": {
+          "event": "shell-window-show",
+          "windowId": 1,
+          "rendererId": 1,
+          "isVisible": true,
+          "isMinimized": false,
+          "isFocused": true
+        }
+      },
+      {
+        "atMs": 12758.850625,
+        "event": "raw-window-show",
+        "details": {
+          "event": "raw-window-show",
+          "visible": true,
+          "minimized": false,
+          "focused": true
+        }
+      },
+      {
+        "atMs": 12758.970125,
+        "event": "raw-app-browser-window-focus",
+        "details": {
+          "event": "raw-app-browser-window-focus"
+        }
+      },
+      {
+        "atMs": 12759.029917,
+        "event": "raw-window-focus",
+        "details": {
+          "event": "raw-window-focus",
+          "visible": true,
+          "minimized": false,
+          "focused": true
+        }
+      },
+      {
+        "atMs": 12760.083084,
+        "event": "window-show-applied",
+        "details": {
+          "tabId": "qa-A",
+          "windowId": 1,
+          "visibleRequested": true,
+          "freezeDepth": 0,
+          "appViewVisible": true,
+          "hostedPageVisible": true,
+          "sequence": 56,
+          "monotonicMs": 12760,
+          "event": "window-show-applied"
+        }
+      },
+      {
+        "atMs": 12760.385167,
+        "event": "window-show-applied",
+        "details": {
+          "tabId": "qa-A",
+          "windowId": 1,
+          "visibleRequested": true,
+          "freezeDepth": 0,
+          "appViewVisible": true,
+          "hostedPageVisible": true,
+          "sequence": 58,
+          "monotonicMs": 12760,
+          "event": "window-show-applied"
+        }
+      },
+      {
+        "atMs": 12784.42075,
+        "event": "renderer-document-visibility-changed",
+        "details": {
+          "event": "renderer-document-visibility-changed",
+          "rendererMonotonicMs": 11892,
+          "documentVisibility": "visible",
+          "documentHasFocus": true,
+          "threadId": "qa-thread"
+        }
+      }
+    ]
+  },
+  {
+    "run": "head-initial-native",
+    "caseId": "cmd-h-equivalent",
+    "events": [
+      {
+        "atMs": 15349.288167,
+        "event": "action-started",
+        "details": {
+          "event": "action-started",
+          "action": "app.hide; Cmd-H native app-hide equivalent"
+        }
+      },
+      {
+        "atMs": 15378.475125,
+        "event": "shell-window-hide",
+        "details": {
+          "event": "shell-window-hide",
+          "windowId": 1,
+          "rendererId": 1,
+          "isVisible": false,
+          "isMinimized": false,
+          "isFocused": false
+        }
+      },
+      {
+        "atMs": 15378.895334,
+        "event": "window-hide-replica-capture-started",
+        "details": {
+          "tabId": "qa-A",
+          "windowId": 1,
+          "sequence": 68,
+          "monotonicMs": 15379,
+          "event": "window-hide-replica-capture-started"
+        }
+      },
+      {
+        "atMs": 15379.125542,
+        "event": "raw-window-hide",
+        "details": {
+          "event": "raw-window-hide",
+          "visible": false,
+          "minimized": false,
+          "focused": false
+        }
+      },
+      {
+        "atMs": 15380.137875,
+        "event": "raw-app-did-resign-active",
+        "details": {
+          "event": "raw-app-did-resign-active"
+        }
+      },
+      {
+        "atMs": 15381.756959,
+        "event": "raw-app-browser-window-blur",
+        "details": {
+          "event": "raw-app-browser-window-blur"
+        }
+      },
+      {
+        "atMs": 15381.932,
+        "event": "raw-window-blur",
+        "details": {
+          "event": "raw-window-blur",
+          "visible": false,
+          "minimized": false,
+          "focused": false
+        }
+      },
+      {
+        "atMs": 15382.190417,
+        "event": "renderer-document-visibility-changed",
+        "details": {
+          "event": "renderer-document-visibility-changed",
+          "rendererMonotonicMs": 14490,
+          "documentVisibility": "hidden",
+          "documentHasFocus": false,
+          "threadId": "qa-thread"
+        }
+      },
+      {
+        "atMs": 15400.419084,
+        "event": "window-hide-replica-capture-completed",
+        "details": {
+          "tabId": "qa-A",
+          "windowId": 1,
+          "sequence": 69,
+          "monotonicMs": 15400,
+          "event": "window-hide-replica-capture-completed"
+        }
+      },
+      {
+        "atMs": 15437.68175,
+        "event": "window-hide-applied",
+        "details": {
+          "tabId": "qa-A",
+          "windowId": 1,
+          "visibleRequested": true,
+          "freezeDepth": 0,
+          "appViewVisible": true,
+          "hostedPageVisible": true,
+          "sequence": 71,
+          "monotonicMs": 15438,
+          "event": "window-hide-applied"
+        }
+      },
+      {
+        "atMs": 15465.006709,
+        "event": "shell-window-show",
+        "details": {
+          "event": "shell-window-show",
+          "windowId": 1,
+          "rendererId": 1,
+          "isVisible": true,
+          "isMinimized": false,
+          "isFocused": false
+        }
+      },
+      {
+        "atMs": 15467.869667,
+        "event": "renderer-document-visibility-changed",
+        "details": {
+          "event": "renderer-document-visibility-changed",
+          "rendererMonotonicMs": 14602,
+          "documentVisibility": "visible",
+          "documentHasFocus": false,
+          "threadId": "qa-thread"
+        }
+      },
+      {
+        "atMs": 15563.477584,
+        "event": "raw-window-show",
+        "details": {
+          "event": "raw-window-show",
+          "visible": true,
+          "minimized": false,
+          "focused": false
+        }
+      },
+      {
+        "atMs": 15563.688459,
+        "event": "window-show-applied",
+        "details": {
+          "tabId": "qa-A",
+          "windowId": 1,
+          "visibleRequested": true,
+          "freezeDepth": 0,
+          "appViewVisible": true,
+          "hostedPageVisible": true,
+          "sequence": 78,
+          "monotonicMs": 15564,
+          "event": "window-show-applied"
+        }
+      },
+      {
+        "atMs": 18038.690292,
+        "event": "raw-app-did-become-active",
+        "details": {
+          "event": "raw-app-did-become-active"
+        }
+      },
+      {
+        "atMs": 18046.959459,
+        "event": "raw-app-browser-window-focus",
+        "details": {
+          "event": "raw-app-browser-window-focus"
+        }
+      },
+      {
+        "atMs": 18047.23425,
+        "event": "raw-window-focus",
+        "details": {
+          "event": "raw-window-focus",
+          "visible": true,
+          "minimized": false,
+          "focused": true
+        }
+      }
+    ]
+  },
+  {
+    "run": "head-initial-native",
+    "caseId": "restore",
+    "events": []
+  },
+  {
+    "run": "head-initial-native",
+    "caseId": "unhide",
+    "events": []
+  },
+  {
+    "run": "head-initial-native",
+    "caseId": "space-return-first",
+    "events": [
+      {
+        "atMs": 35543.454,
+        "event": "action-started",
+        "details": {
+          "event": "action-started",
+          "action": "focus existing first fullscreen Space"
+        }
+      },
+      {
+        "atMs": 35566.226667,
+        "event": "raw-app-did-become-active",
+        "details": {
+          "event": "raw-app-did-become-active"
+        }
+      },
+      {
+        "atMs": 35569.123,
+        "event": "raw-app-browser-window-focus",
+        "details": {
+          "event": "raw-app-browser-window-focus"
+        }
+      },
+      {
+        "atMs": 35693.361125,
+        "event": "shell-window-show",
+        "details": {
+          "event": "shell-window-show",
+          "windowId": 1,
+          "rendererId": 1,
+          "isVisible": true,
+          "isMinimized": false,
+          "isFocused": false
+        }
+      },
+      {
+        "atMs": 35696.348667,
+        "event": "renderer-document-visibility-changed",
+        "details": {
+          "event": "renderer-document-visibility-changed",
+          "rendererMonotonicMs": 34829,
+          "documentVisibility": "visible",
+          "documentHasFocus": false,
+          "threadId": "qa-thread"
+        }
+      },
+      {
+        "atMs": 35899.289209,
+        "event": "raw-window-show",
+        "details": {
+          "event": "raw-window-show",
+          "visible": true,
+          "minimized": false,
+          "focused": false
+        }
+      },
+      {
+        "atMs": 35899.461,
+        "event": "window-show-applied",
+        "details": {
+          "tabId": "qa-A",
+          "windowId": 1,
+          "visibleRequested": true,
+          "freezeDepth": 0,
+          "appViewVisible": true,
+          "hostedPageVisible": true,
+          "sequence": 112,
+          "monotonicMs": 35899,
+          "event": "window-show-applied"
+        }
+      },
+      {
+        "atMs": 35962.331959,
+        "event": "raw-app-browser-window-blur",
+        "details": {
+          "event": "raw-app-browser-window-blur"
+        }
+      },
+      {
+        "atMs": 35962.423125,
+        "event": "raw-app-browser-window-focus",
+        "details": {
+          "event": "raw-app-browser-window-focus"
+        }
+      },
+      {
+        "atMs": 35962.488959,
+        "event": "raw-window-focus",
+        "details": {
+          "event": "raw-window-focus",
+          "visible": true,
+          "minimized": false,
+          "focused": true
+        }
+      },
+      {
+        "atMs": 36542.634209,
+        "event": "raw-app-did-resign-active",
+        "details": {
+          "event": "raw-app-did-resign-active"
+        }
+      },
+      {
+        "atMs": 36545.107792,
+        "event": "raw-app-browser-window-blur",
+        "details": {
+          "event": "raw-app-browser-window-blur"
+        }
+      },
+      {
+        "atMs": 36545.318334,
+        "event": "raw-window-blur",
+        "details": {
+          "event": "raw-window-blur",
+          "visible": true,
+          "minimized": false,
+          "focused": false
+        }
+      }
+    ]
+  },
+  {
+    "run": "head-initial-native",
+    "caseId": "space-switch-second",
+    "events": [
+      {
+        "atMs": 38887.429167,
+        "event": "action-started",
+        "details": {
+          "event": "action-started",
+          "action": "focus existing second fullscreen Space"
+        }
+      },
+      {
+        "atMs": 38905.499917,
+        "event": "raw-app-did-become-active",
+        "details": {
+          "event": "raw-app-did-become-active"
+        }
+      },
+      {
+        "atMs": 38909.378834,
+        "event": "raw-app-browser-window-focus",
+        "details": {
+          "event": "raw-app-browser-window-focus"
+        }
+      },
+      {
+        "atMs": 38909.635625,
+        "event": "raw-window-focus",
+        "details": {
+          "event": "raw-window-focus",
+          "visible": true,
+          "minimized": false,
+          "focused": true
+        }
+      },
+      {
+        "atMs": 39289.923292,
+        "event": "shell-window-hide",
+        "details": {
+          "event": "shell-window-hide",
+          "windowId": 1,
+          "rendererId": 1,
+          "isVisible": true,
+          "isMinimized": false,
+          "isFocused": true
+        }
+      },
+      {
+        "atMs": 39290.337209,
+        "event": "window-hide-replica-capture-started",
+        "details": {
+          "tabId": "qa-A",
+          "windowId": 1,
+          "sequence": 116,
+          "monotonicMs": 39290,
+          "event": "window-hide-replica-capture-started"
+        }
+      },
+      {
+        "atMs": 39290.580167,
+        "event": "raw-window-hide",
+        "details": {
+          "event": "raw-window-hide",
+          "visible": true,
+          "minimized": false,
+          "focused": true
+        }
+      },
+      {
+        "atMs": 39298.767834,
+        "event": "renderer-document-visibility-changed",
+        "details": {
+          "event": "renderer-document-visibility-changed",
+          "rendererMonotonicMs": 38426,
+          "documentVisibility": "hidden",
+          "documentHasFocus": true,
+          "threadId": "qa-thread"
+        }
+      },
+      {
+        "atMs": 39302.822667,
+        "event": "raw-app-browser-window-blur",
+        "details": {
+          "event": "raw-app-browser-window-blur"
+        }
+      },
+      {
+        "atMs": 39302.908209,
+        "event": "raw-window-blur",
+        "details": {
+          "event": "raw-window-blur",
+          "visible": true,
+          "minimized": false,
+          "focused": false
+        }
+      },
+      {
+        "atMs": 39302.993,
+        "event": "raw-app-browser-window-focus",
+        "details": {
+          "event": "raw-app-browser-window-focus"
+        }
+      },
+      {
+        "atMs": 39319.119792,
+        "event": "window-hide-replica-capture-completed",
+        "details": {
+          "tabId": "qa-A",
+          "windowId": 1,
+          "sequence": 117,
+          "monotonicMs": 39319,
+          "event": "window-hide-replica-capture-completed"
+        }
+      },
+      {
+        "atMs": 39348.943667,
+        "event": "window-hide-applied",
+        "details": {
+          "tabId": "qa-A",
+          "windowId": 1,
+          "visibleRequested": true,
+          "freezeDepth": 0,
+          "appViewVisible": true,
+          "hostedPageVisible": true,
+          "sequence": 119,
+          "monotonicMs": 39349,
+          "event": "window-hide-applied"
+        }
+      },
+      {
+        "atMs": 40747.337875,
+        "event": "raw-app-did-resign-active",
+        "details": {
+          "event": "raw-app-did-resign-active"
+        }
+      },
+      {
+        "atMs": 40750.506125,
+        "event": "raw-app-browser-window-blur",
+        "details": {
+          "event": "raw-app-browser-window-blur"
+        }
+      }
+    ]
+  }
+]

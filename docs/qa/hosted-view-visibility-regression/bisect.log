@@ -1,0 +1,4 @@
+# bad: [d752139131f59082991a6c56d70845689fb3fd3b] Fix detached tab command delivery
+# good: [a60fdf71f4bca8df93f9df5b52fcc21729040d3d] Cover gallery gutter in narrow assistant columns
+git bisect start '--no-checkout' 'd752139131f59082991a6c56d70845689fb3fd3b' 'a60fdf71f4bca8df93f9df5b52fcc21729040d3d'
+# first bad commit: [d752139131f59082991a6c56d70845689fb3fd3b] Fix detached tab command delivery
