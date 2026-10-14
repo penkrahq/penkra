@@ -1,3 +1,5 @@
+import { ThreadLanesLive } from "../cleanCore/ThreadLanes.ts";
+import { ProviderSessionDirectoryLive } from "../provider/Layers/ProviderSessionDirectory.ts";
 import { settleMessage } from "../cleanCore/sendMessage";
 import { afterAll } from "vitest";
 import { ServerConfig } from "../config.ts";
@@ -124,6 +126,8 @@ it.effect(
       } satisfies typeof ProviderThreadSwitchCoordinator.Service;
       const newSender = () =>
         makeThreadSender.pipe(
+          Effect.provide(ProviderSessionDirectoryLive),
+          Effect.provide(ThreadLanesLive),
           Effect.provideService(ServerConfig, {
             stateDir: senderStateDir,
           } as typeof ServerConfig.Service),

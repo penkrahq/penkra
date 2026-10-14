@@ -2071,6 +2071,7 @@ function makeClaudeAdapter(options?: ClaudeAdapterLiveOptions) {
     const emitRuntimeError = (
       context: ClaudeSessionContext,
       message: string,
+      terminal: boolean,
       cause?: unknown,
     ): Effect.Effect<void> =>
       Effect.gen(function* () {
@@ -2089,6 +2090,7 @@ function makeClaudeAdapter(options?: ClaudeAdapterLiveOptions) {
           payload: {
             message,
             class: "provider_error",
+            terminal,
             ...(cause !== undefined ? { detail: cause } : {}),
           },
           providerRefs: nativeProviderRefs(context),
@@ -3168,7 +3170,7 @@ function makeClaudeAdapter(options?: ClaudeAdapterLiveOptions) {
             : normalizeClaudeUserVisibleErrorMessage(message.errors[0], status);
 
         if (status === "failed") {
-          yield* emitRuntimeError(context, errorMessage ?? "Claude turn failed.");
+          yield* emitRuntimeError(context, errorMessage ?? "Claude turn failed.", true);
         }
 
         yield* completeTurn(context, status, errorMessage, message);
@@ -4079,7 +4081,7 @@ function makeClaudeAdapter(options?: ClaudeAdapterLiveOptions) {
                 detail: message,
               });
             }
-            yield* emitRuntimeError(context, message, Cause.pretty(exit.cause));
+            yield* emitRuntimeError(context, message, true, Cause.pretty(exit.cause));
             yield* completeTurn(context, "failed", message);
           }
         } else if (context.turnState) {
@@ -4128,7 +4130,7 @@ function makeClaudeAdapter(options?: ClaudeAdapterLiveOptions) {
         try {
           context.query.close();
         } catch (cause) {
-          yield* emitRuntimeError(context, "Failed to close Claude runtime query.", cause);
+          yield* emitRuntimeError(context, "Failed to close Claude runtime query.", false, cause);
         }
         // Do not release session ownership until teardown proves the old
         // process tree exited. The stopped context remains non-routable and

@@ -36,6 +36,9 @@ const compaction = (sequence: number, turnId: string): ThreadItemRecord => ({
 describe("reconstructed continuation", () => {
   it("replays from the first turn after the latest completed compaction", () => {
     const selected = selectReconstructedContinuation({
+      threadId: "thread-1",
+      currentInput: "Continue the plan",
+      hasOlder: false,
       items: [
         message("before", "turn-1", 1),
         message("same-turn", "turn-compact-new", 8),
@@ -57,6 +60,9 @@ describe("reconstructed continuation", () => {
 
   it("replays from the first message when there is no compaction", () => {
     const selected = selectReconstructedContinuation({
+      threadId: "thread-1",
+      currentInput: "Continue the plan",
+      hasOlder: false,
       items: [message("second", "turn-2", 2), message("first", "turn-1", 1)],
       currentMessageId: "not-present",
     });
@@ -66,6 +72,9 @@ describe("reconstructed continuation", () => {
 
   it("keeps retained text exact and tells the agent how to retrieve older context", () => {
     const continuation = selectReconstructedContinuation({
+      threadId: "thread-1",
+      currentInput: "Continue the plan",
+      hasOlder: false,
       items: [message("first", "turn-1", 1, "Exact retained text")],
       currentMessageId: "current",
     });

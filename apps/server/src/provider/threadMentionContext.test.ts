@@ -17,10 +17,12 @@ function thread(messages: ReadonlyArray<{ role: "user" | "assistant"; text: stri
     id: "mentioned-thread",
     folderId: "project-1",
     title: "Release planning",
+    deletedAt: null,
     modelSelection: { provider: "codex", model: "gpt-test" },
     messages: messages.map((message, index) => ({
       id: `message-${index}`,
       ...message,
+      ...(message.role === "user" ? { origin: { _tag: "user" }, attachments: [] } : {}),
       turnId: null,
       streaming: false,
       source: "native",
@@ -70,7 +72,7 @@ describe("thread mention prompt context", () => {
     );
   });
 
-  it("formats a missing thread as a non-fatal context note", async () => {
+  it("leaves a missing thread mention plain without adding context", async () => {
     const result = await Effect.runPromise(
       resolveThreadMentionPromptProjection({
         mentions: [reference],
@@ -81,9 +83,7 @@ describe("thread mention prompt context", () => {
     );
 
     expect(result.providerMentions).toBeUndefined();
-    expect(result.contextBlocks[0]).toContain(
-      'Referenced chat "Release planning" (thread id: mentioned-thread) could not be found.',
-    );
+    expect(result.contextBlocks).toEqual([]);
   });
 
   it("caps per-message, per-thread, and aggregate context while retaining the newest tail", async () => {
@@ -149,16 +149,14 @@ describe("thread mention prompt context", () => {
       reference: { name: longTitle, path: "thread://missing" },
       thread: null,
     });
-    expect(missing).toContain("…");
-    expect(missing.length).toBeLessThan(longTitle.length);
+    expect(missing).toBe("");
 
     const oversizedId = formatThreadMentionContextBlock({
       reference: { name: "Missing", path: `thread://${"x".repeat(1_000)}` },
       thread: null,
       maxChars: 256,
     });
-    expect(oversizedId.length).toBeLessThanOrEqual(256);
-    expect(oversizedId.endsWith("</mentioned_thread_context>")).toBe(true);
+    expect(oversizedId).toBe("");
   });
 
   it("builds an appendable suffix that stays outside the wrapped user message", () => {

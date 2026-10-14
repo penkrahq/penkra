@@ -1,3 +1,5 @@
+import { ThreadLanesLive } from "./ThreadLanes.ts";
+import { ProviderSessionDirectoryLive } from "../provider/Layers/ProviderSessionDirectory.ts";
 import { observePublisher } from "./threadPublisherTestHelpers.ts";
 import { ensureDurableThreadWorkspace } from "../scratchWorkspaces.ts";
 import { mkdtempSync, rmSync } from "node:fs";
@@ -95,6 +97,8 @@ it.effect("delivers a queued message on model B after the composer changes from 
     });
     const selections: string[] = [];
     const sender = yield* makeThreadSender.pipe(
+      Effect.provide(ProviderSessionDirectoryLive),
+      Effect.provide(ThreadLanesLive),
       Effect.provideService(ServerConfig, {
         stateDir: senderStateDir,
       } as typeof ServerConfig.Service),
@@ -254,6 +258,8 @@ for (const workspaceRoot of [null, "/repo"]) {
             ),
         };
         const sender = yield* makeThreadSender.pipe(
+          Effect.provide(ProviderSessionDirectoryLive),
+          Effect.provide(ThreadLanesLive),
           Effect.provideService(ServerConfig, {
             stateDir: senderStateDir,
           } as typeof ServerConfig.Service),
@@ -348,6 +354,8 @@ it.effect(
       yield* observePublisher(publisher.threadChanges, (change) => changes.push(change.threadId));
       const interrupts: unknown[] = [];
       const sender = yield* makeThreadSender.pipe(
+        Effect.provide(ProviderSessionDirectoryLive),
+        Effect.provide(ThreadLanesLive),
         Effect.provideService(ServerConfig, {
           stateDir: senderStateDir,
         } as typeof ServerConfig.Service),
@@ -479,6 +487,8 @@ for (const release of ["next-send", "remove-head", "edit-head"] as const) {
           ),
       } satisfies typeof ProviderThreadSwitchCoordinator.Service;
       const sender = yield* makeThreadSender.pipe(
+        Effect.provide(ProviderSessionDirectoryLive),
+        Effect.provide(ThreadLanesLive),
         Effect.provideService(ServerConfig, {
           stateDir: senderStateDir,
         } as typeof ServerConfig.Service),
@@ -642,6 +652,8 @@ it.effect("claims queued attachments atomically and delivers them with their ori
         }).pipe(Effect.provideService(SqlClient.SqlClient, sql), Effect.orDie),
     };
     const sender = yield* makeThreadSender.pipe(
+      Effect.provide(ProviderSessionDirectoryLive),
+      Effect.provide(ThreadLanesLive),
       Effect.provideService(ServerConfig, {
         stateDir: senderStateDir,
       } as typeof ServerConfig.Service),
@@ -770,6 +782,8 @@ it.effect(
       const changes: string[] = [];
       yield* observePublisher(publisher.threadChanges, (change) => changes.push(change.threadId));
       const sender = yield* makeThreadSender.pipe(
+        Effect.provide(ProviderSessionDirectoryLive),
+        Effect.provide(ThreadLanesLive),
         Effect.provideService(ServerConfig, {
           stateDir: senderStateDir,
         } as typeof ServerConfig.Service),
@@ -885,6 +899,8 @@ for (const content of [
         const changes: string[] = [];
         yield* observePublisher(publisher.threadChanges, (change) => changes.push(change.threadId));
         const sender = yield* makeThreadSender.pipe(
+          Effect.provide(ProviderSessionDirectoryLive),
+          Effect.provide(ThreadLanesLive),
           Effect.provideService(ServerConfig, {
             stateDir: senderStateDir,
           } as typeof ServerConfig.Service),
@@ -964,6 +980,8 @@ for (const provider of ["codex", "claudeAgent"] as const) {
             "2026-10-11T00:00:02.000Z",
           );
           const sender = yield* makeThreadSender.pipe(
+            Effect.provide(ProviderSessionDirectoryLive),
+            Effect.provide(ThreadLanesLive),
             Effect.provideService(ServerConfig, {
               stateDir: senderStateDir,
             } as typeof ServerConfig.Service),
@@ -978,7 +996,7 @@ for (const provider of ["codex", "claudeAgent"] as const) {
                   order.push("dispatch");
                   assert.equal(command.connectionId, selectedConnection);
                   assert.equal(command.modelSelection!.model, "model-B");
-                  assert.equal(command.dispatchMode, "steer");
+                  assert.equal(command.dispatchMode, sameAccount ? "steer" : "interrupt-deliver");
                   yield* applyProviderEvent(publisher, {
                     type: "turn.started",
                     threadId: "now-thread",
@@ -1038,6 +1056,8 @@ it.effect("removes a failed user message but never a member of an admitted retry
       });
       const publisher = makeThreadPublisher();
       const sender = yield* makeThreadSender.pipe(
+        Effect.provide(ProviderSessionDirectoryLive),
+        Effect.provide(ThreadLanesLive),
         Effect.provideService(ServerConfig, {
           stateDir: senderStateDir,
         } as typeof ServerConfig.Service),
@@ -1063,7 +1083,11 @@ it.effect("removes a failed user message but never a member of an admitted retry
       };
       yield* sendMessage(
         publisher,
-        { claimAttachments: () => Effect.void, dispatch: () => Effect.void },
+        {
+          isRunning: () => Effect.succeed(false),
+          claimAttachments: () => Effect.void,
+          dispatch: () => Effect.void,
+        },
         message,
       );
       yield* settleMessage(
@@ -1082,7 +1106,11 @@ it.effect("removes a failed user message but never a member of an admitted retry
       assert.deepStrictEqual(yield* sql`SELECT source_id FROM thread_items WHERE kind='user'`, []);
       yield* sendMessage(
         publisher,
-        { claimAttachments: () => Effect.void, dispatch: () => Effect.void },
+        {
+          isRunning: () => Effect.succeed(false),
+          claimAttachments: () => Effect.void,
+          dispatch: () => Effect.void,
+        },
         message,
       );
       assert.equal(

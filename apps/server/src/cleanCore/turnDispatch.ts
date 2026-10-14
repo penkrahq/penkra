@@ -3,7 +3,6 @@
 import {
   MessageId,
   RuntimeMode,
-  PROVIDER_SEND_TURN_MAX_INPUT_CHARS,
   type ModelSelection,
   type ProviderTurnStartResult,
 } from "@penkra/contracts";
@@ -14,12 +13,7 @@ import { ProviderService } from "../provider/Services/ProviderService.ts";
 import { ProviderLaunchResolver } from "../provider/Services/ProviderLaunchResolver.ts";
 import type { ResolvedProviderTurnSelection } from "../provider/Services/ProviderTurnSelectionResolver.ts";
 import { resolveSelectedThreadRuntime } from "../provider/admittedThreadRuntime.ts";
-import {
-  buildProviderTurnInput,
-  resolveProviderTurnContext,
-} from "../provider/providerTurnInput.ts";
 import { resolveProviderDispatchAttachments } from "../provider/providerAttachmentPaths.ts";
-import { ThreadReads } from "../cleanCore/ThreadReads.ts";
 import { ManagedAttachmentRepository } from "../persistence/Services/ManagedAttachments.ts";
 import { ServerSettingsService } from "../serverSettings.ts";
 import { ProviderAuthCircuits } from "../provider/providerAuthCircuit.ts";
@@ -54,7 +48,6 @@ export const TurnDispatchLive = Layer.effect(
     const config = yield* ServerConfig;
     const provider = yield* ProviderService;
     const launchResolver = yield* ProviderLaunchResolver;
-    const snapshot = yield* ThreadReads;
     const attachments = yield* ManagedAttachmentRepository;
     const settings = yield* ServerSettingsService;
     const circuits = yield* ProviderAuthCircuits;
@@ -111,34 +104,12 @@ export const TurnDispatchLive = Layer.effect(
               });
             }
           }
-          const context = yield* resolveProviderTurnContext(
-            {
-              messageText: command.message.text,
-              origin: command.origin,
-              mentions: command.message.mentions,
-              maxContextChars: Math.max(
-                0,
-                PROVIDER_SEND_TURN_MAX_INPUT_CHARS - command.message.text.length,
-              ),
-            },
-            snapshot,
-          );
-          const normalized = yield* buildProviderTurnInput({
-            threadId,
-            provider: selected.harness,
-            messageText: context.messageText,
-            skills: command.message.skills,
-            maxSkillChars: Math.max(
-              0,
-              PROVIDER_SEND_TURN_MAX_INPUT_CHARS - context.messageText.length,
-            ),
-          });
           const reconstructed = reconstruct
             ? yield* buildReconstructedTurnInput({
                 threadId,
                 provider: selected.harness,
                 currentMessageId: command.message.messageId,
-                currentInput: normalized ?? "",
+                currentInput: command.message.text,
               })
             : null;
           const dispatchAttachments = yield* resolveProviderDispatchAttachments({
@@ -150,7 +121,16 @@ export const TurnDispatchLive = Layer.effect(
             provider: selected.harness,
             operation: "thread.turn.start",
           });
-          const text = reconstructed ?? normalized;
+          const text = reconstructed ?? command.message.text;
+          yield* Effect.logInfo("provider.delivery.wire_input", {
+            threadId,
+            messageId: command.message.messageId,
+            provider: selected.harness,
+            nativeSteer: input.nativeSteer,
+            rebuiltHistory: reconstructed !== null,
+            inputChars: text.length,
+            attachmentCount: dispatchAttachments.length,
+          });
           const request = {
             threadId,
             clientMessageId: MessageId.makeUnsafe(command.message.messageId),
@@ -158,9 +138,9 @@ export const TurnDispatchLive = Layer.effect(
             ...(text ? { input: text } : {}),
             ...(dispatchAttachments.length ? { attachments: dispatchAttachments } : {}),
             ...(command.message.skills === undefined ? {} : { skills: command.message.skills }),
-            ...(context.providerMentions === undefined
+            ...(command.message.mentions === undefined
               ? {}
-              : { mentions: context.providerMentions }),
+              : { mentions: command.message.mentions }),
           };
           const result = yield* input.nativeSteer
             ? provider.steerTurn(request)

@@ -115,6 +115,8 @@ export const CleanCoreQueuedMessage = Schema.Struct({
   text: Schema.String,
   attachments: Schema.Array(ChatAttachment),
   origin: MessageOrigin,
+  skills: UserItemData.fields.skills,
+  mentions: UserItemData.fields.mentions,
   queuedAt: IsoDateTime,
 });
 export type CleanCoreQueuedMessage = typeof CleanCoreQueuedMessage.Type;

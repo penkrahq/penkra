@@ -87,6 +87,15 @@ function activityItemData(
 export function toCleanCoreProviderEvents(
   event: ProviderRuntimeEvent,
 ): ReadonlyArray<CleanCoreProviderEvent> {
+  const ownsTurn = event.providerRefs?.providerParentThreadId === undefined;
+  if (
+    !ownsTurn &&
+    (event.type === "turn.started" ||
+      event.type === "turn.completed" ||
+      event.type === "turn.aborted" ||
+      event.type === "session.exited")
+  )
+    return [];
   switch (event.type) {
     case "turn.started": {
       if (event.turnId === undefined) return [];
@@ -238,6 +247,16 @@ export function toCleanCoreProviderEvents(
             updatedAt: event.createdAt,
           },
         },
+        ...(event.type === "runtime.error" && event.payload.terminal && ownsTurn
+          ? [
+              {
+                type: "provider.failed",
+                threadIds: [event.threadId],
+                reason: event.payload.message,
+                at: event.createdAt,
+              } as const,
+            ]
+          : []),
       ];
     }
     case "session.exited": {

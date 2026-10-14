@@ -49,12 +49,11 @@ describe("provider turn prompt preparation", () => {
     const result = await Effect.runPromise(
       resolveProviderTurnContext(
         {
-          messageText: "read this",
-          origin: { _tag: "user" },
+          messages: [{ text: "read this", origin: { _tag: "user" } }],
           mentions: [mention],
           maxContextChars: 0,
         },
-        { getThreadDetailById, getThreadShellById },
+        { getThreadDetailById },
       ),
     );
     expect(result).toEqual({ messageText: "read this", providerMentions: [mention] });
@@ -62,22 +61,21 @@ describe("provider turn prompt preparation", () => {
     expect(getThreadShellById).not.toHaveBeenCalled();
   });
 
-  it("attributes an agent message with one bounded sender lookup even when the sender is absent", async () => {
+  it("attributes an agent message without depending on mutable sender metadata", async () => {
     const sender = ThreadId.makeUnsafe("sender-thread");
     const getThreadDetailById = vi.fn(() => Effect.succeed(Option.none()));
     const getThreadShellById = vi.fn(() => Effect.succeed(Option.none()));
     const result = await Effect.runPromise(
       resolveProviderTurnContext(
         {
-          messageText: "a new task",
-          origin: { _tag: "agent", senderThreadId: sender },
+          messages: [{ text: "a new task", origin: { _tag: "agent", senderThreadId: sender } }],
           mentions: undefined,
           maxContextChars: 0,
         },
-        { getThreadDetailById, getThreadShellById },
+        { getThreadDetailById },
       ),
     );
-    expect(getThreadShellById).toHaveBeenCalledExactlyOnceWith(sender);
+    expect(getThreadShellById).not.toHaveBeenCalled();
     expect(getThreadDetailById).not.toHaveBeenCalled();
     expect(result.messageText).toContain(`Thread ID: ${sender}`);
     expect(result.messageText).toMatch(

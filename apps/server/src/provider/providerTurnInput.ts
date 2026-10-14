@@ -3,18 +3,17 @@
 // Layer: Provider prompt preparation
 
 import type {
-  MessageOrigin,
+  CleanCoreQueuedMessage,
   ProviderKind,
   ProviderMentionReference,
   ProviderSkillReference,
   ThreadId,
 } from "@penkra/contracts";
-import { Effect, Option } from "effect";
+import { Effect } from "effect";
 import { decodeUserItemData } from "@penkra/shared/userItemData";
 import type { ThreadReadsShape } from "../cleanCore/ThreadReads.ts";
 import { buildInlineSkillInstructions } from "./skillPromptInjection.ts";
 import {
-  clampMentionTitle,
   resolveThreadMentionPromptProjection,
   threadMentionContextSuffix,
 } from "./threadMentionContext.ts";
@@ -45,42 +44,43 @@ export function normalizeSkillMentionTextForProvider(input: {
   return nextText;
 }
 
+/** Stable attribution is part of each member's text, never the whole delivery's origin. */
+export function formatUserTurnMember(
+  message: Pick<CleanCoreQueuedMessage, "text" | "origin">,
+): string {
+  const { origin } = decodeUserItemData({ origin: message.origin, attachments: [] });
+  if (origin._tag === "user") return message.text;
+  return [
+    "<agent_message_sender>",
+    "This message was written by the agent in another Penkra thread, not by the user.",
+    `Thread ID: ${origin.senderThreadId}`,
+    "</agent_message_sender>",
+    "",
+    message.text,
+  ].join("\n");
+}
+
+export function formatUserTurnMembers(
+  messages: ReadonlyArray<Pick<CleanCoreQueuedMessage, "text" | "origin">>,
+): string {
+  return messages.map(formatUserTurnMember).join("\n\n").trim();
+}
+
 export const resolveProviderTurnContext = Effect.fnUntraced(function* (
   input: {
-    readonly messageText: string;
-    readonly origin: MessageOrigin;
+    readonly messages: ReadonlyArray<Pick<CleanCoreQueuedMessage, "text" | "origin">>;
     readonly mentions: ReadonlyArray<ProviderMentionReference> | undefined;
     readonly maxContextChars: number;
   },
-  snapshotQuery: Pick<ThreadReadsShape, "getThreadDetailById" | "getThreadShellById">,
+  snapshotQuery: Pick<ThreadReadsShape, "getThreadDetailById">,
 ) {
-  const { origin } = decodeUserItemData({ origin: input.origin, attachments: [] });
   const projection = yield* resolveThreadMentionPromptProjection({
     mentions: input.mentions,
     snapshotQuery,
     maxTotalContextChars: input.maxContextChars,
   });
-  const senderShell =
-    origin._tag === "agent"
-      ? Option.getOrNull(yield* snapshotQuery.getThreadShellById(origin.senderThreadId))
-      : null;
-  const senderTitle = senderShell?.title;
-  const senderContext =
-    origin._tag === "agent"
-      ? [
-          "<agent_message_sender>",
-          "This message was written by the agent in another Penkra thread, not by the user.",
-          ...(senderTitle?.trim()
-            ? [`Thread: ${JSON.stringify(clampMentionTitle(senderTitle))}`]
-            : []),
-          `Thread ID: ${origin.senderThreadId}`,
-          "</agent_message_sender>",
-          "",
-          "",
-        ].join("\n")
-      : "";
   return {
-    messageText: `${senderContext}${input.messageText}${threadMentionContextSuffix(projection.contextBlocks)}`,
+    messageText: `${formatUserTurnMembers(input.messages)}${threadMentionContextSuffix(projection.contextBlocks)}`,
     providerMentions: projection.providerMentions,
   };
 });
@@ -98,7 +98,7 @@ export const buildProviderTurnInput = Effect.fnUntraced(function* (input: {
           buildInlineSkillInstructions({
             provider: input.provider,
             skills: input.skills!,
-            maxChars: input.maxSkillChars,
+            maxChars: Math.max(0, input.maxSkillChars - "\n\n".length),
           }),
         ).pipe(
           Effect.catch((error) =>

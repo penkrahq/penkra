@@ -35,10 +35,16 @@ export interface SendMessageInput extends Pick<
   readonly supportsSteer: boolean;
 }
 export interface SendDriver {
+  readonly isRunning: (threadId: string) => Effect.Effect<boolean, Error>;
   readonly claimAttachments: (input: SendMessageInput) => Effect.Effect<void, Error>;
   readonly dispatch: (input: SendMessageInput, mode: DeliveryPlan) => Effect.Effect<void, Error>;
 }
-type DeliveryPlan = "deliver" | "steer" | "interrupt-deliver";
+export type DeliveryPlan = "deliver" | "steer" | "interrupt-deliver";
+
+export interface SendAdmissionResult {
+  readonly admission: CleanCoreSendAdmission;
+  readonly delivery: { readonly input: SendMessageInput; readonly plan: DeliveryPlan } | null;
+}
 
 /** One committed admission, including clearing the composer. No provider wait. */
 export const sendMessage = (
@@ -49,7 +55,7 @@ export const sendMessage = (
   Effect.gen(function* () {
     const sql = yield* SqlClient.SqlClient;
     yield* encodeUserItemAdmission(input, input.dispatchMode === "steer");
-    const admission = yield* sql.withTransaction(
+    const result: SendAdmissionResult = yield* sql.withTransaction(
       Effect.gen(function* () {
         const [thread] = yield* sql<{
           state: "idle" | "running" | "error";
@@ -82,28 +88,38 @@ export const sendMessage = (
           AND source_id=${input.message.messageId} AND kind='user'`;
         if (existing !== undefined)
           return {
-            threadId: ThreadId.makeUnsafe(input.threadId),
-            messageId: input.message.messageId,
-            plan: existing.plan,
-            seq: existing.seq,
-          } satisfies CleanCoreSendAdmission;
+            admission: {
+              threadId: ThreadId.makeUnsafe(input.threadId),
+              messageId: input.message.messageId,
+              plan: existing.plan,
+              seq: existing.seq,
+            },
+            delivery: null,
+          };
         const queue = yield* readThreadQueue(input.threadId);
         const position = queue.findIndex(
           (message) => message.messageId === input.message.messageId,
         );
         if (position !== -1 && input.dispatchMode === "queue")
           return {
-            threadId: ThreadId.makeUnsafe(input.threadId),
-            messageId: input.message.messageId,
-            plan: "queue" as const,
-            position: position + 1,
-            queueLength: queue.length,
-          } satisfies CleanCoreSendAdmission;
+            admission: {
+              threadId: ThreadId.makeUnsafe(input.threadId),
+              messageId: input.message.messageId,
+              plan: "queue" as const,
+              position: position + 1,
+              queueLength: queue.length,
+            },
+            delivery: null,
+          };
         // An admitted start is busy even before its provider turn-start event.
         const pending = yield* sql`SELECT 1 FROM thread_items WHERE thread_id=${input.threadId}
         AND kind='user' AND status='sending' LIMIT 1`;
         const plan = planSend({
-          state: thread.state,
+          state:
+            thread.state === "running" ||
+            (pending.length === 0 && (yield* driver.isRunning(input.threadId)))
+              ? "running"
+              : thread.state,
           dispatchMode: input.dispatchMode,
           supportsSteer: input.supportsSteer,
           // Explicit promotion bypasses waiting work, never an admitted start.
@@ -116,33 +132,45 @@ export const sendMessage = (
             : {
                 ...input,
                 message: queue[position]!,
+                skills: queue[position]!.skills,
+                mentions: queue[position]!.mentions,
                 draftUpdatedAt: undefined,
               };
         yield* driver.claimAttachments(request);
         if (plan === "queue") {
           if (position !== -1)
             return {
-              threadId: ThreadId.makeUnsafe(input.threadId),
-              messageId: input.message.messageId,
-              plan,
-              position: position + 1,
-              queueLength: queue.length,
-            } satisfies CleanCoreSendAdmission;
+              admission: {
+                threadId: ThreadId.makeUnsafe(input.threadId),
+                messageId: input.message.messageId,
+                plan,
+                position: position + 1,
+                queueLength: queue.length,
+              },
+              delivery: null,
+            };
           const queued = yield* enqueueMessage(
             input.threadId,
-            input.message,
+            {
+              ...input.message,
+              ...(input.skills === undefined ? {} : { skills: input.skills }),
+              ...(input.mentions === undefined ? {} : { mentions: input.mentions }),
+            },
             input,
             input.draftUpdatedAt,
           );
           return {
-            threadId: ThreadId.makeUnsafe(input.threadId),
-            messageId: input.message.messageId,
-            plan,
-            position: queued.length,
-            queueLength: queued.length,
-          } satisfies CleanCoreSendAdmission;
+            admission: {
+              threadId: ThreadId.makeUnsafe(input.threadId),
+              messageId: input.message.messageId,
+              plan,
+              position: queued.length,
+              queueLength: queued.length,
+            },
+            delivery: null,
+          };
         }
-        yield* writeSendingMessage(request, plan);
+        const selected = yield* writeSendingMessage(request, plan);
         if (
           request.draftUpdatedAt !== undefined &&
           thread.draftUpdatedAt === request.draftUpdatedAt
@@ -154,18 +182,27 @@ export const sendMessage = (
           );
           yield* sql`UPDATE threads SET draft=${draft},draft_updated_at=${draftUpdatedAt} WHERE id=${input.threadId}`;
         }
-        const [row] = yield* sql<{ seq: number }>`SELECT seq FROM thread_items
-        WHERE thread_id=${input.threadId} AND source_id=${input.message.messageId}`;
         return {
-          threadId: ThreadId.makeUnsafe(input.threadId),
-          messageId: input.message.messageId,
-          plan,
-          seq: row!.seq,
-        } satisfies CleanCoreSendAdmission;
+          admission: selected.includesRequested
+            ? {
+                threadId: ThreadId.makeUnsafe(input.threadId),
+                messageId: input.message.messageId,
+                plan: selected.delivery.plan,
+                seq: selected.seq,
+              }
+            : {
+                threadId: ThreadId.makeUnsafe(input.threadId),
+                messageId: input.message.messageId,
+                plan: "queue" as const,
+                position: 1,
+                queueLength: selected.queueLength,
+              },
+          delivery: selected.delivery,
+        };
       }),
     );
     publisher.publish({ threadId: input.threadId });
-    return admission;
+    return result;
   });
 
 /** Also used when a queued head begins delivery; its selection is read then. */
@@ -208,45 +245,70 @@ export type MessageOutcome = { readonly threadId: string; readonly messageId: st
   | { readonly type: "failed"; readonly error: string }
 );
 
-/** The one outcome writer; callers report native results, never repair rows. */
+/** Pure outcome write, composed into the caller's transaction when a provider exits. */
+export const writeMessageOutcome = (outcome: MessageOutcome, at: string) =>
+  Effect.gen(function* () {
+    const sql = yield* SqlClient.SqlClient;
+    const cohort = yield* readSendCohort(outcome.threadId, outcome.messageId);
+    if (cohort === null) return false;
+    const [thread] = yield* sql<{
+      queue: string;
+    }>`SELECT queue FROM threads WHERE id=${outcome.threadId}`;
+    const queue = JSON.parse(thread!.queue) as QueuedMessage[];
+    const queued = queue.some((message) => message.messageId === cohort.requestId);
+    const leaderQueued = queue.some((message) => message.messageId === cohort.leaderId);
+    if (outcome.type === "acknowledged") {
+      yield* sql`UPDATE thread_items SET status='sent',send_payload=NULL,turn_id=${outcome.turnId},updated_at=${at}
+      WHERE thread_id=${outcome.threadId} AND source_id IN (SELECT value FROM json_each(${JSON.stringify(cohort.ids)}))`;
+      yield* sql`UPDATE threads SET last_error=NULL WHERE id=${outcome.threadId}`;
+      if (leaderQueued)
+        yield* sql`UPDATE threads SET queue=${JSON.stringify(queue.filter((message) => message.messageId !== cohort.leaderId))},updated_at=${at} WHERE id=${outcome.threadId}`;
+    } else {
+      for (const row of cohort.rows) {
+        const ids = row.payload.message.attachments
+          .filter((attachment) => attachment.type !== "assistant-selection")
+          .map((attachment) => attachment.id);
+        if (ids.length)
+          yield* sql`UPDATE managed_attachment_blobs SET claim_message_id=${row.sourceId}
+        WHERE owner_thread_id=${outcome.threadId} AND state='claimed' AND claim_message_id=${cohort.leaderId} AND attachment_id IN ${sql.in(ids)}`;
+      }
+      yield* sql`UPDATE thread_items SET status='failed',updated_at=${at}
+      WHERE thread_id=${outcome.threadId} AND source_id IN (SELECT value FROM json_each(${JSON.stringify(cohort.ids)}))`;
+      if (queued) {
+        if (leaderQueued)
+          yield* sql`DELETE FROM thread_items WHERE thread_id=${outcome.threadId} AND source_id=${cohort.leaderId}`;
+        yield* sql`UPDATE threads SET state='error',active_turn_id=NULL,last_error=${outcome.error},updated_at=${at} WHERE id=${outcome.threadId}`;
+      } else
+        yield* sql`UPDATE threads SET last_error=${outcome.error},updated_at=${at} WHERE id=${outcome.threadId}`;
+    }
+    return true;
+  });
+
+export const writeSendingMessageFailures = (threadId: string, error: string, at: string) =>
+  Effect.gen(function* () {
+    const sql = yield* SqlClient.SqlClient;
+    let changed = false;
+    while (true) {
+      const rows = yield* sql<{
+        messageId: string;
+      }>`SELECT source_id AS "messageId" FROM thread_items
+      WHERE thread_id=${threadId} AND kind='user' AND status='sending' ORDER BY seq LIMIT 50`;
+      if (!rows.length) return changed;
+      for (const row of rows) {
+        changed =
+          (yield* writeMessageOutcome(
+            { type: "failed", threadId, messageId: row.messageId, error },
+            at,
+          )) || changed;
+      }
+    }
+  });
+
+/** Publish only after the complete outcome transaction has committed. */
 export const settleMessage = (publisher: ThreadPublisher, outcome: MessageOutcome, at: string) =>
   Effect.gen(function* () {
     const sql = yield* SqlClient.SqlClient;
-    const changed = yield* sql.withTransaction(
-      Effect.gen(function* () {
-        const cohort = yield* readSendCohort(outcome.threadId, outcome.messageId);
-        if (cohort === null) return false;
-        const [thread] = yield* sql<{
-          queue: string;
-        }>`SELECT queue FROM threads WHERE id=${outcome.threadId}`;
-        const queue = JSON.parse(thread!.queue) as QueuedMessage[];
-        const queued = queue.some((message) => message.messageId === cohort.leaderId);
-        if (outcome.type === "acknowledged") {
-          yield* sql`UPDATE thread_items SET status='sent',send_payload=NULL,turn_id=${outcome.turnId},updated_at=${at}
-            WHERE thread_id=${outcome.threadId} AND source_id IN (SELECT value FROM json_each(${JSON.stringify(cohort.ids)}))`;
-          yield* sql`UPDATE threads SET last_error=NULL WHERE id=${outcome.threadId}`;
-          if (queued)
-            yield* sql`UPDATE threads SET queue=${JSON.stringify(queue.filter((message) => message.messageId !== cohort.leaderId))},updated_at=${at} WHERE id=${outcome.threadId}`;
-        } else {
-          for (const row of cohort.rows) {
-            const ids = row.payload.message.attachments
-              .filter((attachment) => attachment.type !== "assistant-selection")
-              .map((attachment) => attachment.id);
-            if (ids.length)
-              yield* sql`UPDATE managed_attachment_blobs SET claim_message_id=${row.sourceId}
-              WHERE owner_thread_id=${outcome.threadId} AND state='claimed' AND claim_message_id=${cohort.leaderId} AND attachment_id IN ${sql.in(ids)}`;
-          }
-          yield* sql`UPDATE thread_items SET status='failed',updated_at=${at}
-            WHERE thread_id=${outcome.threadId} AND source_id IN (SELECT value FROM json_each(${JSON.stringify(cohort.ids)}))`;
-          if (queued) {
-            yield* sql`DELETE FROM thread_items WHERE thread_id=${outcome.threadId} AND source_id=${cohort.leaderId}`;
-            yield* sql`UPDATE threads SET state='error',active_turn_id=NULL,last_error=${outcome.error},updated_at=${at} WHERE id=${outcome.threadId}`;
-          } else
-            yield* sql`UPDATE threads SET last_error=${outcome.error},updated_at=${at} WHERE id=${outcome.threadId}`;
-        }
-        return true;
-      }),
-    );
+    const changed = yield* sql.withTransaction(writeMessageOutcome(outcome, at));
     if (changed) {
       publisher.publish({ threadId: outcome.threadId });
       publisher.publishDeliveryReady({ threadId: outcome.threadId });

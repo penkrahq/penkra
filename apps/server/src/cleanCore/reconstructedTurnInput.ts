@@ -1,17 +1,14 @@
-// FILE: reconstructedTurnInput.ts
-// Purpose: Read retained continuation from canonical, bounded item pages.
-// Layer: Server clean core
-
+// Purpose: Read only retained history that can fit after the admitted delivery.
 import {
   PROVIDER_SEND_TURN_MAX_INPUT_CHARS,
   type ProviderKind,
   type ThreadId,
 } from "@penkra/contracts";
 import { Effect } from "effect";
-import { ProviderAdapterValidationError } from "../provider/Errors.ts";
+import * as SqlClient from "effect/unstable/sql/SqlClient";
 import {
   formatReconstructedContinuation,
-  isContextCompaction,
+  reconstructedMessageChars,
   selectReconstructedContinuation,
 } from "../provider/reconstructedContinuation.ts";
 import { listThreadItemsPage, type ThreadItemRecord } from "./threadItemsPage.ts";
@@ -22,42 +19,43 @@ export const buildReconstructedTurnInput = Effect.fnUntraced(function* (input: {
   readonly currentMessageId: string;
   readonly currentInput: string;
 }) {
-  const items: ThreadItemRecord[] = [];
+  const budget = PROVIDER_SEND_TURN_MAX_INPUT_CHARS - input.currentInput.length;
+  if (budget <= 0) return null;
+  const sql = yield* SqlClient.SqlClient;
+  const [compaction] = yield* sql<ThreadItemRecord>`
+    SELECT thread_id AS "threadId",seq,source_id AS "sourceId",turn_id AS "turnId",kind,status,text,data,
+      created_at AS "createdAt",updated_at AS "updatedAt" FROM thread_items
+    WHERE thread_id=${input.threadId} AND kind='notice' AND json_valid(data)
+      AND json_extract(data,'$.kind')='context-compaction' ORDER BY seq DESC LIMIT 1`;
+  const items: ThreadItemRecord[] = compaction ? [compaction] : [];
   let beforeSeq: number | undefined;
-  let foundCompaction = false;
-  do {
+  let chars = 0;
+  let hasOlder = false;
+  while (true) {
     const page = yield* listThreadItemsPage({ threadId: input.threadId, beforeSeq });
-    // An unacknowledged user input belongs to the current delivery cohort, not
-    // to provider history; including it here would send that input twice.
-    items.push(...page.items.filter((item) => item.kind !== "user" || item.status === "sent"));
-    foundCompaction = page.items.some(isContextCompaction);
-    if (foundCompaction || page.nextCursor === null) break;
-    beforeSeq = page.nextCursor;
-  } while (true);
-
-  if (
-    !foundCompaction &&
-    !items.some(
+    const retained = page.items.filter(
       (item) =>
-        (item.kind === "user" || item.kind === "text") && item.sourceId !== input.currentMessageId,
-    )
-  )
-    return null;
-  const continuation = selectReconstructedContinuation({
-    items,
-    currentMessageId: input.currentMessageId,
-  });
-  const reconstructed = formatReconstructedContinuation({
+        (item.kind === "text" || (item.kind === "user" && item.status === "sent")) &&
+        item.sourceId !== input.currentMessageId &&
+        (!compaction ||
+          (item.seq > compaction.seq &&
+            (item.turnId === null || item.turnId !== compaction.turnId))),
+    );
+    items.push(...retained);
+    chars += retained.reduce((total, item) => total + reconstructedMessageChars(item), 0);
+    const reachedBoundary = compaction && page.items.some((item) => item.seq <= compaction.seq);
+    if (reachedBoundary || page.nextCursor === null) break;
+    if (chars >= budget) {
+      hasOlder = true;
+      break;
+    }
+    beforeSeq = page.nextCursor;
+  }
+  if (!compaction && !items.length) return null;
+  const continuation = selectReconstructedContinuation({ ...input, items, hasOlder });
+  return formatReconstructedContinuation({
     threadId: input.threadId,
     continuation,
     currentInput: input.currentInput,
   });
-  if (reconstructed.length > PROVIDER_SEND_TURN_MAX_INPUT_CHARS) {
-    return yield* new ProviderAdapterValidationError({
-      provider: input.provider,
-      operation: "thread.turn.reconstruct",
-      issue: `The deterministic retained transcript is ${reconstructed.length} characters, exceeding the provider input limit of ${PROVIDER_SEND_TURN_MAX_INPUT_CHARS}. Penkra did not trim or discard it.`,
-    });
-  }
-  return reconstructed;
 });
