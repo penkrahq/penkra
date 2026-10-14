@@ -91,13 +91,15 @@ export const withClaudeNativeStateBackfill = <A, E, R>(
               WHERE provider = 'claudeAgent' ORDER BY id
             `;
               const knownNames = new Set(rows.map((row) => claudeThreadProjectName(row.id)));
-              const unknown = names.find((name) => !knownNames.has(name));
-              if (unknown !== undefined)
-                return yield* Effect.fail(
-                  new Error(
-                    `Claude native-state folder has no thread row: ${Path.join(oldParent, unknown)}`,
-                  ),
+              const unknown = names.filter((name) => !knownNames.has(name));
+              for (const name of unknown) {
+                yield* Effect.tryPromise(() =>
+                  rm(Path.join(oldParent, name), { recursive: true, force: true }),
                 );
+              }
+              yield* Effect.logInfo("Removed Claude native-state entries with no thread", {
+                count: unknown.length,
+              });
               for (const row of rows) {
                 const source = Path.join(oldParent, claudeThreadProjectName(row.id));
                 if (!(yield* Effect.tryPromise(() => directoryExists(source)))) continue;
