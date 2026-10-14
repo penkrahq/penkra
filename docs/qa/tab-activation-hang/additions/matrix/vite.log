@@ -1,0 +1,7 @@
+$ vite --config qa-vite.config.ts
+12:42:44 AM [vite] (client) Re-optimizing dependencies because lockfile has changed
+
+  VITE v8.2.2  ready in 628 ms
+
+  ➜  Local:   http://127.0.0.1:5919/
+12:42:45 AM [vite] (client) [optimizer] bundling dependencies...

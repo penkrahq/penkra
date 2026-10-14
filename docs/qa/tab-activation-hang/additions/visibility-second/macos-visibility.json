@@ -1,0 +1,1112 @@
+[
+  {
+    "caseId": "e-other-app-activation-native",
+    "startedEpochMs": 1791961131008,
+    "before": {
+      "epochMs": 1791961131007,
+      "monotonicMs": 18839.408958,
+      "shellVisible": true,
+      "shellMinimized": false,
+      "shellFocused": true,
+      "shellDocument": {
+        "visibility": "visible",
+        "focus": true
+      },
+      "pageDocument": {
+        "visibility": "visible",
+        "focus": false
+      },
+      "nativeTabVisible": true,
+      "helper": {
+        "ready": true,
+        "visible": false,
+        "fullscreen": false,
+        "pid": 92523,
+        "active": false,
+        "styleMask": 15,
+        "frontPid": 93560,
+        "epochMs": 1791961130913
+      }
+    },
+    "result": {
+      "operation": "NSApplication activation, validated by frontPid"
+    },
+    "samples": [
+      {
+        "epochMs": 1791961131360,
+        "monotonicMs": 19191.994375,
+        "shellVisible": true,
+        "shellMinimized": false,
+        "shellFocused": false,
+        "shellDocument": {
+          "visibility": "visible",
+          "focus": false
+        },
+        "pageDocument": {
+          "visibility": "visible",
+          "focus": false
+        },
+        "nativeTabVisible": true,
+        "helper": {
+          "ready": true,
+          "visible": true,
+          "fullscreen": false,
+          "pid": 92523,
+          "active": false,
+          "styleMask": 15,
+          "frontPid": 92523,
+          "epochMs": 1791961131355
+        }
+      },
+      {
+        "epochMs": 1791961131562,
+        "monotonicMs": 19394.005583,
+        "shellVisible": true,
+        "shellMinimized": false,
+        "shellFocused": false,
+        "shellDocument": {
+          "visibility": "visible",
+          "focus": false
+        },
+        "pageDocument": {
+          "visibility": "visible",
+          "focus": false
+        },
+        "nativeTabVisible": true,
+        "helper": {
+          "ready": true,
+          "visible": true,
+          "fullscreen": false,
+          "pid": 92523,
+          "active": false,
+          "styleMask": 15,
+          "frontPid": 92523,
+          "epochMs": 1791961131561
+        }
+      },
+      {
+        "epochMs": 1791961131763,
+        "monotonicMs": 19595.701958,
+        "shellVisible": true,
+        "shellMinimized": false,
+        "shellFocused": false,
+        "shellDocument": {
+          "visibility": "visible",
+          "focus": false
+        },
+        "pageDocument": {
+          "visibility": "visible",
+          "focus": false
+        },
+        "nativeTabVisible": true,
+        "helper": {
+          "ready": true,
+          "visible": true,
+          "fullscreen": false,
+          "pid": 92523,
+          "active": false,
+          "styleMask": 15,
+          "frontPid": 92523,
+          "epochMs": 1791961131664
+        }
+      },
+      {
+        "epochMs": 1791961131965,
+        "monotonicMs": 19796.895958,
+        "shellVisible": true,
+        "shellMinimized": false,
+        "shellFocused": false,
+        "shellDocument": {
+          "visibility": "visible",
+          "focus": false
+        },
+        "pageDocument": {
+          "visibility": "visible",
+          "focus": false
+        },
+        "nativeTabVisible": true,
+        "helper": {
+          "ready": true,
+          "visible": true,
+          "fullscreen": false,
+          "pid": 92523,
+          "active": false,
+          "styleMask": 15,
+          "frontPid": 92523,
+          "epochMs": 1791961131868
+        }
+      },
+      {
+        "epochMs": 1791961132167,
+        "monotonicMs": 19998.857167,
+        "shellVisible": true,
+        "shellMinimized": false,
+        "shellFocused": false,
+        "shellDocument": {
+          "visibility": "visible",
+          "focus": false
+        },
+        "pageDocument": {
+          "visibility": "visible",
+          "focus": false
+        },
+        "nativeTabVisible": true,
+        "helper": {
+          "ready": true,
+          "visible": true,
+          "fullscreen": false,
+          "pid": 92523,
+          "active": false,
+          "styleMask": 15,
+          "frontPid": 92523,
+          "epochMs": 1791961132073
+        }
+      },
+      {
+        "epochMs": 1791961132368,
+        "monotonicMs": 20200.131208,
+        "shellVisible": true,
+        "shellMinimized": false,
+        "shellFocused": false,
+        "shellDocument": {
+          "visibility": "visible",
+          "focus": false
+        },
+        "pageDocument": {
+          "visibility": "visible",
+          "focus": false
+        },
+        "nativeTabVisible": true,
+        "helper": {
+          "ready": true,
+          "visible": true,
+          "fullscreen": false,
+          "pid": 92523,
+          "active": false,
+          "styleMask": 15,
+          "frontPid": 92523,
+          "epochMs": 1791961132280
+        }
+      },
+      {
+        "epochMs": 1791961132574,
+        "monotonicMs": 20406.563542,
+        "shellVisible": true,
+        "shellMinimized": false,
+        "shellFocused": false,
+        "shellDocument": {
+          "visibility": "visible",
+          "focus": false
+        },
+        "pageDocument": {
+          "visibility": "visible",
+          "focus": false
+        },
+        "nativeTabVisible": true,
+        "helper": {
+          "ready": true,
+          "visible": true,
+          "fullscreen": false,
+          "pid": 92523,
+          "active": false,
+          "styleMask": 15,
+          "frontPid": 92523,
+          "epochMs": 1791961132486
+        }
+      },
+      {
+        "epochMs": 1791961132776,
+        "monotonicMs": 20608.424292,
+        "shellVisible": true,
+        "shellMinimized": false,
+        "shellFocused": false,
+        "shellDocument": {
+          "visibility": "visible",
+          "focus": false
+        },
+        "pageDocument": {
+          "visibility": "visible",
+          "focus": false
+        },
+        "nativeTabVisible": true,
+        "helper": {
+          "ready": true,
+          "visible": true,
+          "fullscreen": false,
+          "pid": 92523,
+          "active": false,
+          "styleMask": 15,
+          "frontPid": 92523,
+          "epochMs": 1791961132691
+        }
+      },
+      {
+        "epochMs": 1791961132977,
+        "monotonicMs": 20809.649208,
+        "shellVisible": true,
+        "shellMinimized": false,
+        "shellFocused": false,
+        "shellDocument": {
+          "visibility": "visible",
+          "focus": false
+        },
+        "pageDocument": {
+          "visibility": "visible",
+          "focus": false
+        },
+        "nativeTabVisible": true,
+        "helper": {
+          "ready": true,
+          "visible": true,
+          "fullscreen": false,
+          "pid": 92523,
+          "active": false,
+          "styleMask": 15,
+          "frontPid": 92523,
+          "epochMs": 1791961132897
+        }
+      },
+      {
+        "epochMs": 1791961133179,
+        "monotonicMs": 21011.650292,
+        "shellVisible": true,
+        "shellMinimized": false,
+        "shellFocused": false,
+        "shellDocument": {
+          "visibility": "visible",
+          "focus": false
+        },
+        "pageDocument": {
+          "visibility": "visible",
+          "focus": false
+        },
+        "nativeTabVisible": true,
+        "helper": {
+          "ready": true,
+          "visible": true,
+          "fullscreen": false,
+          "pid": 92523,
+          "active": false,
+          "styleMask": 15,
+          "frontPid": 92523,
+          "epochMs": 1791961133102
+        }
+      },
+      {
+        "epochMs": 1791961133381,
+        "monotonicMs": 21213.591417,
+        "shellVisible": true,
+        "shellMinimized": false,
+        "shellFocused": false,
+        "shellDocument": {
+          "visibility": "visible",
+          "focus": false
+        },
+        "pageDocument": {
+          "visibility": "visible",
+          "focus": false
+        },
+        "nativeTabVisible": true,
+        "helper": {
+          "ready": true,
+          "visible": true,
+          "fullscreen": false,
+          "pid": 92523,
+          "active": false,
+          "styleMask": 15,
+          "frontPid": 92523,
+          "epochMs": 1791961133308
+        }
+      },
+      {
+        "epochMs": 1791961133583,
+        "monotonicMs": 21415.38375,
+        "shellVisible": true,
+        "shellMinimized": false,
+        "shellFocused": false,
+        "shellDocument": {
+          "visibility": "visible",
+          "focus": false
+        },
+        "pageDocument": {
+          "visibility": "visible",
+          "focus": false
+        },
+        "nativeTabVisible": true,
+        "helper": {
+          "ready": true,
+          "visible": true,
+          "fullscreen": false,
+          "pid": 92523,
+          "active": false,
+          "styleMask": 15,
+          "frontPid": 92523,
+          "epochMs": 1791961133514
+        }
+      },
+      {
+        "epochMs": 1791961133784,
+        "monotonicMs": 21616.122167,
+        "shellVisible": true,
+        "shellMinimized": false,
+        "shellFocused": false,
+        "shellDocument": {
+          "visibility": "visible",
+          "focus": false
+        },
+        "pageDocument": {
+          "visibility": "visible",
+          "focus": false
+        },
+        "nativeTabVisible": true,
+        "helper": {
+          "ready": true,
+          "visible": true,
+          "fullscreen": false,
+          "pid": 92523,
+          "active": false,
+          "styleMask": 15,
+          "frontPid": 92523,
+          "epochMs": 1791961133719
+        }
+      },
+      {
+        "epochMs": 1791961133985,
+        "monotonicMs": 21816.999792,
+        "shellVisible": true,
+        "shellMinimized": false,
+        "shellFocused": false,
+        "shellDocument": {
+          "visibility": "visible",
+          "focus": false
+        },
+        "pageDocument": {
+          "visibility": "visible",
+          "focus": false
+        },
+        "nativeTabVisible": true,
+        "helper": {
+          "ready": true,
+          "visible": true,
+          "fullscreen": false,
+          "pid": 92523,
+          "active": false,
+          "styleMask": 15,
+          "frontPid": 92523,
+          "epochMs": 1791961133924
+        }
+      },
+      {
+        "epochMs": 1791961134187,
+        "monotonicMs": 22018.954375,
+        "shellVisible": true,
+        "shellMinimized": false,
+        "shellFocused": false,
+        "shellDocument": {
+          "visibility": "visible",
+          "focus": false
+        },
+        "pageDocument": {
+          "visibility": "visible",
+          "focus": false
+        },
+        "nativeTabVisible": true,
+        "helper": {
+          "ready": true,
+          "visible": true,
+          "fullscreen": false,
+          "pid": 92523,
+          "active": false,
+          "styleMask": 15,
+          "frontPid": 92523,
+          "epochMs": 1791961134129
+        }
+      },
+      {
+        "epochMs": 1791961134389,
+        "monotonicMs": 22221.666708,
+        "shellVisible": true,
+        "shellMinimized": false,
+        "shellFocused": false,
+        "shellDocument": {
+          "visibility": "hidden",
+          "focus": false
+        },
+        "pageDocument": {
+          "visibility": "hidden",
+          "focus": false
+        },
+        "nativeTabVisible": false,
+        "helper": {
+          "ready": true,
+          "visible": true,
+          "fullscreen": false,
+          "pid": 92523,
+          "active": false,
+          "styleMask": 15,
+          "frontPid": 92523,
+          "epochMs": 1791961134333
+        }
+      },
+      {
+        "epochMs": 1791961134593,
+        "monotonicMs": 22425.184542,
+        "shellVisible": true,
+        "shellMinimized": false,
+        "shellFocused": false,
+        "shellDocument": {
+          "visibility": "hidden",
+          "focus": false
+        },
+        "pageDocument": {
+          "visibility": "hidden",
+          "focus": false
+        },
+        "nativeTabVisible": false,
+        "helper": {
+          "ready": true,
+          "visible": true,
+          "fullscreen": false,
+          "pid": 92523,
+          "active": false,
+          "styleMask": 15,
+          "frontPid": 92523,
+          "epochMs": 1791961134539
+        }
+      },
+      {
+        "epochMs": 1791961134803,
+        "monotonicMs": 22635.276625,
+        "shellVisible": true,
+        "shellMinimized": false,
+        "shellFocused": false,
+        "shellDocument": {
+          "visibility": "hidden",
+          "focus": false
+        },
+        "pageDocument": {
+          "visibility": "hidden",
+          "focus": false
+        },
+        "nativeTabVisible": false,
+        "helper": {
+          "ready": true,
+          "visible": true,
+          "fullscreen": false,
+          "pid": 92523,
+          "active": false,
+          "styleMask": 15,
+          "frontPid": 31392,
+          "epochMs": 1791961136086
+        }
+      },
+      {
+        "epochMs": 1791961136337,
+        "monotonicMs": 24169.191875,
+        "shellVisible": true,
+        "shellMinimized": false,
+        "shellFocused": false,
+        "shellDocument": {
+          "visibility": "hidden",
+          "focus": false
+        },
+        "pageDocument": {
+          "visibility": "hidden",
+          "focus": false
+        },
+        "nativeTabVisible": false,
+        "helper": {
+          "ready": true,
+          "visible": true,
+          "fullscreen": false,
+          "pid": 92523,
+          "active": false,
+          "styleMask": 15,
+          "frontPid": 31392,
+          "epochMs": 1791961137652
+        }
+      },
+      {
+        "epochMs": 1791961137899,
+        "monotonicMs": 25731.63075,
+        "shellVisible": true,
+        "shellMinimized": false,
+        "shellFocused": false,
+        "shellDocument": {
+          "visibility": "hidden",
+          "focus": false
+        },
+        "pageDocument": {
+          "visibility": "hidden",
+          "focus": false
+        },
+        "nativeTabVisible": false,
+        "helper": {
+          "ready": true,
+          "visible": true,
+          "fullscreen": false,
+          "pid": 92523,
+          "active": false,
+          "styleMask": 15,
+          "frontPid": 31392,
+          "epochMs": 1791961137857
+        }
+      }
+    ]
+  },
+  {
+    "caseId": "e-hide-app-native",
+    "startedEpochMs": 1791961139929,
+    "before": {
+      "epochMs": 1791961139928,
+      "monotonicMs": 27760.751708,
+      "shellVisible": true,
+      "shellMinimized": false,
+      "shellFocused": true,
+      "shellDocument": {
+        "visibility": "visible",
+        "focus": true
+      },
+      "pageDocument": {
+        "visibility": "visible",
+        "focus": false
+      },
+      "nativeTabVisible": true,
+      "helper": {
+        "ready": true,
+        "visible": false,
+        "fullscreen": false,
+        "pid": 92523,
+        "active": false,
+        "styleMask": 15,
+        "frontPid": 93560,
+        "epochMs": 1791961139919
+      }
+    },
+    "result": {
+      "operation": "app.hide()"
+    },
+    "samples": [
+      {
+        "epochMs": 1791961139930,
+        "monotonicMs": 27761.826917,
+        "shellVisible": true,
+        "shellMinimized": false,
+        "shellFocused": true,
+        "shellDocument": {
+          "visibility": "visible",
+          "focus": true
+        },
+        "pageDocument": {
+          "visibility": "visible",
+          "focus": false
+        },
+        "nativeTabVisible": true,
+        "helper": {
+          "ready": true,
+          "visible": false,
+          "fullscreen": false,
+          "pid": 92523,
+          "active": false,
+          "styleMask": 15,
+          "frontPid": 93560,
+          "epochMs": 1791961139919
+        }
+      },
+      {
+        "epochMs": 1791961140178,
+        "monotonicMs": 28010.599708,
+        "shellVisible": true,
+        "shellMinimized": false,
+        "shellFocused": false,
+        "shellDocument": {
+          "visibility": "hidden",
+          "focus": false
+        },
+        "pageDocument": {
+          "visibility": "hidden",
+          "focus": false
+        },
+        "nativeTabVisible": true,
+        "helper": {
+          "ready": true,
+          "visible": false,
+          "fullscreen": false,
+          "pid": 92523,
+          "active": false,
+          "styleMask": 15,
+          "frontPid": 39467,
+          "epochMs": 1791961140125
+        }
+      },
+      {
+        "epochMs": 1791961140397,
+        "monotonicMs": 28229.522333,
+        "shellVisible": true,
+        "shellMinimized": false,
+        "shellFocused": false,
+        "shellDocument": {
+          "visibility": "visible",
+          "focus": false
+        },
+        "pageDocument": {
+          "visibility": "visible",
+          "focus": false
+        },
+        "nativeTabVisible": true,
+        "helper": {
+          "ready": true,
+          "visible": false,
+          "fullscreen": false,
+          "pid": 92523,
+          "active": false,
+          "styleMask": 15,
+          "frontPid": 39467,
+          "epochMs": 1791961140330
+        }
+      },
+      {
+        "epochMs": 1791961140598,
+        "monotonicMs": 28430.44125,
+        "shellVisible": true,
+        "shellMinimized": false,
+        "shellFocused": false,
+        "shellDocument": {
+          "visibility": "visible",
+          "focus": false
+        },
+        "pageDocument": {
+          "visibility": "visible",
+          "focus": false
+        },
+        "nativeTabVisible": true,
+        "helper": {
+          "ready": true,
+          "visible": false,
+          "fullscreen": false,
+          "pid": 92523,
+          "active": false,
+          "styleMask": 15,
+          "frontPid": 39467,
+          "epochMs": 1791961140535
+        }
+      },
+      {
+        "epochMs": 1791961140800,
+        "monotonicMs": 28632.247,
+        "shellVisible": true,
+        "shellMinimized": false,
+        "shellFocused": false,
+        "shellDocument": {
+          "visibility": "visible",
+          "focus": false
+        },
+        "pageDocument": {
+          "visibility": "visible",
+          "focus": false
+        },
+        "nativeTabVisible": true,
+        "helper": {
+          "ready": true,
+          "visible": false,
+          "fullscreen": false,
+          "pid": 92523,
+          "active": false,
+          "styleMask": 15,
+          "frontPid": 39467,
+          "epochMs": 1791961140739
+        }
+      },
+      {
+        "epochMs": 1791961141001,
+        "monotonicMs": 28833.272583,
+        "shellVisible": true,
+        "shellMinimized": false,
+        "shellFocused": false,
+        "shellDocument": {
+          "visibility": "visible",
+          "focus": false
+        },
+        "pageDocument": {
+          "visibility": "visible",
+          "focus": false
+        },
+        "nativeTabVisible": true,
+        "helper": {
+          "ready": true,
+          "visible": false,
+          "fullscreen": false,
+          "pid": 92523,
+          "active": false,
+          "styleMask": 15,
+          "frontPid": 39467,
+          "epochMs": 1791961140945
+        }
+      },
+      {
+        "epochMs": 1791961141202,
+        "monotonicMs": 29034.525042,
+        "shellVisible": true,
+        "shellMinimized": false,
+        "shellFocused": false,
+        "shellDocument": {
+          "visibility": "hidden",
+          "focus": false
+        },
+        "pageDocument": {
+          "visibility": "hidden",
+          "focus": false
+        },
+        "nativeTabVisible": true,
+        "helper": {
+          "ready": true,
+          "visible": false,
+          "fullscreen": false,
+          "pid": 92523,
+          "active": false,
+          "styleMask": 15,
+          "frontPid": 39467,
+          "epochMs": 1791961141459
+        }
+      },
+      {
+        "epochMs": 1791961141732,
+        "monotonicMs": 29564.146833,
+        "shellVisible": true,
+        "shellMinimized": false,
+        "shellFocused": false,
+        "shellDocument": {
+          "visibility": "visible",
+          "focus": false
+        },
+        "pageDocument": {
+          "visibility": "visible",
+          "focus": false
+        },
+        "nativeTabVisible": true,
+        "helper": {
+          "ready": true,
+          "visible": false,
+          "fullscreen": false,
+          "pid": 92523,
+          "active": false,
+          "styleMask": 15,
+          "frontPid": 39467,
+          "epochMs": 1791961141665
+        }
+      },
+      {
+        "epochMs": 1791961141933,
+        "monotonicMs": 29765.590333,
+        "shellVisible": true,
+        "shellMinimized": false,
+        "shellFocused": false,
+        "shellDocument": {
+          "visibility": "visible",
+          "focus": false
+        },
+        "pageDocument": {
+          "visibility": "visible",
+          "focus": false
+        },
+        "nativeTabVisible": true,
+        "helper": {
+          "ready": true,
+          "visible": false,
+          "fullscreen": false,
+          "pid": 92523,
+          "active": false,
+          "styleMask": 15,
+          "frontPid": 39467,
+          "epochMs": 1791961141870
+        }
+      },
+      {
+        "epochMs": 1791961142135,
+        "monotonicMs": 29967.304042,
+        "shellVisible": true,
+        "shellMinimized": false,
+        "shellFocused": false,
+        "shellDocument": {
+          "visibility": "visible",
+          "focus": false
+        },
+        "pageDocument": {
+          "visibility": "visible",
+          "focus": false
+        },
+        "nativeTabVisible": true,
+        "helper": {
+          "ready": true,
+          "visible": false,
+          "fullscreen": false,
+          "pid": 92523,
+          "active": false,
+          "styleMask": 15,
+          "frontPid": 39467,
+          "epochMs": 1791961142075
+        }
+      },
+      {
+        "epochMs": 1791961142335,
+        "monotonicMs": 30167.501792,
+        "shellVisible": true,
+        "shellMinimized": false,
+        "shellFocused": false,
+        "shellDocument": {
+          "visibility": "visible",
+          "focus": false
+        },
+        "pageDocument": {
+          "visibility": "visible",
+          "focus": false
+        },
+        "nativeTabVisible": true,
+        "helper": {
+          "ready": true,
+          "visible": false,
+          "fullscreen": false,
+          "pid": 92523,
+          "active": false,
+          "styleMask": 15,
+          "frontPid": 39467,
+          "epochMs": 1791961142281
+        }
+      },
+      {
+        "epochMs": 1791961142537,
+        "monotonicMs": 30369.547125,
+        "shellVisible": true,
+        "shellMinimized": false,
+        "shellFocused": false,
+        "shellDocument": {
+          "visibility": "visible",
+          "focus": false
+        },
+        "pageDocument": {
+          "visibility": "visible",
+          "focus": false
+        },
+        "nativeTabVisible": true,
+        "helper": {
+          "ready": true,
+          "visible": false,
+          "fullscreen": false,
+          "pid": 92523,
+          "active": false,
+          "styleMask": 15,
+          "frontPid": 39467,
+          "epochMs": 1791961142486
+        }
+      },
+      {
+        "epochMs": 1791961142739,
+        "monotonicMs": 30571.75125,
+        "shellVisible": true,
+        "shellMinimized": false,
+        "shellFocused": false,
+        "shellDocument": {
+          "visibility": "hidden",
+          "focus": false
+        },
+        "pageDocument": {
+          "visibility": "hidden",
+          "focus": false
+        },
+        "nativeTabVisible": false,
+        "helper": {
+          "ready": true,
+          "visible": false,
+          "fullscreen": false,
+          "pid": 92523,
+          "active": false,
+          "styleMask": 15,
+          "frontPid": 39467,
+          "epochMs": 1791961142692
+        }
+      },
+      {
+        "epochMs": 1791961142942,
+        "monotonicMs": 30774.473458,
+        "shellVisible": true,
+        "shellMinimized": false,
+        "shellFocused": false,
+        "shellDocument": {
+          "visibility": "hidden",
+          "focus": false
+        },
+        "pageDocument": {
+          "visibility": "hidden",
+          "focus": false
+        },
+        "nativeTabVisible": false,
+        "helper": {
+          "ready": true,
+          "visible": false,
+          "fullscreen": false,
+          "pid": 92523,
+          "active": false,
+          "styleMask": 15,
+          "frontPid": 39467,
+          "epochMs": 1791961142897
+        }
+      },
+      {
+        "epochMs": 1791961143150,
+        "monotonicMs": 30981.90825,
+        "shellVisible": true,
+        "shellMinimized": false,
+        "shellFocused": false,
+        "shellDocument": {
+          "visibility": "hidden",
+          "focus": false
+        },
+        "pageDocument": {
+          "visibility": "hidden",
+          "focus": false
+        },
+        "nativeTabVisible": false,
+        "helper": {
+          "ready": true,
+          "visible": false,
+          "fullscreen": false,
+          "pid": 92523,
+          "active": false,
+          "styleMask": 15,
+          "frontPid": 39467,
+          "epochMs": 1791961143102
+        }
+      },
+      {
+        "epochMs": 1791961143367,
+        "monotonicMs": 31199.329208,
+        "shellVisible": true,
+        "shellMinimized": false,
+        "shellFocused": false,
+        "shellDocument": {
+          "visibility": "hidden",
+          "focus": false
+        },
+        "pageDocument": {
+          "visibility": "hidden",
+          "focus": false
+        },
+        "nativeTabVisible": false,
+        "helper": {
+          "ready": true,
+          "visible": false,
+          "fullscreen": false,
+          "pid": 92523,
+          "active": false,
+          "styleMask": 15,
+          "frontPid": 31392,
+          "epochMs": 1791961144550
+        }
+      },
+      {
+        "epochMs": 1791961144851,
+        "monotonicMs": 32683.4835,
+        "shellVisible": true,
+        "shellMinimized": false,
+        "shellFocused": false,
+        "shellDocument": {
+          "visibility": "hidden",
+          "focus": false
+        },
+        "pageDocument": {
+          "visibility": "hidden",
+          "focus": false
+        },
+        "nativeTabVisible": false,
+        "helper": {
+          "ready": true,
+          "visible": false,
+          "fullscreen": false,
+          "pid": 92523,
+          "active": false,
+          "styleMask": 15,
+          "frontPid": 31392,
+          "epochMs": 1791961145692
+        }
+      },
+      {
+        "epochMs": 1791961145934,
+        "monotonicMs": 33766.485708,
+        "shellVisible": true,
+        "shellMinimized": false,
+        "shellFocused": false,
+        "shellDocument": {
+          "visibility": "hidden",
+          "focus": false
+        },
+        "pageDocument": {
+          "visibility": "hidden",
+          "focus": false
+        },
+        "nativeTabVisible": false,
+        "helper": {
+          "ready": true,
+          "visible": false,
+          "fullscreen": false,
+          "pid": 92523,
+          "active": false,
+          "styleMask": 15,
+          "frontPid": 31392,
+          "epochMs": 1791961145899
+        }
+      },
+      {
+        "epochMs": 1791961146136,
+        "monotonicMs": 33968.408625,
+        "shellVisible": true,
+        "shellMinimized": false,
+        "shellFocused": false,
+        "shellDocument": {
+          "visibility": "hidden",
+          "focus": false
+        },
+        "pageDocument": {
+          "visibility": "hidden",
+          "focus": false
+        },
+        "nativeTabVisible": false,
+        "helper": {
+          "ready": true,
+          "visible": false,
+          "fullscreen": false,
+          "pid": 92523,
+          "active": false,
+          "styleMask": 15,
+          "frontPid": 31392,
+          "epochMs": 1791961146208
+        }
+      },
+      {
+        "epochMs": 1791961146415,
+        "monotonicMs": 34247.179,
+        "shellVisible": true,
+        "shellMinimized": false,
+        "shellFocused": false,
+        "shellDocument": {
+          "visibility": "hidden",
+          "focus": false
+        },
+        "pageDocument": {
+          "visibility": "hidden",
+          "focus": false
+        },
+        "nativeTabVisible": false,
+        "helper": {
+          "ready": true,
+          "visible": false,
+          "fullscreen": false,
+          "pid": 92523,
+          "active": false,
+          "styleMask": 15,
+          "frontPid": 31392,
+          "epochMs": 1791961146414
+        }
+      }
+    ]
+  }
+]

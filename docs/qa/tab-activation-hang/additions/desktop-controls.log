@@ -1,0 +1,9 @@
+$ vitest run --passWithNoTests --silent=passed-only src/appTabObserver.test.ts src/browserUploadFile.test.ts src/appTabActivation.test.ts src/appTabOpenedRouting.test.ts
+
+ RUN  v4.1.11 /Users/emmanuelgyekyeatta-penkra/Penkra/qa-tab-additions-b9xq3rc4/source/apps/desktop
+
+
+ Test Files  4 passed (4)
+      Tests  62 passed (62)
+   Start at  00:53:09
+   Duration  4.31s (transform 352ms, setup 0ms, import 419ms, tests 4.06s, environment 0ms)

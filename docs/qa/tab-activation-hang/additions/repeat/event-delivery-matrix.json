@@ -1,0 +1,4140 @@
+[
+  {
+    "caseId": "f-hidden-throttle-true-bypass-true",
+    "before": {
+      "mode": "hidden",
+      "shellVisible": false,
+      "minimized": false,
+      "hostVisible": true,
+      "pageVisibility": "hidden",
+      "throttling": [
+        {
+          "id": 7,
+          "value": true
+        },
+        {
+          "id": 6,
+          "value": true
+        },
+        {
+          "id": 5,
+          "value": true
+        },
+        {
+          "id": 4,
+          "value": true
+        },
+        {
+          "id": 2,
+          "value": true
+        },
+        {
+          "id": 1,
+          "value": true
+        }
+      ]
+    },
+    "commandRows": [
+      {
+        "actionId": "f-hidden-throttle-true-bypass-true-click",
+        "response": {
+          "caseId": "f-hidden-throttle-true-bypass-true",
+          "id": "f-hidden-throttle-true-bypass-true-click",
+          "command": "penkra tabs act --input '{\"tabId\":\"qa-browser-A\",\"steps\":[{\"action\":\"click\",\"ref\":\"d2:e1\"}]}'",
+          "startedEpochMs": 1791960445759,
+          "durationMs": 21.824999999999818,
+          "ok": true,
+          "result": {
+            "tabId": "qa-browser-A",
+            "inputMode": "smooth",
+            "steps": [
+              {
+                "tabId": "qa-browser-A",
+                "target": "d2:e1",
+                "clicked": true,
+                "deliveryMethod": "cdp-pointer",
+                "trusted": true
+              }
+            ]
+          }
+        },
+        "immediate": {
+          "caseId": "f-hidden-throttle-true-bypass-true-click",
+          "events": [
+            {
+              "caseId": "f-hidden-throttle-true-bypass-true-click",
+              "kind": "window-focus",
+              "epochMs": 1791960445776,
+              "pageMonotonicMs": 1402.6000001430511,
+              "visibility": "hidden",
+              "focus": true
+            },
+            {
+              "caseId": "f-hidden-throttle-true-bypass-true-click",
+              "kind": "window-focus",
+              "epochMs": 1791960445776,
+              "pageMonotonicMs": 1402.6000001430511,
+              "visibility": "hidden",
+              "focus": true
+            },
+            {
+              "caseId": "f-hidden-throttle-true-bypass-true-click",
+              "kind": "pointerdown",
+              "epochMs": 1791960445778,
+              "pageMonotonicMs": 1404.2000000476837,
+              "visibility": "hidden",
+              "focus": true,
+              "target": "probeClick",
+              "isTrusted": true,
+              "value": ""
+            },
+            {
+              "caseId": "f-hidden-throttle-true-bypass-true-click",
+              "kind": "mousedown",
+              "epochMs": 1791960445778,
+              "pageMonotonicMs": 1404.2000000476837,
+              "visibility": "hidden",
+              "focus": true,
+              "target": "probeClick",
+              "isTrusted": true,
+              "value": ""
+            },
+            {
+              "caseId": "f-hidden-throttle-true-bypass-true-click",
+              "kind": "focusin",
+              "epochMs": 1791960445778,
+              "pageMonotonicMs": 1404.5,
+              "visibility": "hidden",
+              "focus": true,
+              "target": "probeClick",
+              "isTrusted": true,
+              "value": ""
+            },
+            {
+              "caseId": "f-hidden-throttle-true-bypass-true-click",
+              "kind": "pointerup",
+              "epochMs": 1791960445779,
+              "pageMonotonicMs": 1405.9000000953674,
+              "visibility": "hidden",
+              "focus": true,
+              "target": "probeClick",
+              "isTrusted": true,
+              "value": ""
+            },
+            {
+              "caseId": "f-hidden-throttle-true-bypass-true-click",
+              "kind": "mouseup",
+              "epochMs": 1791960445779,
+              "pageMonotonicMs": 1406,
+              "visibility": "hidden",
+              "focus": true,
+              "target": "probeClick",
+              "isTrusted": true,
+              "value": ""
+            },
+            {
+              "caseId": "f-hidden-throttle-true-bypass-true-click",
+              "kind": "click",
+              "epochMs": 1791960445780,
+              "pageMonotonicMs": 1406.2000000476837,
+              "visibility": "hidden",
+              "focus": true,
+              "target": "probeClick",
+              "isTrusted": true,
+              "value": ""
+            }
+          ],
+          "clicks": 1,
+          "text": "",
+          "files": [],
+          "scrollY": 0,
+          "visibility": "hidden",
+          "focus": true,
+          "epochMs": 1791960445782
+        },
+        "afterOneSecond": {
+          "caseId": "f-hidden-throttle-true-bypass-true-click",
+          "events": [
+            {
+              "caseId": "f-hidden-throttle-true-bypass-true-click",
+              "kind": "window-focus",
+              "epochMs": 1791960445776,
+              "pageMonotonicMs": 1402.6000001430511,
+              "visibility": "hidden",
+              "focus": true
+            },
+            {
+              "caseId": "f-hidden-throttle-true-bypass-true-click",
+              "kind": "window-focus",
+              "epochMs": 1791960445776,
+              "pageMonotonicMs": 1402.6000001430511,
+              "visibility": "hidden",
+              "focus": true
+            },
+            {
+              "caseId": "f-hidden-throttle-true-bypass-true-click",
+              "kind": "pointerdown",
+              "epochMs": 1791960445778,
+              "pageMonotonicMs": 1404.2000000476837,
+              "visibility": "hidden",
+              "focus": true,
+              "target": "probeClick",
+              "isTrusted": true,
+              "value": ""
+            },
+            {
+              "caseId": "f-hidden-throttle-true-bypass-true-click",
+              "kind": "mousedown",
+              "epochMs": 1791960445778,
+              "pageMonotonicMs": 1404.2000000476837,
+              "visibility": "hidden",
+              "focus": true,
+              "target": "probeClick",
+              "isTrusted": true,
+              "value": ""
+            },
+            {
+              "caseId": "f-hidden-throttle-true-bypass-true-click",
+              "kind": "focusin",
+              "epochMs": 1791960445778,
+              "pageMonotonicMs": 1404.5,
+              "visibility": "hidden",
+              "focus": true,
+              "target": "probeClick",
+              "isTrusted": true,
+              "value": ""
+            },
+            {
+              "caseId": "f-hidden-throttle-true-bypass-true-click",
+              "kind": "pointerup",
+              "epochMs": 1791960445779,
+              "pageMonotonicMs": 1405.9000000953674,
+              "visibility": "hidden",
+              "focus": true,
+              "target": "probeClick",
+              "isTrusted": true,
+              "value": ""
+            },
+            {
+              "caseId": "f-hidden-throttle-true-bypass-true-click",
+              "kind": "mouseup",
+              "epochMs": 1791960445779,
+              "pageMonotonicMs": 1406,
+              "visibility": "hidden",
+              "focus": true,
+              "target": "probeClick",
+              "isTrusted": true,
+              "value": ""
+            },
+            {
+              "caseId": "f-hidden-throttle-true-bypass-true-click",
+              "kind": "click",
+              "epochMs": 1791960445780,
+              "pageMonotonicMs": 1406.2000000476837,
+              "visibility": "hidden",
+              "focus": true,
+              "target": "probeClick",
+              "isTrusted": true,
+              "value": ""
+            }
+          ],
+          "clicks": 1,
+          "text": "",
+          "files": [],
+          "scrollY": 0,
+          "visibility": "hidden",
+          "focus": true,
+          "epochMs": 1791960446783
+        }
+      },
+      {
+        "actionId": "f-hidden-throttle-true-bypass-true-type",
+        "response": {
+          "caseId": "f-hidden-throttle-true-bypass-true",
+          "id": "f-hidden-throttle-true-bypass-true-type",
+          "command": "penkra tabs act --input '{\"tabId\":\"qa-browser-A\",\"steps\":[{\"action\":\"type\",\"ref\":\"d2:e2\",\"text\":\"typed-f-hidden-throttle-true-bypass-true\"}]}'",
+          "startedEpochMs": 1791960446786,
+          "durationMs": 11541.219874999999,
+          "ok": true,
+          "result": {
+            "tabId": "qa-browser-A",
+            "inputMode": "smooth",
+            "steps": [
+              {
+                "tabId": "qa-browser-A",
+                "target": "d2:e2",
+                "typed": true,
+                "characters": 40
+              }
+            ]
+          }
+        },
+        "immediate": {
+          "caseId": "f-hidden-throttle-true-bypass-true-type",
+          "events": [
+            {
+              "caseId": "f-hidden-throttle-true-bypass-true-click",
+              "kind": "window-focus",
+              "epochMs": 1791960445776,
+              "pageMonotonicMs": 1402.6000001430511,
+              "visibility": "hidden",
+              "focus": true
+            },
+            {
+              "caseId": "f-hidden-throttle-true-bypass-true-click",
+              "kind": "window-focus",
+              "epochMs": 1791960445776,
+              "pageMonotonicMs": 1402.6000001430511,
+              "visibility": "hidden",
+              "focus": true
+            },
+            {
+              "caseId": "f-hidden-throttle-true-bypass-true-click",
+              "kind": "pointerdown",
+              "epochMs": 1791960445778,
+              "pageMonotonicMs": 1404.2000000476837,
+              "visibility": "hidden",
+              "focus": true,
+              "target": "probeClick",
+              "isTrusted": true,
+              "value": ""
+            },
+            {
+              "caseId": "f-hidden-throttle-true-bypass-true-click",
+              "kind": "mousedown",
+              "epochMs": 1791960445778,
+              "pageMonotonicMs": 1404.2000000476837,
+              "visibility": "hidden",
+              "focus": true,
+              "target": "probeClick",
+              "isTrusted": true,
+              "value": ""
+            },
+            {
+              "caseId": "f-hidden-throttle-true-bypass-true-click",
+              "kind": "focusin",
+              "epochMs": 1791960445778,
+              "pageMonotonicMs": 1404.5,
+              "visibility": "hidden",
+              "focus": true,
+              "target": "probeClick",
+              "isTrusted": true,
+              "value": ""
+            },
+            {
+              "caseId": "f-hidden-throttle-true-bypass-true-click",
+              "kind": "pointerup",
+              "epochMs": 1791960445779,
+              "pageMonotonicMs": 1405.9000000953674,
+              "visibility": "hidden",
+              "focus": true,
+              "target": "probeClick",
+              "isTrusted": true,
+              "value": ""
+            },
+            {
+              "caseId": "f-hidden-throttle-true-bypass-true-click",
+              "kind": "mouseup",
+              "epochMs": 1791960445779,
+              "pageMonotonicMs": 1406,
+              "visibility": "hidden",
+              "focus": true,
+              "target": "probeClick",
+              "isTrusted": true,
+              "value": ""
+            },
+            {
+              "caseId": "f-hidden-throttle-true-bypass-true-click",
+              "kind": "click",
+              "epochMs": 1791960445780,
+              "pageMonotonicMs": 1406.2000000476837,
+              "visibility": "hidden",
+              "focus": true,
+              "target": "probeClick",
+              "isTrusted": true,
+              "value": ""
+            },
+            {
+              "caseId": "f-hidden-throttle-true-bypass-true-type",
+              "kind": "pointerdown",
+              "epochMs": 1791960458319,
+              "pageMonotonicMs": 13945.600000143051,
+              "visibility": "hidden",
+              "focus": true,
+              "target": "probeType",
+              "isTrusted": true,
+              "value": ""
+            },
+            {
+              "caseId": "f-hidden-throttle-true-bypass-true-type",
+              "kind": "mousedown",
+              "epochMs": 1791960458319,
+              "pageMonotonicMs": 13945.700000047684,
+              "visibility": "hidden",
+              "focus": true,
+              "target": "probeType",
+              "isTrusted": true,
+              "value": ""
+            },
+            {
+              "caseId": "f-hidden-throttle-true-bypass-true-type",
+              "kind": "focusout",
+              "epochMs": 1791960458320,
+              "pageMonotonicMs": 13946.100000143051,
+              "visibility": "hidden",
+              "focus": true,
+              "target": "probeClick",
+              "isTrusted": true,
+              "value": ""
+            },
+            {
+              "caseId": "f-hidden-throttle-true-bypass-true-type",
+              "kind": "focusin",
+              "epochMs": 1791960458320,
+              "pageMonotonicMs": 13946.200000047684,
+              "visibility": "hidden",
+              "focus": true,
+              "target": "probeType",
+              "isTrusted": true,
+              "value": ""
+            },
+            {
+              "caseId": "f-hidden-throttle-true-bypass-true-type",
+              "kind": "pointerup",
+              "epochMs": 1791960458324,
+              "pageMonotonicMs": 13950.299999952316,
+              "visibility": "hidden",
+              "focus": true,
+              "target": "probeType",
+              "isTrusted": true,
+              "value": ""
+            },
+            {
+              "caseId": "f-hidden-throttle-true-bypass-true-type",
+              "kind": "mouseup",
+              "epochMs": 1791960458324,
+              "pageMonotonicMs": 13950.299999952316,
+              "visibility": "hidden",
+              "focus": true,
+              "target": "probeType",
+              "isTrusted": true,
+              "value": ""
+            },
+            {
+              "caseId": "f-hidden-throttle-true-bypass-true-type",
+              "kind": "click",
+              "epochMs": 1791960458324,
+              "pageMonotonicMs": 13950.299999952316,
+              "visibility": "hidden",
+              "focus": true,
+              "target": "probeType",
+              "isTrusted": true,
+              "value": ""
+            },
+            {
+              "caseId": "f-hidden-throttle-true-bypass-true-type",
+              "kind": "input",
+              "epochMs": 1791960458326,
+              "pageMonotonicMs": 13952.700000047684,
+              "visibility": "hidden",
+              "focus": true,
+              "target": "probeType",
+              "isTrusted": false,
+              "value": "typed-f-hidden-throttle-true-bypass-true"
+            },
+            {
+              "caseId": "f-hidden-throttle-true-bypass-true-type",
+              "kind": "change",
+              "epochMs": 1791960458326,
+              "pageMonotonicMs": 13952.799999952316,
+              "visibility": "hidden",
+              "focus": true,
+              "target": "probeType",
+              "isTrusted": false,
+              "value": "typed-f-hidden-throttle-true-bypass-true"
+            }
+          ],
+          "clicks": 1,
+          "text": "typed-f-hidden-throttle-true-bypass-true",
+          "files": [],
+          "scrollY": 0,
+          "visibility": "hidden",
+          "focus": true,
+          "epochMs": 1791960458327
+        },
+        "afterOneSecond": {
+          "caseId": "f-hidden-throttle-true-bypass-true-type",
+          "events": [
+            {
+              "caseId": "f-hidden-throttle-true-bypass-true-click",
+              "kind": "window-focus",
+              "epochMs": 1791960445776,
+              "pageMonotonicMs": 1402.6000001430511,
+              "visibility": "hidden",
+              "focus": true
+            },
+            {
+              "caseId": "f-hidden-throttle-true-bypass-true-click",
+              "kind": "window-focus",
+              "epochMs": 1791960445776,
+              "pageMonotonicMs": 1402.6000001430511,
+              "visibility": "hidden",
+              "focus": true
+            },
+            {
+              "caseId": "f-hidden-throttle-true-bypass-true-click",
+              "kind": "pointerdown",
+              "epochMs": 1791960445778,
+              "pageMonotonicMs": 1404.2000000476837,
+              "visibility": "hidden",
+              "focus": true,
+              "target": "probeClick",
+              "isTrusted": true,
+              "value": ""
+            },
+            {
+              "caseId": "f-hidden-throttle-true-bypass-true-click",
+              "kind": "mousedown",
+              "epochMs": 1791960445778,
+              "pageMonotonicMs": 1404.2000000476837,
+              "visibility": "hidden",
+              "focus": true,
+              "target": "probeClick",
+              "isTrusted": true,
+              "value": ""
+            },
+            {
+              "caseId": "f-hidden-throttle-true-bypass-true-click",
+              "kind": "focusin",
+              "epochMs": 1791960445778,
+              "pageMonotonicMs": 1404.5,
+              "visibility": "hidden",
+              "focus": true,
+              "target": "probeClick",
+              "isTrusted": true,
+              "value": ""
+            },
+            {
+              "caseId": "f-hidden-throttle-true-bypass-true-click",
+              "kind": "pointerup",
+              "epochMs": 1791960445779,
+              "pageMonotonicMs": 1405.9000000953674,
+              "visibility": "hidden",
+              "focus": true,
+              "target": "probeClick",
+              "isTrusted": true,
+              "value": ""
+            },
+            {
+              "caseId": "f-hidden-throttle-true-bypass-true-click",
+              "kind": "mouseup",
+              "epochMs": 1791960445779,
+              "pageMonotonicMs": 1406,
+              "visibility": "hidden",
+              "focus": true,
+              "target": "probeClick",
+              "isTrusted": true,
+              "value": ""
+            },
+            {
+              "caseId": "f-hidden-throttle-true-bypass-true-click",
+              "kind": "click",
+              "epochMs": 1791960445780,
+              "pageMonotonicMs": 1406.2000000476837,
+              "visibility": "hidden",
+              "focus": true,
+              "target": "probeClick",
+              "isTrusted": true,
+              "value": ""
+            },
+            {
+              "caseId": "f-hidden-throttle-true-bypass-true-type",
+              "kind": "pointerdown",
+              "epochMs": 1791960458319,
+              "pageMonotonicMs": 13945.600000143051,
+              "visibility": "hidden",
+              "focus": true,
+              "target": "probeType",
+              "isTrusted": true,
+              "value": ""
+            },
+            {
+              "caseId": "f-hidden-throttle-true-bypass-true-type",
+              "kind": "mousedown",
+              "epochMs": 1791960458319,
+              "pageMonotonicMs": 13945.700000047684,
+              "visibility": "hidden",
+              "focus": true,
+              "target": "probeType",
+              "isTrusted": true,
+              "value": ""
+            },
+            {
+              "caseId": "f-hidden-throttle-true-bypass-true-type",
+              "kind": "focusout",
+              "epochMs": 1791960458320,
+              "pageMonotonicMs": 13946.100000143051,
+              "visibility": "hidden",
+              "focus": true,
+              "target": "probeClick",
+              "isTrusted": true,
+              "value": ""
+            },
+            {
+              "caseId": "f-hidden-throttle-true-bypass-true-type",
+              "kind": "focusin",
+              "epochMs": 1791960458320,
+              "pageMonotonicMs": 13946.200000047684,
+              "visibility": "hidden",
+              "focus": true,
+              "target": "probeType",
+              "isTrusted": true,
+              "value": ""
+            },
+            {
+              "caseId": "f-hidden-throttle-true-bypass-true-type",
+              "kind": "pointerup",
+              "epochMs": 1791960458324,
+              "pageMonotonicMs": 13950.299999952316,
+              "visibility": "hidden",
+              "focus": true,
+              "target": "probeType",
+              "isTrusted": true,
+              "value": ""
+            },
+            {
+              "caseId": "f-hidden-throttle-true-bypass-true-type",
+              "kind": "mouseup",
+              "epochMs": 1791960458324,
+              "pageMonotonicMs": 13950.299999952316,
+              "visibility": "hidden",
+              "focus": true,
+              "target": "probeType",
+              "isTrusted": true,
+              "value": ""
+            },
+            {
+              "caseId": "f-hidden-throttle-true-bypass-true-type",
+              "kind": "click",
+              "epochMs": 1791960458324,
+              "pageMonotonicMs": 13950.299999952316,
+              "visibility": "hidden",
+              "focus": true,
+              "target": "probeType",
+              "isTrusted": true,
+              "value": ""
+            },
+            {
+              "caseId": "f-hidden-throttle-true-bypass-true-type",
+              "kind": "input",
+              "epochMs": 1791960458326,
+              "pageMonotonicMs": 13952.700000047684,
+              "visibility": "hidden",
+              "focus": true,
+              "target": "probeType",
+              "isTrusted": false,
+              "value": "typed-f-hidden-throttle-true-bypass-true"
+            },
+            {
+              "caseId": "f-hidden-throttle-true-bypass-true-type",
+              "kind": "change",
+              "epochMs": 1791960458326,
+              "pageMonotonicMs": 13952.799999952316,
+              "visibility": "hidden",
+              "focus": true,
+              "target": "probeType",
+              "isTrusted": false,
+              "value": "typed-f-hidden-throttle-true-bypass-true"
+            }
+          ],
+          "clicks": 1,
+          "text": "typed-f-hidden-throttle-true-bypass-true",
+          "files": [],
+          "scrollY": 0,
+          "visibility": "hidden",
+          "focus": true,
+          "epochMs": 1791960459329
+        }
+      },
+      {
+        "actionId": "f-hidden-throttle-true-bypass-true-scroll",
+        "response": {
+          "caseId": "f-hidden-throttle-true-bypass-true",
+          "id": "f-hidden-throttle-true-bypass-true-scroll",
+          "command": "penkra tabs act --input '{\"tabId\":\"qa-browser-A\",\"steps\":[{\"action\":\"scroll\",\"document\":\"d2\",\"deltaY\":400}]}'",
+          "startedEpochMs": 1791960459329,
+          "durationMs": 1.9752499999995052,
+          "ok": true,
+          "result": {
+            "tabId": "qa-browser-A",
+            "inputMode": "smooth",
+            "steps": [
+              {
+                "tabId": "qa-browser-A",
+                "deltaX": 0,
+                "deltaY": 400,
+                "scrolled": true
+              }
+            ]
+          }
+        },
+        "immediate": {
+          "caseId": "f-hidden-throttle-true-bypass-true-scroll",
+          "events": [
+            {
+              "caseId": "f-hidden-throttle-true-bypass-true-click",
+              "kind": "window-focus",
+              "epochMs": 1791960445776,
+              "pageMonotonicMs": 1402.6000001430511,
+              "visibility": "hidden",
+              "focus": true
+            },
+            {
+              "caseId": "f-hidden-throttle-true-bypass-true-click",
+              "kind": "window-focus",
+              "epochMs": 1791960445776,
+              "pageMonotonicMs": 1402.6000001430511,
+              "visibility": "hidden",
+              "focus": true
+            },
+            {
+              "caseId": "f-hidden-throttle-true-bypass-true-click",
+              "kind": "pointerdown",
+              "epochMs": 1791960445778,
+              "pageMonotonicMs": 1404.2000000476837,
+              "visibility": "hidden",
+              "focus": true,
+              "target": "probeClick",
+              "isTrusted": true,
+              "value": ""
+            },
+            {
+              "caseId": "f-hidden-throttle-true-bypass-true-click",
+              "kind": "mousedown",
+              "epochMs": 1791960445778,
+              "pageMonotonicMs": 1404.2000000476837,
+              "visibility": "hidden",
+              "focus": true,
+              "target": "probeClick",
+              "isTrusted": true,
+              "value": ""
+            },
+            {
+              "caseId": "f-hidden-throttle-true-bypass-true-click",
+              "kind": "focusin",
+              "epochMs": 1791960445778,
+              "pageMonotonicMs": 1404.5,
+              "visibility": "hidden",
+              "focus": true,
+              "target": "probeClick",
+              "isTrusted": true,
+              "value": ""
+            },
+            {
+              "caseId": "f-hidden-throttle-true-bypass-true-click",
+              "kind": "pointerup",
+              "epochMs": 1791960445779,
+              "pageMonotonicMs": 1405.9000000953674,
+              "visibility": "hidden",
+              "focus": true,
+              "target": "probeClick",
+              "isTrusted": true,
+              "value": ""
+            },
+            {
+              "caseId": "f-hidden-throttle-true-bypass-true-click",
+              "kind": "mouseup",
+              "epochMs": 1791960445779,
+              "pageMonotonicMs": 1406,
+              "visibility": "hidden",
+              "focus": true,
+              "target": "probeClick",
+              "isTrusted": true,
+              "value": ""
+            },
+            {
+              "caseId": "f-hidden-throttle-true-bypass-true-click",
+              "kind": "click",
+              "epochMs": 1791960445780,
+              "pageMonotonicMs": 1406.2000000476837,
+              "visibility": "hidden",
+              "focus": true,
+              "target": "probeClick",
+              "isTrusted": true,
+              "value": ""
+            },
+            {
+              "caseId": "f-hidden-throttle-true-bypass-true-type",
+              "kind": "pointerdown",
+              "epochMs": 1791960458319,
+              "pageMonotonicMs": 13945.600000143051,
+              "visibility": "hidden",
+              "focus": true,
+              "target": "probeType",
+              "isTrusted": true,
+              "value": ""
+            },
+            {
+              "caseId": "f-hidden-throttle-true-bypass-true-type",
+              "kind": "mousedown",
+              "epochMs": 1791960458319,
+              "pageMonotonicMs": 13945.700000047684,
+              "visibility": "hidden",
+              "focus": true,
+              "target": "probeType",
+              "isTrusted": true,
+              "value": ""
+            },
+            {
+              "caseId": "f-hidden-throttle-true-bypass-true-type",
+              "kind": "focusout",
+              "epochMs": 1791960458320,
+              "pageMonotonicMs": 13946.100000143051,
+              "visibility": "hidden",
+              "focus": true,
+              "target": "probeClick",
+              "isTrusted": true,
+              "value": ""
+            },
+            {
+              "caseId": "f-hidden-throttle-true-bypass-true-type",
+              "kind": "focusin",
+              "epochMs": 1791960458320,
+              "pageMonotonicMs": 13946.200000047684,
+              "visibility": "hidden",
+              "focus": true,
+              "target": "probeType",
+              "isTrusted": true,
+              "value": ""
+            },
+            {
+              "caseId": "f-hidden-throttle-true-bypass-true-type",
+              "kind": "pointerup",
+              "epochMs": 1791960458324,
+              "pageMonotonicMs": 13950.299999952316,
+              "visibility": "hidden",
+              "focus": true,
+              "target": "probeType",
+              "isTrusted": true,
+              "value": ""
+            },
+            {
+              "caseId": "f-hidden-throttle-true-bypass-true-type",
+              "kind": "mouseup",
+              "epochMs": 1791960458324,
+              "pageMonotonicMs": 13950.299999952316,
+              "visibility": "hidden",
+              "focus": true,
+              "target": "probeType",
+              "isTrusted": true,
+              "value": ""
+            },
+            {
+              "caseId": "f-hidden-throttle-true-bypass-true-type",
+              "kind": "click",
+              "epochMs": 1791960458324,
+              "pageMonotonicMs": 13950.299999952316,
+              "visibility": "hidden",
+              "focus": true,
+              "target": "probeType",
+              "isTrusted": true,
+              "value": ""
+            },
+            {
+              "caseId": "f-hidden-throttle-true-bypass-true-type",
+              "kind": "input",
+              "epochMs": 1791960458326,
+              "pageMonotonicMs": 13952.700000047684,
+              "visibility": "hidden",
+              "focus": true,
+              "target": "probeType",
+              "isTrusted": false,
+              "value": "typed-f-hidden-throttle-true-bypass-true"
+            },
+            {
+              "caseId": "f-hidden-throttle-true-bypass-true-type",
+              "kind": "change",
+              "epochMs": 1791960458326,
+              "pageMonotonicMs": 13952.799999952316,
+              "visibility": "hidden",
+              "focus": true,
+              "target": "probeType",
+              "isTrusted": false,
+              "value": "typed-f-hidden-throttle-true-bypass-true"
+            }
+          ],
+          "clicks": 1,
+          "text": "typed-f-hidden-throttle-true-bypass-true",
+          "files": [],
+          "scrollY": 400,
+          "visibility": "hidden",
+          "focus": true,
+          "epochMs": 1791960459332
+        },
+        "afterOneSecond": {
+          "caseId": "f-hidden-throttle-true-bypass-true-scroll",
+          "events": [
+            {
+              "caseId": "f-hidden-throttle-true-bypass-true-click",
+              "kind": "window-focus",
+              "epochMs": 1791960445776,
+              "pageMonotonicMs": 1402.6000001430511,
+              "visibility": "hidden",
+              "focus": true
+            },
+            {
+              "caseId": "f-hidden-throttle-true-bypass-true-click",
+              "kind": "window-focus",
+              "epochMs": 1791960445776,
+              "pageMonotonicMs": 1402.6000001430511,
+              "visibility": "hidden",
+              "focus": true
+            },
+            {
+              "caseId": "f-hidden-throttle-true-bypass-true-click",
+              "kind": "pointerdown",
+              "epochMs": 1791960445778,
+              "pageMonotonicMs": 1404.2000000476837,
+              "visibility": "hidden",
+              "focus": true,
+              "target": "probeClick",
+              "isTrusted": true,
+              "value": ""
+            },
+            {
+              "caseId": "f-hidden-throttle-true-bypass-true-click",
+              "kind": "mousedown",
+              "epochMs": 1791960445778,
+              "pageMonotonicMs": 1404.2000000476837,
+              "visibility": "hidden",
+              "focus": true,
+              "target": "probeClick",
+              "isTrusted": true,
+              "value": ""
+            },
+            {
+              "caseId": "f-hidden-throttle-true-bypass-true-click",
+              "kind": "focusin",
+              "epochMs": 1791960445778,
+              "pageMonotonicMs": 1404.5,
+              "visibility": "hidden",
+              "focus": true,
+              "target": "probeClick",
+              "isTrusted": true,
+              "value": ""
+            },
+            {
+              "caseId": "f-hidden-throttle-true-bypass-true-click",
+              "kind": "pointerup",
+              "epochMs": 1791960445779,
+              "pageMonotonicMs": 1405.9000000953674,
+              "visibility": "hidden",
+              "focus": true,
+              "target": "probeClick",
+              "isTrusted": true,
+              "value": ""
+            },
+            {
+              "caseId": "f-hidden-throttle-true-bypass-true-click",
+              "kind": "mouseup",
+              "epochMs": 1791960445779,
+              "pageMonotonicMs": 1406,
+              "visibility": "hidden",
+              "focus": true,
+              "target": "probeClick",
+              "isTrusted": true,
+              "value": ""
+            },
+            {
+              "caseId": "f-hidden-throttle-true-bypass-true-click",
+              "kind": "click",
+              "epochMs": 1791960445780,
+              "pageMonotonicMs": 1406.2000000476837,
+              "visibility": "hidden",
+              "focus": true,
+              "target": "probeClick",
+              "isTrusted": true,
+              "value": ""
+            },
+            {
+              "caseId": "f-hidden-throttle-true-bypass-true-type",
+              "kind": "pointerdown",
+              "epochMs": 1791960458319,
+              "pageMonotonicMs": 13945.600000143051,
+              "visibility": "hidden",
+              "focus": true,
+              "target": "probeType",
+              "isTrusted": true,
+              "value": ""
+            },
+            {
+              "caseId": "f-hidden-throttle-true-bypass-true-type",
+              "kind": "mousedown",
+              "epochMs": 1791960458319,
+              "pageMonotonicMs": 13945.700000047684,
+              "visibility": "hidden",
+              "focus": true,
+              "target": "probeType",
+              "isTrusted": true,
+              "value": ""
+            },
+            {
+              "caseId": "f-hidden-throttle-true-bypass-true-type",
+              "kind": "focusout",
+              "epochMs": 1791960458320,
+              "pageMonotonicMs": 13946.100000143051,
+              "visibility": "hidden",
+              "focus": true,
+              "target": "probeClick",
+              "isTrusted": true,
+              "value": ""
+            },
+            {
+              "caseId": "f-hidden-throttle-true-bypass-true-type",
+              "kind": "focusin",
+              "epochMs": 1791960458320,
+              "pageMonotonicMs": 13946.200000047684,
+              "visibility": "hidden",
+              "focus": true,
+              "target": "probeType",
+              "isTrusted": true,
+              "value": ""
+            },
+            {
+              "caseId": "f-hidden-throttle-true-bypass-true-type",
+              "kind": "pointerup",
+              "epochMs": 1791960458324,
+              "pageMonotonicMs": 13950.299999952316,
+              "visibility": "hidden",
+              "focus": true,
+              "target": "probeType",
+              "isTrusted": true,
+              "value": ""
+            },
+            {
+              "caseId": "f-hidden-throttle-true-bypass-true-type",
+              "kind": "mouseup",
+              "epochMs": 1791960458324,
+              "pageMonotonicMs": 13950.299999952316,
+              "visibility": "hidden",
+              "focus": true,
+              "target": "probeType",
+              "isTrusted": true,
+              "value": ""
+            },
+            {
+              "caseId": "f-hidden-throttle-true-bypass-true-type",
+              "kind": "click",
+              "epochMs": 1791960458324,
+              "pageMonotonicMs": 13950.299999952316,
+              "visibility": "hidden",
+              "focus": true,
+              "target": "probeType",
+              "isTrusted": true,
+              "value": ""
+            },
+            {
+              "caseId": "f-hidden-throttle-true-bypass-true-type",
+              "kind": "input",
+              "epochMs": 1791960458326,
+              "pageMonotonicMs": 13952.700000047684,
+              "visibility": "hidden",
+              "focus": true,
+              "target": "probeType",
+              "isTrusted": false,
+              "value": "typed-f-hidden-throttle-true-bypass-true"
+            },
+            {
+              "caseId": "f-hidden-throttle-true-bypass-true-type",
+              "kind": "change",
+              "epochMs": 1791960458326,
+              "pageMonotonicMs": 13952.799999952316,
+              "visibility": "hidden",
+              "focus": true,
+              "target": "probeType",
+              "isTrusted": false,
+              "value": "typed-f-hidden-throttle-true-bypass-true"
+            },
+            {
+              "caseId": "f-hidden-throttle-true-bypass-true-scroll",
+              "kind": "scroll",
+              "epochMs": 1791960460318,
+              "pageMonotonicMs": 15945,
+              "visibility": "hidden",
+              "focus": true,
+              "isTrusted": true,
+              "scrollY": 400
+            }
+          ],
+          "clicks": 1,
+          "text": "typed-f-hidden-throttle-true-bypass-true",
+          "files": [],
+          "scrollY": 400,
+          "visibility": "hidden",
+          "focus": true,
+          "epochMs": 1791960460334
+        }
+      },
+      {
+        "actionId": "f-hidden-throttle-true-bypass-true-upload",
+        "response": {
+          "caseId": "f-hidden-throttle-true-bypass-true",
+          "id": "f-hidden-throttle-true-bypass-true-upload",
+          "command": "penkra tabs act --input '{\"tabId\":\"qa-browser-A\",\"steps\":[{\"action\":\"upload\",\"ref\":\"d2:e3\",\"paths\":[\"/Users/emmanuelgyekyeatta-penkra/Penkra/qa-tab-additions-b9xq3rc4/app-storage/upload-fixture.txt\"]}]}'",
+          "startedEpochMs": 1791960460335,
+          "durationMs": 11.310584000002564,
+          "ok": true,
+          "result": {
+            "tabId": "qa-browser-A",
+            "inputMode": "smooth",
+            "steps": [
+              {
+                "tabId": "qa-browser-A",
+                "target": "d2:e3",
+                "uploaded": 1
+              }
+            ]
+          }
+        },
+        "immediate": {
+          "caseId": "f-hidden-throttle-true-bypass-true-upload",
+          "events": [
+            {
+              "caseId": "f-hidden-throttle-true-bypass-true-click",
+              "kind": "window-focus",
+              "epochMs": 1791960445776,
+              "pageMonotonicMs": 1402.6000001430511,
+              "visibility": "hidden",
+              "focus": true
+            },
+            {
+              "caseId": "f-hidden-throttle-true-bypass-true-click",
+              "kind": "window-focus",
+              "epochMs": 1791960445776,
+              "pageMonotonicMs": 1402.6000001430511,
+              "visibility": "hidden",
+              "focus": true
+            },
+            {
+              "caseId": "f-hidden-throttle-true-bypass-true-click",
+              "kind": "pointerdown",
+              "epochMs": 1791960445778,
+              "pageMonotonicMs": 1404.2000000476837,
+              "visibility": "hidden",
+              "focus": true,
+              "target": "probeClick",
+              "isTrusted": true,
+              "value": ""
+            },
+            {
+              "caseId": "f-hidden-throttle-true-bypass-true-click",
+              "kind": "mousedown",
+              "epochMs": 1791960445778,
+              "pageMonotonicMs": 1404.2000000476837,
+              "visibility": "hidden",
+              "focus": true,
+              "target": "probeClick",
+              "isTrusted": true,
+              "value": ""
+            },
+            {
+              "caseId": "f-hidden-throttle-true-bypass-true-click",
+              "kind": "focusin",
+              "epochMs": 1791960445778,
+              "pageMonotonicMs": 1404.5,
+              "visibility": "hidden",
+              "focus": true,
+              "target": "probeClick",
+              "isTrusted": true,
+              "value": ""
+            },
+            {
+              "caseId": "f-hidden-throttle-true-bypass-true-click",
+              "kind": "pointerup",
+              "epochMs": 1791960445779,
+              "pageMonotonicMs": 1405.9000000953674,
+              "visibility": "hidden",
+              "focus": true,
+              "target": "probeClick",
+              "isTrusted": true,
+              "value": ""
+            },
+            {
+              "caseId": "f-hidden-throttle-true-bypass-true-click",
+              "kind": "mouseup",
+              "epochMs": 1791960445779,
+              "pageMonotonicMs": 1406,
+              "visibility": "hidden",
+              "focus": true,
+              "target": "probeClick",
+              "isTrusted": true,
+              "value": ""
+            },
+            {
+              "caseId": "f-hidden-throttle-true-bypass-true-click",
+              "kind": "click",
+              "epochMs": 1791960445780,
+              "pageMonotonicMs": 1406.2000000476837,
+              "visibility": "hidden",
+              "focus": true,
+              "target": "probeClick",
+              "isTrusted": true,
+              "value": ""
+            },
+            {
+              "caseId": "f-hidden-throttle-true-bypass-true-type",
+              "kind": "pointerdown",
+              "epochMs": 1791960458319,
+              "pageMonotonicMs": 13945.600000143051,
+              "visibility": "hidden",
+              "focus": true,
+              "target": "probeType",
+              "isTrusted": true,
+              "value": ""
+            },
+            {
+              "caseId": "f-hidden-throttle-true-bypass-true-type",
+              "kind": "mousedown",
+              "epochMs": 1791960458319,
+              "pageMonotonicMs": 13945.700000047684,
+              "visibility": "hidden",
+              "focus": true,
+              "target": "probeType",
+              "isTrusted": true,
+              "value": ""
+            },
+            {
+              "caseId": "f-hidden-throttle-true-bypass-true-type",
+              "kind": "focusout",
+              "epochMs": 1791960458320,
+              "pageMonotonicMs": 13946.100000143051,
+              "visibility": "hidden",
+              "focus": true,
+              "target": "probeClick",
+              "isTrusted": true,
+              "value": ""
+            },
+            {
+              "caseId": "f-hidden-throttle-true-bypass-true-type",
+              "kind": "focusin",
+              "epochMs": 1791960458320,
+              "pageMonotonicMs": 13946.200000047684,
+              "visibility": "hidden",
+              "focus": true,
+              "target": "probeType",
+              "isTrusted": true,
+              "value": ""
+            },
+            {
+              "caseId": "f-hidden-throttle-true-bypass-true-type",
+              "kind": "pointerup",
+              "epochMs": 1791960458324,
+              "pageMonotonicMs": 13950.299999952316,
+              "visibility": "hidden",
+              "focus": true,
+              "target": "probeType",
+              "isTrusted": true,
+              "value": ""
+            },
+            {
+              "caseId": "f-hidden-throttle-true-bypass-true-type",
+              "kind": "mouseup",
+              "epochMs": 1791960458324,
+              "pageMonotonicMs": 13950.299999952316,
+              "visibility": "hidden",
+              "focus": true,
+              "target": "probeType",
+              "isTrusted": true,
+              "value": ""
+            },
+            {
+              "caseId": "f-hidden-throttle-true-bypass-true-type",
+              "kind": "click",
+              "epochMs": 1791960458324,
+              "pageMonotonicMs": 13950.299999952316,
+              "visibility": "hidden",
+              "focus": true,
+              "target": "probeType",
+              "isTrusted": true,
+              "value": ""
+            },
+            {
+              "caseId": "f-hidden-throttle-true-bypass-true-type",
+              "kind": "input",
+              "epochMs": 1791960458326,
+              "pageMonotonicMs": 13952.700000047684,
+              "visibility": "hidden",
+              "focus": true,
+              "target": "probeType",
+              "isTrusted": false,
+              "value": "typed-f-hidden-throttle-true-bypass-true"
+            },
+            {
+              "caseId": "f-hidden-throttle-true-bypass-true-type",
+              "kind": "change",
+              "epochMs": 1791960458326,
+              "pageMonotonicMs": 13952.799999952316,
+              "visibility": "hidden",
+              "focus": true,
+              "target": "probeType",
+              "isTrusted": false,
+              "value": "typed-f-hidden-throttle-true-bypass-true"
+            },
+            {
+              "caseId": "f-hidden-throttle-true-bypass-true-scroll",
+              "kind": "scroll",
+              "epochMs": 1791960460318,
+              "pageMonotonicMs": 15945,
+              "visibility": "hidden",
+              "focus": true,
+              "isTrusted": true,
+              "scrollY": 400
+            },
+            {
+              "caseId": "f-hidden-throttle-true-bypass-true-upload",
+              "kind": "input",
+              "epochMs": 1791960460345,
+              "pageMonotonicMs": 15971.700000047684,
+              "visibility": "hidden",
+              "focus": true,
+              "target": "probeUpload",
+              "isTrusted": true,
+              "value": "C:\\fakepath\\upload-fixture.txt",
+              "files": [
+                "upload-fixture.txt"
+              ]
+            },
+            {
+              "caseId": "f-hidden-throttle-true-bypass-true-upload",
+              "kind": "change",
+              "epochMs": 1791960460345,
+              "pageMonotonicMs": 15971.900000095367,
+              "visibility": "hidden",
+              "focus": true,
+              "target": "probeUpload",
+              "isTrusted": true,
+              "value": "C:\\fakepath\\upload-fixture.txt",
+              "files": [
+                "upload-fixture.txt"
+              ]
+            }
+          ],
+          "clicks": 1,
+          "text": "typed-f-hidden-throttle-true-bypass-true",
+          "files": [
+            "upload-fixture.txt"
+          ],
+          "scrollY": 400,
+          "visibility": "hidden",
+          "focus": true,
+          "epochMs": 1791960460347
+        },
+        "afterOneSecond": {
+          "caseId": "f-hidden-throttle-true-bypass-true-upload",
+          "events": [
+            {
+              "caseId": "f-hidden-throttle-true-bypass-true-click",
+              "kind": "window-focus",
+              "epochMs": 1791960445776,
+              "pageMonotonicMs": 1402.6000001430511,
+              "visibility": "hidden",
+              "focus": true
+            },
+            {
+              "caseId": "f-hidden-throttle-true-bypass-true-click",
+              "kind": "window-focus",
+              "epochMs": 1791960445776,
+              "pageMonotonicMs": 1402.6000001430511,
+              "visibility": "hidden",
+              "focus": true
+            },
+            {
+              "caseId": "f-hidden-throttle-true-bypass-true-click",
+              "kind": "pointerdown",
+              "epochMs": 1791960445778,
+              "pageMonotonicMs": 1404.2000000476837,
+              "visibility": "hidden",
+              "focus": true,
+              "target": "probeClick",
+              "isTrusted": true,
+              "value": ""
+            },
+            {
+              "caseId": "f-hidden-throttle-true-bypass-true-click",
+              "kind": "mousedown",
+              "epochMs": 1791960445778,
+              "pageMonotonicMs": 1404.2000000476837,
+              "visibility": "hidden",
+              "focus": true,
+              "target": "probeClick",
+              "isTrusted": true,
+              "value": ""
+            },
+            {
+              "caseId": "f-hidden-throttle-true-bypass-true-click",
+              "kind": "focusin",
+              "epochMs": 1791960445778,
+              "pageMonotonicMs": 1404.5,
+              "visibility": "hidden",
+              "focus": true,
+              "target": "probeClick",
+              "isTrusted": true,
+              "value": ""
+            },
+            {
+              "caseId": "f-hidden-throttle-true-bypass-true-click",
+              "kind": "pointerup",
+              "epochMs": 1791960445779,
+              "pageMonotonicMs": 1405.9000000953674,
+              "visibility": "hidden",
+              "focus": true,
+              "target": "probeClick",
+              "isTrusted": true,
+              "value": ""
+            },
+            {
+              "caseId": "f-hidden-throttle-true-bypass-true-click",
+              "kind": "mouseup",
+              "epochMs": 1791960445779,
+              "pageMonotonicMs": 1406,
+              "visibility": "hidden",
+              "focus": true,
+              "target": "probeClick",
+              "isTrusted": true,
+              "value": ""
+            },
+            {
+              "caseId": "f-hidden-throttle-true-bypass-true-click",
+              "kind": "click",
+              "epochMs": 1791960445780,
+              "pageMonotonicMs": 1406.2000000476837,
+              "visibility": "hidden",
+              "focus": true,
+              "target": "probeClick",
+              "isTrusted": true,
+              "value": ""
+            },
+            {
+              "caseId": "f-hidden-throttle-true-bypass-true-type",
+              "kind": "pointerdown",
+              "epochMs": 1791960458319,
+              "pageMonotonicMs": 13945.600000143051,
+              "visibility": "hidden",
+              "focus": true,
+              "target": "probeType",
+              "isTrusted": true,
+              "value": ""
+            },
+            {
+              "caseId": "f-hidden-throttle-true-bypass-true-type",
+              "kind": "mousedown",
+              "epochMs": 1791960458319,
+              "pageMonotonicMs": 13945.700000047684,
+              "visibility": "hidden",
+              "focus": true,
+              "target": "probeType",
+              "isTrusted": true,
+              "value": ""
+            },
+            {
+              "caseId": "f-hidden-throttle-true-bypass-true-type",
+              "kind": "focusout",
+              "epochMs": 1791960458320,
+              "pageMonotonicMs": 13946.100000143051,
+              "visibility": "hidden",
+              "focus": true,
+              "target": "probeClick",
+              "isTrusted": true,
+              "value": ""
+            },
+            {
+              "caseId": "f-hidden-throttle-true-bypass-true-type",
+              "kind": "focusin",
+              "epochMs": 1791960458320,
+              "pageMonotonicMs": 13946.200000047684,
+              "visibility": "hidden",
+              "focus": true,
+              "target": "probeType",
+              "isTrusted": true,
+              "value": ""
+            },
+            {
+              "caseId": "f-hidden-throttle-true-bypass-true-type",
+              "kind": "pointerup",
+              "epochMs": 1791960458324,
+              "pageMonotonicMs": 13950.299999952316,
+              "visibility": "hidden",
+              "focus": true,
+              "target": "probeType",
+              "isTrusted": true,
+              "value": ""
+            },
+            {
+              "caseId": "f-hidden-throttle-true-bypass-true-type",
+              "kind": "mouseup",
+              "epochMs": 1791960458324,
+              "pageMonotonicMs": 13950.299999952316,
+              "visibility": "hidden",
+              "focus": true,
+              "target": "probeType",
+              "isTrusted": true,
+              "value": ""
+            },
+            {
+              "caseId": "f-hidden-throttle-true-bypass-true-type",
+              "kind": "click",
+              "epochMs": 1791960458324,
+              "pageMonotonicMs": 13950.299999952316,
+              "visibility": "hidden",
+              "focus": true,
+              "target": "probeType",
+              "isTrusted": true,
+              "value": ""
+            },
+            {
+              "caseId": "f-hidden-throttle-true-bypass-true-type",
+              "kind": "input",
+              "epochMs": 1791960458326,
+              "pageMonotonicMs": 13952.700000047684,
+              "visibility": "hidden",
+              "focus": true,
+              "target": "probeType",
+              "isTrusted": false,
+              "value": "typed-f-hidden-throttle-true-bypass-true"
+            },
+            {
+              "caseId": "f-hidden-throttle-true-bypass-true-type",
+              "kind": "change",
+              "epochMs": 1791960458326,
+              "pageMonotonicMs": 13952.799999952316,
+              "visibility": "hidden",
+              "focus": true,
+              "target": "probeType",
+              "isTrusted": false,
+              "value": "typed-f-hidden-throttle-true-bypass-true"
+            },
+            {
+              "caseId": "f-hidden-throttle-true-bypass-true-scroll",
+              "kind": "scroll",
+              "epochMs": 1791960460318,
+              "pageMonotonicMs": 15945,
+              "visibility": "hidden",
+              "focus": true,
+              "isTrusted": true,
+              "scrollY": 400
+            },
+            {
+              "caseId": "f-hidden-throttle-true-bypass-true-upload",
+              "kind": "input",
+              "epochMs": 1791960460345,
+              "pageMonotonicMs": 15971.700000047684,
+              "visibility": "hidden",
+              "focus": true,
+              "target": "probeUpload",
+              "isTrusted": true,
+              "value": "C:\\fakepath\\upload-fixture.txt",
+              "files": [
+                "upload-fixture.txt"
+              ]
+            },
+            {
+              "caseId": "f-hidden-throttle-true-bypass-true-upload",
+              "kind": "change",
+              "epochMs": 1791960460345,
+              "pageMonotonicMs": 15971.900000095367,
+              "visibility": "hidden",
+              "focus": true,
+              "target": "probeUpload",
+              "isTrusted": true,
+              "value": "C:\\fakepath\\upload-fixture.txt",
+              "files": [
+                "upload-fixture.txt"
+              ]
+            }
+          ],
+          "clicks": 1,
+          "text": "typed-f-hidden-throttle-true-bypass-true",
+          "files": [
+            "upload-fixture.txt"
+          ],
+          "scrollY": 400,
+          "visibility": "hidden",
+          "focus": true,
+          "epochMs": 1791960461349
+        }
+      }
+    ],
+    "beforeRestore": {
+      "caseId": "f-hidden-throttle-true-bypass-true-upload",
+      "events": [
+        {
+          "caseId": "f-hidden-throttle-true-bypass-true-click",
+          "kind": "window-focus",
+          "epochMs": 1791960445776,
+          "pageMonotonicMs": 1402.6000001430511,
+          "visibility": "hidden",
+          "focus": true
+        },
+        {
+          "caseId": "f-hidden-throttle-true-bypass-true-click",
+          "kind": "window-focus",
+          "epochMs": 1791960445776,
+          "pageMonotonicMs": 1402.6000001430511,
+          "visibility": "hidden",
+          "focus": true
+        },
+        {
+          "caseId": "f-hidden-throttle-true-bypass-true-click",
+          "kind": "pointerdown",
+          "epochMs": 1791960445778,
+          "pageMonotonicMs": 1404.2000000476837,
+          "visibility": "hidden",
+          "focus": true,
+          "target": "probeClick",
+          "isTrusted": true,
+          "value": ""
+        },
+        {
+          "caseId": "f-hidden-throttle-true-bypass-true-click",
+          "kind": "mousedown",
+          "epochMs": 1791960445778,
+          "pageMonotonicMs": 1404.2000000476837,
+          "visibility": "hidden",
+          "focus": true,
+          "target": "probeClick",
+          "isTrusted": true,
+          "value": ""
+        },
+        {
+          "caseId": "f-hidden-throttle-true-bypass-true-click",
+          "kind": "focusin",
+          "epochMs": 1791960445778,
+          "pageMonotonicMs": 1404.5,
+          "visibility": "hidden",
+          "focus": true,
+          "target": "probeClick",
+          "isTrusted": true,
+          "value": ""
+        },
+        {
+          "caseId": "f-hidden-throttle-true-bypass-true-click",
+          "kind": "pointerup",
+          "epochMs": 1791960445779,
+          "pageMonotonicMs": 1405.9000000953674,
+          "visibility": "hidden",
+          "focus": true,
+          "target": "probeClick",
+          "isTrusted": true,
+          "value": ""
+        },
+        {
+          "caseId": "f-hidden-throttle-true-bypass-true-click",
+          "kind": "mouseup",
+          "epochMs": 1791960445779,
+          "pageMonotonicMs": 1406,
+          "visibility": "hidden",
+          "focus": true,
+          "target": "probeClick",
+          "isTrusted": true,
+          "value": ""
+        },
+        {
+          "caseId": "f-hidden-throttle-true-bypass-true-click",
+          "kind": "click",
+          "epochMs": 1791960445780,
+          "pageMonotonicMs": 1406.2000000476837,
+          "visibility": "hidden",
+          "focus": true,
+          "target": "probeClick",
+          "isTrusted": true,
+          "value": ""
+        },
+        {
+          "caseId": "f-hidden-throttle-true-bypass-true-type",
+          "kind": "pointerdown",
+          "epochMs": 1791960458319,
+          "pageMonotonicMs": 13945.600000143051,
+          "visibility": "hidden",
+          "focus": true,
+          "target": "probeType",
+          "isTrusted": true,
+          "value": ""
+        },
+        {
+          "caseId": "f-hidden-throttle-true-bypass-true-type",
+          "kind": "mousedown",
+          "epochMs": 1791960458319,
+          "pageMonotonicMs": 13945.700000047684,
+          "visibility": "hidden",
+          "focus": true,
+          "target": "probeType",
+          "isTrusted": true,
+          "value": ""
+        },
+        {
+          "caseId": "f-hidden-throttle-true-bypass-true-type",
+          "kind": "focusout",
+          "epochMs": 1791960458320,
+          "pageMonotonicMs": 13946.100000143051,
+          "visibility": "hidden",
+          "focus": true,
+          "target": "probeClick",
+          "isTrusted": true,
+          "value": ""
+        },
+        {
+          "caseId": "f-hidden-throttle-true-bypass-true-type",
+          "kind": "focusin",
+          "epochMs": 1791960458320,
+          "pageMonotonicMs": 13946.200000047684,
+          "visibility": "hidden",
+          "focus": true,
+          "target": "probeType",
+          "isTrusted": true,
+          "value": ""
+        },
+        {
+          "caseId": "f-hidden-throttle-true-bypass-true-type",
+          "kind": "pointerup",
+          "epochMs": 1791960458324,
+          "pageMonotonicMs": 13950.299999952316,
+          "visibility": "hidden",
+          "focus": true,
+          "target": "probeType",
+          "isTrusted": true,
+          "value": ""
+        },
+        {
+          "caseId": "f-hidden-throttle-true-bypass-true-type",
+          "kind": "mouseup",
+          "epochMs": 1791960458324,
+          "pageMonotonicMs": 13950.299999952316,
+          "visibility": "hidden",
+          "focus": true,
+          "target": "probeType",
+          "isTrusted": true,
+          "value": ""
+        },
+        {
+          "caseId": "f-hidden-throttle-true-bypass-true-type",
+          "kind": "click",
+          "epochMs": 1791960458324,
+          "pageMonotonicMs": 13950.299999952316,
+          "visibility": "hidden",
+          "focus": true,
+          "target": "probeType",
+          "isTrusted": true,
+          "value": ""
+        },
+        {
+          "caseId": "f-hidden-throttle-true-bypass-true-type",
+          "kind": "input",
+          "epochMs": 1791960458326,
+          "pageMonotonicMs": 13952.700000047684,
+          "visibility": "hidden",
+          "focus": true,
+          "target": "probeType",
+          "isTrusted": false,
+          "value": "typed-f-hidden-throttle-true-bypass-true"
+        },
+        {
+          "caseId": "f-hidden-throttle-true-bypass-true-type",
+          "kind": "change",
+          "epochMs": 1791960458326,
+          "pageMonotonicMs": 13952.799999952316,
+          "visibility": "hidden",
+          "focus": true,
+          "target": "probeType",
+          "isTrusted": false,
+          "value": "typed-f-hidden-throttle-true-bypass-true"
+        },
+        {
+          "caseId": "f-hidden-throttle-true-bypass-true-scroll",
+          "kind": "scroll",
+          "epochMs": 1791960460318,
+          "pageMonotonicMs": 15945,
+          "visibility": "hidden",
+          "focus": true,
+          "isTrusted": true,
+          "scrollY": 400
+        },
+        {
+          "caseId": "f-hidden-throttle-true-bypass-true-upload",
+          "kind": "input",
+          "epochMs": 1791960460345,
+          "pageMonotonicMs": 15971.700000047684,
+          "visibility": "hidden",
+          "focus": true,
+          "target": "probeUpload",
+          "isTrusted": true,
+          "value": "C:\\fakepath\\upload-fixture.txt",
+          "files": [
+            "upload-fixture.txt"
+          ]
+        },
+        {
+          "caseId": "f-hidden-throttle-true-bypass-true-upload",
+          "kind": "change",
+          "epochMs": 1791960460345,
+          "pageMonotonicMs": 15971.900000095367,
+          "visibility": "hidden",
+          "focus": true,
+          "target": "probeUpload",
+          "isTrusted": true,
+          "value": "C:\\fakepath\\upload-fixture.txt",
+          "files": [
+            "upload-fixture.txt"
+          ]
+        }
+      ],
+      "clicks": 1,
+      "text": "typed-f-hidden-throttle-true-bypass-true",
+      "files": [
+        "upload-fixture.txt"
+      ],
+      "scrollY": 400,
+      "visibility": "hidden",
+      "focus": true,
+      "epochMs": 1791960464350
+    },
+    "hiddenEnd": {
+      "visible": false,
+      "minimized": false
+    },
+    "afterRestore": {
+      "caseId": "f-hidden-throttle-true-bypass-true-upload",
+      "events": [
+        {
+          "caseId": "f-hidden-throttle-true-bypass-true-click",
+          "kind": "window-focus",
+          "epochMs": 1791960445776,
+          "pageMonotonicMs": 1402.6000001430511,
+          "visibility": "hidden",
+          "focus": true
+        },
+        {
+          "caseId": "f-hidden-throttle-true-bypass-true-click",
+          "kind": "window-focus",
+          "epochMs": 1791960445776,
+          "pageMonotonicMs": 1402.6000001430511,
+          "visibility": "hidden",
+          "focus": true
+        },
+        {
+          "caseId": "f-hidden-throttle-true-bypass-true-click",
+          "kind": "pointerdown",
+          "epochMs": 1791960445778,
+          "pageMonotonicMs": 1404.2000000476837,
+          "visibility": "hidden",
+          "focus": true,
+          "target": "probeClick",
+          "isTrusted": true,
+          "value": ""
+        },
+        {
+          "caseId": "f-hidden-throttle-true-bypass-true-click",
+          "kind": "mousedown",
+          "epochMs": 1791960445778,
+          "pageMonotonicMs": 1404.2000000476837,
+          "visibility": "hidden",
+          "focus": true,
+          "target": "probeClick",
+          "isTrusted": true,
+          "value": ""
+        },
+        {
+          "caseId": "f-hidden-throttle-true-bypass-true-click",
+          "kind": "focusin",
+          "epochMs": 1791960445778,
+          "pageMonotonicMs": 1404.5,
+          "visibility": "hidden",
+          "focus": true,
+          "target": "probeClick",
+          "isTrusted": true,
+          "value": ""
+        },
+        {
+          "caseId": "f-hidden-throttle-true-bypass-true-click",
+          "kind": "pointerup",
+          "epochMs": 1791960445779,
+          "pageMonotonicMs": 1405.9000000953674,
+          "visibility": "hidden",
+          "focus": true,
+          "target": "probeClick",
+          "isTrusted": true,
+          "value": ""
+        },
+        {
+          "caseId": "f-hidden-throttle-true-bypass-true-click",
+          "kind": "mouseup",
+          "epochMs": 1791960445779,
+          "pageMonotonicMs": 1406,
+          "visibility": "hidden",
+          "focus": true,
+          "target": "probeClick",
+          "isTrusted": true,
+          "value": ""
+        },
+        {
+          "caseId": "f-hidden-throttle-true-bypass-true-click",
+          "kind": "click",
+          "epochMs": 1791960445780,
+          "pageMonotonicMs": 1406.2000000476837,
+          "visibility": "hidden",
+          "focus": true,
+          "target": "probeClick",
+          "isTrusted": true,
+          "value": ""
+        },
+        {
+          "caseId": "f-hidden-throttle-true-bypass-true-type",
+          "kind": "pointerdown",
+          "epochMs": 1791960458319,
+          "pageMonotonicMs": 13945.600000143051,
+          "visibility": "hidden",
+          "focus": true,
+          "target": "probeType",
+          "isTrusted": true,
+          "value": ""
+        },
+        {
+          "caseId": "f-hidden-throttle-true-bypass-true-type",
+          "kind": "mousedown",
+          "epochMs": 1791960458319,
+          "pageMonotonicMs": 13945.700000047684,
+          "visibility": "hidden",
+          "focus": true,
+          "target": "probeType",
+          "isTrusted": true,
+          "value": ""
+        },
+        {
+          "caseId": "f-hidden-throttle-true-bypass-true-type",
+          "kind": "focusout",
+          "epochMs": 1791960458320,
+          "pageMonotonicMs": 13946.100000143051,
+          "visibility": "hidden",
+          "focus": true,
+          "target": "probeClick",
+          "isTrusted": true,
+          "value": ""
+        },
+        {
+          "caseId": "f-hidden-throttle-true-bypass-true-type",
+          "kind": "focusin",
+          "epochMs": 1791960458320,
+          "pageMonotonicMs": 13946.200000047684,
+          "visibility": "hidden",
+          "focus": true,
+          "target": "probeType",
+          "isTrusted": true,
+          "value": ""
+        },
+        {
+          "caseId": "f-hidden-throttle-true-bypass-true-type",
+          "kind": "pointerup",
+          "epochMs": 1791960458324,
+          "pageMonotonicMs": 13950.299999952316,
+          "visibility": "hidden",
+          "focus": true,
+          "target": "probeType",
+          "isTrusted": true,
+          "value": ""
+        },
+        {
+          "caseId": "f-hidden-throttle-true-bypass-true-type",
+          "kind": "mouseup",
+          "epochMs": 1791960458324,
+          "pageMonotonicMs": 13950.299999952316,
+          "visibility": "hidden",
+          "focus": true,
+          "target": "probeType",
+          "isTrusted": true,
+          "value": ""
+        },
+        {
+          "caseId": "f-hidden-throttle-true-bypass-true-type",
+          "kind": "click",
+          "epochMs": 1791960458324,
+          "pageMonotonicMs": 13950.299999952316,
+          "visibility": "hidden",
+          "focus": true,
+          "target": "probeType",
+          "isTrusted": true,
+          "value": ""
+        },
+        {
+          "caseId": "f-hidden-throttle-true-bypass-true-type",
+          "kind": "input",
+          "epochMs": 1791960458326,
+          "pageMonotonicMs": 13952.700000047684,
+          "visibility": "hidden",
+          "focus": true,
+          "target": "probeType",
+          "isTrusted": false,
+          "value": "typed-f-hidden-throttle-true-bypass-true"
+        },
+        {
+          "caseId": "f-hidden-throttle-true-bypass-true-type",
+          "kind": "change",
+          "epochMs": 1791960458326,
+          "pageMonotonicMs": 13952.799999952316,
+          "visibility": "hidden",
+          "focus": true,
+          "target": "probeType",
+          "isTrusted": false,
+          "value": "typed-f-hidden-throttle-true-bypass-true"
+        },
+        {
+          "caseId": "f-hidden-throttle-true-bypass-true-scroll",
+          "kind": "scroll",
+          "epochMs": 1791960460318,
+          "pageMonotonicMs": 15945,
+          "visibility": "hidden",
+          "focus": true,
+          "isTrusted": true,
+          "scrollY": 400
+        },
+        {
+          "caseId": "f-hidden-throttle-true-bypass-true-upload",
+          "kind": "input",
+          "epochMs": 1791960460345,
+          "pageMonotonicMs": 15971.700000047684,
+          "visibility": "hidden",
+          "focus": true,
+          "target": "probeUpload",
+          "isTrusted": true,
+          "value": "C:\\fakepath\\upload-fixture.txt",
+          "files": [
+            "upload-fixture.txt"
+          ]
+        },
+        {
+          "caseId": "f-hidden-throttle-true-bypass-true-upload",
+          "kind": "change",
+          "epochMs": 1791960460345,
+          "pageMonotonicMs": 15971.900000095367,
+          "visibility": "hidden",
+          "focus": true,
+          "target": "probeUpload",
+          "isTrusted": true,
+          "value": "C:\\fakepath\\upload-fixture.txt",
+          "files": [
+            "upload-fixture.txt"
+          ]
+        },
+        {
+          "caseId": "f-hidden-throttle-true-bypass-true-upload",
+          "kind": "visibilitychange",
+          "epochMs": 1791960464480,
+          "pageMonotonicMs": 20106.5,
+          "visibility": "visible",
+          "focus": true
+        }
+      ],
+      "clicks": 1,
+      "text": "typed-f-hidden-throttle-true-bypass-true",
+      "files": [
+        "upload-fixture.txt"
+      ],
+      "scrollY": 400,
+      "visibility": "visible",
+      "focus": true,
+      "epochMs": 1791960466021
+    }
+  },
+  {
+    "caseId": "f-hidden-throttle-false-bypass-true",
+    "before": {
+      "mode": "hidden",
+      "shellVisible": false,
+      "minimized": false,
+      "hostVisible": false,
+      "pageVisibility": "visible",
+      "throttling": [
+        {
+          "id": 10,
+          "value": true
+        },
+        {
+          "id": 9,
+          "value": true
+        },
+        {
+          "id": 7,
+          "value": false
+        },
+        {
+          "id": 6,
+          "value": false
+        },
+        {
+          "id": 5,
+          "value": false
+        },
+        {
+          "id": 4,
+          "value": false
+        },
+        {
+          "id": 2,
+          "value": false
+        },
+        {
+          "id": 1,
+          "value": false
+        }
+      ]
+    },
+    "commandRows": [
+      {
+        "actionId": "f-hidden-throttle-false-bypass-true-click",
+        "response": {
+          "caseId": "f-hidden-throttle-false-bypass-true",
+          "id": "f-hidden-throttle-false-bypass-true-click",
+          "command": "penkra tabs act --input '{\"tabId\":\"qa-browser-A\",\"steps\":[{\"action\":\"click\",\"ref\":\"d2:e1\"}]}'",
+          "startedEpochMs": 1791960467199,
+          "durationMs": 7.22820800000045,
+          "ok": true,
+          "result": {
+            "tabId": "qa-browser-A",
+            "inputMode": "smooth",
+            "steps": [
+              {
+                "tabId": "qa-browser-A",
+                "target": "d2:e1",
+                "clicked": true,
+                "deliveryMethod": "cdp-pointer",
+                "trusted": true
+              }
+            ]
+          }
+        },
+        "immediate": {
+          "caseId": "f-hidden-throttle-false-bypass-true-click",
+          "events": [
+            {
+              "caseId": "f-hidden-throttle-false-bypass-true-click",
+              "kind": "scroll",
+              "epochMs": 1791960467202,
+              "pageMonotonicMs": 22828.10000014305,
+              "visibility": "visible",
+              "focus": true,
+              "isTrusted": true,
+              "scrollY": 0
+            },
+            {
+              "caseId": "f-hidden-throttle-false-bypass-true-click",
+              "kind": "pointerdown",
+              "epochMs": 1791960467203,
+              "pageMonotonicMs": 22829.299999952316,
+              "visibility": "visible",
+              "focus": true,
+              "target": "probeClick",
+              "isTrusted": true,
+              "value": ""
+            },
+            {
+              "caseId": "f-hidden-throttle-false-bypass-true-click",
+              "kind": "mousedown",
+              "epochMs": 1791960467203,
+              "pageMonotonicMs": 22829.400000095367,
+              "visibility": "visible",
+              "focus": true,
+              "target": "probeClick",
+              "isTrusted": true,
+              "value": ""
+            },
+            {
+              "caseId": "f-hidden-throttle-false-bypass-true-click",
+              "kind": "focusout",
+              "epochMs": 1791960467203,
+              "pageMonotonicMs": 22829.799999952316,
+              "visibility": "visible",
+              "focus": true,
+              "target": "probeType",
+              "isTrusted": true,
+              "value": ""
+            },
+            {
+              "caseId": "f-hidden-throttle-false-bypass-true-click",
+              "kind": "focusin",
+              "epochMs": 1791960467203,
+              "pageMonotonicMs": 22829.900000095367,
+              "visibility": "visible",
+              "focus": true,
+              "target": "probeClick",
+              "isTrusted": true,
+              "value": ""
+            },
+            {
+              "caseId": "f-hidden-throttle-false-bypass-true-click",
+              "kind": "pointerup",
+              "epochMs": 1791960467205,
+              "pageMonotonicMs": 22831.400000095367,
+              "visibility": "visible",
+              "focus": true,
+              "target": "probeClick",
+              "isTrusted": true,
+              "value": ""
+            },
+            {
+              "caseId": "f-hidden-throttle-false-bypass-true-click",
+              "kind": "mouseup",
+              "epochMs": 1791960467205,
+              "pageMonotonicMs": 22831.400000095367,
+              "visibility": "visible",
+              "focus": true,
+              "target": "probeClick",
+              "isTrusted": true,
+              "value": ""
+            },
+            {
+              "caseId": "f-hidden-throttle-false-bypass-true-click",
+              "kind": "click",
+              "epochMs": 1791960467205,
+              "pageMonotonicMs": 22831.5,
+              "visibility": "visible",
+              "focus": true,
+              "target": "probeClick",
+              "isTrusted": true,
+              "value": ""
+            }
+          ],
+          "clicks": 1,
+          "text": "",
+          "files": [],
+          "scrollY": 0,
+          "visibility": "visible",
+          "focus": true,
+          "epochMs": 1791960467207
+        },
+        "afterOneSecond": {
+          "caseId": "f-hidden-throttle-false-bypass-true-click",
+          "events": [
+            {
+              "caseId": "f-hidden-throttle-false-bypass-true-click",
+              "kind": "scroll",
+              "epochMs": 1791960467202,
+              "pageMonotonicMs": 22828.10000014305,
+              "visibility": "visible",
+              "focus": true,
+              "isTrusted": true,
+              "scrollY": 0
+            },
+            {
+              "caseId": "f-hidden-throttle-false-bypass-true-click",
+              "kind": "pointerdown",
+              "epochMs": 1791960467203,
+              "pageMonotonicMs": 22829.299999952316,
+              "visibility": "visible",
+              "focus": true,
+              "target": "probeClick",
+              "isTrusted": true,
+              "value": ""
+            },
+            {
+              "caseId": "f-hidden-throttle-false-bypass-true-click",
+              "kind": "mousedown",
+              "epochMs": 1791960467203,
+              "pageMonotonicMs": 22829.400000095367,
+              "visibility": "visible",
+              "focus": true,
+              "target": "probeClick",
+              "isTrusted": true,
+              "value": ""
+            },
+            {
+              "caseId": "f-hidden-throttle-false-bypass-true-click",
+              "kind": "focusout",
+              "epochMs": 1791960467203,
+              "pageMonotonicMs": 22829.799999952316,
+              "visibility": "visible",
+              "focus": true,
+              "target": "probeType",
+              "isTrusted": true,
+              "value": ""
+            },
+            {
+              "caseId": "f-hidden-throttle-false-bypass-true-click",
+              "kind": "focusin",
+              "epochMs": 1791960467203,
+              "pageMonotonicMs": 22829.900000095367,
+              "visibility": "visible",
+              "focus": true,
+              "target": "probeClick",
+              "isTrusted": true,
+              "value": ""
+            },
+            {
+              "caseId": "f-hidden-throttle-false-bypass-true-click",
+              "kind": "pointerup",
+              "epochMs": 1791960467205,
+              "pageMonotonicMs": 22831.400000095367,
+              "visibility": "visible",
+              "focus": true,
+              "target": "probeClick",
+              "isTrusted": true,
+              "value": ""
+            },
+            {
+              "caseId": "f-hidden-throttle-false-bypass-true-click",
+              "kind": "mouseup",
+              "epochMs": 1791960467205,
+              "pageMonotonicMs": 22831.400000095367,
+              "visibility": "visible",
+              "focus": true,
+              "target": "probeClick",
+              "isTrusted": true,
+              "value": ""
+            },
+            {
+              "caseId": "f-hidden-throttle-false-bypass-true-click",
+              "kind": "click",
+              "epochMs": 1791960467205,
+              "pageMonotonicMs": 22831.5,
+              "visibility": "visible",
+              "focus": true,
+              "target": "probeClick",
+              "isTrusted": true,
+              "value": ""
+            }
+          ],
+          "clicks": 1,
+          "text": "",
+          "files": [],
+          "scrollY": 0,
+          "visibility": "visible",
+          "focus": true,
+          "epochMs": 1791960468208
+        }
+      },
+      {
+        "actionId": "f-hidden-throttle-false-bypass-true-type",
+        "response": {
+          "caseId": "f-hidden-throttle-false-bypass-true",
+          "id": "f-hidden-throttle-false-bypass-true-type",
+          "command": "penkra tabs act --input '{\"tabId\":\"qa-browser-A\",\"steps\":[{\"action\":\"type\",\"ref\":\"d2:e2\",\"text\":\"typed-f-hidden-throttle-false-bypass-true\"}]}'",
+          "startedEpochMs": 1791960468209,
+          "durationMs": 306.3731669999979,
+          "ok": true,
+          "result": {
+            "tabId": "qa-browser-A",
+            "inputMode": "smooth",
+            "steps": [
+              {
+                "tabId": "qa-browser-A",
+                "target": "d2:e2",
+                "typed": true,
+                "characters": 41
+              }
+            ]
+          }
+        },
+        "immediate": {
+          "caseId": "f-hidden-throttle-false-bypass-true-type",
+          "events": [
+            {
+              "caseId": "f-hidden-throttle-false-bypass-true-click",
+              "kind": "scroll",
+              "epochMs": 1791960467202,
+              "pageMonotonicMs": 22828.10000014305,
+              "visibility": "visible",
+              "focus": true,
+              "isTrusted": true,
+              "scrollY": 0
+            },
+            {
+              "caseId": "f-hidden-throttle-false-bypass-true-click",
+              "kind": "pointerdown",
+              "epochMs": 1791960467203,
+              "pageMonotonicMs": 22829.299999952316,
+              "visibility": "visible",
+              "focus": true,
+              "target": "probeClick",
+              "isTrusted": true,
+              "value": ""
+            },
+            {
+              "caseId": "f-hidden-throttle-false-bypass-true-click",
+              "kind": "mousedown",
+              "epochMs": 1791960467203,
+              "pageMonotonicMs": 22829.400000095367,
+              "visibility": "visible",
+              "focus": true,
+              "target": "probeClick",
+              "isTrusted": true,
+              "value": ""
+            },
+            {
+              "caseId": "f-hidden-throttle-false-bypass-true-click",
+              "kind": "focusout",
+              "epochMs": 1791960467203,
+              "pageMonotonicMs": 22829.799999952316,
+              "visibility": "visible",
+              "focus": true,
+              "target": "probeType",
+              "isTrusted": true,
+              "value": ""
+            },
+            {
+              "caseId": "f-hidden-throttle-false-bypass-true-click",
+              "kind": "focusin",
+              "epochMs": 1791960467203,
+              "pageMonotonicMs": 22829.900000095367,
+              "visibility": "visible",
+              "focus": true,
+              "target": "probeClick",
+              "isTrusted": true,
+              "value": ""
+            },
+            {
+              "caseId": "f-hidden-throttle-false-bypass-true-click",
+              "kind": "pointerup",
+              "epochMs": 1791960467205,
+              "pageMonotonicMs": 22831.400000095367,
+              "visibility": "visible",
+              "focus": true,
+              "target": "probeClick",
+              "isTrusted": true,
+              "value": ""
+            },
+            {
+              "caseId": "f-hidden-throttle-false-bypass-true-click",
+              "kind": "mouseup",
+              "epochMs": 1791960467205,
+              "pageMonotonicMs": 22831.400000095367,
+              "visibility": "visible",
+              "focus": true,
+              "target": "probeClick",
+              "isTrusted": true,
+              "value": ""
+            },
+            {
+              "caseId": "f-hidden-throttle-false-bypass-true-click",
+              "kind": "click",
+              "epochMs": 1791960467205,
+              "pageMonotonicMs": 22831.5,
+              "visibility": "visible",
+              "focus": true,
+              "target": "probeClick",
+              "isTrusted": true,
+              "value": ""
+            },
+            {
+              "caseId": "f-hidden-throttle-false-bypass-true-type",
+              "kind": "pointerdown",
+              "epochMs": 1791960468510,
+              "pageMonotonicMs": 24136.799999952316,
+              "visibility": "visible",
+              "focus": true,
+              "target": "probeType",
+              "isTrusted": true,
+              "value": ""
+            },
+            {
+              "caseId": "f-hidden-throttle-false-bypass-true-type",
+              "kind": "mousedown",
+              "epochMs": 1791960468510,
+              "pageMonotonicMs": 24136.799999952316,
+              "visibility": "visible",
+              "focus": true,
+              "target": "probeType",
+              "isTrusted": true,
+              "value": ""
+            },
+            {
+              "caseId": "f-hidden-throttle-false-bypass-true-type",
+              "kind": "focusout",
+              "epochMs": 1791960468510,
+              "pageMonotonicMs": 24137,
+              "visibility": "visible",
+              "focus": true,
+              "target": "probeClick",
+              "isTrusted": true,
+              "value": ""
+            },
+            {
+              "caseId": "f-hidden-throttle-false-bypass-true-type",
+              "kind": "focusin",
+              "epochMs": 1791960468510,
+              "pageMonotonicMs": 24137,
+              "visibility": "visible",
+              "focus": true,
+              "target": "probeType",
+              "isTrusted": true,
+              "value": ""
+            },
+            {
+              "caseId": "f-hidden-throttle-false-bypass-true-type",
+              "kind": "pointerup",
+              "epochMs": 1791960468512,
+              "pageMonotonicMs": 24138.60000014305,
+              "visibility": "visible",
+              "focus": true,
+              "target": "probeType",
+              "isTrusted": true,
+              "value": ""
+            },
+            {
+              "caseId": "f-hidden-throttle-false-bypass-true-type",
+              "kind": "mouseup",
+              "epochMs": 1791960468512,
+              "pageMonotonicMs": 24138.60000014305,
+              "visibility": "visible",
+              "focus": true,
+              "target": "probeType",
+              "isTrusted": true,
+              "value": ""
+            },
+            {
+              "caseId": "f-hidden-throttle-false-bypass-true-type",
+              "kind": "click",
+              "epochMs": 1791960468512,
+              "pageMonotonicMs": 24138.60000014305,
+              "visibility": "visible",
+              "focus": true,
+              "target": "probeType",
+              "isTrusted": true,
+              "value": ""
+            },
+            {
+              "caseId": "f-hidden-throttle-false-bypass-true-type",
+              "kind": "input",
+              "epochMs": 1791960468514,
+              "pageMonotonicMs": 24141,
+              "visibility": "visible",
+              "focus": true,
+              "target": "probeType",
+              "isTrusted": false,
+              "value": "typed-f-hidden-throttle-false-bypass-true"
+            },
+            {
+              "caseId": "f-hidden-throttle-false-bypass-true-type",
+              "kind": "change",
+              "epochMs": 1791960468515,
+              "pageMonotonicMs": 24141.10000014305,
+              "visibility": "visible",
+              "focus": true,
+              "target": "probeType",
+              "isTrusted": false,
+              "value": "typed-f-hidden-throttle-false-bypass-true"
+            }
+          ],
+          "clicks": 1,
+          "text": "typed-f-hidden-throttle-false-bypass-true",
+          "files": [],
+          "scrollY": 0,
+          "visibility": "visible",
+          "focus": true,
+          "epochMs": 1791960468516
+        },
+        "afterOneSecond": {
+          "caseId": "f-hidden-throttle-false-bypass-true-type",
+          "events": [
+            {
+              "caseId": "f-hidden-throttle-false-bypass-true-click",
+              "kind": "scroll",
+              "epochMs": 1791960467202,
+              "pageMonotonicMs": 22828.10000014305,
+              "visibility": "visible",
+              "focus": true,
+              "isTrusted": true,
+              "scrollY": 0
+            },
+            {
+              "caseId": "f-hidden-throttle-false-bypass-true-click",
+              "kind": "pointerdown",
+              "epochMs": 1791960467203,
+              "pageMonotonicMs": 22829.299999952316,
+              "visibility": "visible",
+              "focus": true,
+              "target": "probeClick",
+              "isTrusted": true,
+              "value": ""
+            },
+            {
+              "caseId": "f-hidden-throttle-false-bypass-true-click",
+              "kind": "mousedown",
+              "epochMs": 1791960467203,
+              "pageMonotonicMs": 22829.400000095367,
+              "visibility": "visible",
+              "focus": true,
+              "target": "probeClick",
+              "isTrusted": true,
+              "value": ""
+            },
+            {
+              "caseId": "f-hidden-throttle-false-bypass-true-click",
+              "kind": "focusout",
+              "epochMs": 1791960467203,
+              "pageMonotonicMs": 22829.799999952316,
+              "visibility": "visible",
+              "focus": true,
+              "target": "probeType",
+              "isTrusted": true,
+              "value": ""
+            },
+            {
+              "caseId": "f-hidden-throttle-false-bypass-true-click",
+              "kind": "focusin",
+              "epochMs": 1791960467203,
+              "pageMonotonicMs": 22829.900000095367,
+              "visibility": "visible",
+              "focus": true,
+              "target": "probeClick",
+              "isTrusted": true,
+              "value": ""
+            },
+            {
+              "caseId": "f-hidden-throttle-false-bypass-true-click",
+              "kind": "pointerup",
+              "epochMs": 1791960467205,
+              "pageMonotonicMs": 22831.400000095367,
+              "visibility": "visible",
+              "focus": true,
+              "target": "probeClick",
+              "isTrusted": true,
+              "value": ""
+            },
+            {
+              "caseId": "f-hidden-throttle-false-bypass-true-click",
+              "kind": "mouseup",
+              "epochMs": 1791960467205,
+              "pageMonotonicMs": 22831.400000095367,
+              "visibility": "visible",
+              "focus": true,
+              "target": "probeClick",
+              "isTrusted": true,
+              "value": ""
+            },
+            {
+              "caseId": "f-hidden-throttle-false-bypass-true-click",
+              "kind": "click",
+              "epochMs": 1791960467205,
+              "pageMonotonicMs": 22831.5,
+              "visibility": "visible",
+              "focus": true,
+              "target": "probeClick",
+              "isTrusted": true,
+              "value": ""
+            },
+            {
+              "caseId": "f-hidden-throttle-false-bypass-true-type",
+              "kind": "pointerdown",
+              "epochMs": 1791960468510,
+              "pageMonotonicMs": 24136.799999952316,
+              "visibility": "visible",
+              "focus": true,
+              "target": "probeType",
+              "isTrusted": true,
+              "value": ""
+            },
+            {
+              "caseId": "f-hidden-throttle-false-bypass-true-type",
+              "kind": "mousedown",
+              "epochMs": 1791960468510,
+              "pageMonotonicMs": 24136.799999952316,
+              "visibility": "visible",
+              "focus": true,
+              "target": "probeType",
+              "isTrusted": true,
+              "value": ""
+            },
+            {
+              "caseId": "f-hidden-throttle-false-bypass-true-type",
+              "kind": "focusout",
+              "epochMs": 1791960468510,
+              "pageMonotonicMs": 24137,
+              "visibility": "visible",
+              "focus": true,
+              "target": "probeClick",
+              "isTrusted": true,
+              "value": ""
+            },
+            {
+              "caseId": "f-hidden-throttle-false-bypass-true-type",
+              "kind": "focusin",
+              "epochMs": 1791960468510,
+              "pageMonotonicMs": 24137,
+              "visibility": "visible",
+              "focus": true,
+              "target": "probeType",
+              "isTrusted": true,
+              "value": ""
+            },
+            {
+              "caseId": "f-hidden-throttle-false-bypass-true-type",
+              "kind": "pointerup",
+              "epochMs": 1791960468512,
+              "pageMonotonicMs": 24138.60000014305,
+              "visibility": "visible",
+              "focus": true,
+              "target": "probeType",
+              "isTrusted": true,
+              "value": ""
+            },
+            {
+              "caseId": "f-hidden-throttle-false-bypass-true-type",
+              "kind": "mouseup",
+              "epochMs": 1791960468512,
+              "pageMonotonicMs": 24138.60000014305,
+              "visibility": "visible",
+              "focus": true,
+              "target": "probeType",
+              "isTrusted": true,
+              "value": ""
+            },
+            {
+              "caseId": "f-hidden-throttle-false-bypass-true-type",
+              "kind": "click",
+              "epochMs": 1791960468512,
+              "pageMonotonicMs": 24138.60000014305,
+              "visibility": "visible",
+              "focus": true,
+              "target": "probeType",
+              "isTrusted": true,
+              "value": ""
+            },
+            {
+              "caseId": "f-hidden-throttle-false-bypass-true-type",
+              "kind": "input",
+              "epochMs": 1791960468514,
+              "pageMonotonicMs": 24141,
+              "visibility": "visible",
+              "focus": true,
+              "target": "probeType",
+              "isTrusted": false,
+              "value": "typed-f-hidden-throttle-false-bypass-true"
+            },
+            {
+              "caseId": "f-hidden-throttle-false-bypass-true-type",
+              "kind": "change",
+              "epochMs": 1791960468515,
+              "pageMonotonicMs": 24141.10000014305,
+              "visibility": "visible",
+              "focus": true,
+              "target": "probeType",
+              "isTrusted": false,
+              "value": "typed-f-hidden-throttle-false-bypass-true"
+            }
+          ],
+          "clicks": 1,
+          "text": "typed-f-hidden-throttle-false-bypass-true",
+          "files": [],
+          "scrollY": 0,
+          "visibility": "visible",
+          "focus": true,
+          "epochMs": 1791960469517
+        }
+      },
+      {
+        "actionId": "f-hidden-throttle-false-bypass-true-scroll",
+        "response": {
+          "caseId": "f-hidden-throttle-false-bypass-true",
+          "id": "f-hidden-throttle-false-bypass-true-scroll",
+          "command": "penkra tabs act --input '{\"tabId\":\"qa-browser-A\",\"steps\":[{\"action\":\"scroll\",\"document\":\"d2\",\"deltaY\":400}]}'",
+          "startedEpochMs": 1791960469518,
+          "durationMs": 1.6858749999992142,
+          "ok": true,
+          "result": {
+            "tabId": "qa-browser-A",
+            "inputMode": "smooth",
+            "steps": [
+              {
+                "tabId": "qa-browser-A",
+                "deltaX": 0,
+                "deltaY": 400,
+                "scrolled": true
+              }
+            ]
+          }
+        },
+        "immediate": {
+          "caseId": "f-hidden-throttle-false-bypass-true-scroll",
+          "events": [
+            {
+              "caseId": "f-hidden-throttle-false-bypass-true-click",
+              "kind": "scroll",
+              "epochMs": 1791960467202,
+              "pageMonotonicMs": 22828.10000014305,
+              "visibility": "visible",
+              "focus": true,
+              "isTrusted": true,
+              "scrollY": 0
+            },
+            {
+              "caseId": "f-hidden-throttle-false-bypass-true-click",
+              "kind": "pointerdown",
+              "epochMs": 1791960467203,
+              "pageMonotonicMs": 22829.299999952316,
+              "visibility": "visible",
+              "focus": true,
+              "target": "probeClick",
+              "isTrusted": true,
+              "value": ""
+            },
+            {
+              "caseId": "f-hidden-throttle-false-bypass-true-click",
+              "kind": "mousedown",
+              "epochMs": 1791960467203,
+              "pageMonotonicMs": 22829.400000095367,
+              "visibility": "visible",
+              "focus": true,
+              "target": "probeClick",
+              "isTrusted": true,
+              "value": ""
+            },
+            {
+              "caseId": "f-hidden-throttle-false-bypass-true-click",
+              "kind": "focusout",
+              "epochMs": 1791960467203,
+              "pageMonotonicMs": 22829.799999952316,
+              "visibility": "visible",
+              "focus": true,
+              "target": "probeType",
+              "isTrusted": true,
+              "value": ""
+            },
+            {
+              "caseId": "f-hidden-throttle-false-bypass-true-click",
+              "kind": "focusin",
+              "epochMs": 1791960467203,
+              "pageMonotonicMs": 22829.900000095367,
+              "visibility": "visible",
+              "focus": true,
+              "target": "probeClick",
+              "isTrusted": true,
+              "value": ""
+            },
+            {
+              "caseId": "f-hidden-throttle-false-bypass-true-click",
+              "kind": "pointerup",
+              "epochMs": 1791960467205,
+              "pageMonotonicMs": 22831.400000095367,
+              "visibility": "visible",
+              "focus": true,
+              "target": "probeClick",
+              "isTrusted": true,
+              "value": ""
+            },
+            {
+              "caseId": "f-hidden-throttle-false-bypass-true-click",
+              "kind": "mouseup",
+              "epochMs": 1791960467205,
+              "pageMonotonicMs": 22831.400000095367,
+              "visibility": "visible",
+              "focus": true,
+              "target": "probeClick",
+              "isTrusted": true,
+              "value": ""
+            },
+            {
+              "caseId": "f-hidden-throttle-false-bypass-true-click",
+              "kind": "click",
+              "epochMs": 1791960467205,
+              "pageMonotonicMs": 22831.5,
+              "visibility": "visible",
+              "focus": true,
+              "target": "probeClick",
+              "isTrusted": true,
+              "value": ""
+            },
+            {
+              "caseId": "f-hidden-throttle-false-bypass-true-type",
+              "kind": "pointerdown",
+              "epochMs": 1791960468510,
+              "pageMonotonicMs": 24136.799999952316,
+              "visibility": "visible",
+              "focus": true,
+              "target": "probeType",
+              "isTrusted": true,
+              "value": ""
+            },
+            {
+              "caseId": "f-hidden-throttle-false-bypass-true-type",
+              "kind": "mousedown",
+              "epochMs": 1791960468510,
+              "pageMonotonicMs": 24136.799999952316,
+              "visibility": "visible",
+              "focus": true,
+              "target": "probeType",
+              "isTrusted": true,
+              "value": ""
+            },
+            {
+              "caseId": "f-hidden-throttle-false-bypass-true-type",
+              "kind": "focusout",
+              "epochMs": 1791960468510,
+              "pageMonotonicMs": 24137,
+              "visibility": "visible",
+              "focus": true,
+              "target": "probeClick",
+              "isTrusted": true,
+              "value": ""
+            },
+            {
+              "caseId": "f-hidden-throttle-false-bypass-true-type",
+              "kind": "focusin",
+              "epochMs": 1791960468510,
+              "pageMonotonicMs": 24137,
+              "visibility": "visible",
+              "focus": true,
+              "target": "probeType",
+              "isTrusted": true,
+              "value": ""
+            },
+            {
+              "caseId": "f-hidden-throttle-false-bypass-true-type",
+              "kind": "pointerup",
+              "epochMs": 1791960468512,
+              "pageMonotonicMs": 24138.60000014305,
+              "visibility": "visible",
+              "focus": true,
+              "target": "probeType",
+              "isTrusted": true,
+              "value": ""
+            },
+            {
+              "caseId": "f-hidden-throttle-false-bypass-true-type",
+              "kind": "mouseup",
+              "epochMs": 1791960468512,
+              "pageMonotonicMs": 24138.60000014305,
+              "visibility": "visible",
+              "focus": true,
+              "target": "probeType",
+              "isTrusted": true,
+              "value": ""
+            },
+            {
+              "caseId": "f-hidden-throttle-false-bypass-true-type",
+              "kind": "click",
+              "epochMs": 1791960468512,
+              "pageMonotonicMs": 24138.60000014305,
+              "visibility": "visible",
+              "focus": true,
+              "target": "probeType",
+              "isTrusted": true,
+              "value": ""
+            },
+            {
+              "caseId": "f-hidden-throttle-false-bypass-true-type",
+              "kind": "input",
+              "epochMs": 1791960468514,
+              "pageMonotonicMs": 24141,
+              "visibility": "visible",
+              "focus": true,
+              "target": "probeType",
+              "isTrusted": false,
+              "value": "typed-f-hidden-throttle-false-bypass-true"
+            },
+            {
+              "caseId": "f-hidden-throttle-false-bypass-true-type",
+              "kind": "change",
+              "epochMs": 1791960468515,
+              "pageMonotonicMs": 24141.10000014305,
+              "visibility": "visible",
+              "focus": true,
+              "target": "probeType",
+              "isTrusted": false,
+              "value": "typed-f-hidden-throttle-false-bypass-true"
+            }
+          ],
+          "clicks": 1,
+          "text": "typed-f-hidden-throttle-false-bypass-true",
+          "files": [],
+          "scrollY": 400,
+          "visibility": "visible",
+          "focus": true,
+          "epochMs": 1791960469520
+        },
+        "afterOneSecond": {
+          "caseId": "f-hidden-throttle-false-bypass-true-scroll",
+          "events": [
+            {
+              "caseId": "f-hidden-throttle-false-bypass-true-click",
+              "kind": "scroll",
+              "epochMs": 1791960467202,
+              "pageMonotonicMs": 22828.10000014305,
+              "visibility": "visible",
+              "focus": true,
+              "isTrusted": true,
+              "scrollY": 0
+            },
+            {
+              "caseId": "f-hidden-throttle-false-bypass-true-click",
+              "kind": "pointerdown",
+              "epochMs": 1791960467203,
+              "pageMonotonicMs": 22829.299999952316,
+              "visibility": "visible",
+              "focus": true,
+              "target": "probeClick",
+              "isTrusted": true,
+              "value": ""
+            },
+            {
+              "caseId": "f-hidden-throttle-false-bypass-true-click",
+              "kind": "mousedown",
+              "epochMs": 1791960467203,
+              "pageMonotonicMs": 22829.400000095367,
+              "visibility": "visible",
+              "focus": true,
+              "target": "probeClick",
+              "isTrusted": true,
+              "value": ""
+            },
+            {
+              "caseId": "f-hidden-throttle-false-bypass-true-click",
+              "kind": "focusout",
+              "epochMs": 1791960467203,
+              "pageMonotonicMs": 22829.799999952316,
+              "visibility": "visible",
+              "focus": true,
+              "target": "probeType",
+              "isTrusted": true,
+              "value": ""
+            },
+            {
+              "caseId": "f-hidden-throttle-false-bypass-true-click",
+              "kind": "focusin",
+              "epochMs": 1791960467203,
+              "pageMonotonicMs": 22829.900000095367,
+              "visibility": "visible",
+              "focus": true,
+              "target": "probeClick",
+              "isTrusted": true,
+              "value": ""
+            },
+            {
+              "caseId": "f-hidden-throttle-false-bypass-true-click",
+              "kind": "pointerup",
+              "epochMs": 1791960467205,
+              "pageMonotonicMs": 22831.400000095367,
+              "visibility": "visible",
+              "focus": true,
+              "target": "probeClick",
+              "isTrusted": true,
+              "value": ""
+            },
+            {
+              "caseId": "f-hidden-throttle-false-bypass-true-click",
+              "kind": "mouseup",
+              "epochMs": 1791960467205,
+              "pageMonotonicMs": 22831.400000095367,
+              "visibility": "visible",
+              "focus": true,
+              "target": "probeClick",
+              "isTrusted": true,
+              "value": ""
+            },
+            {
+              "caseId": "f-hidden-throttle-false-bypass-true-click",
+              "kind": "click",
+              "epochMs": 1791960467205,
+              "pageMonotonicMs": 22831.5,
+              "visibility": "visible",
+              "focus": true,
+              "target": "probeClick",
+              "isTrusted": true,
+              "value": ""
+            },
+            {
+              "caseId": "f-hidden-throttle-false-bypass-true-type",
+              "kind": "pointerdown",
+              "epochMs": 1791960468510,
+              "pageMonotonicMs": 24136.799999952316,
+              "visibility": "visible",
+              "focus": true,
+              "target": "probeType",
+              "isTrusted": true,
+              "value": ""
+            },
+            {
+              "caseId": "f-hidden-throttle-false-bypass-true-type",
+              "kind": "mousedown",
+              "epochMs": 1791960468510,
+              "pageMonotonicMs": 24136.799999952316,
+              "visibility": "visible",
+              "focus": true,
+              "target": "probeType",
+              "isTrusted": true,
+              "value": ""
+            },
+            {
+              "caseId": "f-hidden-throttle-false-bypass-true-type",
+              "kind": "focusout",
+              "epochMs": 1791960468510,
+              "pageMonotonicMs": 24137,
+              "visibility": "visible",
+              "focus": true,
+              "target": "probeClick",
+              "isTrusted": true,
+              "value": ""
+            },
+            {
+              "caseId": "f-hidden-throttle-false-bypass-true-type",
+              "kind": "focusin",
+              "epochMs": 1791960468510,
+              "pageMonotonicMs": 24137,
+              "visibility": "visible",
+              "focus": true,
+              "target": "probeType",
+              "isTrusted": true,
+              "value": ""
+            },
+            {
+              "caseId": "f-hidden-throttle-false-bypass-true-type",
+              "kind": "pointerup",
+              "epochMs": 1791960468512,
+              "pageMonotonicMs": 24138.60000014305,
+              "visibility": "visible",
+              "focus": true,
+              "target": "probeType",
+              "isTrusted": true,
+              "value": ""
+            },
+            {
+              "caseId": "f-hidden-throttle-false-bypass-true-type",
+              "kind": "mouseup",
+              "epochMs": 1791960468512,
+              "pageMonotonicMs": 24138.60000014305,
+              "visibility": "visible",
+              "focus": true,
+              "target": "probeType",
+              "isTrusted": true,
+              "value": ""
+            },
+            {
+              "caseId": "f-hidden-throttle-false-bypass-true-type",
+              "kind": "click",
+              "epochMs": 1791960468512,
+              "pageMonotonicMs": 24138.60000014305,
+              "visibility": "visible",
+              "focus": true,
+              "target": "probeType",
+              "isTrusted": true,
+              "value": ""
+            },
+            {
+              "caseId": "f-hidden-throttle-false-bypass-true-type",
+              "kind": "input",
+              "epochMs": 1791960468514,
+              "pageMonotonicMs": 24141,
+              "visibility": "visible",
+              "focus": true,
+              "target": "probeType",
+              "isTrusted": false,
+              "value": "typed-f-hidden-throttle-false-bypass-true"
+            },
+            {
+              "caseId": "f-hidden-throttle-false-bypass-true-type",
+              "kind": "change",
+              "epochMs": 1791960468515,
+              "pageMonotonicMs": 24141.10000014305,
+              "visibility": "visible",
+              "focus": true,
+              "target": "probeType",
+              "isTrusted": false,
+              "value": "typed-f-hidden-throttle-false-bypass-true"
+            },
+            {
+              "caseId": "f-hidden-throttle-false-bypass-true-scroll",
+              "kind": "scroll",
+              "epochMs": 1791960469526,
+              "pageMonotonicMs": 25152.5,
+              "visibility": "visible",
+              "focus": true,
+              "isTrusted": true,
+              "scrollY": 400
+            }
+          ],
+          "clicks": 1,
+          "text": "typed-f-hidden-throttle-false-bypass-true",
+          "files": [],
+          "scrollY": 400,
+          "visibility": "visible",
+          "focus": true,
+          "epochMs": 1791960470521
+        }
+      },
+      {
+        "actionId": "f-hidden-throttle-false-bypass-true-upload",
+        "response": {
+          "caseId": "f-hidden-throttle-false-bypass-true",
+          "id": "f-hidden-throttle-false-bypass-true-upload",
+          "command": "penkra tabs act --input '{\"tabId\":\"qa-browser-A\",\"steps\":[{\"action\":\"upload\",\"ref\":\"d2:e3\",\"paths\":[\"/Users/emmanuelgyekyeatta-penkra/Penkra/qa-tab-additions-b9xq3rc4/app-storage/upload-fixture.txt\"]}]}'",
+          "startedEpochMs": 1791960470521,
+          "durationMs": 3.8726669999996375,
+          "ok": true,
+          "result": {
+            "tabId": "qa-browser-A",
+            "inputMode": "smooth",
+            "steps": [
+              {
+                "tabId": "qa-browser-A",
+                "target": "d2:e3",
+                "uploaded": 1
+              }
+            ]
+          }
+        },
+        "immediate": {
+          "caseId": "f-hidden-throttle-false-bypass-true-upload",
+          "events": [
+            {
+              "caseId": "f-hidden-throttle-false-bypass-true-click",
+              "kind": "scroll",
+              "epochMs": 1791960467202,
+              "pageMonotonicMs": 22828.10000014305,
+              "visibility": "visible",
+              "focus": true,
+              "isTrusted": true,
+              "scrollY": 0
+            },
+            {
+              "caseId": "f-hidden-throttle-false-bypass-true-click",
+              "kind": "pointerdown",
+              "epochMs": 1791960467203,
+              "pageMonotonicMs": 22829.299999952316,
+              "visibility": "visible",
+              "focus": true,
+              "target": "probeClick",
+              "isTrusted": true,
+              "value": ""
+            },
+            {
+              "caseId": "f-hidden-throttle-false-bypass-true-click",
+              "kind": "mousedown",
+              "epochMs": 1791960467203,
+              "pageMonotonicMs": 22829.400000095367,
+              "visibility": "visible",
+              "focus": true,
+              "target": "probeClick",
+              "isTrusted": true,
+              "value": ""
+            },
+            {
+              "caseId": "f-hidden-throttle-false-bypass-true-click",
+              "kind": "focusout",
+              "epochMs": 1791960467203,
+              "pageMonotonicMs": 22829.799999952316,
+              "visibility": "visible",
+              "focus": true,
+              "target": "probeType",
+              "isTrusted": true,
+              "value": ""
+            },
+            {
+              "caseId": "f-hidden-throttle-false-bypass-true-click",
+              "kind": "focusin",
+              "epochMs": 1791960467203,
+              "pageMonotonicMs": 22829.900000095367,
+              "visibility": "visible",
+              "focus": true,
+              "target": "probeClick",
+              "isTrusted": true,
+              "value": ""
+            },
+            {
+              "caseId": "f-hidden-throttle-false-bypass-true-click",
+              "kind": "pointerup",
+              "epochMs": 1791960467205,
+              "pageMonotonicMs": 22831.400000095367,
+              "visibility": "visible",
+              "focus": true,
+              "target": "probeClick",
+              "isTrusted": true,
+              "value": ""
+            },
+            {
+              "caseId": "f-hidden-throttle-false-bypass-true-click",
+              "kind": "mouseup",
+              "epochMs": 1791960467205,
+              "pageMonotonicMs": 22831.400000095367,
+              "visibility": "visible",
+              "focus": true,
+              "target": "probeClick",
+              "isTrusted": true,
+              "value": ""
+            },
+            {
+              "caseId": "f-hidden-throttle-false-bypass-true-click",
+              "kind": "click",
+              "epochMs": 1791960467205,
+              "pageMonotonicMs": 22831.5,
+              "visibility": "visible",
+              "focus": true,
+              "target": "probeClick",
+              "isTrusted": true,
+              "value": ""
+            },
+            {
+              "caseId": "f-hidden-throttle-false-bypass-true-type",
+              "kind": "pointerdown",
+              "epochMs": 1791960468510,
+              "pageMonotonicMs": 24136.799999952316,
+              "visibility": "visible",
+              "focus": true,
+              "target": "probeType",
+              "isTrusted": true,
+              "value": ""
+            },
+            {
+              "caseId": "f-hidden-throttle-false-bypass-true-type",
+              "kind": "mousedown",
+              "epochMs": 1791960468510,
+              "pageMonotonicMs": 24136.799999952316,
+              "visibility": "visible",
+              "focus": true,
+              "target": "probeType",
+              "isTrusted": true,
+              "value": ""
+            },
+            {
+              "caseId": "f-hidden-throttle-false-bypass-true-type",
+              "kind": "focusout",
+              "epochMs": 1791960468510,
+              "pageMonotonicMs": 24137,
+              "visibility": "visible",
+              "focus": true,
+              "target": "probeClick",
+              "isTrusted": true,
+              "value": ""
+            },
+            {
+              "caseId": "f-hidden-throttle-false-bypass-true-type",
+              "kind": "focusin",
+              "epochMs": 1791960468510,
+              "pageMonotonicMs": 24137,
+              "visibility": "visible",
+              "focus": true,
+              "target": "probeType",
+              "isTrusted": true,
+              "value": ""
+            },
+            {
+              "caseId": "f-hidden-throttle-false-bypass-true-type",
+              "kind": "pointerup",
+              "epochMs": 1791960468512,
+              "pageMonotonicMs": 24138.60000014305,
+              "visibility": "visible",
+              "focus": true,
+              "target": "probeType",
+              "isTrusted": true,
+              "value": ""
+            },
+            {
+              "caseId": "f-hidden-throttle-false-bypass-true-type",
+              "kind": "mouseup",
+              "epochMs": 1791960468512,
+              "pageMonotonicMs": 24138.60000014305,
+              "visibility": "visible",
+              "focus": true,
+              "target": "probeType",
+              "isTrusted": true,
+              "value": ""
+            },
+            {
+              "caseId": "f-hidden-throttle-false-bypass-true-type",
+              "kind": "click",
+              "epochMs": 1791960468512,
+              "pageMonotonicMs": 24138.60000014305,
+              "visibility": "visible",
+              "focus": true,
+              "target": "probeType",
+              "isTrusted": true,
+              "value": ""
+            },
+            {
+              "caseId": "f-hidden-throttle-false-bypass-true-type",
+              "kind": "input",
+              "epochMs": 1791960468514,
+              "pageMonotonicMs": 24141,
+              "visibility": "visible",
+              "focus": true,
+              "target": "probeType",
+              "isTrusted": false,
+              "value": "typed-f-hidden-throttle-false-bypass-true"
+            },
+            {
+              "caseId": "f-hidden-throttle-false-bypass-true-type",
+              "kind": "change",
+              "epochMs": 1791960468515,
+              "pageMonotonicMs": 24141.10000014305,
+              "visibility": "visible",
+              "focus": true,
+              "target": "probeType",
+              "isTrusted": false,
+              "value": "typed-f-hidden-throttle-false-bypass-true"
+            },
+            {
+              "caseId": "f-hidden-throttle-false-bypass-true-scroll",
+              "kind": "scroll",
+              "epochMs": 1791960469526,
+              "pageMonotonicMs": 25152.5,
+              "visibility": "visible",
+              "focus": true,
+              "isTrusted": true,
+              "scrollY": 400
+            },
+            {
+              "caseId": "f-hidden-throttle-false-bypass-true-upload",
+              "kind": "input",
+              "epochMs": 1791960470525,
+              "pageMonotonicMs": 26151,
+              "visibility": "visible",
+              "focus": true,
+              "target": "probeUpload",
+              "isTrusted": true,
+              "value": "C:\\fakepath\\upload-fixture.txt",
+              "files": [
+                "upload-fixture.txt"
+              ]
+            },
+            {
+              "caseId": "f-hidden-throttle-false-bypass-true-upload",
+              "kind": "change",
+              "epochMs": 1791960470525,
+              "pageMonotonicMs": 26151.10000014305,
+              "visibility": "visible",
+              "focus": true,
+              "target": "probeUpload",
+              "isTrusted": true,
+              "value": "C:\\fakepath\\upload-fixture.txt",
+              "files": [
+                "upload-fixture.txt"
+              ]
+            }
+          ],
+          "clicks": 1,
+          "text": "typed-f-hidden-throttle-false-bypass-true",
+          "files": [
+            "upload-fixture.txt"
+          ],
+          "scrollY": 400,
+          "visibility": "visible",
+          "focus": true,
+          "epochMs": 1791960470526
+        },
+        "afterOneSecond": {
+          "caseId": "f-hidden-throttle-false-bypass-true-upload",
+          "events": [
+            {
+              "caseId": "f-hidden-throttle-false-bypass-true-click",
+              "kind": "scroll",
+              "epochMs": 1791960467202,
+              "pageMonotonicMs": 22828.10000014305,
+              "visibility": "visible",
+              "focus": true,
+              "isTrusted": true,
+              "scrollY": 0
+            },
+            {
+              "caseId": "f-hidden-throttle-false-bypass-true-click",
+              "kind": "pointerdown",
+              "epochMs": 1791960467203,
+              "pageMonotonicMs": 22829.299999952316,
+              "visibility": "visible",
+              "focus": true,
+              "target": "probeClick",
+              "isTrusted": true,
+              "value": ""
+            },
+            {
+              "caseId": "f-hidden-throttle-false-bypass-true-click",
+              "kind": "mousedown",
+              "epochMs": 1791960467203,
+              "pageMonotonicMs": 22829.400000095367,
+              "visibility": "visible",
+              "focus": true,
+              "target": "probeClick",
+              "isTrusted": true,
+              "value": ""
+            },
+            {
+              "caseId": "f-hidden-throttle-false-bypass-true-click",
+              "kind": "focusout",
+              "epochMs": 1791960467203,
+              "pageMonotonicMs": 22829.799999952316,
+              "visibility": "visible",
+              "focus": true,
+              "target": "probeType",
+              "isTrusted": true,
+              "value": ""
+            },
+            {
+              "caseId": "f-hidden-throttle-false-bypass-true-click",
+              "kind": "focusin",
+              "epochMs": 1791960467203,
+              "pageMonotonicMs": 22829.900000095367,
+              "visibility": "visible",
+              "focus": true,
+              "target": "probeClick",
+              "isTrusted": true,
+              "value": ""
+            },
+            {
+              "caseId": "f-hidden-throttle-false-bypass-true-click",
+              "kind": "pointerup",
+              "epochMs": 1791960467205,
+              "pageMonotonicMs": 22831.400000095367,
+              "visibility": "visible",
+              "focus": true,
+              "target": "probeClick",
+              "isTrusted": true,
+              "value": ""
+            },
+            {
+              "caseId": "f-hidden-throttle-false-bypass-true-click",
+              "kind": "mouseup",
+              "epochMs": 1791960467205,
+              "pageMonotonicMs": 22831.400000095367,
+              "visibility": "visible",
+              "focus": true,
+              "target": "probeClick",
+              "isTrusted": true,
+              "value": ""
+            },
+            {
+              "caseId": "f-hidden-throttle-false-bypass-true-click",
+              "kind": "click",
+              "epochMs": 1791960467205,
+              "pageMonotonicMs": 22831.5,
+              "visibility": "visible",
+              "focus": true,
+              "target": "probeClick",
+              "isTrusted": true,
+              "value": ""
+            },
+            {
+              "caseId": "f-hidden-throttle-false-bypass-true-type",
+              "kind": "pointerdown",
+              "epochMs": 1791960468510,
+              "pageMonotonicMs": 24136.799999952316,
+              "visibility": "visible",
+              "focus": true,
+              "target": "probeType",
+              "isTrusted": true,
+              "value": ""
+            },
+            {
+              "caseId": "f-hidden-throttle-false-bypass-true-type",
+              "kind": "mousedown",
+              "epochMs": 1791960468510,
+              "pageMonotonicMs": 24136.799999952316,
+              "visibility": "visible",
+              "focus": true,
+              "target": "probeType",
+              "isTrusted": true,
+              "value": ""
+            },
+            {
+              "caseId": "f-hidden-throttle-false-bypass-true-type",
+              "kind": "focusout",
+              "epochMs": 1791960468510,
+              "pageMonotonicMs": 24137,
+              "visibility": "visible",
+              "focus": true,
+              "target": "probeClick",
+              "isTrusted": true,
+              "value": ""
+            },
+            {
+              "caseId": "f-hidden-throttle-false-bypass-true-type",
+              "kind": "focusin",
+              "epochMs": 1791960468510,
+              "pageMonotonicMs": 24137,
+              "visibility": "visible",
+              "focus": true,
+              "target": "probeType",
+              "isTrusted": true,
+              "value": ""
+            },
+            {
+              "caseId": "f-hidden-throttle-false-bypass-true-type",
+              "kind": "pointerup",
+              "epochMs": 1791960468512,
+              "pageMonotonicMs": 24138.60000014305,
+              "visibility": "visible",
+              "focus": true,
+              "target": "probeType",
+              "isTrusted": true,
+              "value": ""
+            },
+            {
+              "caseId": "f-hidden-throttle-false-bypass-true-type",
+              "kind": "mouseup",
+              "epochMs": 1791960468512,
+              "pageMonotonicMs": 24138.60000014305,
+              "visibility": "visible",
+              "focus": true,
+              "target": "probeType",
+              "isTrusted": true,
+              "value": ""
+            },
+            {
+              "caseId": "f-hidden-throttle-false-bypass-true-type",
+              "kind": "click",
+              "epochMs": 1791960468512,
+              "pageMonotonicMs": 24138.60000014305,
+              "visibility": "visible",
+              "focus": true,
+              "target": "probeType",
+              "isTrusted": true,
+              "value": ""
+            },
+            {
+              "caseId": "f-hidden-throttle-false-bypass-true-type",
+              "kind": "input",
+              "epochMs": 1791960468514,
+              "pageMonotonicMs": 24141,
+              "visibility": "visible",
+              "focus": true,
+              "target": "probeType",
+              "isTrusted": false,
+              "value": "typed-f-hidden-throttle-false-bypass-true"
+            },
+            {
+              "caseId": "f-hidden-throttle-false-bypass-true-type",
+              "kind": "change",
+              "epochMs": 1791960468515,
+              "pageMonotonicMs": 24141.10000014305,
+              "visibility": "visible",
+              "focus": true,
+              "target": "probeType",
+              "isTrusted": false,
+              "value": "typed-f-hidden-throttle-false-bypass-true"
+            },
+            {
+              "caseId": "f-hidden-throttle-false-bypass-true-scroll",
+              "kind": "scroll",
+              "epochMs": 1791960469526,
+              "pageMonotonicMs": 25152.5,
+              "visibility": "visible",
+              "focus": true,
+              "isTrusted": true,
+              "scrollY": 400
+            },
+            {
+              "caseId": "f-hidden-throttle-false-bypass-true-upload",
+              "kind": "input",
+              "epochMs": 1791960470525,
+              "pageMonotonicMs": 26151,
+              "visibility": "visible",
+              "focus": true,
+              "target": "probeUpload",
+              "isTrusted": true,
+              "value": "C:\\fakepath\\upload-fixture.txt",
+              "files": [
+                "upload-fixture.txt"
+              ]
+            },
+            {
+              "caseId": "f-hidden-throttle-false-bypass-true-upload",
+              "kind": "change",
+              "epochMs": 1791960470525,
+              "pageMonotonicMs": 26151.10000014305,
+              "visibility": "visible",
+              "focus": true,
+              "target": "probeUpload",
+              "isTrusted": true,
+              "value": "C:\\fakepath\\upload-fixture.txt",
+              "files": [
+                "upload-fixture.txt"
+              ]
+            }
+          ],
+          "clicks": 1,
+          "text": "typed-f-hidden-throttle-false-bypass-true",
+          "files": [
+            "upload-fixture.txt"
+          ],
+          "scrollY": 400,
+          "visibility": "visible",
+          "focus": true,
+          "epochMs": 1791960471527
+        }
+      }
+    ],
+    "beforeRestore": {
+      "caseId": "f-hidden-throttle-false-bypass-true-upload",
+      "events": [
+        {
+          "caseId": "f-hidden-throttle-false-bypass-true-click",
+          "kind": "scroll",
+          "epochMs": 1791960467202,
+          "pageMonotonicMs": 22828.10000014305,
+          "visibility": "visible",
+          "focus": true,
+          "isTrusted": true,
+          "scrollY": 0
+        },
+        {
+          "caseId": "f-hidden-throttle-false-bypass-true-click",
+          "kind": "pointerdown",
+          "epochMs": 1791960467203,
+          "pageMonotonicMs": 22829.299999952316,
+          "visibility": "visible",
+          "focus": true,
+          "target": "probeClick",
+          "isTrusted": true,
+          "value": ""
+        },
+        {
+          "caseId": "f-hidden-throttle-false-bypass-true-click",
+          "kind": "mousedown",
+          "epochMs": 1791960467203,
+          "pageMonotonicMs": 22829.400000095367,
+          "visibility": "visible",
+          "focus": true,
+          "target": "probeClick",
+          "isTrusted": true,
+          "value": ""
+        },
+        {
+          "caseId": "f-hidden-throttle-false-bypass-true-click",
+          "kind": "focusout",
+          "epochMs": 1791960467203,
+          "pageMonotonicMs": 22829.799999952316,
+          "visibility": "visible",
+          "focus": true,
+          "target": "probeType",
+          "isTrusted": true,
+          "value": ""
+        },
+        {
+          "caseId": "f-hidden-throttle-false-bypass-true-click",
+          "kind": "focusin",
+          "epochMs": 1791960467203,
+          "pageMonotonicMs": 22829.900000095367,
+          "visibility": "visible",
+          "focus": true,
+          "target": "probeClick",
+          "isTrusted": true,
+          "value": ""
+        },
+        {
+          "caseId": "f-hidden-throttle-false-bypass-true-click",
+          "kind": "pointerup",
+          "epochMs": 1791960467205,
+          "pageMonotonicMs": 22831.400000095367,
+          "visibility": "visible",
+          "focus": true,
+          "target": "probeClick",
+          "isTrusted": true,
+          "value": ""
+        },
+        {
+          "caseId": "f-hidden-throttle-false-bypass-true-click",
+          "kind": "mouseup",
+          "epochMs": 1791960467205,
+          "pageMonotonicMs": 22831.400000095367,
+          "visibility": "visible",
+          "focus": true,
+          "target": "probeClick",
+          "isTrusted": true,
+          "value": ""
+        },
+        {
+          "caseId": "f-hidden-throttle-false-bypass-true-click",
+          "kind": "click",
+          "epochMs": 1791960467205,
+          "pageMonotonicMs": 22831.5,
+          "visibility": "visible",
+          "focus": true,
+          "target": "probeClick",
+          "isTrusted": true,
+          "value": ""
+        },
+        {
+          "caseId": "f-hidden-throttle-false-bypass-true-type",
+          "kind": "pointerdown",
+          "epochMs": 1791960468510,
+          "pageMonotonicMs": 24136.799999952316,
+          "visibility": "visible",
+          "focus": true,
+          "target": "probeType",
+          "isTrusted": true,
+          "value": ""
+        },
+        {
+          "caseId": "f-hidden-throttle-false-bypass-true-type",
+          "kind": "mousedown",
+          "epochMs": 1791960468510,
+          "pageMonotonicMs": 24136.799999952316,
+          "visibility": "visible",
+          "focus": true,
+          "target": "probeType",
+          "isTrusted": true,
+          "value": ""
+        },
+        {
+          "caseId": "f-hidden-throttle-false-bypass-true-type",
+          "kind": "focusout",
+          "epochMs": 1791960468510,
+          "pageMonotonicMs": 24137,
+          "visibility": "visible",
+          "focus": true,
+          "target": "probeClick",
+          "isTrusted": true,
+          "value": ""
+        },
+        {
+          "caseId": "f-hidden-throttle-false-bypass-true-type",
+          "kind": "focusin",
+          "epochMs": 1791960468510,
+          "pageMonotonicMs": 24137,
+          "visibility": "visible",
+          "focus": true,
+          "target": "probeType",
+          "isTrusted": true,
+          "value": ""
+        },
+        {
+          "caseId": "f-hidden-throttle-false-bypass-true-type",
+          "kind": "pointerup",
+          "epochMs": 1791960468512,
+          "pageMonotonicMs": 24138.60000014305,
+          "visibility": "visible",
+          "focus": true,
+          "target": "probeType",
+          "isTrusted": true,
+          "value": ""
+        },
+        {
+          "caseId": "f-hidden-throttle-false-bypass-true-type",
+          "kind": "mouseup",
+          "epochMs": 1791960468512,
+          "pageMonotonicMs": 24138.60000014305,
+          "visibility": "visible",
+          "focus": true,
+          "target": "probeType",
+          "isTrusted": true,
+          "value": ""
+        },
+        {
+          "caseId": "f-hidden-throttle-false-bypass-true-type",
+          "kind": "click",
+          "epochMs": 1791960468512,
+          "pageMonotonicMs": 24138.60000014305,
+          "visibility": "visible",
+          "focus": true,
+          "target": "probeType",
+          "isTrusted": true,
+          "value": ""
+        },
+        {
+          "caseId": "f-hidden-throttle-false-bypass-true-type",
+          "kind": "input",
+          "epochMs": 1791960468514,
+          "pageMonotonicMs": 24141,
+          "visibility": "visible",
+          "focus": true,
+          "target": "probeType",
+          "isTrusted": false,
+          "value": "typed-f-hidden-throttle-false-bypass-true"
+        },
+        {
+          "caseId": "f-hidden-throttle-false-bypass-true-type",
+          "kind": "change",
+          "epochMs": 1791960468515,
+          "pageMonotonicMs": 24141.10000014305,
+          "visibility": "visible",
+          "focus": true,
+          "target": "probeType",
+          "isTrusted": false,
+          "value": "typed-f-hidden-throttle-false-bypass-true"
+        },
+        {
+          "caseId": "f-hidden-throttle-false-bypass-true-scroll",
+          "kind": "scroll",
+          "epochMs": 1791960469526,
+          "pageMonotonicMs": 25152.5,
+          "visibility": "visible",
+          "focus": true,
+          "isTrusted": true,
+          "scrollY": 400
+        },
+        {
+          "caseId": "f-hidden-throttle-false-bypass-true-upload",
+          "kind": "input",
+          "epochMs": 1791960470525,
+          "pageMonotonicMs": 26151,
+          "visibility": "visible",
+          "focus": true,
+          "target": "probeUpload",
+          "isTrusted": true,
+          "value": "C:\\fakepath\\upload-fixture.txt",
+          "files": [
+            "upload-fixture.txt"
+          ]
+        },
+        {
+          "caseId": "f-hidden-throttle-false-bypass-true-upload",
+          "kind": "change",
+          "epochMs": 1791960470525,
+          "pageMonotonicMs": 26151.10000014305,
+          "visibility": "visible",
+          "focus": true,
+          "target": "probeUpload",
+          "isTrusted": true,
+          "value": "C:\\fakepath\\upload-fixture.txt",
+          "files": [
+            "upload-fixture.txt"
+          ]
+        }
+      ],
+      "clicks": 1,
+      "text": "typed-f-hidden-throttle-false-bypass-true",
+      "files": [
+        "upload-fixture.txt"
+      ],
+      "scrollY": 400,
+      "visibility": "visible",
+      "focus": true,
+      "epochMs": 1791960474528
+    },
+    "hiddenEnd": {
+      "visible": false,
+      "minimized": false
+    },
+    "afterRestore": {
+      "caseId": "f-hidden-throttle-false-bypass-true-upload",
+      "events": [
+        {
+          "caseId": "f-hidden-throttle-false-bypass-true-click",
+          "kind": "scroll",
+          "epochMs": 1791960467202,
+          "pageMonotonicMs": 22828.10000014305,
+          "visibility": "visible",
+          "focus": true,
+          "isTrusted": true,
+          "scrollY": 0
+        },
+        {
+          "caseId": "f-hidden-throttle-false-bypass-true-click",
+          "kind": "pointerdown",
+          "epochMs": 1791960467203,
+          "pageMonotonicMs": 22829.299999952316,
+          "visibility": "visible",
+          "focus": true,
+          "target": "probeClick",
+          "isTrusted": true,
+          "value": ""
+        },
+        {
+          "caseId": "f-hidden-throttle-false-bypass-true-click",
+          "kind": "mousedown",
+          "epochMs": 1791960467203,
+          "pageMonotonicMs": 22829.400000095367,
+          "visibility": "visible",
+          "focus": true,
+          "target": "probeClick",
+          "isTrusted": true,
+          "value": ""
+        },
+        {
+          "caseId": "f-hidden-throttle-false-bypass-true-click",
+          "kind": "focusout",
+          "epochMs": 1791960467203,
+          "pageMonotonicMs": 22829.799999952316,
+          "visibility": "visible",
+          "focus": true,
+          "target": "probeType",
+          "isTrusted": true,
+          "value": ""
+        },
+        {
+          "caseId": "f-hidden-throttle-false-bypass-true-click",
+          "kind": "focusin",
+          "epochMs": 1791960467203,
+          "pageMonotonicMs": 22829.900000095367,
+          "visibility": "visible",
+          "focus": true,
+          "target": "probeClick",
+          "isTrusted": true,
+          "value": ""
+        },
+        {
+          "caseId": "f-hidden-throttle-false-bypass-true-click",
+          "kind": "pointerup",
+          "epochMs": 1791960467205,
+          "pageMonotonicMs": 22831.400000095367,
+          "visibility": "visible",
+          "focus": true,
+          "target": "probeClick",
+          "isTrusted": true,
+          "value": ""
+        },
+        {
+          "caseId": "f-hidden-throttle-false-bypass-true-click",
+          "kind": "mouseup",
+          "epochMs": 1791960467205,
+          "pageMonotonicMs": 22831.400000095367,
+          "visibility": "visible",
+          "focus": true,
+          "target": "probeClick",
+          "isTrusted": true,
+          "value": ""
+        },
+        {
+          "caseId": "f-hidden-throttle-false-bypass-true-click",
+          "kind": "click",
+          "epochMs": 1791960467205,
+          "pageMonotonicMs": 22831.5,
+          "visibility": "visible",
+          "focus": true,
+          "target": "probeClick",
+          "isTrusted": true,
+          "value": ""
+        },
+        {
+          "caseId": "f-hidden-throttle-false-bypass-true-type",
+          "kind": "pointerdown",
+          "epochMs": 1791960468510,
+          "pageMonotonicMs": 24136.799999952316,
+          "visibility": "visible",
+          "focus": true,
+          "target": "probeType",
+          "isTrusted": true,
+          "value": ""
+        },
+        {
+          "caseId": "f-hidden-throttle-false-bypass-true-type",
+          "kind": "mousedown",
+          "epochMs": 1791960468510,
+          "pageMonotonicMs": 24136.799999952316,
+          "visibility": "visible",
+          "focus": true,
+          "target": "probeType",
+          "isTrusted": true,
+          "value": ""
+        },
+        {
+          "caseId": "f-hidden-throttle-false-bypass-true-type",
+          "kind": "focusout",
+          "epochMs": 1791960468510,
+          "pageMonotonicMs": 24137,
+          "visibility": "visible",
+          "focus": true,
+          "target": "probeClick",
+          "isTrusted": true,
+          "value": ""
+        },
+        {
+          "caseId": "f-hidden-throttle-false-bypass-true-type",
+          "kind": "focusin",
+          "epochMs": 1791960468510,
+          "pageMonotonicMs": 24137,
+          "visibility": "visible",
+          "focus": true,
+          "target": "probeType",
+          "isTrusted": true,
+          "value": ""
+        },
+        {
+          "caseId": "f-hidden-throttle-false-bypass-true-type",
+          "kind": "pointerup",
+          "epochMs": 1791960468512,
+          "pageMonotonicMs": 24138.60000014305,
+          "visibility": "visible",
+          "focus": true,
+          "target": "probeType",
+          "isTrusted": true,
+          "value": ""
+        },
+        {
+          "caseId": "f-hidden-throttle-false-bypass-true-type",
+          "kind": "mouseup",
+          "epochMs": 1791960468512,
+          "pageMonotonicMs": 24138.60000014305,
+          "visibility": "visible",
+          "focus": true,
+          "target": "probeType",
+          "isTrusted": true,
+          "value": ""
+        },
+        {
+          "caseId": "f-hidden-throttle-false-bypass-true-type",
+          "kind": "click",
+          "epochMs": 1791960468512,
+          "pageMonotonicMs": 24138.60000014305,
+          "visibility": "visible",
+          "focus": true,
+          "target": "probeType",
+          "isTrusted": true,
+          "value": ""
+        },
+        {
+          "caseId": "f-hidden-throttle-false-bypass-true-type",
+          "kind": "input",
+          "epochMs": 1791960468514,
+          "pageMonotonicMs": 24141,
+          "visibility": "visible",
+          "focus": true,
+          "target": "probeType",
+          "isTrusted": false,
+          "value": "typed-f-hidden-throttle-false-bypass-true"
+        },
+        {
+          "caseId": "f-hidden-throttle-false-bypass-true-type",
+          "kind": "change",
+          "epochMs": 1791960468515,
+          "pageMonotonicMs": 24141.10000014305,
+          "visibility": "visible",
+          "focus": true,
+          "target": "probeType",
+          "isTrusted": false,
+          "value": "typed-f-hidden-throttle-false-bypass-true"
+        },
+        {
+          "caseId": "f-hidden-throttle-false-bypass-true-scroll",
+          "kind": "scroll",
+          "epochMs": 1791960469526,
+          "pageMonotonicMs": 25152.5,
+          "visibility": "visible",
+          "focus": true,
+          "isTrusted": true,
+          "scrollY": 400
+        },
+        {
+          "caseId": "f-hidden-throttle-false-bypass-true-upload",
+          "kind": "input",
+          "epochMs": 1791960470525,
+          "pageMonotonicMs": 26151,
+          "visibility": "visible",
+          "focus": true,
+          "target": "probeUpload",
+          "isTrusted": true,
+          "value": "C:\\fakepath\\upload-fixture.txt",
+          "files": [
+            "upload-fixture.txt"
+          ]
+        },
+        {
+          "caseId": "f-hidden-throttle-false-bypass-true-upload",
+          "kind": "change",
+          "epochMs": 1791960470525,
+          "pageMonotonicMs": 26151.10000014305,
+          "visibility": "visible",
+          "focus": true,
+          "target": "probeUpload",
+          "isTrusted": true,
+          "value": "C:\\fakepath\\upload-fixture.txt",
+          "files": [
+            "upload-fixture.txt"
+          ]
+        }
+      ],
+      "clicks": 1,
+      "text": "typed-f-hidden-throttle-false-bypass-true",
+      "files": [
+        "upload-fixture.txt"
+      ],
+      "scrollY": 400,
+      "visibility": "visible",
+      "focus": true,
+      "epochMs": 1791960476212
+    }
+  }
+]

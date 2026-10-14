@@ -1,0 +1,87 @@
+function routeAppTab(
+  descriptor: Pick<DesktopAppTabOpened, "threadId" | "folderId" | "spaceId" | "initiator">,
+) {
+  return routeAppTabOpened({
+    descriptor,
+    windows: appTabWindowFocusOrder.order(
+      shellWindows()
+        .filter((window) => !window.isDestroyed() && !window.webContents.isLoadingMainFrame())
+        .map((window) => {
+          const snapshot = threadHomeWindow.snapshot(window.id);
+          return {
+            id: window.id,
+            focused: window.isFocused(),
+            visible: window.isVisible(),
+            minimized: window.isMinimized(),
+            spaceId:
+              spacesMenuStateByShellRendererId.get(window.webContents.id)?.activeSpaceId ?? null,
+            folderId:
+              snapshot?.views.find((view) => view.threadId === snapshot.activeThreadId)?.folderId ??
+              null,
+          };
+        }),
+    ),
+    home: threadHomeWindow,
+    panelFocus: panelFocusState,
+  });
+}
+function appTabAgentPresentation(
+  tab: DesktopAppTabDescriptor,
+  _threadId: string,
+): { state: "active" | "background" | "window-hidden" } {
+  const tabs = desktopAppRuntime!.appTabs;
+  const ownerId = tabs.ownerWindowId(tab.id);
+  const window = shellWindows().find((candidate) => candidate.webContents.id === ownerId);
+  if (!window || !window.isVisible() || window.isMinimized()) return { state: "window-hidden" };
+  return {
+    state:
+      tabs.ownerWindowId(tab.id) === window.webContents.id && tabs.isVisible(tab.id)
+        ? "active"
+        : "background",
+  };
+}
+
+async function activateAppTabForAgent(
+  tab: DesktopAppTabDescriptor,
+  threadId: string,
+  signal: AbortSignal,
+): Promise<unknown> {
+  const route = routeAppTab({ ...tab, threadId, initiator: "agent" });
+  const window = shellWindows().find((candidate) => candidate.id === route.targetWindowId);
+  if (!backendHttpUrl) throw new Error("The backend is not ready.");
+  const folderTabs = await readDesktopFolderAppTabs(
+    { url: backendHttpUrl, token: DESKTOP_BACKEND_SHUTDOWN_TOKEN },
+    tab.folderId,
+  );
+  if (!folderTabs) throw new Error("The folder is not available.");
+  if (!window) throw appTabFolderUnavailable(folderTabs.folderTitle, route.folderShown);
+  if (
+    desktopAppRuntime!.appTabs.ownerWindowId(tab.id) !== window.webContents.id ||
+    !desktopAppRuntime!.appTabs.isVisible(tab.id)
+  ) {
+    await appTabActivation.request(
+      tab.id,
+      window.webContents.id,
+      signal,
+      () => routeAppTab({ ...tab, threadId, initiator: "agent" }).targetWindowId === window.id,
+      (request) => {
+        window.webContents.send(IPC.appTabs.activationRequested, {
+          requestId: request.requestId,
+          tab,
+          folderTabs,
+        });
+      },
+    );
+  }
+  signal.throwIfAborted();
+  if (
+    desktopAppRuntime!.appTabs.ownerWindowId(tab.id) !== window.webContents.id ||
+    !desktopAppRuntime!.appTabs.isVisible(tab.id)
+  ) {
+    throw Object.assign(new Error("The tab lost presentation during activation."), {
+      code: "TAB_NOT_ACTIVE",
+      dispatched: false,
+    });
+  }
+  return { tabId: tab.id, state: "active", readyForInteraction: true };
+}

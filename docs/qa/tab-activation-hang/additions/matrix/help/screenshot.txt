@@ -1,0 +1,62 @@
+penkra tabs screenshot
+Capture an App-tab document in an eligible window showing its folder.
+
+How to use this operation
+
+Choose d1 or d2. filename writes a PNG to the caller Thread workspace. If TAB_FOLDER_NOT_AVAILABLE says the folder is not open or every showing window is busy, report the message and do not retry.
+
+Examples
+
+  Capture d2
+
+  {
+    "command": "penkra tabs screenshot --tab-id <tab-id> --document d2 --filename page.png"
+  }
+
+Input fields
+  --document <string>  required; one of "d1", "d2". d1 addresses the App document; d2 addresses its hosted page, when present.
+  --tab-id <string>  required. Exact retained App tab ID returned by penkra tabs list.
+  --filename <string>  optional.
+
+Invocation
+  Send one ordinary command string. Pass each input field by name exactly as listed
+  under Input fields (for example --thread-id <id>). A bare value without its --name
+  is rejected. Use --input "{...}" to pass the complete input as one JSON value.
+  --input   Complete JSON operation input validated against the schema below.
+
+Operating manual
+  Run penkra tabs --help for Tabs operating instructions.
+
+Validated input schema
+{
+  "type": "object",
+  "properties": {
+    "tabId": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Exact retained App tab ID returned by penkra tabs list."
+    },
+    "document": {
+      "type": "string",
+      "enum": [
+        "d1",
+        "d2"
+      ],
+      "description": "d1 addresses the App document; d2 addresses its hosted page, when present."
+    },
+    "filename": {
+      "type": "string",
+      "minLength": 1
+    }
+  },
+  "required": [
+    "tabId",
+    "document"
+  ],
+  "additionalProperties": false
+}
+
+Validated output schema
+{
+  "type": "object"
+}

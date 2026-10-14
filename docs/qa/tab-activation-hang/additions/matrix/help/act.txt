@@ -1,0 +1,257 @@
+penkra tabs act
+Run an ordered sequence of actions against d1 and d2.
+
+How to use this operation
+
+Act accepts steps through --input. Activate the tab and take a fresh snapshot first; inactive interaction fails before dispatch. A failed sequence reports completed steps and whether the failing step was dispatched. Element actions use d1:/d2: references from snapshot; --human true uses an eased visible cursor path. Upload targets a file input reference and accepts local file paths; absolute paths use the desktop filesystem and relative paths use the App's storage directory.
+
+Examples
+
+  Click and wait
+
+  {
+    "command": "penkra tabs act --input '{\"tabId\":\"<tab-id>\",\"steps\":[{\"action\":\"click\",\"ref\":\"d1:e3\"},{\"action\":\"wait\",\"document\":\"d1\",\"text\":\"Saved\"}]}'"
+  }
+
+Input fields
+  --steps <array>  required.
+  --tab-id <string>  required. Exact retained App tab ID returned by penkra tabs list.
+  --human <boolean>  optional.
+
+Invocation
+  Send one ordinary command string. Pass each input field by name exactly as listed
+  under Input fields (for example --thread-id <id>). A bare value without its --name
+  is rejected. Use --input "{...}" to pass the complete input as one JSON value.
+  --input   Complete JSON operation input validated against the schema below.
+
+Operating manual
+  Run penkra tabs --help for Tabs operating instructions.
+
+Validated input schema
+{
+  "type": "object",
+  "properties": {
+    "tabId": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Exact retained App tab ID returned by penkra tabs list."
+    },
+    "human": {
+      "type": "boolean"
+    },
+    "steps": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "oneOf": [
+          {
+            "type": "object",
+            "properties": {
+              "action": {
+                "enum": [
+                  "click",
+                  "hover",
+                  "highlight"
+                ]
+              },
+              "ref": {
+                "type": "string",
+                "pattern": "^d[12]:e[0-9]+$",
+                "description": "Durable document reference returned by snapshot for the current loader."
+              }
+            },
+            "required": [
+              "action",
+              "ref"
+            ],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "action": {
+                "const": "type"
+              },
+              "ref": {
+                "type": "string",
+                "pattern": "^d[12]:e[0-9]+$",
+                "description": "Durable document reference returned by snapshot for the current loader."
+              },
+              "text": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "action",
+              "ref",
+              "text"
+            ],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "action": {
+                "const": "select"
+              },
+              "ref": {
+                "type": "string",
+                "pattern": "^d[12]:e[0-9]+$",
+                "description": "Durable document reference returned by snapshot for the current loader."
+              },
+              "value": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "action",
+              "ref",
+              "value"
+            ],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "action": {
+                "const": "upload"
+              },
+              "ref": {
+                "type": "string",
+                "pattern": "^d[12]:e[0-9]+$",
+                "description": "Durable document reference returned by snapshot for the current loader."
+              },
+              "paths": {
+                "type": "array",
+                "minItems": 1,
+                "description": "Local file paths. Absolute paths may name files anywhere the desktop can read; relative paths use this App's storage directory.",
+                "items": {
+                  "type": "string",
+                  "minLength": 1
+                }
+              }
+            },
+            "required": [
+              "action",
+              "ref",
+              "paths"
+            ],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "action": {
+                "const": "press"
+              },
+              "document": {
+                "type": "string",
+                "enum": [
+                  "d1",
+                  "d2"
+                ],
+                "description": "d1 addresses the App document; d2 addresses its hosted page, when present."
+              },
+              "key": {
+                "type": "string",
+                "minLength": 1
+              }
+            },
+            "required": [
+              "action",
+              "document",
+              "key"
+            ],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "action": {
+                "const": "scroll"
+              },
+              "document": {
+                "type": "string",
+                "enum": [
+                  "d1",
+                  "d2"
+                ],
+                "description": "d1 addresses the App document; d2 addresses its hosted page, when present."
+              },
+              "deltaX": {
+                "type": "number"
+              },
+              "deltaY": {
+                "type": "number"
+              }
+            },
+            "required": [
+              "action",
+              "document"
+            ],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "action": {
+                "const": "wait"
+              },
+              "document": {
+                "type": "string",
+                "enum": [
+                  "d1",
+                  "d2"
+                ],
+                "description": "d1 addresses the App document; d2 addresses its hosted page, when present."
+              },
+              "text": {
+                "type": "string",
+                "minLength": 1
+              },
+              "timeoutMs": {
+                "type": "number",
+                "minimum": 0
+              }
+            },
+            "required": [
+              "action",
+              "document",
+              "text"
+            ],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "action": {
+                "const": "dialog"
+              },
+              "accept": {
+                "type": "boolean"
+              },
+              "text": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "action",
+              "accept"
+            ],
+            "additionalProperties": false
+          }
+        ]
+      }
+    }
+  },
+  "required": [
+    "tabId",
+    "steps"
+  ],
+  "additionalProperties": false
+}
+
+Validated output schema
+{
+  "type": "object"
+}

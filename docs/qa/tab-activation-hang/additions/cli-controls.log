@@ -1,0 +1,9 @@
+$ vitest run --maxWorkers=1 --no-file-parallelism --silent=passed-only src/appRuntimeCli.test.ts
+
+ RUN  v4.1.11 /Users/emmanuelgyekyeatta-penkra/Penkra/qa-tab-additions-b9xq3rc4/source/apps/server
+
+
+ Test Files  1 passed (1)
+      Tests  30 passed (30)
+   Start at  00:53:10
+   Duration  499ms (transform 148ms, setup 0ms, import 288ms, tests 101ms, environment 0ms)

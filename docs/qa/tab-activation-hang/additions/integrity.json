@@ -1,0 +1,55 @@
+{
+  "jsonAndJsonlFilesParsed": 29,
+  "errorSites": 125,
+  "hiddenMinimizedStartEndAssertions": "passed",
+  "guardedActionSpecificEventAssertions": "passed",
+  "noNegativeDerivedEventLatencies": "passed",
+  "residualSetupEvents": [
+    {
+      "caseId": "f-minimized-throttle-false-bypass-false-click",
+      "event": {
+        "caseId": "f-minimized-throttle-false-bypass-false-click",
+        "kind": "scroll",
+        "epochMs": 1791960281267,
+        "pageMonotonicMs": 111064.70000004768,
+        "visibility": "visible",
+        "focus": true,
+        "isTrusted": true,
+        "scrollY": 0
+      },
+      "note": "Delayed setup scroll reset to 0, not a click/input effect."
+    }
+  ],
+  "scratchPorts3919And5919": "stopped; lsof had no listeners",
+  "checks": [
+    "macos-visibility.json",
+    "source-hashes.json",
+    "error-catalog.json",
+    "repeat/command-results.json",
+    "repeat/event-delivery-matrix.json",
+    "visibility-second/macos-visibility.json",
+    "harness/source-fragments.json",
+    "visibility-initial/macos-visibility.json",
+    "matrix/trace.json",
+    "matrix/record-probe.json",
+    "matrix/record-decode-result.json",
+    "matrix/command-results.json",
+    "matrix/event-delivery-matrix.json",
+    "matrix/help/trace.json",
+    "matrix/help/record.json",
+    "matrix/help/activate.json",
+    "matrix/help/close.json",
+    "matrix/help/act.json",
+    "matrix/help/snapshot.json",
+    "matrix/help/list.json",
+    "matrix/help/screenshot.json",
+    "matrix/help/har.json",
+    "matrix/help/root.json",
+    "matrix/help/evaluate.json",
+    "events.jsonl",
+    "repeat/events.jsonl",
+    "visibility-second/events.jsonl",
+    "visibility-initial/events.jsonl",
+    "matrix/events.jsonl"
+  ]
+}

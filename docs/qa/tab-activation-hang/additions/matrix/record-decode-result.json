@@ -1,0 +1,5 @@
+{
+  "command": "ffmpeg -v error -i qa-record.webm -f null -",
+  "exitCode": 0,
+  "stderrFile": "record-decode.log"
+}

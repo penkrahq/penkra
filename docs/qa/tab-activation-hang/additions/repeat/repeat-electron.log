@@ -1,0 +1,2481 @@
+[app-tab-host] {
+  tabId: 'qa-browser-A',
+  rendererId: 2,
+  appId: 'com.penkra.browser',
+  spaceId: 'qa-space',
+  folderId: 'qa-folder',
+  threadId: 'qa-agent-thread',
+  sequence: 1,
+  monotonicMs: 821,
+  event: 'app-renderer-created'
+}
+[app-tab-host] {
+  tabId: 'qa-browser-A',
+  rendererId: 2,
+  sequence: 2,
+  monotonicMs: 822,
+  event: 'app-renderer-initial-load-requested'
+}
+[app-tab-host] {
+  tabId: 'qa-browser-A',
+  rendererId: 2,
+  sequence: 3,
+  monotonicMs: 832,
+  event: 'app-renderer-load-started'
+}
+[app-tab-host] {
+  windowId: 1,
+  visible: true,
+  sequence: 4,
+  monotonicMs: 1313,
+  event: 'window-visibility-started'
+}
+[app-tab-host] {
+  windowId: 1,
+  visible: true,
+  sequence: 5,
+  monotonicMs: 1314,
+  event: 'window-visibility-completed'
+}
+[app-tab-host] {
+  tabId: 'qa-browser-A',
+  rendererId: 2,
+  sequence: 6,
+  monotonicMs: 1515,
+  event: 'app-renderer-navigated'
+}
+[app-tab-host] {
+  tabId: 'qa-browser-A',
+  rendererId: 2,
+  durationMs: 767,
+  sequence: 7,
+  monotonicMs: 1543,
+  event: 'app-renderer-ready'
+}
+[app-tab-host] {
+  tabId: 'qa-browser-B',
+  rendererId: 4,
+  appId: 'com.penkra.browser',
+  spaceId: 'qa-space',
+  folderId: 'qa-folder',
+  threadId: 'qa-agent-thread',
+  sequence: 8,
+  monotonicMs: 1578,
+  event: 'app-renderer-created'
+}
+[app-tab-host] {
+  tabId: 'qa-browser-B',
+  rendererId: 4,
+  sequence: 9,
+  monotonicMs: 1578,
+  event: 'app-renderer-initial-load-requested'
+}
+[app-tab-host] {
+  tabId: 'qa-browser-B',
+  rendererId: 4,
+  sequence: 10,
+  monotonicMs: 1580,
+  event: 'app-renderer-load-started'
+}
+[app-tab-host] {
+  tabId: 'qa-browser-A',
+  rendererId: 2,
+  sequence: 11,
+  monotonicMs: 1587,
+  event: 'app-renderer-load-stopped'
+}
+[app-tab-host] {
+  tabId: 'qa-browser-B',
+  rendererId: 4,
+  sequence: 12,
+  monotonicMs: 1713,
+  event: 'app-renderer-navigated'
+}
+[app-tab-host] {
+  tabId: 'qa-browser-B',
+  rendererId: 4,
+  durationMs: 177,
+  sequence: 13,
+  monotonicMs: 1723,
+  event: 'app-renderer-ready'
+}
+[app-tab-host] {
+  tabId: 'qa-browser-B',
+  rendererId: 4,
+  sequence: 14,
+  monotonicMs: 1725,
+  event: 'app-renderer-load-stopped'
+}
+(electron) 'console-message' arguments are deprecated and will be removed. Please use Event<WebContentsConsoleMessageEventParams> object instead.
+[qa-control] {
+  event: 'renderer-console',
+  level: 0,
+  message: '[vite] connecting...'
+}
+[qa-control] { event: 'renderer-console', level: 0, message: '[vite] connected.' }
+[qa-control] {
+  event: 'renderer-console',
+  level: 1,
+  message: '%cDownload the React DevTools for a better development experience: https://react.dev/link/react-devtools font-weight:bold'
+}
+[qa-control] {
+  event: 'renderer-console',
+  level: 2,
+  message: '%cElectron Security Warning (Insecure Content-Security-Policy) font-weight: bold; This renderer process has either no Content Security\n' +
+    '  Policy set or a policy with "unsafe-eval" enabled. This exposes users of\n' +
+    '  this app to unnecessary security risks.\n' +
+    '\n' +
+    'For more information and help, consult\n' +
+    'https://electronjs.org/docs/tutorial/security.\n' +
+    'This warning will not show up\n' +
+    'once the app is packaged.'
+}
+[app-tab-diagnostic] {
+  browserWindowId: 1,
+  rendererId: 1,
+  isVisible: true,
+  isMinimized: false,
+  isFocused: false,
+  rendererState: { visibilityState: 'visible', hasFocus: false },
+  sequence: 1,
+  monotonicMs: 2272,
+  event: 'shell-window-show'
+}
+[app-tab-host] {
+  tabId: 'qa-browser-A',
+  pageId: null,
+  hasInitialUrl: true,
+  sequence: 15,
+  monotonicMs: 3453,
+  event: 'browser-open-requested'
+}
+(node:89623) ExtensionLoadWarning: Warnings loading extension at /Users/emmanuelgyekyeatta-penkra/Penkra/qa-tab-additions-b9xq3rc4/source/apps/desktop/resources/extensions/darkreader:
+  Manifest version 2 is deprecated, and support will be removed in 2025. See https://developer.chrome.com/docs/extensions/develop/migrate/mv2-deprecation-timeline for details.
+  Permission 'fontSettings' is unknown or URL pattern is malformed.
+  Permission 'contextMenus' is unknown or URL pattern is malformed.
+
+(Use `Electron --trace-warnings ...` to show where the warning was created)
+[app-tab-host] {
+  tabId: 'qa-browser-A',
+  pageId: 'dba4fe19-7283-47f0-aa1d-395b8aac1431',
+  rendererId: 7,
+  currentBounds: { x: 0, y: 0, width: 0, height: 0 },
+  bounds: { x: 0, y: 0, width: 600, height: 652 },
+  currentVisible: true,
+  visible: true,
+  visibleRequested: false,
+  freezeDepth: 0,
+  ownerWindowVisible: false,
+  pageHasError: false,
+  sequence: 16,
+  monotonicMs: 3499,
+  event: 'hosted-page-view-layout-change'
+}
+[app-tab-host] {
+  tabId: 'qa-browser-A',
+  pageId: 'dba4fe19-7283-47f0-aa1d-395b8aac1431',
+  rendererId: 7,
+  hadPendingLoad: false,
+  sequence: 17,
+  monotonicMs: 3509,
+  event: 'hosted-page-load-queued'
+}
+[app-tab-host] {
+  tabId: 'qa-browser-A',
+  pageId: 'dba4fe19-7283-47f0-aa1d-395b8aac1431',
+  rendererId: 7,
+  sequence: 18,
+  monotonicMs: 3509,
+  event: 'hosted-page-load-requested'
+}
+[app-tab-host] {
+  tabId: 'qa-browser-A',
+  pageId: 'dba4fe19-7283-47f0-aa1d-395b8aac1431',
+  rendererId: 7,
+  sequence: 19,
+  monotonicMs: 3511,
+  event: 'hosted-page-load-started'
+}
+[app-tab-host] {
+  tabId: 'qa-browser-A',
+  pageId: 'dba4fe19-7283-47f0-aa1d-395b8aac1431',
+  rendererId: 7,
+  isMainFrame: true,
+  isSameDocument: false,
+  frameProcessId: 10,
+  frameRoutingId: 1,
+  urlOrigin: 'http://127.0.0.1:3919',
+  sequence: 20,
+  monotonicMs: 3511,
+  event: 'hosted-page-frame-navigation-started'
+}
+[app-tab-host] {
+  windowId: 1,
+  visible: false,
+  sequence: 21,
+  monotonicMs: 3512,
+  event: 'window-visibility-started'
+}
+[app-tab-host] {
+  windowId: 1,
+  visible: false,
+  sequence: 22,
+  monotonicMs: 3513,
+  event: 'window-visibility-completed'
+}
+[app-tab-diagnostic] {
+  browserWindowId: 1,
+  rendererId: 1,
+  isVisible: true,
+  isMinimized: false,
+  isFocused: false,
+  rendererState: { visibilityState: 'hidden', hasFocus: false },
+  sequence: 2,
+  monotonicMs: 3535,
+  event: 'shell-window-hide'
+}
+[app-tab-host] {
+  tabId: 'qa-browser-A',
+  pageId: 'dba4fe19-7283-47f0-aa1d-395b8aac1431',
+  rendererId: 7,
+  sequence: 23,
+  monotonicMs: 3626,
+  event: 'hosted-page-navigated'
+}
+[app-tab-host] {
+  tabId: 'qa-browser-A',
+  pageId: 'dba4fe19-7283-47f0-aa1d-395b8aac1431',
+  rendererId: 7,
+  isMainFrame: true,
+  frameProcessId: 10,
+  frameRoutingId: 1,
+  sequence: 24,
+  monotonicMs: 3662,
+  event: 'hosted-page-frame-load-finished'
+}
+[app-tab-host] {
+  tabId: 'qa-browser-A',
+  pageId: 'dba4fe19-7283-47f0-aa1d-395b8aac1431',
+  rendererId: 7,
+  sequence: 25,
+  monotonicMs: 3662,
+  event: 'hosted-page-load-resolved'
+}
+[app-tab-host] {
+  tabId: 'qa-browser-A',
+  pageId: 'dba4fe19-7283-47f0-aa1d-395b8aac1431',
+  rendererId: 7,
+  sequence: 26,
+  monotonicMs: 3664,
+  event: 'hosted-page-load-stopped'
+}
+[app-tab-host] {
+  windowId: 1,
+  visible: true,
+  sequence: 27,
+  monotonicMs: 3676,
+  event: 'window-visibility-started'
+}
+[app-tab-host] {
+  windowId: 1,
+  visible: true,
+  sequence: 28,
+  monotonicMs: 3676,
+  event: 'window-visibility-completed'
+}
+[app-tab-diagnostic] {
+  rendererMonotonicMs: 1955,
+  documentVisibility: 'visible',
+  documentHasFocus: false,
+  threadId: 'qa-agent-thread',
+  status: 'ready',
+  paneVisible: true,
+  rendererId: 1,
+  tabId: 'qa-browser-A',
+  sequence: 3,
+  monotonicMs: 3689,
+  event: 'renderer-pane-mounted'
+}
+[app-tab-diagnostic] {
+  rendererMonotonicMs: 1958,
+  documentVisibility: 'visible',
+  documentHasFocus: false,
+  threadId: 'qa-agent-thread',
+  width: 1,
+  animate: false,
+  status: 'ready',
+  paneVisible: true,
+  rendererId: 1,
+  tabId: 'qa-browser-A',
+  sequence: 4,
+  monotonicMs: 3689,
+  event: 'renderer-present-requested'
+}
+[app-tab-diagnostic] {
+  tabId: 'qa-browser-A',
+  rendererId: 1,
+  folderId: 'qa-folder',
+  threadId: 'qa-agent-thread',
+  animate: false,
+  bounds: { x: 1200, y: 46, width: 1, height: 722 },
+  sequence: 5,
+  monotonicMs: 3689,
+  event: 'shell-present-ipc'
+}
+[app-tab-host] {
+  tabId: 'qa-browser-A',
+  windowId: 1,
+  folderId: 'qa-folder',
+  threadId: 'qa-agent-thread',
+  ownerWindowId: null,
+  freezeDepth: 0,
+  appViewVisible: true,
+  sequence: 29,
+  monotonicMs: 3690,
+  event: 'present-started'
+}
+[app-tab-host] {
+  tabId: 'qa-browser-A',
+  pageId: 'dba4fe19-7283-47f0-aa1d-395b8aac1431',
+  rendererId: 7,
+  currentBounds: { x: 0, y: 0, width: 600, height: 652 },
+  bounds: { x: 1199, y: 94, width: 1, height: 674 },
+  currentVisible: true,
+  visible: true,
+  visibleRequested: true,
+  freezeDepth: 0,
+  ownerWindowVisible: true,
+  pageHasError: false,
+  sequence: 30,
+  monotonicMs: 3894,
+  event: 'hosted-page-view-layout-change'
+}
+[app-tab-host] {
+  tabId: 'qa-browser-A',
+  folderId: 'qa-folder',
+  threadId: 'qa-agent-thread',
+  windowId: 1,
+  ownerWindowId: 1,
+  selectedAt: 1,
+  bounds: { x: 1199, y: 46, width: 1, height: 722 },
+  animate: false,
+  windowVisible: true,
+  windowMinimized: false,
+  appViewVisible: true,
+  appViewIndex: 1,
+  childViewCount: 2,
+  hostedPageVisible: true,
+  appViewLoading: false,
+  appViewCrashed: false,
+  hostedPageLoading: false,
+  sequence: 31,
+  monotonicMs: 3895,
+  event: 'present-applied'
+}
+[app-tab-diagnostic] {
+  tabId: 'qa-browser-A',
+  rendererId: 1,
+  folderId: 'qa-folder',
+  threadId: 'qa-agent-thread',
+  animate: false,
+  bounds: { x: 601, y: 46, width: 599, height: 722 },
+  sequence: 6,
+  monotonicMs: 3897,
+  event: 'shell-present-ipc'
+}
+[app-tab-host] {
+  tabId: 'qa-browser-A',
+  windowId: 1,
+  folderId: 'qa-folder',
+  threadId: 'qa-agent-thread',
+  ownerWindowId: 1,
+  freezeDepth: 0,
+  appViewVisible: true,
+  sequence: 32,
+  monotonicMs: 3897,
+  event: 'present-started'
+}
+[app-tab-host] {
+  tabId: 'qa-browser-A',
+  pageId: 'dba4fe19-7283-47f0-aa1d-395b8aac1431',
+  rendererId: 7,
+  currentBounds: { x: 1199, y: 94, width: 1, height: 674 },
+  bounds: { x: 601, y: 94, width: 599, height: 674 },
+  currentVisible: true,
+  visible: true,
+  visibleRequested: true,
+  freezeDepth: 0,
+  ownerWindowVisible: true,
+  pageHasError: false,
+  sequence: 33,
+  monotonicMs: 3897,
+  event: 'hosted-page-view-layout-change'
+}
+[app-tab-host] {
+  tabId: 'qa-browser-A',
+  folderId: 'qa-folder',
+  threadId: 'qa-agent-thread',
+  windowId: 1,
+  ownerWindowId: 1,
+  selectedAt: 2,
+  bounds: { x: 601, y: 46, width: 599, height: 722 },
+  animate: false,
+  windowVisible: true,
+  windowMinimized: false,
+  appViewVisible: true,
+  appViewIndex: 1,
+  childViewCount: 2,
+  hostedPageVisible: true,
+  appViewLoading: false,
+  appViewCrashed: false,
+  hostedPageLoading: false,
+  sequence: 34,
+  monotonicMs: 3897,
+  event: 'present-applied'
+}
+[app-tab-diagnostic] {
+  rendererMonotonicMs: 1962,
+  documentVisibility: 'visible',
+  documentHasFocus: false,
+  threadId: 'qa-agent-thread',
+  width: 1,
+  animate: true,
+  status: 'ready',
+  paneVisible: true,
+  rendererId: 1,
+  tabId: 'qa-browser-A',
+  sequence: 7,
+  monotonicMs: 3898,
+  event: 'renderer-present-requested'
+}
+[app-tab-diagnostic] {
+  tabId: 'qa-browser-A',
+  rendererId: 1,
+  folderId: 'qa-folder',
+  threadId: 'qa-agent-thread',
+  animate: true,
+  bounds: { x: 1200, y: 46, width: 1, height: 722 },
+  sequence: 8,
+  monotonicMs: 3898,
+  event: 'shell-present-ipc'
+}
+[app-tab-host] {
+  tabId: 'qa-browser-A',
+  windowId: 1,
+  folderId: 'qa-folder',
+  threadId: 'qa-agent-thread',
+  ownerWindowId: 1,
+  freezeDepth: 0,
+  appViewVisible: true,
+  sequence: 35,
+  monotonicMs: 3898,
+  event: 'present-started'
+}
+[app-tab-host] {
+  tabId: 'qa-browser-A',
+  pageId: 'dba4fe19-7283-47f0-aa1d-395b8aac1431',
+  rendererId: 7,
+  currentBounds: { x: 601, y: 94, width: 599, height: 674 },
+  bounds: { x: 1199, y: 94, width: 1, height: 674 },
+  currentVisible: true,
+  visible: true,
+  visibleRequested: true,
+  freezeDepth: 0,
+  ownerWindowVisible: true,
+  pageHasError: false,
+  sequence: 36,
+  monotonicMs: 3898,
+  event: 'hosted-page-view-layout-change'
+}
+[app-tab-host] {
+  tabId: 'qa-browser-A',
+  folderId: 'qa-folder',
+  threadId: 'qa-agent-thread',
+  windowId: 1,
+  ownerWindowId: 1,
+  selectedAt: 3,
+  bounds: { x: 1199, y: 46, width: 1, height: 722 },
+  animate: true,
+  windowVisible: true,
+  windowMinimized: false,
+  appViewVisible: true,
+  appViewIndex: 1,
+  childViewCount: 2,
+  hostedPageVisible: true,
+  appViewLoading: false,
+  appViewCrashed: false,
+  hostedPageLoading: false,
+  sequence: 37,
+  monotonicMs: 3899,
+  event: 'present-applied'
+}
+[app-tab-diagnostic] {
+  rendererMonotonicMs: 1963,
+  documentVisibility: 'visible',
+  documentHasFocus: true,
+  threadId: 'qa-agent-thread',
+  rendererId: 1,
+  tabId: 'qa-browser-A',
+  sequence: 9,
+  monotonicMs: 3900,
+  event: 'renderer-window-focused'
+}
+[app-tab-diagnostic] {
+  rendererMonotonicMs: 1963,
+  documentVisibility: 'visible',
+  documentHasFocus: true,
+  threadId: 'qa-agent-thread',
+  rendererId: 1,
+  tabId: 'qa-browser-A',
+  sequence: 10,
+  monotonicMs: 3900,
+  event: 'renderer-window-focused'
+}
+[app-tab-diagnostic] {
+  tabId: 'qa-browser-A',
+  rendererId: 1,
+  folderId: 'qa-folder',
+  threadId: 'qa-agent-thread',
+  animate: false,
+  bounds: { x: 601, y: 46, width: 599, height: 722 },
+  sequence: 11,
+  monotonicMs: 3900,
+  event: 'shell-present-ipc'
+}
+[app-tab-host] {
+  tabId: 'qa-browser-A',
+  windowId: 1,
+  folderId: 'qa-folder',
+  threadId: 'qa-agent-thread',
+  ownerWindowId: 1,
+  freezeDepth: 0,
+  appViewVisible: true,
+  sequence: 38,
+  monotonicMs: 3900,
+  event: 'present-started'
+}
+[app-tab-host] {
+  tabId: 'qa-browser-A',
+  pageId: 'dba4fe19-7283-47f0-aa1d-395b8aac1431',
+  rendererId: 7,
+  currentBounds: { x: 1199, y: 94, width: 1, height: 674 },
+  bounds: { x: 601, y: 94, width: 599, height: 674 },
+  currentVisible: true,
+  visible: true,
+  visibleRequested: true,
+  freezeDepth: 0,
+  ownerWindowVisible: true,
+  pageHasError: false,
+  sequence: 39,
+  monotonicMs: 3900,
+  event: 'hosted-page-view-layout-change'
+}
+[app-tab-host] {
+  tabId: 'qa-browser-A',
+  folderId: 'qa-folder',
+  threadId: 'qa-agent-thread',
+  windowId: 1,
+  ownerWindowId: 1,
+  selectedAt: 4,
+  bounds: { x: 601, y: 46, width: 599, height: 722 },
+  animate: false,
+  windowVisible: true,
+  windowMinimized: false,
+  appViewVisible: true,
+  appViewIndex: 1,
+  childViewCount: 2,
+  hostedPageVisible: true,
+  appViewLoading: false,
+  appViewCrashed: false,
+  hostedPageLoading: false,
+  sequence: 40,
+  monotonicMs: 3901,
+  event: 'present-applied'
+}
+[app-tab-diagnostic] {
+  rendererMonotonicMs: 2172,
+  documentVisibility: 'visible',
+  documentHasFocus: true,
+  threadId: 'qa-agent-thread',
+  mode: 'live',
+  ownerWindowId: 1,
+  rendererId: 1,
+  tabId: 'qa-browser-A',
+  sequence: 12,
+  monotonicMs: 3907,
+  event: 'renderer-presentation-received'
+}
+[app-tab-diagnostic] {
+  rendererMonotonicMs: 2174,
+  documentVisibility: 'visible',
+  documentHasFocus: true,
+  threadId: 'qa-agent-thread',
+  mode: 'live',
+  ownerWindowId: 1,
+  rendererId: 1,
+  tabId: 'qa-browser-A',
+  sequence: 13,
+  monotonicMs: 3908,
+  event: 'renderer-presentation-received'
+}
+[app-tab-diagnostic] {
+  rendererMonotonicMs: 2175,
+  documentVisibility: 'visible',
+  documentHasFocus: true,
+  threadId: 'qa-agent-thread',
+  mode: 'live',
+  ownerWindowId: 1,
+  rendererId: 1,
+  tabId: 'qa-browser-A',
+  sequence: 14,
+  monotonicMs: 3908,
+  event: 'renderer-presentation-received'
+}
+[app-tab-diagnostic] {
+  rendererMonotonicMs: 2178,
+  documentVisibility: 'visible',
+  documentHasFocus: true,
+  threadId: 'qa-agent-thread',
+  mode: 'live',
+  ownerWindowId: 1,
+  rendererId: 1,
+  tabId: 'qa-browser-A',
+  sequence: 15,
+  monotonicMs: 3909,
+  event: 'renderer-presentation-received'
+}
+[app-tab-diagnostic] {
+  rendererMonotonicMs: 2265,
+  documentVisibility: 'visible',
+  documentHasFocus: true,
+  threadId: 'qa-agent-thread',
+  width: 600,
+  animate: false,
+  status: 'ready',
+  paneVisible: true,
+  rendererId: 1,
+  tabId: 'qa-browser-A',
+  sequence: 16,
+  monotonicMs: 3989,
+  event: 'renderer-present-requested'
+}
+[app-tab-diagnostic] {
+  tabId: 'qa-browser-A',
+  rendererId: 1,
+  folderId: 'qa-folder',
+  threadId: 'qa-agent-thread',
+  animate: false,
+  bounds: { x: 601, y: 46, width: 599, height: 722 },
+  sequence: 17,
+  monotonicMs: 3989,
+  event: 'shell-present-ipc'
+}
+[app-tab-host] {
+  tabId: 'qa-browser-A',
+  windowId: 1,
+  folderId: 'qa-folder',
+  threadId: 'qa-agent-thread',
+  ownerWindowId: 1,
+  freezeDepth: 0,
+  appViewVisible: true,
+  sequence: 41,
+  monotonicMs: 3989,
+  event: 'present-started'
+}
+[app-tab-host] {
+  tabId: 'qa-browser-A',
+  folderId: 'qa-folder',
+  threadId: 'qa-agent-thread',
+  windowId: 1,
+  ownerWindowId: 1,
+  selectedAt: 5,
+  bounds: { x: 601, y: 46, width: 599, height: 722 },
+  animate: false,
+  windowVisible: true,
+  windowMinimized: false,
+  appViewVisible: true,
+  appViewIndex: 1,
+  childViewCount: 2,
+  hostedPageVisible: true,
+  appViewLoading: false,
+  appViewCrashed: false,
+  hostedPageLoading: false,
+  sequence: 42,
+  monotonicMs: 3990,
+  event: 'present-applied'
+}
+[app-tab-diagnostic] {
+  rendererMonotonicMs: 2266,
+  documentVisibility: 'visible',
+  documentHasFocus: true,
+  threadId: 'qa-agent-thread',
+  mode: 'live',
+  ownerWindowId: 1,
+  rendererId: 1,
+  tabId: 'qa-browser-A',
+  sequence: 18,
+  monotonicMs: 3990,
+  event: 'renderer-presentation-received'
+}
+[app-tab-host] {
+  tabId: 'qa-browser-A',
+  windowId: 1,
+  folderId: 'qa-folder',
+  threadId: 'qa-agent-thread',
+  ownerWindowId: 1,
+  freezeDepth: 0,
+  appViewVisible: true,
+  sequence: 43,
+  monotonicMs: 4029,
+  event: 'present-started'
+}
+[app-tab-host] {
+  tabId: 'qa-browser-A',
+  pageId: 'dba4fe19-7283-47f0-aa1d-395b8aac1431',
+  rendererId: 7,
+  currentBounds: { x: 601, y: 94, width: 599, height: 674 },
+  bounds: { x: 650, y: 48, width: 550, height: 720 },
+  currentVisible: true,
+  visible: true,
+  visibleRequested: true,
+  freezeDepth: 0,
+  ownerWindowVisible: true,
+  pageHasError: false,
+  sequence: 44,
+  monotonicMs: 4030,
+  event: 'hosted-page-view-layout-change'
+}
+[app-tab-host] {
+  tabId: 'qa-browser-A',
+  folderId: 'qa-folder',
+  threadId: 'qa-agent-thread',
+  windowId: 1,
+  ownerWindowId: 1,
+  selectedAt: 6,
+  bounds: { x: 650, y: 0, width: 550, height: 768 },
+  animate: false,
+  windowVisible: true,
+  windowMinimized: false,
+  appViewVisible: true,
+  appViewIndex: 1,
+  childViewCount: 2,
+  hostedPageVisible: true,
+  appViewLoading: false,
+  appViewCrashed: false,
+  hostedPageLoading: false,
+  sequence: 45,
+  monotonicMs: 4030,
+  event: 'present-applied'
+}
+[app-tab-diagnostic] {
+  rendererMonotonicMs: 2307,
+  documentVisibility: 'visible',
+  documentHasFocus: true,
+  threadId: 'qa-agent-thread',
+  mode: 'live',
+  ownerWindowId: 1,
+  rendererId: 1,
+  tabId: 'qa-browser-A',
+  sequence: 19,
+  monotonicMs: 4031,
+  event: 'renderer-presentation-received'
+}
+[app-tab-diagnostic] {
+  rendererMonotonicMs: 2502,
+  documentVisibility: 'visible',
+  documentHasFocus: false,
+  threadId: 'qa-agent-thread',
+  rendererId: 1,
+  tabId: 'qa-browser-A',
+  sequence: 20,
+  monotonicMs: 4230,
+  event: 'renderer-window-blurred'
+}
+[app-tab-diagnostic] {
+  rendererMonotonicMs: 2612,
+  documentVisibility: 'hidden',
+  documentHasFocus: false,
+  threadId: 'qa-agent-thread',
+  rendererId: 1,
+  tabId: 'qa-browser-A',
+  sequence: 21,
+  monotonicMs: 4336,
+  event: 'renderer-document-visibility-changed'
+}
+[qa-control] {
+  event: 'command-sent',
+  command: 'penkra tabs snapshot --tab-id qa-browser-A --document d2',
+  id: 'f-hidden-throttle-true-bypass-true-snapshot',
+  startedEpochMs: 1791960445708
+}
+[qa-control] {
+  event: 'command-result',
+  caseId: 'f-hidden-throttle-true-bypass-true',
+  id: 'f-hidden-throttle-true-bypass-true-snapshot',
+  command: 'penkra tabs snapshot --tab-id qa-browser-A --document d2',
+  startedEpochMs: 1791960445708,
+  durationMs: 50.80962499999987,
+  ok: true,
+  result: {
+    tabId: 'qa-browser-A',
+    document: 'd2',
+    loaderId: '8500616797BAE042BC88F4716356753B',
+    snapshotId: 'bad888f9-5e49-45b6-8f5d-b484cbef4726',
+    app: 'browser',
+    url: 'http://127.0.0.1:3919/probe',
+    title: 'Penkra QA event probe',
+    snapshot: '--- AGENT_BROWSER_PAGE_CONTENT nonce=8789fe9555588f62593113f55c35aacd origin=http://127.0.0.1:3919/probe ---\n' +
+      '- document "Penkra QA event probe"\n' +
+      '  - button "Click probe" [ref=d2:e1]\n' +
+      '    - text: "Click probe"\n' +
+      '      - text: "Click probe"\n' +
+      '  - textbox "Text probe" [ref=d2:e2]\n' +
+      '  - button "Upload probe" value="No file chosen" [ref=d2:e3]\n' +
+      '  - combobox "Select probe" value="A" [ref=d2:e4]\n' +
+      '    - MenuListPopup\n' +
+      '      - option "A" [selected] [ref=d2:e6]\n' +
+      '      - option "B" [ref=d2:e7]\n' +
+      '  - button "Covered probe" [ref=d2:e5]\n' +
+      '    - text: "Covered probe"\n' +
+      '      - text: "Covered probe"\n' +
+      '--- END_AGENT_BROWSER_PAGE_CONTENT nonce=8789fe9555588f62593113f55c35aacd ---',
+    refs: {
+      'd2:e1': [Object],
+      'd2:e2': [Object],
+      'd2:e3': [Object],
+      'd2:e4': [Object],
+      'd2:e5': [Object],
+      'd2:e6': [Object],
+      'd2:e7': [Object]
+    },
+    removedRefs: []
+  }
+}
+[qa-control] {
+  event: 'command-sent',
+  command: `penkra tabs act --input '{"tabId":"qa-browser-A","steps":[{"action":"click","ref":"d2:e1"}]}'`,
+  id: 'f-hidden-throttle-true-bypass-true-click',
+  startedEpochMs: 1791960445759
+}
+[qa-cdp-request] {
+  method: 'Runtime.callFunctionOn',
+  params: {
+    objectId: '2131244943738956766.4.1',
+    functionDeclaration: 'function(x, y, bindingName, cleanupName) {\n' +
+      '  if (x < 0 || y < 0 || x >= innerWidth || y >= innerHeight) return false;\n' +
+      '  const elementAtPoint = function appTabElementAtPoint(doc, x, y) {\n' +
+      '  let element = doc.elementFromPoint(x, y);\n' +
+      '  while (element?.shadowRoot) {\n' +
+      '    const inner = element.shadowRoot.elementFromPoint(x, y);\n' +
+      '    if (!inner || inner === element)\n' +
+      '      break;\n' +
+      '    element = inner;\n' +
+      '  }\n' +
+      '  return element;\n' +
+      '};\n' +
+      '  const composedContains = function appTabComposedContains(container, candidate) {\n' +
+      '  for (let node = candidate;node; ) {\n' +
+      '    if (node === container)\n' +
+      '      return true;\n' +
+      '    node = node.parentNode ?? node.host ?? null;\n' +
+      '  }\n' +
+      '  return false;\n' +
+      '};\n' +
+      '  const hit = elementAtPoint(document, x, y);\n' +
+      '  if (!hit || !composedContains(this, hit)) return false;\n' +
+      '  const target = this;\n' +
+      '  const listener = (event) => {\n' +
+      '    const composedPath = typeof event.composedPath === "function" ? event.composedPath() : [];\n' +
+      '    if (event.isTrusted &&\n' +
+      '        (event.target === target || target.contains(event.target) || composedPath.includes(target))) {\n' +
+      '      globalThis[bindingName](event.isTrusted ? "trusted" : "untrusted");\n' +
+      '    }\n' +
+      '  };\n' +
+      '  window.addEventListener("click", listener, true);\n' +
+      '  globalThis[cleanupName] = () => window.removeEventListener("click", listener, true);\n' +
+      '  return true;\n' +
+      '}',
+    arguments: [ [Object], [Object], [Object], [Object] ],
+    returnByValue: true
+  },
+  sessionId: undefined
+}
+[qa-cdp-request] {
+  method: 'Input.dispatchMouseEvent',
+  params: {
+    type: 'mousePressed',
+    button: 'left',
+    clickCount: 1,
+    x: 59.33984375,
+    y: 33.75
+  },
+  sessionId: undefined
+}
+[qa-page-event] {
+  caseId: 'f-hidden-throttle-true-bypass-true-click',
+  kind: 'window-focus',
+  epochMs: 1791960445776,
+  pageMonotonicMs: 1402.6000001430511,
+  visibility: 'hidden',
+  focus: true
+}
+[qa-page-event] {
+  caseId: 'f-hidden-throttle-true-bypass-true-click',
+  kind: 'window-focus',
+  epochMs: 1791960445776,
+  pageMonotonicMs: 1402.6000001430511,
+  visibility: 'hidden',
+  focus: true
+}
+[qa-page-event] {
+  caseId: 'f-hidden-throttle-true-bypass-true-click',
+  kind: 'pointerdown',
+  epochMs: 1791960445778,
+  pageMonotonicMs: 1404.2000000476837,
+  visibility: 'hidden',
+  focus: true,
+  target: 'probeClick',
+  isTrusted: true,
+  value: ''
+}
+[qa-cdp-request] {
+  method: 'Input.dispatchMouseEvent',
+  params: {
+    type: 'mouseReleased',
+    button: 'left',
+    clickCount: 1,
+    x: 59.33984375,
+    y: 33.75
+  },
+  sessionId: undefined
+}
+[qa-page-event] {
+  caseId: 'f-hidden-throttle-true-bypass-true-click',
+  kind: 'mousedown',
+  epochMs: 1791960445778,
+  pageMonotonicMs: 1404.2000000476837,
+  visibility: 'hidden',
+  focus: true,
+  target: 'probeClick',
+  isTrusted: true,
+  value: ''
+}
+[qa-page-event] {
+  caseId: 'f-hidden-throttle-true-bypass-true-click',
+  kind: 'focusin',
+  epochMs: 1791960445778,
+  pageMonotonicMs: 1404.5,
+  visibility: 'hidden',
+  focus: true,
+  target: 'probeClick',
+  isTrusted: true,
+  value: ''
+}
+[qa-page-event] {
+  caseId: 'f-hidden-throttle-true-bypass-true-click',
+  kind: 'pointerup',
+  epochMs: 1791960445779,
+  pageMonotonicMs: 1405.9000000953674,
+  visibility: 'hidden',
+  focus: true,
+  target: 'probeClick',
+  isTrusted: true,
+  value: ''
+}
+[qa-page-event] {
+  caseId: 'f-hidden-throttle-true-bypass-true-click',
+  kind: 'mouseup',
+  epochMs: 1791960445779,
+  pageMonotonicMs: 1406,
+  visibility: 'hidden',
+  focus: true,
+  target: 'probeClick',
+  isTrusted: true,
+  value: ''
+}
+[qa-page-event] {
+  caseId: 'f-hidden-throttle-true-bypass-true-click',
+  kind: 'click',
+  epochMs: 1791960445780,
+  pageMonotonicMs: 1406.2000000476837,
+  visibility: 'hidden',
+  focus: true,
+  target: 'probeClick',
+  isTrusted: true,
+  value: ''
+}
+[qa-control] {
+  event: 'command-result',
+  caseId: 'f-hidden-throttle-true-bypass-true',
+  id: 'f-hidden-throttle-true-bypass-true-click',
+  command: `penkra tabs act --input '{"tabId":"qa-browser-A","steps":[{"action":"click","ref":"d2:e1"}]}'`,
+  startedEpochMs: 1791960445759,
+  durationMs: 21.824999999999818,
+  ok: true,
+  result: { tabId: 'qa-browser-A', inputMode: 'smooth', steps: [ [Object] ] }
+}
+[qa-control] {
+  event: 'command-sent',
+  command: `penkra tabs act --input '{"tabId":"qa-browser-A","steps":[{"action":"type","ref":"d2:e2","text":"typed-f-hidden-throttle-true-bypass-true"}]}'`,
+  id: 'f-hidden-throttle-true-bypass-true-type',
+  startedEpochMs: 1791960446786
+}
+[app-tab-agent-cursor] {"event":"installed","instanceId":"798f70f3-706a-4dde-976f-60c9e530ee35","tabId":"qa-browser-A","document":"d2","webContentsId":7,"targetKey":"d2:7:top","ownerThreadId":null,"ownerThreadWasActive":false,"loaderId":"8500616797BAE042BC88F4716356753B"} {}
+[app-tab-agent-cursor] {"event":"loader-ready","instanceId":"798f70f3-706a-4dde-976f-60c9e530ee35","tabId":"qa-browser-A","document":"d2","webContentsId":7,"targetKey":"d2:7:top","ownerThreadId":null,"ownerThreadWasActive":false,"loaderId":"8500616797BAE042BC88F4716356753B"} {}
+[app-tab-agent-cursor] {"event":"move-started","instanceId":"798f70f3-706a-4dde-976f-60c9e530ee35","tabId":"qa-browser-A","document":"d2","webContentsId":7,"targetKey":"d2:7:top","ownerThreadId":"qa-agent-thread","ownerThreadWasActive":false,"from":{"x":12,"y":12},"to":{"x":95.5,"y":87.25},"steps":12,"durationMs":180,"inputMode":"smooth"} {}
+[qa-cdp-request] {
+  method: 'Input.dispatchMouseEvent',
+  params: { type: 'mouseMoved', x: 13.642939814814815, y: 13.480613425925926 },
+  sessionId: undefined
+}
+[app-tab-agent-cursor] {"event":"shown","instanceId":"798f70f3-706a-4dde-976f-60c9e530ee35","tabId":"qa-browser-A","document":"d2","webContentsId":7,"targetKey":"d2:7:top","ownerThreadId":"qa-agent-thread","ownerThreadWasActive":false,"at":{"x":13.642939814814815,"y":13.480613425925926}} {}
+[qa-cdp-request] {
+  method: 'Input.dispatchMouseEvent',
+  params: { type: 'mouseMoved', x: 18.185185185185183, y: 17.574074074074073 },
+  sessionId: undefined
+}
+[qa-cdp-request] {
+  method: 'Input.dispatchMouseEvent',
+  params: { type: 'mouseMoved', x: 25.046875, y: 23.7578125 },
+  sessionId: undefined
+}
+[qa-cdp-request] {
+  method: 'Input.dispatchMouseEvent',
+  params: { type: 'mouseMoved', x: 33.648148148148145, y: 31.50925925925926 },
+  sessionId: undefined
+}
+[qa-cdp-request] {
+  method: 'Input.dispatchMouseEvent',
+  params: { type: 'mouseMoved', x: 43.40914351851852, y: 40.305844907407405 },
+  sessionId: undefined
+}
+[qa-cdp-request] {
+  method: 'Input.dispatchMouseEvent',
+  params: { type: 'mouseMoved', x: 53.75, y: 49.625 },
+  sessionId: undefined
+}
+[qa-cdp-request] {
+  method: 'Input.dispatchMouseEvent',
+  params: { type: 'mouseMoved', x: 64.0908564814815, y: 58.944155092592595 },
+  sessionId: undefined
+}
+[qa-cdp-request] {
+  method: 'Input.dispatchMouseEvent',
+  params: { type: 'mouseMoved', x: 73.85185185185185, y: 67.74074074074073 },
+  sessionId: undefined
+}
+[qa-cdp-request] {
+  method: 'Input.dispatchMouseEvent',
+  params: { type: 'mouseMoved', x: 82.453125, y: 75.4921875 },
+  sessionId: undefined
+}
+[qa-cdp-request] {
+  method: 'Input.dispatchMouseEvent',
+  params: { type: 'mouseMoved', x: 89.31481481481482, y: 81.67592592592594 },
+  sessionId: undefined
+}
+[qa-cdp-request] {
+  method: 'Input.dispatchMouseEvent',
+  params: { type: 'mouseMoved', x: 93.85706018518519, y: 85.76938657407408 },
+  sessionId: undefined
+}
+[qa-cdp-request] {
+  method: 'Input.dispatchMouseEvent',
+  params: { type: 'mouseMoved', x: 95.5, y: 87.25 },
+  sessionId: undefined
+}
+[app-tab-agent-cursor] {"event":"move-completed","instanceId":"798f70f3-706a-4dde-976f-60c9e530ee35","tabId":"qa-browser-A","document":"d2","webContentsId":7,"targetKey":"d2:7:top","ownerThreadId":"qa-agent-thread","ownerThreadWasActive":false,"at":{"x":95.5,"y":87.25}} {}
+[qa-cdp-request] {
+  method: 'Input.dispatchMouseEvent',
+  params: {
+    type: 'mousePressed',
+    button: 'left',
+    clickCount: 1,
+    x: 95.5,
+    y: 87.25
+  },
+  sessionId: undefined
+}
+[qa-page-event] {
+  caseId: 'f-hidden-throttle-true-bypass-true-type',
+  kind: 'pointerdown',
+  epochMs: 1791960458319,
+  pageMonotonicMs: 13945.600000143051,
+  visibility: 'hidden',
+  focus: true,
+  target: 'probeType',
+  isTrusted: true,
+  value: ''
+}
+[qa-page-event] {
+  caseId: 'f-hidden-throttle-true-bypass-true-type',
+  kind: 'mousedown',
+  epochMs: 1791960458319,
+  pageMonotonicMs: 13945.700000047684,
+  visibility: 'hidden',
+  focus: true,
+  target: 'probeType',
+  isTrusted: true,
+  value: ''
+}
+[qa-page-event] {
+  caseId: 'f-hidden-throttle-true-bypass-true-type',
+  kind: 'focusout',
+  epochMs: 1791960458320,
+  pageMonotonicMs: 13946.100000143051,
+  visibility: 'hidden',
+  focus: true,
+  target: 'probeClick',
+  isTrusted: true,
+  value: ''
+}
+[qa-page-event] {
+  caseId: 'f-hidden-throttle-true-bypass-true-type',
+  kind: 'focusin',
+  epochMs: 1791960458320,
+  pageMonotonicMs: 13946.200000047684,
+  visibility: 'hidden',
+  focus: true,
+  target: 'probeType',
+  isTrusted: true,
+  value: ''
+}
+[qa-cdp-request] {
+  method: 'Input.dispatchMouseEvent',
+  params: {
+    type: 'mouseReleased',
+    button: 'left',
+    clickCount: 1,
+    x: 95.5,
+    y: 87.25
+  },
+  sessionId: undefined
+}
+[qa-page-event] {
+  caseId: 'f-hidden-throttle-true-bypass-true-type',
+  kind: 'pointerup',
+  epochMs: 1791960458324,
+  pageMonotonicMs: 13950.299999952316,
+  visibility: 'hidden',
+  focus: true,
+  target: 'probeType',
+  isTrusted: true,
+  value: ''
+}
+[qa-page-event] {
+  caseId: 'f-hidden-throttle-true-bypass-true-type',
+  kind: 'mouseup',
+  epochMs: 1791960458324,
+  pageMonotonicMs: 13950.299999952316,
+  visibility: 'hidden',
+  focus: true,
+  target: 'probeType',
+  isTrusted: true,
+  value: ''
+}
+[qa-page-event] {
+  caseId: 'f-hidden-throttle-true-bypass-true-type',
+  kind: 'click',
+  epochMs: 1791960458324,
+  pageMonotonicMs: 13950.299999952316,
+  visibility: 'hidden',
+  focus: true,
+  target: 'probeType',
+  isTrusted: true,
+  value: ''
+}
+[qa-cdp-request] {
+  method: 'Runtime.callFunctionOn',
+  params: {
+    objectId: '2131244943738956766.1.1',
+    functionDeclaration: 'function(value) {\n' +
+      '        this.focus();\n' +
+      '        if (this instanceof HTMLInputElement || this instanceof HTMLTextAreaElement) {\n' +
+      '          const prototype = this instanceof HTMLTextAreaElement ? HTMLTextAreaElement.prototype : HTMLInputElement.prototype;\n' +
+      '          const setter = Object.getOwnPropertyDescriptor(prototype, "value")?.set;\n' +
+      '          if (setter) setter.call(this, value); else this.value = value;\n' +
+      '        } else if (this.isContentEditable) {\n' +
+      '          this.textContent = value;\n' +
+      '        } else {\n' +
+      '          throw new Error("Target is not an editable control.");\n' +
+      '        }\n' +
+      '        this.dispatchEvent(new InputEvent("input", { bubbles: true, inputType: "insertText", data: value }));\n' +
+      '        this.dispatchEvent(new Event("change", { bubbles: true }));\n' +
+      '      }',
+    arguments: [ [Object] ],
+    awaitPromise: true,
+    returnByValue: true
+  },
+  sessionId: undefined
+}
+[qa-page-event] {
+  caseId: 'f-hidden-throttle-true-bypass-true-type',
+  kind: 'input',
+  epochMs: 1791960458326,
+  pageMonotonicMs: 13952.700000047684,
+  visibility: 'hidden',
+  focus: true,
+  target: 'probeType',
+  isTrusted: false,
+  value: 'typed-f-hidden-throttle-true-bypass-true'
+}
+[qa-page-event] {
+  caseId: 'f-hidden-throttle-true-bypass-true-type',
+  kind: 'change',
+  epochMs: 1791960458326,
+  pageMonotonicMs: 13952.799999952316,
+  visibility: 'hidden',
+  focus: true,
+  target: 'probeType',
+  isTrusted: false,
+  value: 'typed-f-hidden-throttle-true-bypass-true'
+}
+[qa-control] {
+  event: 'command-result',
+  caseId: 'f-hidden-throttle-true-bypass-true',
+  id: 'f-hidden-throttle-true-bypass-true-type',
+  command: `penkra tabs act --input '{"tabId":"qa-browser-A","steps":[{"action":"type","ref":"d2:e2","text":"typed-f-hidden-throttle-true-bypass-true"}]}'`,
+  startedEpochMs: 1791960446786,
+  durationMs: 11541.219874999999,
+  ok: true,
+  result: { tabId: 'qa-browser-A', inputMode: 'smooth', steps: [ [Object] ] }
+}
+[qa-control] {
+  event: 'command-sent',
+  command: `penkra tabs act --input '{"tabId":"qa-browser-A","steps":[{"action":"scroll","document":"d2","deltaY":400}]}'`,
+  id: 'f-hidden-throttle-true-bypass-true-scroll',
+  startedEpochMs: 1791960459329
+}
+[qa-control] {
+  event: 'command-result',
+  caseId: 'f-hidden-throttle-true-bypass-true',
+  id: 'f-hidden-throttle-true-bypass-true-scroll',
+  command: `penkra tabs act --input '{"tabId":"qa-browser-A","steps":[{"action":"scroll","document":"d2","deltaY":400}]}'`,
+  startedEpochMs: 1791960459329,
+  durationMs: 1.9752499999995052,
+  ok: true,
+  result: { tabId: 'qa-browser-A', inputMode: 'smooth', steps: [ [Object] ] }
+}
+[qa-page-event] {
+  caseId: 'f-hidden-throttle-true-bypass-true-scroll',
+  kind: 'scroll',
+  epochMs: 1791960460318,
+  pageMonotonicMs: 15945,
+  visibility: 'hidden',
+  focus: true,
+  isTrusted: true,
+  scrollY: 400
+}
+[qa-control] {
+  event: 'command-sent',
+  command: `penkra tabs act --input '{"tabId":"qa-browser-A","steps":[{"action":"upload","ref":"d2:e3","paths":["/Users/emmanuelgyekyeatta-penkra/Penkra/qa-tab-additions-b9xq3rc4/app-storage/upload-fixture.txt"]}]}'`,
+  id: 'f-hidden-throttle-true-bypass-true-upload',
+  startedEpochMs: 1791960460335
+}
+[qa-cdp-request] {
+  method: 'DOM.setFileInputFiles',
+  params: {
+    files: [
+      '/Users/emmanuelgyekyeatta-penkra/Penkra/qa-tab-additions-b9xq3rc4/app-storage/upload-fixture.txt'
+    ],
+    backendNodeId: 3
+  },
+  sessionId: undefined
+}
+[qa-page-event] {
+  caseId: 'f-hidden-throttle-true-bypass-true-upload',
+  kind: 'input',
+  epochMs: 1791960460345,
+  pageMonotonicMs: 15971.700000047684,
+  visibility: 'hidden',
+  focus: true,
+  target: 'probeUpload',
+  isTrusted: true,
+  value: 'C:\\fakepath\\upload-fixture.txt',
+  files: [ 'upload-fixture.txt' ]
+}
+[qa-page-event] {
+  caseId: 'f-hidden-throttle-true-bypass-true-upload',
+  kind: 'change',
+  epochMs: 1791960460345,
+  pageMonotonicMs: 15971.900000095367,
+  visibility: 'hidden',
+  focus: true,
+  target: 'probeUpload',
+  isTrusted: true,
+  value: 'C:\\fakepath\\upload-fixture.txt',
+  files: [ 'upload-fixture.txt' ]
+}
+[qa-control] {
+  event: 'command-result',
+  caseId: 'f-hidden-throttle-true-bypass-true',
+  id: 'f-hidden-throttle-true-bypass-true-upload',
+  command: `penkra tabs act --input '{"tabId":"qa-browser-A","steps":[{"action":"upload","ref":"d2:e3","paths":["/Users/emmanuelgyekyeatta-penkra/Penkra/qa-tab-additions-b9xq3rc4/app-storage/upload-fixture.txt"]}]}'`,
+  startedEpochMs: 1791960460335,
+  durationMs: 11.310584000002564,
+  ok: true,
+  result: { tabId: 'qa-browser-A', inputMode: 'smooth', steps: [ [Object] ] }
+}
+[app-tab-host] {
+  windowId: 1,
+  visible: true,
+  sequence: 46,
+  monotonicMs: 23498,
+  event: 'window-visibility-started'
+}
+[app-tab-host] {
+  tabId: 'qa-browser-A',
+  windowId: 1,
+  visible: true,
+  presentationVisible: true,
+  ownerWindowId: 1,
+  appViewVisible: true,
+  sequence: 47,
+  monotonicMs: 23499,
+  event: 'window-visibility-tab'
+}
+[app-tab-host] {
+  tabId: 'qa-browser-A',
+  windowId: 1,
+  visibleRequested: true,
+  freezeDepth: 0,
+  appViewVisible: true,
+  hostedPageVisible: true,
+  sequence: 48,
+  monotonicMs: 23500,
+  event: 'window-show-applied'
+}
+[app-tab-host] {
+  windowId: 1,
+  visible: true,
+  sequence: 49,
+  monotonicMs: 23500,
+  event: 'window-visibility-completed'
+}
+[app-tab-diagnostic] {
+  rendererMonotonicMs: 21766,
+  documentVisibility: 'visible',
+  documentHasFocus: false,
+  threadId: 'qa-agent-thread',
+  rendererId: 1,
+  tabId: 'qa-browser-A',
+  sequence: 22,
+  monotonicMs: 23519,
+  event: 'renderer-document-visibility-changed'
+}
+[app-tab-diagnostic] {
+  rendererMonotonicMs: 21776,
+  documentVisibility: 'visible',
+  documentHasFocus: false,
+  threadId: 'qa-agent-thread',
+  mode: 'live',
+  ownerWindowId: 1,
+  rendererId: 1,
+  tabId: 'qa-browser-A',
+  sequence: 23,
+  monotonicMs: 23519,
+  event: 'renderer-presentation-received'
+}
+[app-tab-diagnostic] {
+  rendererMonotonicMs: 21800,
+  documentVisibility: 'visible',
+  documentHasFocus: true,
+  threadId: 'qa-agent-thread',
+  rendererId: 1,
+  tabId: 'qa-browser-A',
+  sequence: 24,
+  monotonicMs: 23524,
+  event: 'renderer-window-focused'
+}
+[app-tab-host] {
+  windowId: 1,
+  visible: true,
+  sequence: 50,
+  monotonicMs: 23607,
+  event: 'window-visibility-started'
+}
+[app-tab-host] {
+  tabId: 'qa-browser-A',
+  windowId: 1,
+  visible: true,
+  presentationVisible: true,
+  ownerWindowId: 1,
+  appViewVisible: true,
+  sequence: 51,
+  monotonicMs: 23608,
+  event: 'window-visibility-tab'
+}
+[app-tab-host] {
+  tabId: 'qa-browser-A',
+  windowId: 1,
+  visibleRequested: true,
+  freezeDepth: 0,
+  appViewVisible: true,
+  hostedPageVisible: true,
+  sequence: 52,
+  monotonicMs: 23608,
+  event: 'window-show-applied'
+}
+[app-tab-host] {
+  windowId: 1,
+  visible: true,
+  sequence: 53,
+  monotonicMs: 23608,
+  event: 'window-visibility-completed'
+}
+[app-tab-diagnostic] {
+  rendererMonotonicMs: 21884,
+  documentVisibility: 'visible',
+  documentHasFocus: true,
+  threadId: 'qa-agent-thread',
+  mode: 'live',
+  ownerWindowId: 1,
+  rendererId: 1,
+  tabId: 'qa-browser-A',
+  sequence: 25,
+  monotonicMs: 23608,
+  event: 'renderer-presentation-received'
+}
+[app-tab-diagnostic] {
+  browserWindowId: 1,
+  rendererId: 1,
+  isVisible: true,
+  isMinimized: false,
+  isFocused: true,
+  rendererState: { visibilityState: 'visible', hasFocus: true },
+  sequence: 26,
+  monotonicMs: 23609,
+  event: 'shell-window-show'
+}
+[qa-page-event] {
+  caseId: 'f-hidden-throttle-true-bypass-true-upload',
+  kind: 'visibilitychange',
+  epochMs: 1791960464480,
+  pageMonotonicMs: 20106.5,
+  visibility: 'visible',
+  focus: true
+}
+[app-tab-host] {
+  tabId: 'qa-browser-A',
+  windowId: 1,
+  folderId: 'qa-folder',
+  threadId: 'qa-agent-thread',
+  ownerWindowId: 1,
+  freezeDepth: 0,
+  appViewVisible: true,
+  sequence: 54,
+  monotonicMs: 23854,
+  event: 'present-started'
+}
+[app-tab-host] {
+  tabId: 'qa-browser-A',
+  folderId: 'qa-folder',
+  threadId: 'qa-agent-thread',
+  windowId: 1,
+  ownerWindowId: 1,
+  selectedAt: 7,
+  bounds: { x: 650, y: 0, width: 550, height: 768 },
+  animate: false,
+  windowVisible: true,
+  windowMinimized: false,
+  appViewVisible: true,
+  appViewIndex: 1,
+  childViewCount: 2,
+  hostedPageVisible: true,
+  appViewLoading: false,
+  appViewCrashed: false,
+  hostedPageLoading: false,
+  sequence: 55,
+  monotonicMs: 23855,
+  event: 'present-applied'
+}
+[app-tab-diagnostic] {
+  rendererMonotonicMs: 22131,
+  documentVisibility: 'visible',
+  documentHasFocus: true,
+  threadId: 'qa-agent-thread',
+  mode: 'live',
+  ownerWindowId: 1,
+  rendererId: 1,
+  tabId: 'qa-browser-A',
+  sequence: 27,
+  monotonicMs: 23855,
+  event: 'renderer-presentation-received'
+}
+[app-tab-host] {
+  windowId: 1,
+  visible: true,
+  sequence: 56,
+  monotonicMs: 25161,
+  event: 'window-visibility-started'
+}
+[app-tab-host] {
+  tabId: 'qa-browser-A',
+  windowId: 1,
+  visible: true,
+  presentationVisible: true,
+  ownerWindowId: 1,
+  appViewVisible: true,
+  sequence: 57,
+  monotonicMs: 25162,
+  event: 'window-visibility-tab'
+}
+[app-tab-host] {
+  tabId: 'qa-browser-A',
+  windowId: 1,
+  visibleRequested: true,
+  freezeDepth: 0,
+  appViewVisible: true,
+  hostedPageVisible: true,
+  sequence: 58,
+  monotonicMs: 25162,
+  event: 'window-show-applied'
+}
+[app-tab-host] {
+  windowId: 1,
+  visible: true,
+  sequence: 59,
+  monotonicMs: 25162,
+  event: 'window-visibility-completed'
+}
+[app-tab-diagnostic] {
+  rendererMonotonicMs: 23439,
+  documentVisibility: 'visible',
+  documentHasFocus: true,
+  threadId: 'qa-agent-thread',
+  mode: 'live',
+  ownerWindowId: 1,
+  rendererId: 1,
+  tabId: 'qa-browser-A',
+  sequence: 28,
+  monotonicMs: 25164,
+  event: 'renderer-presentation-received'
+}
+[app-tab-host] {
+  tabId: 'qa-browser-A',
+  windowId: 1,
+  folderId: 'qa-folder',
+  threadId: 'qa-agent-thread',
+  ownerWindowId: 1,
+  freezeDepth: 0,
+  appViewVisible: true,
+  sequence: 60,
+  monotonicMs: 25514,
+  event: 'present-started'
+}
+[app-tab-host] {
+  tabId: 'qa-browser-A',
+  folderId: 'qa-folder',
+  threadId: 'qa-agent-thread',
+  windowId: 1,
+  ownerWindowId: 1,
+  selectedAt: 8,
+  bounds: { x: 650, y: 0, width: 550, height: 768 },
+  animate: false,
+  windowVisible: true,
+  windowMinimized: false,
+  appViewVisible: true,
+  appViewIndex: 1,
+  childViewCount: 2,
+  hostedPageVisible: true,
+  appViewLoading: false,
+  appViewCrashed: false,
+  hostedPageLoading: false,
+  sequence: 61,
+  monotonicMs: 25515,
+  event: 'present-applied'
+}
+[app-tab-diagnostic] {
+  rendererMonotonicMs: 23791,
+  documentVisibility: 'visible',
+  documentHasFocus: true,
+  threadId: 'qa-agent-thread',
+  mode: 'live',
+  ownerWindowId: 1,
+  rendererId: 1,
+  tabId: 'qa-browser-A',
+  sequence: 29,
+  monotonicMs: 25515,
+  event: 'renderer-presentation-received'
+}
+[app-tab-diagnostic] {
+  rendererMonotonicMs: 24103,
+  documentVisibility: 'visible',
+  documentHasFocus: false,
+  threadId: 'qa-agent-thread',
+  rendererId: 1,
+  tabId: 'qa-browser-A',
+  sequence: 30,
+  monotonicMs: 25830,
+  event: 'renderer-window-blurred'
+}
+[app-tab-host] {
+  windowId: 1,
+  visible: false,
+  sequence: 62,
+  monotonicMs: 26093,
+  event: 'window-visibility-started'
+}
+[app-tab-host] {
+  tabId: 'qa-browser-A',
+  windowId: 1,
+  visible: false,
+  presentationVisible: true,
+  ownerWindowId: 1,
+  appViewVisible: true,
+  sequence: 63,
+  monotonicMs: 26093,
+  event: 'window-visibility-tab'
+}
+[app-tab-host] {
+  tabId: 'qa-browser-A',
+  windowId: 1,
+  sequence: 64,
+  monotonicMs: 26094,
+  event: 'window-hide-replica-capture-started'
+}
+[app-tab-diagnostic] {
+  browserWindowId: 1,
+  rendererId: 1,
+  isVisible: false,
+  isMinimized: false,
+  isFocused: false,
+  rendererState: { visibilityState: 'visible', hasFocus: false },
+  sequence: 31,
+  monotonicMs: 26095,
+  event: 'shell-window-hide'
+}
+[app-tab-host] {
+  tabId: 'qa-browser-A',
+  windowId: 1,
+  sequence: 65,
+  monotonicMs: 26124,
+  event: 'window-hide-replica-capture-completed'
+}
+[app-tab-host] {
+  tabId: 'qa-browser-A',
+  pageId: 'dba4fe19-7283-47f0-aa1d-395b8aac1431',
+  rendererId: 7,
+  currentBounds: { x: 650, y: 48, width: 550, height: 720 },
+  bounds: { x: 0, y: 0, width: 550, height: 720 },
+  currentVisible: true,
+  visible: true,
+  visibleRequested: true,
+  freezeDepth: 0,
+  ownerWindowVisible: false,
+  pageHasError: false,
+  sequence: 66,
+  monotonicMs: 26174,
+  event: 'hosted-page-view-layout-change'
+}
+[app-tab-host] {
+  tabId: 'qa-browser-A',
+  windowId: 1,
+  visibleRequested: true,
+  freezeDepth: 0,
+  appViewVisible: true,
+  hostedPageVisible: true,
+  sequence: 67,
+  monotonicMs: 26175,
+  event: 'window-hide-applied'
+}
+[app-tab-host] {
+  windowId: 1,
+  visible: false,
+  sequence: 68,
+  monotonicMs: 26175,
+  event: 'window-visibility-completed'
+}
+[app-tab-diagnostic] {
+  rendererMonotonicMs: 24401,
+  documentVisibility: 'visible',
+  documentHasFocus: false,
+  threadId: 'qa-agent-thread',
+  mode: 'replica',
+  ownerWindowId: 1,
+  rendererId: 1,
+  tabId: 'qa-browser-A',
+  sequence: 32,
+  monotonicMs: 26181,
+  event: 'renderer-presentation-received'
+}
+[qa-control] {
+  event: 'command-sent',
+  command: 'penkra tabs snapshot --tab-id qa-browser-A --document d2',
+  id: 'f-hidden-throttle-false-bypass-true-snapshot',
+  startedEpochMs: 1791960467194
+}
+[qa-control] {
+  event: 'command-result',
+  caseId: 'f-hidden-throttle-false-bypass-true',
+  id: 'f-hidden-throttle-false-bypass-true-snapshot',
+  command: 'penkra tabs snapshot --tab-id qa-browser-A --document d2',
+  startedEpochMs: 1791960467194,
+  durationMs: 4.062999999998283,
+  ok: true,
+  result: {
+    tabId: 'qa-browser-A',
+    document: 'd2',
+    loaderId: '8500616797BAE042BC88F4716356753B',
+    snapshotId: 'e0ed555b-f615-41d1-b62b-cb9ed10b5c8c',
+    app: 'browser',
+    url: 'http://127.0.0.1:3919/probe',
+    title: 'Penkra QA event probe',
+    snapshot: '--- AGENT_BROWSER_PAGE_CONTENT nonce=8789fe9555588f62593113f55c35aacd origin=http://127.0.0.1:3919/probe ---\n' +
+      '- document "Penkra QA event probe"\n' +
+      '  - button "Click probe" [ref=d2:e1]\n' +
+      '    - text: "Click probe"\n' +
+      '      - text: "Click probe"\n' +
+      '  - textbox "Text probe" [ref=d2:e2]\n' +
+      '  - button "Upload probe" value="No file chosen" [ref=d2:e3]\n' +
+      '  - combobox "Select probe" value="A" [ref=d2:e4]\n' +
+      '    - MenuListPopup\n' +
+      '      - option "A" [selected] [ref=d2:e6]\n' +
+      '      - option "B" [ref=d2:e7]\n' +
+      '  - button "Covered probe" [ref=d2:e5]\n' +
+      '    - text: "Covered probe"\n' +
+      '      - text: "Covered probe"\n' +
+      '--- END_AGENT_BROWSER_PAGE_CONTENT nonce=8789fe9555588f62593113f55c35aacd ---',
+    refs: {
+      'd2:e1': [Object],
+      'd2:e2': [Object],
+      'd2:e3': [Object],
+      'd2:e4': [Object],
+      'd2:e5': [Object],
+      'd2:e6': [Object],
+      'd2:e7': [Object]
+    },
+    removedRefs: []
+  }
+}
+[qa-control] {
+  event: 'command-sent',
+  command: `penkra tabs act --input '{"tabId":"qa-browser-A","steps":[{"action":"click","ref":"d2:e1"}]}'`,
+  id: 'f-hidden-throttle-false-bypass-true-click',
+  startedEpochMs: 1791960467199
+}
+[qa-cdp-request] {
+  method: 'Runtime.callFunctionOn',
+  params: {
+    objectId: '2131244943738956766.4.2',
+    functionDeclaration: 'function(x, y, bindingName, cleanupName) {\n' +
+      '  if (x < 0 || y < 0 || x >= innerWidth || y >= innerHeight) return false;\n' +
+      '  const elementAtPoint = function appTabElementAtPoint(doc, x, y) {\n' +
+      '  let element = doc.elementFromPoint(x, y);\n' +
+      '  while (element?.shadowRoot) {\n' +
+      '    const inner = element.shadowRoot.elementFromPoint(x, y);\n' +
+      '    if (!inner || inner === element)\n' +
+      '      break;\n' +
+      '    element = inner;\n' +
+      '  }\n' +
+      '  return element;\n' +
+      '};\n' +
+      '  const composedContains = function appTabComposedContains(container, candidate) {\n' +
+      '  for (let node = candidate;node; ) {\n' +
+      '    if (node === container)\n' +
+      '      return true;\n' +
+      '    node = node.parentNode ?? node.host ?? null;\n' +
+      '  }\n' +
+      '  return false;\n' +
+      '};\n' +
+      '  const hit = elementAtPoint(document, x, y);\n' +
+      '  if (!hit || !composedContains(this, hit)) return false;\n' +
+      '  const target = this;\n' +
+      '  const listener = (event) => {\n' +
+      '    const composedPath = typeof event.composedPath === "function" ? event.composedPath() : [];\n' +
+      '    if (event.isTrusted &&\n' +
+      '        (event.target === target || target.contains(event.target) || composedPath.includes(target))) {\n' +
+      '      globalThis[bindingName](event.isTrusted ? "trusted" : "untrusted");\n' +
+      '    }\n' +
+      '  };\n' +
+      '  window.addEventListener("click", listener, true);\n' +
+      '  globalThis[cleanupName] = () => window.removeEventListener("click", listener, true);\n' +
+      '  return true;\n' +
+      '}',
+    arguments: [ [Object], [Object], [Object], [Object] ],
+    returnByValue: true
+  },
+  sessionId: undefined
+}
+[qa-page-event] {
+  caseId: 'f-hidden-throttle-false-bypass-true-click',
+  kind: 'scroll',
+  epochMs: 1791960467202,
+  pageMonotonicMs: 22828.10000014305,
+  visibility: 'visible',
+  focus: true,
+  isTrusted: true,
+  scrollY: 0
+}
+[qa-cdp-request] {
+  method: 'Input.dispatchMouseEvent',
+  params: {
+    type: 'mousePressed',
+    button: 'left',
+    clickCount: 1,
+    x: 59.33984375,
+    y: 33.75
+  },
+  sessionId: undefined
+}
+[qa-page-event] {
+  caseId: 'f-hidden-throttle-false-bypass-true-click',
+  kind: 'pointerdown',
+  epochMs: 1791960467203,
+  pageMonotonicMs: 22829.299999952316,
+  visibility: 'visible',
+  focus: true,
+  target: 'probeClick',
+  isTrusted: true,
+  value: ''
+}
+[qa-page-event] {
+  caseId: 'f-hidden-throttle-false-bypass-true-click',
+  kind: 'mousedown',
+  epochMs: 1791960467203,
+  pageMonotonicMs: 22829.400000095367,
+  visibility: 'visible',
+  focus: true,
+  target: 'probeClick',
+  isTrusted: true,
+  value: ''
+}
+[qa-page-event] {
+  caseId: 'f-hidden-throttle-false-bypass-true-click',
+  kind: 'focusout',
+  epochMs: 1791960467203,
+  pageMonotonicMs: 22829.799999952316,
+  visibility: 'visible',
+  focus: true,
+  target: 'probeType',
+  isTrusted: true,
+  value: ''
+}
+[qa-page-event] {
+  caseId: 'f-hidden-throttle-false-bypass-true-click',
+  kind: 'focusin',
+  epochMs: 1791960467203,
+  pageMonotonicMs: 22829.900000095367,
+  visibility: 'visible',
+  focus: true,
+  target: 'probeClick',
+  isTrusted: true,
+  value: ''
+}
+[qa-cdp-request] {
+  method: 'Input.dispatchMouseEvent',
+  params: {
+    type: 'mouseReleased',
+    button: 'left',
+    clickCount: 1,
+    x: 59.33984375,
+    y: 33.75
+  },
+  sessionId: undefined
+}
+[qa-page-event] {
+  caseId: 'f-hidden-throttle-false-bypass-true-click',
+  kind: 'pointerup',
+  epochMs: 1791960467205,
+  pageMonotonicMs: 22831.400000095367,
+  visibility: 'visible',
+  focus: true,
+  target: 'probeClick',
+  isTrusted: true,
+  value: ''
+}
+[qa-page-event] {
+  caseId: 'f-hidden-throttle-false-bypass-true-click',
+  kind: 'mouseup',
+  epochMs: 1791960467205,
+  pageMonotonicMs: 22831.400000095367,
+  visibility: 'visible',
+  focus: true,
+  target: 'probeClick',
+  isTrusted: true,
+  value: ''
+}
+[qa-page-event] {
+  caseId: 'f-hidden-throttle-false-bypass-true-click',
+  kind: 'click',
+  epochMs: 1791960467205,
+  pageMonotonicMs: 22831.5,
+  visibility: 'visible',
+  focus: true,
+  target: 'probeClick',
+  isTrusted: true,
+  value: ''
+}
+[qa-control] {
+  event: 'command-result',
+  caseId: 'f-hidden-throttle-false-bypass-true',
+  id: 'f-hidden-throttle-false-bypass-true-click',
+  command: `penkra tabs act --input '{"tabId":"qa-browser-A","steps":[{"action":"click","ref":"d2:e1"}]}'`,
+  startedEpochMs: 1791960467199,
+  durationMs: 7.22820800000045,
+  ok: true,
+  result: { tabId: 'qa-browser-A', inputMode: 'smooth', steps: [ [Object] ] }
+}
+[qa-control] {
+  event: 'command-sent',
+  command: `penkra tabs act --input '{"tabId":"qa-browser-A","steps":[{"action":"type","ref":"d2:e2","text":"typed-f-hidden-throttle-false-bypass-true"}]}'`,
+  id: 'f-hidden-throttle-false-bypass-true-type',
+  startedEpochMs: 1791960468209
+}
+[app-tab-agent-cursor] {"event":"move-started","instanceId":"798f70f3-706a-4dde-976f-60c9e530ee35","tabId":"qa-browser-A","document":"d2","webContentsId":7,"targetKey":"d2:7:top","ownerThreadId":"qa-agent-thread","ownerThreadWasActive":false,"from":{"x":95.5,"y":87.25},"to":{"x":95.5,"y":87.25},"steps":12,"durationMs":180,"inputMode":"smooth"} {}
+[qa-cdp-request] {
+  method: 'Input.dispatchMouseEvent',
+  params: { type: 'mouseMoved', x: 95.5, y: 87.25 },
+  sessionId: undefined
+}
+[app-tab-agent-cursor] {"event":"shown","instanceId":"798f70f3-706a-4dde-976f-60c9e530ee35","tabId":"qa-browser-A","document":"d2","webContentsId":7,"targetKey":"d2:7:top","ownerThreadId":"qa-agent-thread","ownerThreadWasActive":false,"at":{"x":95.5,"y":87.25}} {}
+[qa-cdp-request] {
+  method: 'Input.dispatchMouseEvent',
+  params: { type: 'mouseMoved', x: 95.5, y: 87.25 },
+  sessionId: undefined
+}
+[qa-cdp-request] {
+  method: 'Input.dispatchMouseEvent',
+  params: { type: 'mouseMoved', x: 95.5, y: 87.25 },
+  sessionId: undefined
+}
+[qa-cdp-request] {
+  method: 'Input.dispatchMouseEvent',
+  params: { type: 'mouseMoved', x: 95.5, y: 87.25 },
+  sessionId: undefined
+}
+[qa-cdp-request] {
+  method: 'Input.dispatchMouseEvent',
+  params: { type: 'mouseMoved', x: 95.5, y: 87.25 },
+  sessionId: undefined
+}
+[qa-cdp-request] {
+  method: 'Input.dispatchMouseEvent',
+  params: { type: 'mouseMoved', x: 95.5, y: 87.25 },
+  sessionId: undefined
+}
+[qa-cdp-request] {
+  method: 'Input.dispatchMouseEvent',
+  params: { type: 'mouseMoved', x: 95.5, y: 87.25 },
+  sessionId: undefined
+}
+[qa-cdp-request] {
+  method: 'Input.dispatchMouseEvent',
+  params: { type: 'mouseMoved', x: 95.5, y: 87.25 },
+  sessionId: undefined
+}
+[qa-cdp-request] {
+  method: 'Input.dispatchMouseEvent',
+  params: { type: 'mouseMoved', x: 95.5, y: 87.25 },
+  sessionId: undefined
+}
+[qa-cdp-request] {
+  method: 'Input.dispatchMouseEvent',
+  params: { type: 'mouseMoved', x: 95.5, y: 87.25 },
+  sessionId: undefined
+}
+[qa-cdp-request] {
+  method: 'Input.dispatchMouseEvent',
+  params: { type: 'mouseMoved', x: 95.5, y: 87.25 },
+  sessionId: undefined
+}
+[qa-cdp-request] {
+  method: 'Input.dispatchMouseEvent',
+  params: { type: 'mouseMoved', x: 95.5, y: 87.25 },
+  sessionId: undefined
+}
+[app-tab-agent-cursor] {"event":"move-completed","instanceId":"798f70f3-706a-4dde-976f-60c9e530ee35","tabId":"qa-browser-A","document":"d2","webContentsId":7,"targetKey":"d2:7:top","ownerThreadId":"qa-agent-thread","ownerThreadWasActive":false,"at":{"x":95.5,"y":87.25}} {}
+[qa-cdp-request] {
+  method: 'Input.dispatchMouseEvent',
+  params: {
+    type: 'mousePressed',
+    button: 'left',
+    clickCount: 1,
+    x: 95.5,
+    y: 87.25
+  },
+  sessionId: undefined
+}
+[qa-page-event] {
+  caseId: 'f-hidden-throttle-false-bypass-true-type',
+  kind: 'pointerdown',
+  epochMs: 1791960468510,
+  pageMonotonicMs: 24136.799999952316,
+  visibility: 'visible',
+  focus: true,
+  target: 'probeType',
+  isTrusted: true,
+  value: ''
+}
+[qa-page-event] {
+  caseId: 'f-hidden-throttle-false-bypass-true-type',
+  kind: 'mousedown',
+  epochMs: 1791960468510,
+  pageMonotonicMs: 24136.799999952316,
+  visibility: 'visible',
+  focus: true,
+  target: 'probeType',
+  isTrusted: true,
+  value: ''
+}
+[qa-page-event] {
+  caseId: 'f-hidden-throttle-false-bypass-true-type',
+  kind: 'focusout',
+  epochMs: 1791960468510,
+  pageMonotonicMs: 24137,
+  visibility: 'visible',
+  focus: true,
+  target: 'probeClick',
+  isTrusted: true,
+  value: ''
+}
+[qa-page-event] {
+  caseId: 'f-hidden-throttle-false-bypass-true-type',
+  kind: 'focusin',
+  epochMs: 1791960468510,
+  pageMonotonicMs: 24137,
+  visibility: 'visible',
+  focus: true,
+  target: 'probeType',
+  isTrusted: true,
+  value: ''
+}
+[qa-cdp-request] {
+  method: 'Input.dispatchMouseEvent',
+  params: {
+    type: 'mouseReleased',
+    button: 'left',
+    clickCount: 1,
+    x: 95.5,
+    y: 87.25
+  },
+  sessionId: undefined
+}
+[qa-page-event] {
+  caseId: 'f-hidden-throttle-false-bypass-true-type',
+  kind: 'pointerup',
+  epochMs: 1791960468512,
+  pageMonotonicMs: 24138.60000014305,
+  visibility: 'visible',
+  focus: true,
+  target: 'probeType',
+  isTrusted: true,
+  value: ''
+}
+[qa-page-event] {
+  caseId: 'f-hidden-throttle-false-bypass-true-type',
+  kind: 'mouseup',
+  epochMs: 1791960468512,
+  pageMonotonicMs: 24138.60000014305,
+  visibility: 'visible',
+  focus: true,
+  target: 'probeType',
+  isTrusted: true,
+  value: ''
+}
+[qa-page-event] {
+  caseId: 'f-hidden-throttle-false-bypass-true-type',
+  kind: 'click',
+  epochMs: 1791960468512,
+  pageMonotonicMs: 24138.60000014305,
+  visibility: 'visible',
+  focus: true,
+  target: 'probeType',
+  isTrusted: true,
+  value: ''
+}
+[qa-cdp-request] {
+  method: 'Runtime.callFunctionOn',
+  params: {
+    objectId: '2131244943738956766.1.2',
+    functionDeclaration: 'function(value) {\n' +
+      '        this.focus();\n' +
+      '        if (this instanceof HTMLInputElement || this instanceof HTMLTextAreaElement) {\n' +
+      '          const prototype = this instanceof HTMLTextAreaElement ? HTMLTextAreaElement.prototype : HTMLInputElement.prototype;\n' +
+      '          const setter = Object.getOwnPropertyDescriptor(prototype, "value")?.set;\n' +
+      '          if (setter) setter.call(this, value); else this.value = value;\n' +
+      '        } else if (this.isContentEditable) {\n' +
+      '          this.textContent = value;\n' +
+      '        } else {\n' +
+      '          throw new Error("Target is not an editable control.");\n' +
+      '        }\n' +
+      '        this.dispatchEvent(new InputEvent("input", { bubbles: true, inputType: "insertText", data: value }));\n' +
+      '        this.dispatchEvent(new Event("change", { bubbles: true }));\n' +
+      '      }',
+    arguments: [ [Object] ],
+    awaitPromise: true,
+    returnByValue: true
+  },
+  sessionId: undefined
+}
+[qa-page-event] {
+  caseId: 'f-hidden-throttle-false-bypass-true-type',
+  kind: 'input',
+  epochMs: 1791960468514,
+  pageMonotonicMs: 24141,
+  visibility: 'visible',
+  focus: true,
+  target: 'probeType',
+  isTrusted: false,
+  value: 'typed-f-hidden-throttle-false-bypass-true'
+}
+[qa-page-event] {
+  caseId: 'f-hidden-throttle-false-bypass-true-type',
+  kind: 'change',
+  epochMs: 1791960468515,
+  pageMonotonicMs: 24141.10000014305,
+  visibility: 'visible',
+  focus: true,
+  target: 'probeType',
+  isTrusted: false,
+  value: 'typed-f-hidden-throttle-false-bypass-true'
+}
+[qa-control] {
+  event: 'command-result',
+  caseId: 'f-hidden-throttle-false-bypass-true',
+  id: 'f-hidden-throttle-false-bypass-true-type',
+  command: `penkra tabs act --input '{"tabId":"qa-browser-A","steps":[{"action":"type","ref":"d2:e2","text":"typed-f-hidden-throttle-false-bypass-true"}]}'`,
+  startedEpochMs: 1791960468209,
+  durationMs: 306.3731669999979,
+  ok: true,
+  result: { tabId: 'qa-browser-A', inputMode: 'smooth', steps: [ [Object] ] }
+}
+[qa-control] {
+  event: 'command-sent',
+  command: `penkra tabs act --input '{"tabId":"qa-browser-A","steps":[{"action":"scroll","document":"d2","deltaY":400}]}'`,
+  id: 'f-hidden-throttle-false-bypass-true-scroll',
+  startedEpochMs: 1791960469518
+}
+[qa-control] {
+  event: 'command-result',
+  caseId: 'f-hidden-throttle-false-bypass-true',
+  id: 'f-hidden-throttle-false-bypass-true-scroll',
+  command: `penkra tabs act --input '{"tabId":"qa-browser-A","steps":[{"action":"scroll","document":"d2","deltaY":400}]}'`,
+  startedEpochMs: 1791960469518,
+  durationMs: 1.6858749999992142,
+  ok: true,
+  result: { tabId: 'qa-browser-A', inputMode: 'smooth', steps: [ [Object] ] }
+}
+[qa-page-event] {
+  caseId: 'f-hidden-throttle-false-bypass-true-scroll',
+  kind: 'scroll',
+  epochMs: 1791960469526,
+  pageMonotonicMs: 25152.5,
+  visibility: 'visible',
+  focus: true,
+  isTrusted: true,
+  scrollY: 400
+}
+[qa-control] {
+  event: 'command-sent',
+  command: `penkra tabs act --input '{"tabId":"qa-browser-A","steps":[{"action":"upload","ref":"d2:e3","paths":["/Users/emmanuelgyekyeatta-penkra/Penkra/qa-tab-additions-b9xq3rc4/app-storage/upload-fixture.txt"]}]}'`,
+  id: 'f-hidden-throttle-false-bypass-true-upload',
+  startedEpochMs: 1791960470521
+}
+[qa-cdp-request] {
+  method: 'DOM.setFileInputFiles',
+  params: {
+    files: [
+      '/Users/emmanuelgyekyeatta-penkra/Penkra/qa-tab-additions-b9xq3rc4/app-storage/upload-fixture.txt'
+    ],
+    backendNodeId: 3
+  },
+  sessionId: undefined
+}
+[qa-page-event] {
+  caseId: 'f-hidden-throttle-false-bypass-true-upload',
+  kind: 'input',
+  epochMs: 1791960470525,
+  pageMonotonicMs: 26151,
+  visibility: 'visible',
+  focus: true,
+  target: 'probeUpload',
+  isTrusted: true,
+  value: 'C:\\fakepath\\upload-fixture.txt',
+  files: [ 'upload-fixture.txt' ]
+}
+[qa-page-event] {
+  caseId: 'f-hidden-throttle-false-bypass-true-upload',
+  kind: 'change',
+  epochMs: 1791960470525,
+  pageMonotonicMs: 26151.10000014305,
+  visibility: 'visible',
+  focus: true,
+  target: 'probeUpload',
+  isTrusted: true,
+  value: 'C:\\fakepath\\upload-fixture.txt',
+  files: [ 'upload-fixture.txt' ]
+}
+[qa-control] {
+  event: 'command-result',
+  caseId: 'f-hidden-throttle-false-bypass-true',
+  id: 'f-hidden-throttle-false-bypass-true-upload',
+  command: `penkra tabs act --input '{"tabId":"qa-browser-A","steps":[{"action":"upload","ref":"d2:e3","paths":["/Users/emmanuelgyekyeatta-penkra/Penkra/qa-tab-additions-b9xq3rc4/app-storage/upload-fixture.txt"]}]}'`,
+  startedEpochMs: 1791960470521,
+  durationMs: 3.8726669999996375,
+  ok: true,
+  result: { tabId: 'qa-browser-A', inputMode: 'smooth', steps: [ [Object] ] }
+}
+[app-tab-host] {
+  windowId: 1,
+  visible: true,
+  sequence: 69,
+  monotonicMs: 33689,
+  event: 'window-visibility-started'
+}
+[app-tab-host] {
+  tabId: 'qa-browser-A',
+  windowId: 1,
+  visible: true,
+  presentationVisible: true,
+  ownerWindowId: null,
+  appViewVisible: true,
+  sequence: 70,
+  monotonicMs: 33690,
+  event: 'window-visibility-tab'
+}
+[app-tab-host] {
+  tabId: 'qa-browser-A',
+  windowId: 1,
+  folderId: 'qa-folder',
+  threadId: 'qa-agent-thread',
+  ownerWindowId: null,
+  freezeDepth: 0,
+  appViewVisible: true,
+  sequence: 71,
+  monotonicMs: 33690,
+  event: 'present-started'
+}
+[app-tab-host] {
+  tabId: 'qa-browser-A',
+  pageId: 'dba4fe19-7283-47f0-aa1d-395b8aac1431',
+  rendererId: 7,
+  currentBounds: { x: 0, y: 0, width: 550, height: 720 },
+  bounds: { x: 650, y: 48, width: 550, height: 720 },
+  currentVisible: true,
+  visible: true,
+  visibleRequested: true,
+  freezeDepth: 0,
+  ownerWindowVisible: true,
+  pageHasError: false,
+  sequence: 72,
+  monotonicMs: 33692,
+  event: 'hosted-page-view-layout-change'
+}
+[app-tab-host] {
+  tabId: 'qa-browser-A',
+  folderId: 'qa-folder',
+  threadId: 'qa-agent-thread',
+  windowId: 1,
+  ownerWindowId: 1,
+  selectedAt: 9,
+  bounds: { x: 650, y: 0, width: 550, height: 768 },
+  animate: false,
+  windowVisible: true,
+  windowMinimized: false,
+  appViewVisible: true,
+  appViewIndex: 1,
+  childViewCount: 2,
+  hostedPageVisible: true,
+  appViewLoading: false,
+  appViewCrashed: false,
+  hostedPageLoading: false,
+  sequence: 73,
+  monotonicMs: 33692,
+  event: 'present-applied'
+}
+[app-tab-host] {
+  tabId: 'qa-browser-A',
+  windowId: 1,
+  visibleRequested: true,
+  freezeDepth: 0,
+  appViewVisible: true,
+  hostedPageVisible: true,
+  sequence: 74,
+  monotonicMs: 33692,
+  event: 'window-show-applied'
+}
+[app-tab-host] {
+  windowId: 1,
+  visible: true,
+  sequence: 75,
+  monotonicMs: 33692,
+  event: 'window-visibility-completed'
+}
+[app-tab-host] {
+  windowId: 1,
+  visible: true,
+  sequence: 76,
+  monotonicMs: 33713,
+  event: 'window-visibility-started'
+}
+[app-tab-host] {
+  tabId: 'qa-browser-A',
+  windowId: 1,
+  visible: true,
+  presentationVisible: true,
+  ownerWindowId: 1,
+  appViewVisible: true,
+  sequence: 77,
+  monotonicMs: 33713,
+  event: 'window-visibility-tab'
+}
+[app-tab-host] {
+  tabId: 'qa-browser-A',
+  windowId: 1,
+  visibleRequested: true,
+  freezeDepth: 0,
+  appViewVisible: true,
+  hostedPageVisible: true,
+  sequence: 78,
+  monotonicMs: 33713,
+  event: 'window-show-applied'
+}
+[app-tab-host] {
+  windowId: 1,
+  visible: true,
+  sequence: 79,
+  monotonicMs: 33713,
+  event: 'window-visibility-completed'
+}
+[app-tab-diagnostic] {
+  rendererMonotonicMs: 31968,
+  documentVisibility: 'visible',
+  documentHasFocus: false,
+  threadId: 'qa-agent-thread',
+  mode: 'live',
+  ownerWindowId: 1,
+  rendererId: 1,
+  tabId: 'qa-browser-A',
+  sequence: 33,
+  monotonicMs: 33728,
+  event: 'renderer-presentation-received'
+}
+[app-tab-diagnostic] {
+  rendererMonotonicMs: 31969,
+  documentVisibility: 'visible',
+  documentHasFocus: false,
+  threadId: 'qa-agent-thread',
+  mode: 'live',
+  ownerWindowId: 1,
+  rendererId: 1,
+  tabId: 'qa-browser-A',
+  sequence: 34,
+  monotonicMs: 33728,
+  event: 'renderer-presentation-received'
+}
+[app-tab-diagnostic] {
+  rendererMonotonicMs: 31972,
+  documentVisibility: 'visible',
+  documentHasFocus: true,
+  threadId: 'qa-agent-thread',
+  rendererId: 1,
+  tabId: 'qa-browser-A',
+  sequence: 35,
+  monotonicMs: 33729,
+  event: 'renderer-window-focused'
+}
+[app-tab-diagnostic] {
+  rendererMonotonicMs: 31990,
+  documentVisibility: 'visible',
+  documentHasFocus: true,
+  threadId: 'qa-agent-thread',
+  mode: 'live',
+  ownerWindowId: 1,
+  rendererId: 1,
+  tabId: 'qa-browser-A',
+  sequence: 36,
+  monotonicMs: 33729,
+  event: 'renderer-presentation-received'
+}
+[app-tab-diagnostic] {
+  browserWindowId: 1,
+  rendererId: 1,
+  isVisible: true,
+  isMinimized: false,
+  isFocused: true,
+  rendererState: { visibilityState: 'visible', hasFocus: true },
+  sequence: 37,
+  monotonicMs: 33729,
+  event: 'shell-window-show'
+}
+[app-tab-host] {
+  tabId: 'qa-browser-A',
+  windowId: 1,
+  folderId: 'qa-folder',
+  threadId: 'qa-agent-thread',
+  ownerWindowId: 1,
+  freezeDepth: 0,
+  appViewVisible: true,
+  sequence: 80,
+  monotonicMs: 34044,
+  event: 'present-started'
+}
+[app-tab-host] {
+  tabId: 'qa-browser-A',
+  folderId: 'qa-folder',
+  threadId: 'qa-agent-thread',
+  windowId: 1,
+  ownerWindowId: 1,
+  selectedAt: 10,
+  bounds: { x: 650, y: 0, width: 550, height: 768 },
+  animate: false,
+  windowVisible: true,
+  windowMinimized: false,
+  appViewVisible: true,
+  appViewIndex: 1,
+  childViewCount: 2,
+  hostedPageVisible: true,
+  appViewLoading: false,
+  appViewCrashed: false,
+  hostedPageLoading: false,
+  sequence: 81,
+  monotonicMs: 34045,
+  event: 'present-applied'
+}
+[app-tab-diagnostic] {
+  rendererMonotonicMs: 32321,
+  documentVisibility: 'visible',
+  documentHasFocus: true,
+  threadId: 'qa-agent-thread',
+  mode: 'live',
+  ownerWindowId: 1,
+  rendererId: 1,
+  tabId: 'qa-browser-A',
+  sequence: 38,
+  monotonicMs: 34045,
+  event: 'renderer-presentation-received'
+}
+[app-tab-host] {
+  tabId: 'qa-browser-A',
+  reason: 'host-stopped',
+  rendererId: 2,
+  ownerWindowId: 1,
+  sequence: 82,
+  monotonicMs: 35349,
+  event: 'tab-close-started'
+}
+[app-tab-host] {
+  tabId: 'qa-browser-B',
+  reason: 'host-stopped',
+  rendererId: 4,
+  ownerWindowId: null,
+  sequence: 83,
+  monotonicMs: 35357,
+  event: 'tab-close-started'
+}
+[app-tab-agent-cursor] {"event":"removed","instanceId":"798f70f3-706a-4dde-976f-60c9e530ee35","tabId":"qa-browser-A","document":"d2","webContentsId":null,"targetKey":"d2:7:top","ownerThreadId":"qa-agent-thread","ownerThreadWasActive":false,"reason":"web-contents-destroyed"} {}
+[app-tab-host] {
+  tabId: 'qa-browser-A',
+  rendererId: 2,
+  sequence: 84,
+  monotonicMs: 35362,
+  event: 'app-renderer-destroyed'
+}
+[app-tab-host] {
+  tabId: 'qa-browser-B',
+  rendererId: 4,
+  sequence: 85,
+  monotonicMs: 35367,
+  event: 'app-renderer-destroyed'
+}

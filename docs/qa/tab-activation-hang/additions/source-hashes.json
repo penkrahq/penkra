@@ -1,0 +1,47 @@
+{
+  "sourceHead": "a0a576730cacc6a3301c7bdefec3cdae485505cf",
+  "version": "0.14.4",
+  "files": [
+    {
+      "path": "apps/desktop/src/appCommandPipeServer.ts",
+      "sha256": "f321a38e08c5f3df7038114d7fb4b9774b162415a0bcaf8af23edb93f51e887a"
+    },
+    {
+      "path": "apps/desktop/src/appTabActivation.ts",
+      "sha256": "e8596b6b3a8fab4da3d51bce5757fb94456a492c3018bb169a681b4698f56845"
+    },
+    {
+      "path": "apps/desktop/src/appTabObserver.ts",
+      "sha256": "332dc0db747de5861a4c9270fa68ebb2f6d4e95c378d896cbf81bce8f3363da8"
+    },
+    {
+      "path": "apps/desktop/src/appTabOpenedRouting.ts",
+      "sha256": "f9c3fff1d164520332adcd8803e92979d6c69ace30e27e7641cabb69bed5d903"
+    },
+    {
+      "path": "apps/desktop/src/appTabViewHost.ts",
+      "sha256": "5cc39c95dbb8865aa15dbe7b71f95a996c939d5b2acff558f6a19cea10e4986f"
+    },
+    {
+      "path": "apps/desktop/src/browserUploadFile.ts",
+      "sha256": "1c85cb8fb1bd997bc72507a2eab635f83dba74a9e0cf084ef92e887e7b3e8a3f"
+    },
+    {
+      "path": "apps/desktop/src/main.ts",
+      "sha256": "a058dbb8997ba3a13b7bacf728fb5d7a3238d59b00dd5a705eb36039824f3393"
+    },
+    {
+      "path": "apps/server/src/appRuntimeCli.ts",
+      "sha256": "9a3e9fe6e03a9c7a52c4ab5fc1d554eca9d1fced4e1fdb9f54f0551ba38fd3d9"
+    },
+    {
+      "path": "apps/web/src/components/chat/SingleChatSurface.tsx",
+      "sha256": "07f30bd503054fba365bd8471ea9a6c3a5cad44e863b42e2efc6f989e398001e"
+    },
+    {
+      "path": "apps/desktop/src/desktopFolderAppTabsClient.ts",
+      "sha256": "8ca3427ec733d54c0026b54fc9747b311a661af1944dddf263573ce2d6e4411f"
+    }
+  ],
+  "scratchOnlyProductEdit": "matrix/guard-bypass.patch"
+}

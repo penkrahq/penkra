@@ -1,0 +1,9 @@
+{
+  "caseId": "g-help",
+  "id": "help-close",
+  "command": "penkra tabs close --help",
+  "startedEpochMs": 1791960302536,
+  "durationMs": 0.1316250000090804,
+  "ok": true,
+  "result": "penkra tabs close\nClose one retained App tab in every Penkra window.\n\nHow to use this operation\n\nClosing a tab destroys its App and hosted-page documents.\n\nExamples\n\n  Close a retained tab\n\n  {\n    \"command\": \"penkra tabs close --tab-id <tab-id>\"\n  }\n\nInput fields\n  --tab-id <string>  required. Exact retained App tab ID returned by penkra tabs list.\n\nInvocation\n  Send one ordinary command string. Pass each input field by name exactly as listed\n  under Input fields (for example --thread-id <id>). A bare value without its --name\n  is rejected. Use --input \"{...}\" to pass the complete input as one JSON value.\n  --input   Complete JSON operation input validated against the schema below.\n\nOperating manual\n  Run penkra tabs --help for Tabs operating instructions.\n\nValidated input schema\n{\n  \"type\": \"object\",\n  \"properties\": {\n    \"tabId\": {\n      \"type\": \"string\",\n      \"minLength\": 1,\n      \"description\": \"Exact retained App tab ID returned by penkra tabs list.\"\n    }\n  },\n  \"required\": [\n    \"tabId\"\n  ],\n  \"additionalProperties\": false\n}\n\nValidated output schema\n{\n  \"type\": \"object\"\n}\n"
+}

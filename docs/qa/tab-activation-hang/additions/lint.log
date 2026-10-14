@@ -1,0 +1,4 @@
+$ oxlint --quiet --report-unused-disable-directives
+
+Found 747 warnings and 0 errors.
+Finished in 205ms on 2479 files with 149 rules using 10 threads.

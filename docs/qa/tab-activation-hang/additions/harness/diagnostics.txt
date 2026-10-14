@@ -1,0 +1,26 @@
+function traceAppTab(event: string, details: Record<string, unknown> = {}): void {
+  console.info("[app-tab-diagnostic]", {
+    ...details,
+    sequence: ++appTabDiagnosticSequence,
+    monotonicMs: Math.round(performance.now()),
+    event,
+  });
+}
+
+function traceAppTabWindow(window: BrowserWindow, event: string): void {
+  const details = {
+    browserWindowId: window.id,
+    rendererId: window.webContents.id,
+    isVisible: window.isVisible(),
+    isMinimized: window.isMinimized(),
+    isFocused: window.isFocused(),
+  };
+  void window.webContents
+    .executeJavaScript(
+      "({ visibilityState: document.visibilityState, hasFocus: document.hasFocus() })",
+    )
+    .then((rendererState: unknown) => traceAppTab(event, { ...details, rendererState }))
+    .catch((error: unknown) => {
+      traceAppTab(event, { ...details, rendererStateError: formatErrorMessage(error) });
+    });
+}

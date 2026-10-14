@@ -1,0 +1,9 @@
+--- a/apps/desktop/src/appTabObserver.ts
++++ b/apps/desktop/src/appTabObserver.ts
+@@ -1250,4 +1250,6 @@
+   #requireActive(tabId: string, target: AppTabObservationTarget): void {
++    // QA only: bypass presentation admission/cancellation for the hidden-input experiment.
++    if (process.env.QA_BYPASS_TAB_GUARD === "1") return;
+     const context = this.#interaction.getStore();
+     const error = () =>
+       Object.assign(new Error("Activate this tab, take a fresh snapshot, then retry."), {

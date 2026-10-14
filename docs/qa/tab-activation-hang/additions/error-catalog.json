@@ -1,0 +1,877 @@
+[
+  {
+    "source": "apps/server/src/appRuntimeCli.ts",
+    "line": 632,
+    "expression": "new Error(`Unknown Penkra tabs command ${action}. Run penkra tabs --help.`)",
+    "verdict": "true",
+    "evidence": "g-parse-65: unknown command rejected, root help enumerates 10 subcommands."
+  },
+  {
+    "source": "apps/server/src/appRuntimeCli.ts",
+    "line": 642,
+    "expression": "new Error(`${declaration.command} --help does not accept operation input.`)",
+    "verdict": "true",
+    "evidence": "g-parse-71: help plus tab-id rejected."
+  },
+  {
+    "source": "apps/server/src/appRuntimeCli.ts",
+    "line": 649,
+    "expression": "new Error(\"penkra tabs act requires --input JSON.\")",
+    "verdict": "true",
+    "evidence": "g-parse-73: act without JSON rejected."
+  },
+  {
+    "source": "apps/server/src/appRuntimeCli.ts",
+    "line": 656,
+    "expression": "new Error(`${declaration.command} requires object input.`)",
+    "verdict": "ambiguous",
+    "evidence": "Source branch only; this exact failure precondition was not produced in native runtime."
+  },
+  {
+    "source": "apps/server/src/appRuntimeCli.ts",
+    "line": 1023,
+    "expression": "new Error(`A relative ${label} requires the caller Thread to have a directory.`)",
+    "verdict": "ambiguous",
+    "evidence": "Source branch only; this exact failure precondition was not produced in native runtime."
+  },
+  {
+    "source": "apps/server/src/appRuntimeCli.ts",
+    "line": 1051,
+    "expression": "new Error(`${name} is required.`)",
+    "verdict": "ambiguous",
+    "evidence": "Source branch only; this exact failure precondition was not produced in native runtime."
+  },
+  {
+    "source": "apps/server/src/appRuntimeCli.ts",
+    "line": 1057,
+    "expression": "new Error(\"command must be a non-empty string.\")",
+    "verdict": "ambiguous",
+    "evidence": "Source branch only; this exact failure precondition was not produced in native runtime."
+  },
+  {
+    "source": "apps/server/src/appRuntimeCli.ts",
+    "line": 1079,
+    "expression": "new Error(`--${name} may be supplied only once.`)",
+    "verdict": "ambiguous",
+    "evidence": "Source branch only; this exact failure precondition was not produced in native runtime."
+  },
+  {
+    "source": "apps/server/src/appRuntimeCli.ts",
+    "line": 1080,
+    "expression": "new Error(`--${name} does not accept a value.`)",
+    "verdict": "ambiguous",
+    "evidence": "Source branch only; this exact failure precondition was not produced in native runtime."
+  },
+  {
+    "source": "apps/server/src/appRuntimeCli.ts",
+    "line": 1085,
+    "expression": "new Error(`--${name} may be supplied only once.`)",
+    "verdict": "ambiguous",
+    "evidence": "Source branch only; this exact failure precondition was not produced in native runtime."
+  },
+  {
+    "source": "apps/server/src/appRuntimeCli.ts",
+    "line": 1087,
+    "expression": "new Error(\"--tab-id requires a non-empty value.\")",
+    "verdict": "ambiguous",
+    "evidence": "Source branch only; this exact failure precondition was not produced in native runtime."
+  },
+  {
+    "source": "apps/server/src/appRuntimeCli.ts",
+    "line": 1093,
+    "expression": "new Error(`--${name} may be supplied only once.`)",
+    "verdict": "ambiguous",
+    "evidence": "Source branch only; this exact failure precondition was not produced in native runtime."
+  },
+  {
+    "source": "apps/server/src/appRuntimeCli.ts",
+    "line": 1094,
+    "expression": "new Error(\"--input requires a JSON value.\")",
+    "verdict": "ambiguous",
+    "evidence": "Source branch only; this exact failure precondition was not produced in native runtime."
+  },
+  {
+    "source": "apps/server/src/appRuntimeCli.ts",
+    "line": 1115,
+    "expression": "new Error(`--${name} must have one scalar value.`)",
+    "verdict": "ambiguous",
+    "evidence": "Source branch only; this exact failure precondition was not produced in native runtime."
+  },
+  {
+    "source": "apps/server/src/appRuntimeCli.ts",
+    "line": 1120,
+    "expression": "new Error(\"command must name a registered operation.\")",
+    "verdict": "ambiguous",
+    "evidence": "Source branch only; this exact failure precondition was not produced in native runtime."
+  },
+  {
+    "source": "apps/server/src/appRuntimeCli.ts",
+    "line": 1198,
+    "expression": "new Error(`command contains an unterminated ${quote}-quoted value.`)",
+    "verdict": "ambiguous",
+    "evidence": "Source branch only; this exact failure precondition was not produced in native runtime."
+  },
+  {
+    "source": "apps/server/src/appRuntimeCli.ts",
+    "line": 1215,
+    "expression": "new Error(\n      `${command} received the bare value \"${stray}\". Every input field is passed by name as --field-name value (for example --thread-id <id>, not <id> alone). Run ${command} --help for its input fields.`,\n    )",
+    "verdict": "ambiguous",
+    "evidence": "Source branch only; this exact failure precondition was not produced in native runtime."
+  },
+  {
+    "source": "apps/server/src/appRuntimeCli.ts",
+    "line": 1219,
+    "expression": "new Error(\n      `${command} does not accept --tab-id. Run ${command} --help for its input fields.`,\n    )",
+    "verdict": "ambiguous",
+    "evidence": "Source branch only; this exact failure precondition was not produced in native runtime."
+  },
+  {
+    "source": "apps/server/src/appRuntimeCli.ts",
+    "line": 1258,
+    "expression": "new Error(`${name} must be true or false.`)",
+    "verdict": "true",
+    "evidence": "g-parse-70: boxes maybe rejected."
+  },
+  {
+    "source": "apps/server/src/appRuntimeCli.ts",
+    "line": 1269,
+    "expression": "new Error(\"Named operation flags require an object input schema.\")",
+    "verdict": "ambiguous",
+    "evidence": "Source branch only; this exact failure precondition was not produced in native runtime."
+  },
+  {
+    "source": "apps/server/src/appRuntimeCli.ts",
+    "line": 1275,
+    "expression": "new Error(\"This operation does not declare named input properties.\")",
+    "verdict": "ambiguous",
+    "evidence": "Source branch only; this exact failure precondition was not produced in native runtime."
+  },
+  {
+    "source": "apps/server/src/appRuntimeCli.ts",
+    "line": 1282,
+    "expression": "new Error(`Unknown operation option --${name}.`)",
+    "verdict": "true",
+    "evidence": "g-parse-72: unknown named option rejected."
+  },
+  {
+    "source": "apps/server/src/appRuntimeCli.ts",
+    "line": 1286,
+    "expression": "new Error(`Unknown operation option --${name}.`)",
+    "verdict": "true",
+    "evidence": "g-parse-72: unknown named option rejected (exact selected branch not instrumented)."
+  },
+  {
+    "source": "apps/server/src/appRuntimeCli.ts",
+    "line": 1289,
+    "expression": "new Error(`${propertyName} was supplied by both --input and --${name}.`)",
+    "verdict": "ambiguous",
+    "evidence": "Source branch only; this exact failure precondition was not produced in native runtime."
+  },
+  {
+    "source": "apps/server/src/appRuntimeCli.ts",
+    "line": 1292,
+    "expression": "new Error(`--${name} may be supplied only once.`)",
+    "verdict": "ambiguous",
+    "evidence": "Source branch only; this exact failure precondition was not produced in native runtime."
+  },
+  {
+    "source": "apps/server/src/appRuntimeCli.ts",
+    "line": 1299,
+    "expression": "new Error(`--${name} must be a${type === \"integer\" ? \"n integer\" : \" number\"}.`)",
+    "verdict": "ambiguous",
+    "evidence": "Source branch only; this exact failure precondition was not produced in native runtime."
+  },
+  {
+    "source": "apps/server/src/appRuntimeCli.ts",
+    "line": 1310,
+    "expression": "new Error(`--${name} must be supplied through structured input.`)",
+    "verdict": "ambiguous",
+    "evidence": "Source branch only; this exact failure precondition was not produced in native runtime."
+  },
+  {
+    "source": "apps/server/src/appRuntimeCli.ts",
+    "line": 1314,
+    "expression": "new Error(`--${name} must contain string values.`)",
+    "verdict": "ambiguous",
+    "evidence": "Source branch only; this exact failure precondition was not produced in native runtime."
+  },
+  {
+    "source": "apps/server/src/appRuntimeCli.ts",
+    "line": 1318,
+    "expression": "new Error(`--${name} must be supplied through structured input.`)",
+    "verdict": "ambiguous",
+    "evidence": "Source branch only; this exact failure precondition was not produced in native runtime."
+  },
+  {
+    "source": "apps/server/src/appRuntimeCli.ts",
+    "line": 1320,
+    "expression": "new Error(`--${name} must be a string.`)",
+    "verdict": "ambiguous",
+    "evidence": "Source branch only; this exact failure precondition was not produced in native runtime."
+  },
+  {
+    "source": "apps/server/src/appRuntimeCli.ts",
+    "line": 1333,
+    "expression": "new Error(\"The operation declares an invalid input schema.\", { cause: error })",
+    "verdict": "ambiguous",
+    "evidence": "Source branch only; this exact failure precondition was not produced in native runtime."
+  },
+  {
+    "source": "apps/server/src/appRuntimeCli.ts",
+    "line": 1338,
+    "expression": "new Error(\n    `Operation input does not match its declared schema${formatSchemaError(validator.errors?.[0])}.`,\n  )",
+    "verdict": "ambiguous",
+    "evidence": "g-parse-66..75 reject invalid input. Unknown action g-parse-75 reports missing ref rather than unsupported action; first AJV oneOf error does not explain all alternatives."
+  },
+  {
+    "source": "apps/server/src/appRuntimeCli.ts",
+    "line": 1416,
+    "expression": "new Error(`Operation option --${flagName} is ambiguous.`)",
+    "verdict": "ambiguous",
+    "evidence": "Source branch only; this exact failure precondition was not produced in native runtime."
+  },
+  {
+    "source": "apps/server/src/appRuntimeCli.ts",
+    "line": 1428,
+    "expression": "new Error(\"App commands are available only inside a running Penkra environment.\")",
+    "verdict": "ambiguous",
+    "evidence": "Source branch only; this exact failure precondition was not produced in native runtime."
+  },
+  {
+    "source": "apps/server/src/appRuntimeCli.ts",
+    "line": 1437,
+    "expression": "new Error(\n            `App command ${method} exceeded its ${timeoutMs}-millisecond limit. Inspect the current state before retrying; a timeout leaves the outcome unknown and must not trigger a blind retry.`,\n          )",
+    "verdict": "true",
+    "evidence": "Original a/b cases exceed actual 30000 ms limit; outcome remains unknown."
+  },
+  {
+    "source": "apps/server/src/appRuntimeCli.ts",
+    "line": 1458,
+    "expression": "new Error(\"Desktop returned an invalid App command response.\", {\n            cause: error,\n          })",
+    "verdict": "ambiguous",
+    "evidence": "Source branch only; this exact failure precondition was not produced in native runtime."
+  },
+  {
+    "source": "apps/server/src/appRuntimeCli.ts",
+    "line": 1470,
+    "expression": "new Error(response.error)",
+    "verdict": "ambiguous",
+    "evidence": "Source branch only; this exact failure precondition was not produced in native runtime."
+  },
+  {
+    "source": "apps/server/src/appRuntimeCli.ts",
+    "line": 1480,
+    "expression": "new Error(`${code}: ${message}${detail}${interaction}`)",
+    "verdict": "true",
+    "evidence": "Native CLI errors preserve code, interaction metadata and repeated failure detail; matrix command-results.json."
+  },
+  {
+    "source": "apps/desktop/src/appCommandPipeServer.ts",
+    "line": 38,
+    "expression": "new Error(`${tab.name} does not allow agent observation or interaction.`)",
+    "verdict": "ambiguous",
+    "evidence": "Source branch only; this exact failure precondition was not produced in native runtime."
+  },
+  {
+    "source": "apps/desktop/src/appCommandPipeServer.ts",
+    "line": 385,
+    "expression": "new Error(\"Invalid App command request.\")",
+    "verdict": "ambiguous",
+    "evidence": "Source branch only; this exact failure precondition was not produced in native runtime."
+  },
+  {
+    "source": "apps/desktop/src/appCommandPipeServer.ts",
+    "line": 390,
+    "expression": "new Error(\"Invalid App command capability.\")",
+    "verdict": "ambiguous",
+    "evidence": "Source branch only; this exact failure precondition was not produced in native runtime."
+  },
+  {
+    "source": "apps/desktop/src/appCommandPipeServer.ts",
+    "line": 479,
+    "expression": "new Error(\"Tab activation is unavailable.\")",
+    "verdict": "ambiguous",
+    "evidence": "Source branch only; this exact failure precondition was not produced in native runtime."
+  },
+  {
+    "source": "apps/desktop/src/appCommandPipeServer.ts",
+    "line": 527,
+    "expression": "new Error(\"Tab activation is unavailable.\")",
+    "verdict": "ambiguous",
+    "evidence": "Source branch only; this exact failure precondition was not produced in native runtime."
+  },
+  {
+    "source": "apps/desktop/src/appCommandPipeServer.ts",
+    "line": 925,
+    "expression": "new Error(\"spaceId, folderId, and threadId must be supplied together.\")",
+    "verdict": "ambiguous",
+    "evidence": "Source branch only; this exact failure precondition was not produced in native runtime."
+  },
+  {
+    "source": "apps/desktop/src/appCommandPipeServer.ts",
+    "line": 934,
+    "expression": "new Error(\n        explicitTabId\n          ? `App tab ${explicitTabId} is not open.`\n          : \"No current App tab. Open an App or pass --tab-id.\",\n      )",
+    "verdict": "ambiguous",
+    "evidence": "Source branch only; this exact failure precondition was not produced in native runtime."
+  },
+  {
+    "source": "apps/desktop/src/appCommandPipeServer.ts",
+    "line": 981,
+    "expression": "new Error(`App tab ${tabId} is gone from the caller folder and Space.`)",
+    "verdict": "true",
+    "evidence": "g-parse-76/g-closed-snapshot: nonexistent/closed tab gives TAB_GONE."
+  },
+  {
+    "source": "apps/desktop/src/appCommandPipeServer.ts",
+    "line": 1036,
+    "expression": "new Error(\"App command params must be an object.\")",
+    "verdict": "ambiguous",
+    "evidence": "Source branch only; this exact failure precondition was not produced in native runtime."
+  },
+  {
+    "source": "apps/desktop/src/appCommandPipeServer.ts",
+    "line": 1042,
+    "expression": "new Error(`${name} is required.`)",
+    "verdict": "ambiguous",
+    "evidence": "Source branch only; this exact failure precondition was not produced in native runtime."
+  },
+  {
+    "source": "apps/desktop/src/appCommandPipeServer.ts",
+    "line": 1047,
+    "expression": "new Error(`${name} must be a string.`)",
+    "verdict": "ambiguous",
+    "evidence": "Source branch only; this exact failure precondition was not produced in native runtime."
+  },
+  {
+    "source": "apps/desktop/src/appCommandPipeServer.ts",
+    "line": 1054,
+    "expression": "new Error(`${name} must be a finite number.`)",
+    "verdict": "ambiguous",
+    "evidence": "Source branch only; this exact failure precondition was not produced in native runtime."
+  },
+  {
+    "source": "apps/desktop/src/appCommandPipeServer.ts",
+    "line": 1061,
+    "expression": "new Error(`${name} must be a boolean.`)",
+    "verdict": "ambiguous",
+    "evidence": "Source branch only; this exact failure precondition was not produced in native runtime."
+  },
+  {
+    "source": "apps/desktop/src/appCommandPipeServer.ts",
+    "line": 1067,
+    "expression": "new Error(`${name} must be a non-empty string array.`)",
+    "verdict": "ambiguous",
+    "evidence": "Source branch only; this exact failure precondition was not produced in native runtime."
+  },
+  {
+    "source": "apps/desktop/src/appCommandPipeServer.ts",
+    "line": 1090,
+    "expression": "new Error(`${name} must be a non-empty string.`)",
+    "verdict": "ambiguous",
+    "evidence": "Source branch only; this exact failure precondition was not produced in native runtime."
+  },
+  {
+    "source": "apps/desktop/src/appCommandPipeServer.ts",
+    "line": 1123,
+    "expression": "new Error(\"document must be d1 or d2.\")",
+    "verdict": "ambiguous",
+    "evidence": "Source branch only; this exact failure precondition was not produced in native runtime."
+  },
+  {
+    "source": "apps/desktop/src/appCommandPipeServer.ts",
+    "line": 1129,
+    "expression": "new Error(\"steps must be a non-empty array.\")",
+    "verdict": "ambiguous",
+    "evidence": "Source branch only; this exact failure precondition was not produced in native runtime."
+  },
+  {
+    "source": "apps/desktop/src/appCommandPipeServer.ts",
+    "line": 1133,
+    "expression": "new Error(`steps[${index}] must be an object.`)",
+    "verdict": "ambiguous",
+    "evidence": "Source branch only; this exact failure precondition was not produced in native runtime."
+  },
+  {
+    "source": "apps/desktop/src/appCommandPipeServer.ts",
+    "line": 1198,
+    "expression": "new Error(`steps[${index}].action is unsupported.`)",
+    "verdict": "ambiguous",
+    "evidence": "Source branch only; this exact failure precondition was not produced in native runtime."
+  },
+  {
+    "source": "apps/desktop/src/appTabObserver.ts",
+    "line": 557,
+    "expression": "new Error(String(error))",
+    "verdict": "ambiguous",
+    "evidence": "Source branch only; this exact failure precondition was not produced in native runtime."
+  },
+  {
+    "source": "apps/desktop/src/appTabObserver.ts",
+    "line": 586,
+    "expression": "visualUnavailable(document, \"The capture contains no pixels.\")",
+    "verdict": "ambiguous",
+    "evidence": "Source branch only; this exact failure precondition was not produced in native runtime."
+  },
+  {
+    "source": "apps/desktop/src/appTabObserver.ts",
+    "line": 592,
+    "expression": "new Error(\n          \"The PNG does not fit in the inline tool transport. Supply filename to save it instead.\",\n        )",
+    "verdict": "ambiguous",
+    "evidence": "Source branch only; this exact failure precondition was not produced in native runtime."
+  },
+  {
+    "source": "apps/desktop/src/appTabObserver.ts",
+    "line": 619,
+    "expression": "new Error(\"Recording filename must end in .webm or .mp4.\")",
+    "verdict": "true",
+    "evidence": "g-record-extension rejects wrong.bin."
+  },
+  {
+    "source": "apps/desktop/src/appTabObserver.ts",
+    "line": 687,
+    "expression": "visualUnavailable(document, \"The tab stopped being displayed during recording.\")",
+    "verdict": "ambiguous",
+    "evidence": "Source branch only; this exact failure precondition was not produced in native runtime."
+  },
+  {
+    "source": "apps/desktop/src/appTabObserver.ts",
+    "line": 688,
+    "expression": "visualUnavailable(document, \"No recording frames arrived.\")",
+    "verdict": "ambiguous",
+    "evidence": "Source branch only; this exact failure precondition was not produced in native runtime."
+  },
+  {
+    "source": "apps/desktop/src/appTabObserver.ts",
+    "line": 690,
+    "expression": "new Error(`ffmpeg failed: ${stderr.trim().split(\"\\n\").slice(-3).join(\" \")}`)",
+    "verdict": "ambiguous",
+    "evidence": "Source branch only; this exact failure precondition was not produced in native runtime."
+  },
+  {
+    "source": "apps/desktop/src/appTabObserver.ts",
+    "line": 725,
+    "expression": "visualUnavailable(document, \"No visual frame events arrived during the trace.\")",
+    "verdict": "ambiguous",
+    "evidence": "Source branch only; this exact failure precondition was not produced in native runtime."
+  },
+  {
+    "source": "apps/desktop/src/appTabObserver.ts",
+    "line": 812,
+    "expression": "visualUnavailable(target.document, \"The capture area has no painted pixels.\")",
+    "verdict": "ambiguous",
+    "evidence": "Source branch only; this exact failure precondition was not produced in native runtime."
+  },
+  {
+    "source": "apps/desktop/src/appTabObserver.ts",
+    "line": 818,
+    "expression": "visualUnavailable(\n          target.document,\n          `Capture failed: ${error instanceof Error ? error.message : String(error)}`,\n        )",
+    "verdict": "ambiguous",
+    "evidence": "Source branch only; this exact failure precondition was not produced in native runtime."
+  },
+  {
+    "source": "apps/desktop/src/appTabObserver.ts",
+    "line": 838,
+    "expression": "visualUnavailable(target.document, \"The tab is not displayed in a visible window.\")",
+    "verdict": "ambiguous",
+    "evidence": "g-record-hidden/g-trace-hidden: exact reason matches missing caller presentation. SCREENSHOT_NEVER_PAINTED code does not establish that this page never painted."
+  },
+  {
+    "source": "apps/desktop/src/appTabObserver.ts",
+    "line": 923,
+    "expression": "observerError(\n          \"TAB_NOT_HIT_TESTABLE\",\n          `${reference} is outside the viewport or covered. Give the retained tab a usable layout or present it, then retry.`,\n        )",
+    "verdict": "true",
+    "evidence": "g-covered-target: overlay blocks hit test; TAB_NOT_HIT_TESTABLE before input dispatch."
+  },
+  {
+    "source": "apps/desktop/src/appTabObserver.ts",
+    "line": 929,
+    "expression": "observerError(\n          \"CLICK_NOT_DELIVERED\",\n          `${reference} is detached on a platform where pointer delivery cannot be guaranteed. Present the tab in a window, then retry.`,\n        )",
+    "verdict": "ambiguous",
+    "evidence": "Source branch only; this exact failure precondition was not produced in native runtime."
+  },
+  {
+    "source": "apps/desktop/src/appTabObserver.ts",
+    "line": 940,
+    "expression": "observerError(\n          \"CLICK_NOT_DELIVERED\",\n          `${reference} did not confirm the pointer click. Present the tab in a visible window, then retry.`,\n        )",
+    "verdict": "ambiguous",
+    "evidence": "Source branch only; this exact failure precondition was not produced in native runtime."
+  },
+  {
+    "source": "apps/desktop/src/appTabObserver.ts",
+    "line": 1143,
+    "expression": "new Error(\"No browser JavaScript dialog has been reported for this tab.\")",
+    "verdict": "true",
+    "evidence": "g-no-dialog: no browser dialog rejected after previous dialog accepted."
+  },
+  {
+    "source": "apps/desktop/src/appTabObserver.ts",
+    "line": 1166,
+    "expression": "new Error(\"At least one path is required.\")",
+    "verdict": "ambiguous",
+    "evidence": "Source branch only; this exact failure precondition was not produced in native runtime."
+  },
+  {
+    "source": "apps/desktop/src/appTabObserver.ts",
+    "line": 1201,
+    "expression": "new Error(`Text did not appear within ${boundedTimeout} ms.`)",
+    "verdict": "ambiguous",
+    "evidence": "g-wait-timeout: absent text fails, 50 ms requested but command lasts 102.946 ms; polling interval is 100 ms."
+  },
+  {
+    "source": "apps/desktop/src/appTabObserver.ts",
+    "line": 1224,
+    "expression": "new Error(\n        `A browser JavaScript ${existingDialog.type} dialog is open: ${JSON.stringify(existingDialog.message)}. Handle it with a dialog step in penkra tabs act before continuing.`,\n      )",
+    "verdict": "true",
+    "evidence": "g-open-dialog: pending alert blocks snapshot and directs agent to dialog step; acceptance succeeds."
+  },
+  {
+    "source": "apps/desktop/src/appTabObserver.ts",
+    "line": 1237,
+    "expression": "observerError(\"TAB_GONE\", `App tab ${tabId} is gone.`)",
+    "verdict": "ambiguous",
+    "evidence": "Source branch only; this exact failure precondition was not produced in native runtime."
+  },
+  {
+    "source": "apps/desktop/src/appTabObserver.ts",
+    "line": 1243,
+    "expression": "new Error(\n        `A browser JavaScript ${pending.type} dialog is open: ${JSON.stringify(pending.message)}. Handle it with a dialog step in penkra tabs act before continuing.`,\n      )",
+    "verdict": "ambiguous",
+    "evidence": "Same open-dialog template, initial-vs-newly-discovered branch not instrumented."
+  },
+  {
+    "source": "apps/desktop/src/appTabObserver.ts",
+    "line": 1253,
+    "expression": "new Error(\"Activate this tab, take a fresh snapshot, then retry.\")",
+    "verdict": "true",
+    "evidence": "All guarded hidden/minimized input cases reject TAB_NOT_ACTIVE, dispatched:false, outcome:not-started."
+  },
+  {
+    "source": "apps/desktop/src/appTabObserver.ts",
+    "line": 1421,
+    "expression": "observerError(\"LOAD_FAILED\", `${target.document} has no cursor frame.`)",
+    "verdict": "ambiguous",
+    "evidence": "Source branch only; this exact failure precondition was not produced in native runtime."
+  },
+  {
+    "source": "apps/desktop/src/appTabObserver.ts",
+    "line": 1432,
+    "expression": "observerError(\"LOAD_FAILED\", `${target.document} has no cursor execution context.`)",
+    "verdict": "ambiguous",
+    "evidence": "Source branch only; this exact failure precondition was not produced in native runtime."
+  },
+  {
+    "source": "apps/desktop/src/appTabObserver.ts",
+    "line": 1600,
+    "expression": "observerError(\n        \"STALE_REFERENCE\",\n        `Reference ${reference} does not belong to the current ${document} loader.`,\n      )",
+    "verdict": "true",
+    "evidence": "g-old-loader-reference: old reference rejected after real page navigation."
+  },
+  {
+    "source": "apps/desktop/src/appTabObserver.ts",
+    "line": 1612,
+    "expression": "observerError(\"STALE_REFERENCE\", `Reference ${reference} is stale.`)",
+    "verdict": "true",
+    "evidence": "g-partial-sequence: missing reference rejected after first successful click; completedSteps accurate."
+  },
+  {
+    "source": "apps/desktop/src/appTabObserver.ts",
+    "line": 1671,
+    "expression": "observerError(\"STALE_REFERENCE\", \"The referenced element has no visible box.\")",
+    "verdict": "ambiguous",
+    "evidence": "Source branch only; this exact failure precondition was not produced in native runtime."
+  },
+  {
+    "source": "apps/desktop/src/appTabObserver.ts",
+    "line": 1691,
+    "expression": "observerError(\"STALE_REFERENCE\", \"The referenced element no longer exists.\")",
+    "verdict": "ambiguous",
+    "evidence": "Source branch only; this exact failure precondition was not produced in native runtime."
+  },
+  {
+    "source": "apps/desktop/src/appTabObserver.ts",
+    "line": 1711,
+    "expression": "observerError(\"STALE_REFERENCE\", \"The referenced element no longer exists.\")",
+    "verdict": "ambiguous",
+    "evidence": "Source branch only; this exact failure precondition was not produced in native runtime."
+  },
+  {
+    "source": "apps/desktop/src/appTabObserver.ts",
+    "line": 1753,
+    "expression": "observerError(\"LOAD_FAILED\", `${target.document} has no frame.`)",
+    "verdict": "ambiguous",
+    "evidence": "Source branch only; this exact failure precondition was not produced in native runtime."
+  },
+  {
+    "source": "apps/desktop/src/appTabObserver.ts",
+    "line": 1764,
+    "expression": "observerError(\"LOAD_FAILED\", `${target.document} has no click execution context.`)",
+    "verdict": "ambiguous",
+    "evidence": "Source branch only; this exact failure precondition was not produced in native runtime."
+  },
+  {
+    "source": "apps/desktop/src/appTabObserver.ts",
+    "line": 1777,
+    "expression": "observerError(\"LOAD_FAILED\", `${target.document} has no committed loader.`)",
+    "verdict": "ambiguous",
+    "evidence": "Source branch only; this exact failure precondition was not produced in native runtime."
+  },
+  {
+    "source": "apps/desktop/src/appTabObserver.ts",
+    "line": 1828,
+    "expression": "observerError(\"STALE_REFERENCE\", error.message)",
+    "verdict": "false",
+    "evidence": "g-upload-not-file-input: current valid button reference is mapped to STALE_REFERENCE because Chromium says Node is not a file input element. CDP was dispatched:true/outcome:unknown; this is a target-type error, not stale reference."
+  },
+  {
+    "source": "apps/desktop/src/appTabObserver.ts",
+    "line": 1922,
+    "expression": "observerError(\n      \"SCREENSHOT_NEVER_PAINTED\",\n      \"The hosted-page rectangle is outside the App capture.\",\n    )",
+    "verdict": "ambiguous",
+    "evidence": "Source branch only; this exact failure precondition was not produced in native runtime."
+  },
+  {
+    "source": "apps/desktop/src/appTabObserver.ts",
+    "line": 1956,
+    "expression": "new Error(\"Snapshot depth must be a non-negative integer.\")",
+    "verdict": "true",
+    "evidence": "g-parse-69: depth 0.5 rejected by observer as non-negative integer despite number schema."
+  },
+  {
+    "source": "apps/desktop/src/appTabObserver.ts",
+    "line": 1999,
+    "expression": "observerError(\"STALE_REFERENCE\", `Reference ${reference} is stale.`)",
+    "verdict": "ambiguous",
+    "evidence": "Source branch only; this exact failure precondition was not produced in native runtime."
+  },
+  {
+    "source": "apps/desktop/src/appTabObserver.ts",
+    "line": 2012,
+    "expression": "new Error(message)",
+    "verdict": "ambiguous",
+    "evidence": "Source branch only; this exact failure precondition was not produced in native runtime."
+  },
+  {
+    "source": "apps/desktop/src/appTabObserver.ts",
+    "line": 2016,
+    "expression": "observerError(\n    \"SCREENSHOT_NEVER_PAINTED\",\n    `${document} cannot produce visual frames: ${reason} Present the tab in a visible window, then retry.`,\n  )",
+    "verdict": "ambiguous",
+    "evidence": "Shared SCREENSHOT_NEVER_PAINTED formatter; absent presentation reproduced, other capture/paint failure reasons not induced."
+  },
+  {
+    "source": "apps/desktop/src/appTabObserver.ts",
+    "line": 2129,
+    "expression": "new Error(\"ffmpeg is required to record App tab video.\")",
+    "verdict": "ambiguous",
+    "evidence": "Source branch only; this exact failure precondition was not produced in native runtime."
+  },
+  {
+    "source": "apps/desktop/src/appTabActivation.ts",
+    "line": 47,
+    "expression": "new Error(String(error))",
+    "verdict": "ambiguous",
+    "evidence": "Source branch only; this exact failure precondition was not produced in native runtime."
+  },
+  {
+    "source": "apps/desktop/src/appTabActivation.ts",
+    "line": 56,
+    "expression": "new Error(\"The chosen window can no longer show the App tab.\")",
+    "verdict": "true",
+    "evidence": "Original before-claim control: chosen window no longer eligible, TAB_ACTIVATION_CANCELLED."
+  },
+  {
+    "source": "apps/desktop/src/appTabActivation.ts",
+    "line": 65,
+    "expression": "new Error(message)",
+    "verdict": "ambiguous",
+    "evidence": "Source branch only; this exact failure precondition was not produced in native runtime."
+  },
+  {
+    "source": "apps/desktop/src/appTabActivation.ts",
+    "line": 83,
+    "expression": "new Error(\"The tab closed during activation.\")",
+    "verdict": "ambiguous",
+    "evidence": "Source branch only; this exact failure precondition was not produced in native runtime."
+  },
+  {
+    "source": "apps/desktop/src/appTabActivation.ts",
+    "line": 89,
+    "expression": "new Error(message)",
+    "verdict": "ambiguous",
+    "evidence": "Source branch only; this exact failure precondition was not produced in native runtime."
+  },
+  {
+    "source": "apps/desktop/src/appTabOpenedRouting.ts",
+    "line": 77,
+    "expression": "new Error(\n      folderShown\n        ? `You are working in the right panel of every window showing folder \"${folderTitle}\".`\n        : `Folder \"${folderTitle}\" is not open in any window.`,\n    )",
+    "verdict": "ambiguous",
+    "evidence": "False folderShown branch reproduced already-hidden: says folder not open although open in a hidden window (eligibility is intended). Busy/right-panel branch not reproduced."
+  },
+  {
+    "source": "apps/desktop/src/browserUploadFile.ts",
+    "line": 9,
+    "expression": "new Error(\"Browser upload requires a file path.\")",
+    "verdict": "ambiguous",
+    "evidence": "Source branch only; this exact failure precondition was not produced in native runtime."
+  },
+  {
+    "source": "apps/desktop/src/browserUploadFile.ts",
+    "line": 12,
+    "expression": "new Error(\"Browser upload path must name a regular file.\")",
+    "verdict": "true",
+    "evidence": "g-upload-directory: existing directory rejected as not a regular file."
+  },
+  {
+    "source": "apps/desktop/src/main.ts",
+    "line": 550,
+    "expression": "new Error(\"The backend is not ready.\")",
+    "verdict": "ambiguous",
+    "evidence": "Source branch only; this exact failure precondition was not produced in native runtime."
+  },
+  {
+    "source": "apps/desktop/src/main.ts",
+    "line": 555,
+    "expression": "new Error(\"The folder is not available.\")",
+    "verdict": "ambiguous",
+    "evidence": "Source branch only; this exact failure precondition was not produced in native runtime."
+  },
+  {
+    "source": "apps/desktop/src/main.ts",
+    "line": 580,
+    "expression": "new Error(\"The tab lost presentation during activation.\")",
+    "verdict": "ambiguous",
+    "evidence": "Source branch only; this exact failure precondition was not produced in native runtime."
+  },
+  {
+    "source": "apps/desktop/src/main.ts",
+    "line": 8246,
+    "expression": "new Error(`App tab ${tabId} is gone.`)",
+    "verdict": "ambiguous",
+    "evidence": "Source branch only; this exact failure precondition was not produced in native runtime."
+  },
+  {
+    "source": "apps/desktop/src/main.ts",
+    "line": 8275,
+    "expression": "new Error(\n            `${document} failed to load: ${error instanceof Error ? error.message : String(error)}`,\n          )",
+    "verdict": "ambiguous",
+    "evidence": "Source branch only; this exact failure precondition was not produced in native runtime."
+  },
+  {
+    "source": "apps/desktop/src/main.ts",
+    "line": 8283,
+    "expression": "new Error(\"App storage is unavailable.\")",
+    "verdict": "ambiguous",
+    "evidence": "Source branch only; this exact failure precondition was not produced in native runtime."
+  },
+  {
+    "source": "apps/desktop/src/appTabViewHost.ts",
+    "line": 963,
+    "expression": "new Error(\"The Penkra window is unavailable.\")",
+    "verdict": "ambiguous",
+    "evidence": "Source branch only; this exact failure precondition was not produced in native runtime."
+  },
+  {
+    "source": "apps/desktop/src/appTabViewHost.ts",
+    "line": 1141,
+    "expression": "new Error(`App tab ${tabId} has no hosted document.`)",
+    "verdict": "ambiguous",
+    "evidence": "Source branch only; this exact failure precondition was not produced in native runtime."
+  },
+  {
+    "source": "apps/desktop/src/appTabViewHost.ts",
+    "line": 2020,
+    "expression": "new Error(`App tab ${tabId} is unavailable.`)",
+    "verdict": "ambiguous",
+    "evidence": "Source branch only; this exact failure precondition was not produced in native runtime."
+  },
+  {
+    "source": "apps/desktop/src/appTabViewHost.ts",
+    "line": 2734,
+    "expression": "new Error(\"App tab bounds must be finite numbers.\")",
+    "verdict": "ambiguous",
+    "evidence": "Source branch only; this exact failure precondition was not produced in native runtime."
+  },
+  {
+    "source": "apps/desktop/src/appTabActivation.ts",
+    "line": 31,
+    "expression": "Another activation superseded this request.",
+    "verdict": "ambiguous",
+    "evidence": "Source-only; failure branch/forwarded renderer message not reproduced in this addition."
+  },
+  {
+    "source": "apps/desktop/src/appTabActivation.ts",
+    "line": 87,
+    "expression": "The window closed during activation.",
+    "verdict": "ambiguous",
+    "evidence": "Source-only; failure branch/forwarded renderer message not reproduced in this addition."
+  },
+  {
+    "source": "apps/web/src/components/chat/SingleChatSurface.tsx",
+    "line": 196,
+    "expression": "The window could not show the App tab.",
+    "verdict": "ambiguous",
+    "evidence": "Source-only; failure branch/forwarded renderer message not reproduced in this addition."
+  },
+  {
+    "source": "apps/web/src/components/chat/SingleChatSurface.tsx",
+    "line": 204,
+    "expression": "The App tab could not be activated.",
+    "verdict": "ambiguous",
+    "evidence": "Source-only; failure branch/forwarded renderer message not reproduced in this addition."
+  },
+  {
+    "source": "apps/desktop/src/appTabObserver.ts",
+    "line": 1024,
+    "expression": "Target is not an editable control. (inside CDP JavaScript)",
+    "verdict": "ambiguous",
+    "evidence": "Source-only; failure branch/forwarded renderer message not reproduced in this addition."
+  },
+  {
+    "source": "apps/desktop/src/appTabObserver.ts",
+    "line": 1103,
+    "expression": "Target is not a select control. (inside CDP JavaScript)",
+    "verdict": "ambiguous",
+    "evidence": "Source-only; failure branch/forwarded renderer message not reproduced in this addition."
+  },
+  {
+    "source": "apps/desktop/src/desktopFolderAppTabsClient.ts",
+    "line": 26,
+    "expression": "Backend body.message or Folder App-tab operation failed.",
+    "verdict": "ambiguous",
+    "evidence": "Source-only backend/renderer-IPC/presentation error path; native fixtures supplied valid requests and successful backend responses. Arbitrary backend, schema and Electron IPC exception strings remain unbounded."
+  },
+  {
+    "source": "apps/desktop/src/desktopFolderAppTabsClient.ts",
+    "line": 44,
+    "expression": "The folder is not available.",
+    "verdict": "ambiguous",
+    "evidence": "Source-only backend/renderer-IPC/presentation error path; native fixtures supplied valid requests and successful backend responses. Arbitrary backend, schema and Electron IPC exception strings remain unbounded."
+  },
+  {
+    "source": "apps/desktop/src/main.ts",
+    "line": 6537,
+    "expression": "Only the Penkra shell can manage host App tabs.",
+    "verdict": "ambiguous",
+    "evidence": "Source-only backend/renderer-IPC/presentation error path; native fixtures supplied valid requests and successful backend responses. Arbitrary backend, schema and Electron IPC exception strings remain unbounded."
+  },
+  {
+    "source": "apps/desktop/src/main.ts",
+    "line": 6540,
+    "expression": "The App tab host is not ready.",
+    "verdict": "ambiguous",
+    "evidence": "Source-only backend/renderer-IPC/presentation error path; native fixtures supplied valid requests and successful backend responses. Arbitrary backend, schema and Electron IPC exception strings remain unbounded."
+  },
+  {
+    "source": "apps/desktop/src/main.ts",
+    "line": 6580,
+    "expression": "Invalid App tab activation failure.",
+    "verdict": "ambiguous",
+    "evidence": "Source-only backend/renderer-IPC/presentation error path; native fixtures supplied valid requests and successful backend responses. Arbitrary backend, schema and Electron IPC exception strings remain unbounded."
+  },
+  {
+    "source": "apps/desktop/src/main.ts",
+    "line": 6641,
+    "expression": "Invalid App view presentation request.",
+    "verdict": "ambiguous",
+    "evidence": "Source-only backend/renderer-IPC/presentation error path; native fixtures supplied valid requests and successful backend responses. Arbitrary backend, schema and Electron IPC exception strings remain unbounded."
+  }
+]

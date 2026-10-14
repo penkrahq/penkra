@@ -1,0 +1,13 @@
+  ipcMain.handle(IPC.appTabs.claimActivation, async (event, requestId: unknown) => {
+    requireShellAppTabs(event.sender.id);
+    return typeof requestId === "string" && appTabActivation.claim(requestId, event.sender.id);
+  });
+  ipcMain.handle(
+    IPC.appTabs.failActivation,
+    async (event, requestId: unknown, message: unknown) => {
+      requireShellAppTabs(event.sender.id);
+      if (typeof requestId !== "string" || typeof message !== "string")
+        throw new Error("Invalid App tab activation failure.");
+      appTabActivation.fail(requestId, event.sender.id, message);
+    },
+  );

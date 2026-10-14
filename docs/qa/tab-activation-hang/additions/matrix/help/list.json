@@ -1,0 +1,9 @@
+{
+  "caseId": "g-help",
+  "id": "help-list",
+  "command": "penkra tabs list --help",
+  "startedEpochMs": 1791960302534,
+  "durationMs": 0.4520840000186581,
+  "ok": true,
+  "result": "penkra tabs list\nList retained App tabs in the caller's folder and Space.\n\nHow to use this operation\n\nUse the exact returned tab ID for semantic observation and interaction. A retained tab remains readable when another tab is visible. visible reports whether the tab is currently shown. Each row contains tabId, appId, appName, title, status and visible, plus url only for a hosted web page. Activate before interacting.\n\nExamples\n\n  List retained App tabs\n\n  {\n    \"command\": \"penkra tabs list\"\n  }\n\nInput fields\n  This operation has no named input properties.\n\nInvocation\n  Send one ordinary command string. Pass each input field by name exactly as listed\n  under Input fields (for example --thread-id <id>). A bare value without its --name\n  is rejected. Use --input \"{...}\" to pass the complete input as one JSON value.\n  --input   Complete JSON operation input validated against the schema below.\n\nOperating manual\n  Run penkra tabs --help for Tabs operating instructions.\n\nValidated input schema\n{\n  \"type\": \"object\",\n  \"properties\": {},\n  \"additionalProperties\": false\n}\n\nValidated output schema\n{\n  \"type\": \"object\"\n}\n"
+}

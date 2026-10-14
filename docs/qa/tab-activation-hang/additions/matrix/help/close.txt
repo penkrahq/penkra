@@ -1,0 +1,47 @@
+penkra tabs close
+Close one retained App tab in every Penkra window.
+
+How to use this operation
+
+Closing a tab destroys its App and hosted-page documents.
+
+Examples
+
+  Close a retained tab
+
+  {
+    "command": "penkra tabs close --tab-id <tab-id>"
+  }
+
+Input fields
+  --tab-id <string>  required. Exact retained App tab ID returned by penkra tabs list.
+
+Invocation
+  Send one ordinary command string. Pass each input field by name exactly as listed
+  under Input fields (for example --thread-id <id>). A bare value without its --name
+  is rejected. Use --input "{...}" to pass the complete input as one JSON value.
+  --input   Complete JSON operation input validated against the schema below.
+
+Operating manual
+  Run penkra tabs --help for Tabs operating instructions.
+
+Validated input schema
+{
+  "type": "object",
+  "properties": {
+    "tabId": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Exact retained App tab ID returned by penkra tabs list."
+    }
+  },
+  "required": [
+    "tabId"
+  ],
+  "additionalProperties": false
+}
+
+Validated output schema
+{
+  "type": "object"
+}

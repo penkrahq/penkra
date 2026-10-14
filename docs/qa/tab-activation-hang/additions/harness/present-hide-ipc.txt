@@ -1,0 +1,54 @@
+  ipcMain.handle(IPC.appTabs.present, async (event, input: unknown) => {
+    if (!input || typeof input !== "object" || Array.isArray(input)) return;
+    const { tabId, folderId, threadId, animate, animationStartedAtEpochMs, bounds } =
+      input as Record<string, unknown>;
+    if (
+      typeof tabId !== "string" ||
+      typeof folderId !== "string" ||
+      typeof threadId !== "string" ||
+      !bounds ||
+      typeof bounds !== "object" ||
+      Array.isArray(bounds)
+    ) {
+      throw new Error("Invalid App view presentation request.");
+    }
+    requireShellAppTabs(event.sender.id);
+    const appBounds = bounds as Electron.Rectangle;
+    traceAppTab("shell-present-ipc", {
+      tabId,
+      rendererId: event.sender.id,
+      folderId,
+      threadId,
+      animate: animate === true,
+      bounds: appBounds,
+    });
+    await presentAppTabInWindow({
+      tabId,
+      folderId,
+      threadId,
+      windowId: event.sender.id,
+      bounds: appBounds,
+      animate: animate === true,
+      ...(typeof animationStartedAtEpochMs === "number" &&
+      Number.isFinite(animationStartedAtEpochMs)
+        ? { animationStartedAtEpochMs }
+        : {}),
+    });
+    if (desktopAppRuntime?.appTabs.isVisible(tabId))
+      appTabActivation.presented(tabId, event.sender.id);
+  });
+  ipcMain.handle(IPC.appTabs.hide, async (event, input: unknown) => {
+    if (!input || typeof input !== "object" || Array.isArray(input)) return;
+    const { tabId, animate } = input as Record<string, unknown>;
+    if (typeof tabId !== "string") return;
+    if (animate !== undefined && typeof animate !== "boolean") return;
+    const tabs = requireShellAppTabs(event.sender.id);
+    if (tabs.has(tabId)) {
+      traceAppTab("shell-hide-ipc", {
+        tabId,
+        rendererId: event.sender.id,
+        animate: animate === true,
+      });
+      await hideAppTabInWindow(tabId, event.sender.id, animate === true);
+    }
+  });

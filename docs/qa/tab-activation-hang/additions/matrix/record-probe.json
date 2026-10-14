@@ -1,0 +1,19 @@
+{
+    "programs": [
+
+    ],
+    "stream_groups": [
+
+    ],
+    "streams": [
+        {
+            "codec_name": "vp9",
+            "width": 1198,
+            "height": 1348
+        }
+    ],
+    "format": {
+        "format_name": "matroska,webm",
+        "duration": "0.466000"
+    }
+}

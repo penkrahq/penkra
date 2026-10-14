@@ -1,0 +1,17 @@
+--- AGENT_BROWSER_PAGE_CONTENT nonce=80932f2e2fd569c9af67ec67198c8c42 origin=http://127.0.0.1:3919/probe ---
+- document "Penkra QA event probe"
+  - button "Click probe" [ref=d2:e1]
+    - text: "Click probe"
+      - text: "Click probe"
+  - textbox "Text probe" value="typed-f-minimized-throttle-false-bypass-true" [ref=d2:e2]
+    - text: "typed-f-minimized-throttle-false-bypass-true"
+      - text: "typed-f-minimized-throttle-false-bypass-true"
+  - button "Upload probe" value="upload-fixture.txt" [ref=d2:e3]
+  - combobox "Select probe" value="A" [ref=d2:e4]
+    - MenuListPopup
+      - option "A" [selected] [ref=d2:e6]
+      - option "B" [ref=d2:e7]
+  - button "Covered probe" [ref=d2:e5]
+    - text: "Covered probe"
+      - text: "Covered probe"
+--- END_AGENT_BROWSER_PAGE_CONTENT nonce=80932f2e2fd569c9af67ec67198c8c42 ---

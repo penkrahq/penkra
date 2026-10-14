@@ -1,0 +1,85 @@
+penkra tabs snapshot
+Capture the current accessibility snapshot of one exact retained App tab.
+
+How to use this operation
+
+References remain valid for the document's current loader and become stale after navigation. Choose d1 for the App document or d2 for its hosted page.
+
+Examples
+
+  Observe one retained tab
+
+  {
+    "command": "penkra tabs snapshot --tab-id <tab-id> --document d1 --interactive true --compact true"
+  }
+
+Input fields
+  --document <string>  required; one of "d1", "d2". d1 addresses the App document; d2 addresses its hosted page, when present.
+  --tab-id <string>  required. Exact retained App tab ID returned by penkra tabs list.
+  --boxes <boolean>  optional.
+  --compact <boolean>  optional.
+  --depth <number>  optional.
+  --filename <string>  optional.
+  --interactive <boolean>  optional.
+  --ref <string>  optional. Durable document reference returned by snapshot for the current loader.
+
+Invocation
+  Send one ordinary command string. Pass each input field by name exactly as listed
+  under Input fields (for example --thread-id <id>). A bare value without its --name
+  is rejected. Use --input "{...}" to pass the complete input as one JSON value.
+  --input   Complete JSON operation input validated against the schema below.
+
+Operating manual
+  Run penkra tabs --help for Tabs operating instructions.
+
+Validated input schema
+{
+  "type": "object",
+  "properties": {
+    "tabId": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Exact retained App tab ID returned by penkra tabs list."
+    },
+    "document": {
+      "type": "string",
+      "enum": [
+        "d1",
+        "d2"
+      ],
+      "description": "d1 addresses the App document; d2 addresses its hosted page, when present."
+    },
+    "ref": {
+      "type": "string",
+      "pattern": "^d[12]:e[0-9]+$",
+      "description": "Durable document reference returned by snapshot for the current loader."
+    },
+    "depth": {
+      "type": "number",
+      "minimum": 0
+    },
+    "boxes": {
+      "type": "boolean"
+    },
+    "interactive": {
+      "type": "boolean"
+    },
+    "compact": {
+      "type": "boolean"
+    },
+    "filename": {
+      "type": "string",
+      "minLength": 1
+    }
+  },
+  "required": [
+    "tabId",
+    "document"
+  ],
+  "additionalProperties": false
+}
+
+Validated output schema
+{
+  "type": "object"
+}
