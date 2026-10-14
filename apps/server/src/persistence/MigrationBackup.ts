@@ -864,6 +864,12 @@ export const runWithPreMigrationBackup = <A, E, R>(
       // the live database. A later startup will fail closed until an operator
       // explicitly restores the known-good snapshot.
       yield* writeRecoveryMarker(dbPath, backup);
+      yield* Effect.logInfo("database.migration.backup_ready", {
+        databasePath: dbPath,
+        backupPath: backup.backupPath,
+        sourceVersion: backup.sourceVersion,
+        targetVersion: backup.targetVersion,
+      });
     }
     const result = yield* migration;
     if (backup) {
