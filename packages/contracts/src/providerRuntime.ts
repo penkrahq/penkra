@@ -700,6 +700,7 @@ export type RuntimeWarningPayload = typeof RuntimeWarningPayload.Type;
 
 const RuntimeErrorPayload = Schema.Struct({
   message: TrimmedNonEmptyStringSchema,
+  terminal: Schema.Boolean,
   class: Schema.optional(RuntimeErrorClass),
   detail: Schema.optional(Schema.Unknown),
 });

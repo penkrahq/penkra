@@ -13,7 +13,6 @@ import type {
   ProviderStartOptions,
   ProviderReviewTarget,
   AssistantDeliveryMode,
-  MessageOrigin,
   RuntimeMode,
 } from "@penkra/contracts";
 import { Data, Effect, ServiceMap } from "effect";
@@ -59,8 +58,7 @@ export interface TurnAdmissionCommand {
   readonly providerOptions?: ProviderStartOptions;
   readonly reviewTarget?: ProviderReviewTarget;
   readonly assistantDeliveryMode?: AssistantDeliveryMode;
-  readonly dispatchMode: "queue" | "steer";
-  readonly origin: MessageOrigin;
+  readonly dispatchMode: "queue" | "steer" | "interrupt-deliver";
   readonly runtimeMode: RuntimeMode;
   readonly createdAt: string;
 }

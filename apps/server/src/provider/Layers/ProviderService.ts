@@ -943,6 +943,11 @@ const makeProviderService = (options?: ProviderServiceLiveOptions) =>
       if (event.providerRefs?.providerParentThreadId !== undefined) {
         return Effect.void;
       }
+      // A diagnostic does not end the active turn. Foreground RPC rejection
+      // settles its own delivery; only an explicit terminal event owns lifecycle.
+      if (event.type === "runtime.error" && !event.payload.terminal) {
+        return Effect.void;
+      }
       switch (event.type) {
         case "session.started":
         case "session.state.changed":

@@ -41,6 +41,15 @@ const blobColumns = (sql: SqlClient.SqlClient) => sql`
 const makeRepository = (limits: ManagedAttachmentLimits) =>
   Effect.gen(function* () {
     const sql = yield* SqlClient.SqlClient;
+    const pendingClaim = (alias: "managed_attachment_blobs" | "blobs") => sql`(
+      EXISTS (SELECT 1 FROM thread_items item
+        WHERE item.thread_id=${sql.literal(alias + ".owner_thread_id")}
+          AND item.source_id=${sql.literal(alias + ".claim_message_id")} AND item.kind='user'
+          AND (item.status='sending' OR (item.status='failed' AND item.send_payload IS NOT NULL)))
+      OR EXISTS (SELECT 1 FROM threads pending_thread, json_each(pending_thread.queue) message
+        WHERE pending_thread.id=${sql.literal(alias + ".owner_thread_id")}
+          AND json_extract(message.value,'$.messageId')=${sql.literal(alias + ".claim_message_id")})
+    )`;
 
     const reserve: ManagedAttachmentRepositoryShape["reserve"] = (input) =>
       Effect.gen(function* () {
@@ -334,6 +343,7 @@ const makeRepository = (limits: ManagedAttachmentLimits) =>
           WHERE attachment_id IN ${sql.in(uniqueIds)}
             AND owner_thread_id = ${input.ownerThreadId}
             AND state <> 'deleted'
+            AND NOT ${pendingClaim("managed_attachment_blobs")}
           RETURNING attachment_id AS "attachmentId"
         `;
         const attachmentIds = rows.map((row) => row.attachmentId);
@@ -354,6 +364,7 @@ const makeRepository = (limits: ManagedAttachmentLimits) =>
               updated_at = ${input.requestedAt}
           WHERE owner_thread_id = ${input.ownerThreadId}
             AND state <> 'deleted'
+            AND NOT ${pendingClaim("managed_attachment_blobs")}
           RETURNING attachment_id AS "attachmentId"
         `;
         const attachmentIds = rows.map((row) => row.attachmentId);
@@ -378,6 +389,7 @@ const makeRepository = (limits: ManagedAttachmentLimits) =>
                 WHERE owner_thread_id = ${input.ownerThreadId}
                   AND state = 'claimed'
                   AND owner_kind <> 'presented-media'
+                  AND NOT ${pendingClaim("managed_attachment_blobs")}
                 RETURNING attachment_id AS "attachmentId"
               `
               : yield* sql<{ readonly attachmentId: string }>`
@@ -389,6 +401,7 @@ const makeRepository = (limits: ManagedAttachmentLimits) =>
                 WHERE owner_thread_id = ${input.ownerThreadId}
                   AND state = 'claimed'
                   AND owner_kind <> 'presented-media'
+                  AND NOT ${pendingClaim("managed_attachment_blobs")}
                   AND attachment_id NOT IN ${sql.in(retainedAttachmentIds)}
                 RETURNING attachment_id AS "attachmentId"
               `;
@@ -454,6 +467,7 @@ const makeRepository = (limits: ManagedAttachmentLimits) =>
           INNER JOIN managed_attachment_blobs AS blobs
             ON blobs.attachment_id = jobs.attachment_id
           WHERE blobs.state = 'deleting'
+            AND NOT ${pendingClaim("blobs")}
             AND jobs.attempt_count < ${MANAGED_ATTACHMENT_CLEANUP_MAX_ATTEMPTS}
             AND jobs.next_attempt_at <= ${input.now}
             AND (jobs.lease_owner IS NULL OR jobs.lease_expires_at <= ${input.now})

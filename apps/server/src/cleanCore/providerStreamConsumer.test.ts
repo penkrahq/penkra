@@ -55,8 +55,8 @@ it.effect("turn start/end drive threads.state; items go through the upsert", () 
         item: {
           threadId: "thread-1",
           sourceId: "msg-1",
-          kind: "user",
-          status: "sent",
+          kind: "text",
+          status: "done",
           text: "hi",
           createdAt: "2026-10-09T00:00:01.000Z",
           updatedAt: "2026-10-09T00:00:01.000Z",

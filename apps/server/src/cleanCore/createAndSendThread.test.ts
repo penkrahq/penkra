@@ -1,3 +1,5 @@
+import { ThreadLanesLive } from "./ThreadLanes.ts";
+import { ProviderSessionDirectoryLive } from "../provider/Layers/ProviderSessionDirectory.ts";
 import { TurnId } from "@penkra/contracts";
 import { settleMessage } from "./sendMessage";
 import { ensureDurableThreadWorkspace } from "../scratchWorkspaces.ts";
@@ -91,6 +93,8 @@ for (const nativeFails of [false, true]) {
             }).pipe(Effect.provideService(SqlClient.SqlClient, sql), Effect.orDie),
         };
         const sender = yield* makeThreadSender.pipe(
+          Effect.provide(ProviderSessionDirectoryLive),
+          Effect.provide(ThreadLanesLive),
           Effect.provideService(ServerConfig, {
             stateDir: senderStateDir,
           } as typeof ServerConfig.Service),

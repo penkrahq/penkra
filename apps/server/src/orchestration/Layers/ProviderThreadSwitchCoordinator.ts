@@ -4,13 +4,16 @@
 import { randomUUID } from "node:crypto";
 import { providerSupportsNativeTurnSteering } from "@penkra/shared/providerMetadata";
 import { ModelSelection, ProviderConnectionId, ThreadId, TurnId } from "@penkra/contracts";
-import { Cause, Effect, Layer, PubSub, Schema, Semaphore, Stream } from "effect";
+import { Cause, Effect, Layer, Option, PubSub, Schema, Stream } from "effect";
 import * as SqlClient from "effect/unstable/sql/SqlClient";
 
 import { settleMessage } from "../../cleanCore/sendMessage.ts";
+import { readSendCohort } from "../../cleanCore/sendPayload.ts";
+import { ThreadLanes, ThreadLanesLive } from "../../cleanCore/ThreadLanes.ts";
 import { ThreadPublisher } from "../../cleanCore/ThreadPublisher.ts";
 import { ProviderNativeStateMaterializer } from "../../provider/Services/ProviderNativeStateMaterializer.ts";
 import { ProviderService } from "../../provider/Services/ProviderService.ts";
+import { ProviderSessionDirectory } from "../../provider/Services/ProviderSessionDirectory.ts";
 import { ProviderTurnSelectionResolver } from "../../provider/Services/ProviderTurnSelectionResolver.ts";
 import { TurnDispatch } from "../../cleanCore/turnDispatch.ts";
 import { commitThreadTurnSelection } from "../../cleanCore/threadTurnSelection.ts";
@@ -29,8 +32,10 @@ export const makeProviderThreadSwitchCoordinator = Effect.gen(function* () {
   const dispatch = yield* TurnDispatch;
   const sql = yield* SqlClient.SqlClient;
   const publisher = yield* ThreadPublisher;
+  const lanes = yield* ThreadLanes;
   const resolver = yield* ProviderTurnSelectionResolver;
   const provider = yield* ProviderService;
+  const directory = yield* ProviderSessionDirectory;
   const materializer = yield* ProviderNativeStateMaterializer;
 
   const AdmissionThread = Schema.Struct({
@@ -50,34 +55,32 @@ export const makeProviderThreadSwitchCoordinator = Effect.gen(function* () {
         state, active_turn_id AS "activeTurnId", model, model_options AS "modelOptions"
         FROM threads WHERE id=${threadId} AND deleted_at IS NULL`;
       if (rows[0] === undefined) return yield* Effect.fail(failure("The thread does not exist."));
-      return yield* Schema.decodeUnknownEffect(AdmissionThread)(rows[0]);
+      const thread = yield* Schema.decodeUnknownEffect(AdmissionThread)(rows[0]);
+      // Native acceptance can precede the canonical turn.started write. Use the
+      // exact accepted turn in that phase, not merely the process's running status.
+      const binding = yield* directory.getBinding(threadId);
+      const payload = Option.isSome(binding) ? binding.value.runtimePayload : null;
+      if (
+        thread.state !== "running" &&
+        Option.isSome(binding) &&
+        binding.value.status === "running" &&
+        typeof payload === "object" &&
+        payload !== null &&
+        "activeTurnId" in payload &&
+        typeof payload.activeTurnId === "string"
+      )
+        return {
+          ...thread,
+          state: "running" as const,
+          activeTurnId: TurnId.makeUnsafe(payload.activeTurnId),
+        };
+      return thread;
     }).pipe(
       Effect.mapError((cause) => failure("Could not read the thread before admission.", cause)),
     );
 
   type AdmissionInput = Parameters<ProviderThreadSwitchCoordinatorShape["dispatchTurnStart"]>[0];
   const pending = new Map<ThreadId, Array<{ turnId: TurnId; input: AdmissionInput }>>();
-  const lanes = new Map<ThreadId, { semaphore: Semaphore.Semaphore; users: number }>();
-  const inLane = <A, E, R>(threadId: ThreadId, action: Effect.Effect<A, E, R>) =>
-    Effect.suspend(() => {
-      let lane = lanes.get(threadId);
-      if (!lane) {
-        lane = { semaphore: Semaphore.makeUnsafe(1), users: 0 };
-        lanes.set(threadId, lane);
-      }
-      const current = lane;
-      current.users++;
-      return current.semaphore
-        .withPermits(1)(action)
-        .pipe(
-          Effect.ensuring(
-            Effect.sync(() => {
-              if (--current.users === 0) lanes.delete(threadId);
-            }),
-          ),
-        );
-    });
-
   const dispatchTurnAdmission = Effect.fnUntraced(function* (input: {
     readonly command: TurnAdmissionCommand;
     readonly attachmentPrincipal: Parameters<
@@ -272,43 +275,49 @@ export const makeProviderThreadSwitchCoordinator = Effect.gen(function* () {
 
   const events = yield* PubSub.subscribe(publisher.providerEvents);
   const deliverPending = (threadId: ThreadId, turnId: string) =>
-    inLane(
-      threadId,
-      Effect.gen(function* () {
-        const entries = pending.get(threadId) ?? [];
-        const ready = entries.filter((entry) => entry.turnId === turnId);
-        const remaining = entries.filter((entry) => entry.turnId !== turnId);
-        if (remaining.length) pending.set(threadId, remaining);
-        else pending.delete(threadId);
-        for (const entry of ready) {
-          yield* dispatchTurnAdmission(entry.input).pipe(
-            Effect.catchCause((cause) => {
-              if (Cause.hasInterruptsOnly(cause)) return Effect.failCause(cause).pipe(Effect.orDie);
-              const failure = Cause.squash(cause);
-              const error = failure instanceof Error ? failure.message : String(failure);
-              return settleMessage(
-                publisher,
-                {
-                  type: "failed",
-                  threadId,
-                  messageId: entry.input.command.message.messageId,
-                  error,
-                },
-                new Date().toISOString(),
-              ).pipe(
-                Effect.andThen(
-                  Effect.logError("pending provider delivery failed", {
+    lanes
+      .run(
+        threadId,
+        Effect.gen(function* () {
+          const entries = pending.get(threadId) ?? [];
+          const ready = entries.filter((entry) => entry.turnId === turnId);
+          const remaining = entries.filter((entry) => entry.turnId !== turnId);
+          if (remaining.length) pending.set(threadId, remaining);
+          else pending.delete(threadId);
+          for (const entry of ready) {
+            if ((yield* readSendCohort(threadId, entry.input.command.message.messageId)) === null)
+              continue;
+            yield* dispatchTurnAdmission(entry.input).pipe(
+              Effect.catchCause((cause) => {
+                if (Cause.hasInterruptsOnly(cause))
+                  return Effect.failCause(cause).pipe(Effect.orDie);
+                const failure = Cause.squash(cause);
+                const error = failure instanceof Error ? failure.message : String(failure);
+                return settleMessage(
+                  publisher,
+                  {
+                    type: "failed",
                     threadId,
                     messageId: entry.input.command.message.messageId,
                     error,
-                  }),
-                ),
-              );
-            }),
-          );
-        }
-      }),
-    ).pipe(Effect.provideService(SqlClient.SqlClient, sql));
+                  },
+                  new Date().toISOString(),
+                ).pipe(
+                  Effect.andThen(
+                    Effect.logError("pending provider delivery failed", {
+                      threadId,
+                      messageId: entry.input.command.message.messageId,
+                      error,
+                    }),
+                  ),
+                );
+              }),
+            );
+          }
+        }),
+        "delivery",
+      )
+      .pipe(Effect.provideService(SqlClient.SqlClient, sql));
   yield* Stream.fromEffectRepeat(PubSub.take(events)).pipe(
     Stream.runForEach((event) => {
       if (event.type === "turn.ended")
@@ -316,7 +325,7 @@ export const makeProviderThreadSwitchCoordinator = Effect.gen(function* () {
           deliverPending(ThreadId.makeUnsafe(event.threadId), event.turnId),
           scope,
         );
-      if (event.type === "provider.exited")
+      if (event.type === "provider.exited" || event.type === "provider.failed")
         return Effect.sync(() => {
           for (const id of event.threadIds) pending.delete(ThreadId.makeUnsafe(id));
         });
@@ -326,13 +335,11 @@ export const makeProviderThreadSwitchCoordinator = Effect.gen(function* () {
   );
   return {
     dispatchTurnStart: (input) =>
-      inLane(input.command.threadId, dispatchTurnAdmission(input)).pipe(
-        Effect.provideService(SqlClient.SqlClient, sql),
-      ),
+      dispatchTurnAdmission(input).pipe(Effect.provideService(SqlClient.SqlClient, sql)),
   } satisfies ProviderThreadSwitchCoordinatorShape;
 });
 
 export const ProviderThreadSwitchCoordinatorLive = Layer.effect(
   ProviderThreadSwitchCoordinator,
   makeProviderThreadSwitchCoordinator,
-);
+).pipe(Layer.provideMerge(ThreadLanesLive));

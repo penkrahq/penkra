@@ -1181,6 +1181,7 @@ lifecycleLayer("CodexAdapterLive lifecycle", (it) => {
       assert.deepStrictEqual(result.value.payload, {
         message: "usage limit reached",
         class: "provider_error",
+        terminal: true,
         detail: payload,
       });
     }),

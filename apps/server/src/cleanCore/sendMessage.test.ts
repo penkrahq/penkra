@@ -15,7 +15,7 @@ import {
   PROVIDER_CUTOFF_NOTICE,
 } from "./providerStreamConsumer";
 import {
-  sendMessage,
+  sendMessage as admitMessage,
   settleMessage,
   writeSendingMessage,
   deliverMessage,
@@ -28,6 +28,8 @@ import { readThreadQueue } from "./threadQueue.ts";
 import { createThread, makeThreadPublisher } from "./threadStore";
 
 const at = "2026-10-09T00:00:01.000Z";
+const sendMessage = (...args: Parameters<typeof admitMessage>) =>
+  admitMessage(...args).pipe(Effect.map((result) => result.admission));
 const input = {
   threadId: "thread",
   draftUpdatedAt: at,
@@ -42,6 +44,7 @@ const input = {
   supportsSteer: true,
 };
 const driver: SendDriver = {
+  isRunning: () => Effect.succeed(false),
   claimAttachments: () => Effect.void,
   dispatch: () => Effect.die("admission must not dispatch"),
 };
@@ -496,6 +499,7 @@ for (const succeeds of [true, false]) {
           yield* deliverMessage(
             publisher,
             {
+              isRunning: () => Effect.succeed(false),
               claimAttachments: () => Effect.void,
               dispatch: (sent) =>
                 Effect.gen(function* () {

@@ -12,7 +12,7 @@ import type { ProviderRuntimeEvent } from "@penkra/contracts";
 import { Effect } from "effect";
 import * as SqlClient from "effect/unstable/sql/SqlClient";
 
-import { failSendingMessagesOnStartup } from "./sendMessage.ts";
+import { failSendingMessagesOnStartup, writeSendingMessageFailures } from "./sendMessage.ts";
 import { toCleanCoreProviderEvents } from "./providerEventBridge.ts";
 import { writeProviderConnectionFacts } from "./providerConnectionFacts.ts";
 
@@ -63,7 +63,7 @@ export type CleanCoreProviderEvent =
       readonly at: string;
     }
   | {
-      readonly type: "provider.exited";
+      readonly type: "provider.exited" | "provider.failed";
       readonly threadIds: ReadonlyArray<string>;
       readonly reason?: string;
       readonly at: string;
@@ -108,16 +108,17 @@ const writeProviderEvent = (event: CleanCoreProviderEvent) =>
           WHERE thread_id = ${event.threadId} AND source_id = ${`turn:${event.turnId}`} AND kind = 'turn'`;
         // The turn's outcome settles its still-running items in the same write.
         yield* settleRunningItems(event.threadId, event.at, event.turnId);
+        if (event.state === "error")
+          yield* writeSendingMessageFailures(
+            event.threadId,
+            event.error ?? "Turn failed",
+            event.at,
+          );
         return [event.threadId];
       }
       case "item": {
-        if (event.item.kind === "user") {
-          const sql = yield* SqlClient.SqlClient;
-          const existing = yield* sql`SELECT 1 FROM thread_items WHERE thread_id=${event.threadId}
-            AND source_id=${event.item.sourceId} AND kind='user' LIMIT 1`;
-          // Admission owns the user row; provider echoes must not replace it.
-          if (existing.length > 0) return [];
-        }
+        // Admission is the only user-item writer. Native echoes neither create nor replace user rows.
+        if (event.item.kind === "user") return [];
         yield* upsertThreadItem(event.item);
         return [event.threadId];
       }
@@ -136,26 +137,37 @@ const writeProviderEvent = (event: CleanCoreProviderEvent) =>
         yield* answerQuestion(event.threadId, event.sourceId, event.answerData, event.at);
         return [event.threadId];
       }
+      case "provider.failed":
       case "provider.exited": {
         const changedThreadIds = yield* Effect.forEach(event.threadIds, (threadId) =>
           Effect.gen(function* () {
             const sql = yield* SqlClient.SqlClient;
-            const rows =
-              yield* sql`SELECT id FROM threads WHERE id = ${threadId} AND state = 'running'`;
-            if (rows.length === 0) return [];
-            yield* setThreadState(threadId, "idle", null, null, event.at);
-            // A cut-off turn leaves no running items behind.
-            yield* settleRunningItems(threadId, event.at);
-            yield* upsertThreadItem({
+            const [thread] = yield* sql<{
+              state: string;
+            }>`SELECT state FROM threads WHERE id=${threadId}`;
+            if (!thread) return [];
+            const reason = event.reason ?? PROVIDER_CUTOFF_NOTICE;
+            const failedSending = yield* writeSendingMessageFailures(threadId, reason, event.at);
+            if (thread.state !== "running" && !failedSending) return [];
+            yield* setThreadState(
               threadId,
-              sourceId: `provider-cutoff:${event.at}`,
-              kind: "notice",
-              status: "done",
-              text: PROVIDER_CUTOFF_NOTICE,
-              data: null,
-              createdAt: event.at,
-              updatedAt: event.at,
-            });
+              event.type === "provider.failed" || failedSending ? "error" : "idle",
+              null,
+              event.type === "provider.failed" || failedSending ? reason : null,
+              event.at,
+            );
+            yield* settleRunningItems(threadId, event.at);
+            if (event.type === "provider.exited" && thread.state === "running")
+              yield* upsertThreadItem({
+                threadId,
+                sourceId: `provider-cutoff:${event.at}`,
+                kind: "notice",
+                status: "done",
+                text: PROVIDER_CUTOFF_NOTICE,
+                data: null,
+                createdAt: event.at,
+                updatedAt: event.at,
+              });
             return [threadId];
           }),
         );
@@ -174,7 +186,8 @@ const publishProviderEvent = (
   if (
     event.type === "turn.started" ||
     event.type === "turn.ended" ||
-    event.type === "provider.exited"
+    event.type === "provider.exited" ||
+    event.type === "provider.failed"
   ) {
     publisher.publishProvider(event);
   }

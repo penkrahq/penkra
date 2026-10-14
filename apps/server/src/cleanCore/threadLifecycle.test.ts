@@ -1,3 +1,5 @@
+import { ThreadLanesLive } from "./ThreadLanes.ts";
+import { ProviderSessionDirectoryLive } from "../provider/Layers/ProviderSessionDirectory.ts";
 import { observePublisher } from "./threadPublisherTestHelpers.ts";
 import { afterAll } from "vitest";
 import { ManagedAttachmentRepositoryLive } from "../persistence/Layers/ManagedAttachments.ts";
@@ -57,6 +59,8 @@ it.effect("web creation is idempotent and a send on its running thread is queued
     assert.deepStrictEqual(sidebarChanges, [{ kind: "thread.created", threadId: input.threadId }]);
     yield* setThreadState(input.threadId, "running", "active-turn", null, at);
     const sender = yield* makeThreadSender.pipe(
+      Effect.provide(ProviderSessionDirectoryLive),
+      Effect.provide(ThreadLanesLive),
       Effect.provideService(ServerConfig, {
         stateDir: senderStateDir,
       } as typeof ServerConfig.Service),

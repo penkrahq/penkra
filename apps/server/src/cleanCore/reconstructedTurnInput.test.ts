@@ -44,7 +44,7 @@ const item = (
     kind,
     status: kind === "user" ? "sent" : "done",
     text,
-    data: null,
+    data: kind === "user" ? JSON.stringify({ origin: { _tag: "user" }, attachments: [] }) : null,
     createdAt: at,
     updatedAt: at,
   });
@@ -91,6 +91,7 @@ it.effect(
                 queuedAt: at,
               },
               deliveryMessageId: sourceId,
+              deliveryRequestId: sourceId,
               batchMessageIds: [sourceId],
             }),
             createdAt: at,
@@ -166,16 +167,14 @@ it.effect("does not reconstruct an empty conversation or a current message alone
   ),
 );
 
-it.effect("refuses oversized retained history instead of trimming it", () =>
+it.effect("bounds oversized retained history without trimming the current input", () =>
   withDb(
     Effect.gen(function* () {
       yield* item("oversized", "text", "a".repeat(PROVIDER_SEND_TURN_MAX_INPUT_CHARS));
-      const error = yield* Effect.flip(buildReconstructedTurnInput(input));
-      assert.equal(error._tag, "ProviderAdapterValidationError");
-      if (error._tag === "ProviderAdapterValidationError") {
-        assert.equal(error.operation, "thread.turn.reconstruct");
-        assert.include(error.issue, "Penkra did not trim or discard it.");
-      }
+      const result = yield* buildReconstructedTurnInput(input);
+      assert.isAtMost(result!.length, PROVIDER_SEND_TURN_MAX_INPUT_CHARS);
+      assert.include(result!, '"truncated":true');
+      assert.include(result!, "<new-user-message>\n\n" + input.currentInput);
     }),
   ),
 );

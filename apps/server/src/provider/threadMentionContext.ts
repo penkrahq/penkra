@@ -13,7 +13,7 @@ import {
   THREAD_MENTION_MAX_TITLE_CHARS,
   threadIdFromThreadMentionPath,
 } from "@penkra/shared/threadMentions";
-import { Effect, Option } from "effect";
+import { Cause, Effect, Option } from "effect";
 
 import { paginateThreadMessages } from "../agentGateway/threadSummary.ts";
 import type { ThreadReadsShape } from "../cleanCore/ThreadReads.ts";
@@ -67,16 +67,7 @@ export function formatThreadMentionContextBlock(input: {
   const threadId = threadIdFromMentionReference(input.reference) ?? input.reference.path;
   const maxChars = Math.max(0, Math.floor(input.maxChars ?? THREAD_MENTION_MAX_CONTEXT_CHARS));
   if (maxChars === 0) return "";
-  if (!input.thread) {
-    return fitContextBlockToMaxChars(
-      [
-        "<mentioned_thread_context>",
-        `Referenced chat ${JSON.stringify(clampMentionTitle(input.reference.name))} (thread id: ${threadId}) could not be found.`,
-        THREAD_MENTION_CONTEXT_CLOSE_TAG,
-      ].join("\n"),
-      maxChars,
-    );
-  }
+  if (!input.thread || input.thread.deletedAt !== null) return "";
 
   const page = paginateThreadMessages({
     messages: input.thread.messages,
@@ -147,11 +138,13 @@ export function resolveThreadMentionPromptProjection(input: {
     const threadId = threadIdFromMentionReference(reference);
     const thread = threadId
       ? input.snapshotQuery.getThreadDetailById(ThreadId.makeUnsafe(threadId)).pipe(
-          Effect.catch((error) =>
-            Effect.logWarning("failed to resolve mentioned thread context", {
-              threadId,
-              error,
-            }).pipe(Effect.as(Option.none<OrchestrationThread>())),
+          Effect.catchCause((cause) =>
+            Cause.hasInterruptsOnly(cause)
+              ? Effect.failCause(cause).pipe(Effect.orDie)
+              : Effect.logWarning("failed to resolve mentioned thread context", {
+                  threadId,
+                  cause,
+                }).pipe(Effect.as(Option.none<OrchestrationThread>())),
           ),
           Effect.map(Option.getOrNull),
         )
@@ -167,7 +160,7 @@ export function resolveThreadMentionPromptProjection(input: {
     );
   }).pipe(
     Effect.map((contextBlocks) => ({
-      contextBlocks,
+      contextBlocks: contextBlocks.filter((block) => block.length > 0),
       providerMentions: providerMentions.length > 0 ? providerMentions : undefined,
     })),
   );

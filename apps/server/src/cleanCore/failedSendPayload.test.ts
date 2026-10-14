@@ -90,6 +90,7 @@ it.effect(
         mentions: [{ name: id, path: `/${id}/plugin` }],
       });
       const driver: SendDriver = {
+        isRunning: () => Effect.succeed(false),
         claimAttachments: (input) =>
           Effect.gen(function* () {
             const owner = yield* CurrentManagedAttachmentPrincipal;

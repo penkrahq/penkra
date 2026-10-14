@@ -1331,6 +1331,7 @@ export function makeOpenCodeAdapterLive(options?: OpenCodeAdapterLiveOptions) {
           type: "runtime.error",
           payload: {
             message,
+            terminal: true,
             class: "transport_error",
           },
         }).pipe(Effect.ignore);
@@ -1693,6 +1694,7 @@ export function makeOpenCodeAdapterLive(options?: OpenCodeAdapterLiveOptions) {
               type: "runtime.error",
               payload: {
                 message,
+                terminal: true,
                 class: "provider_error",
               },
             });
@@ -1943,6 +1945,7 @@ export function makeOpenCodeAdapterLive(options?: OpenCodeAdapterLiveOptions) {
                 type: "runtime.error",
                 payload: {
                   message,
+                  terminal: true,
                   class: "transport_error",
                 },
               });
@@ -2971,6 +2974,7 @@ export function makeOpenCodeAdapterLive(options?: OpenCodeAdapterLiveOptions) {
               type: "runtime.error",
               payload: {
                 message,
+                terminal: true,
                 class: "provider_error",
                 detail: event.properties.error,
               },
@@ -3065,6 +3069,7 @@ export function makeOpenCodeAdapterLive(options?: OpenCodeAdapterLiveOptions) {
               type: "runtime.error",
               payload: {
                 message,
+                terminal: true,
                 class: "provider_error",
                 detail: event.properties.error,
               },

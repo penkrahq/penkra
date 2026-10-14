@@ -1,8 +1,14 @@
 // Purpose: Check the canonical metadata before a direct or queued send writes anything.
-import { UserItemData, type CleanCoreSendMessageInput } from "@penkra/contracts";
+import {
+  UserItemData,
+  PROVIDER_SEND_TURN_MAX_INPUT_CHARS,
+  PROVIDER_SEND_TURN_MAX_ATTACHMENTS,
+  type CleanCoreSendMessageInput,
+} from "@penkra/contracts";
 import { Effect, Schema } from "effect";
 import { ThreadPolicyError } from "./threadErrors.ts";
 import { THREAD_ITEM_DATA_LIMIT_BYTES } from "./threadItemData.ts";
+import { formatUserTurnMembers } from "../provider/providerTurnInput.ts";
 
 export const encodeUserItemAdmission = (
   input: Pick<CleanCoreSendMessageInput, "message" | "skills" | "mentions">,
@@ -10,6 +16,22 @@ export const encodeUserItemAdmission = (
 ) =>
   Effect.try({
     try: () => {
+      if (
+        input.message.attachments.length > PROVIDER_SEND_TURN_MAX_ATTACHMENTS ||
+        formatUserTurnMembers([input.message]).length > PROVIDER_SEND_TURN_MAX_INPUT_CHARS
+      )
+        throw new ThreadPolicyError({
+          operation: "sendMessage",
+          code: "message_too_large",
+          detail:
+            "This message exceeds the supported per-turn text or attachment limit. Your message has not been accepted.",
+        });
+      if (!input.message.text.trim() && !input.message.attachments.length)
+        throw new ThreadPolicyError({
+          operation: "sendMessage",
+          code: "empty_message",
+          detail: "A message needs text or an attachment. Your message has not been accepted.",
+        });
       const data = JSON.stringify(
         Schema.encodeSync(UserItemData)({
           origin: input.message.origin,

@@ -14,15 +14,17 @@ import {
   ProviderConnectionId,
   type CleanCoreSendMessageInput,
 } from "@penkra/contracts";
-import { Effect, Layer, Option, PubSub, Schema, Semaphore, ServiceMap, Stream } from "effect";
+import { Effect, Layer, Option, PubSub, Schema, ServiceMap, Stream } from "effect";
 import * as SqlClient from "effect/unstable/sql/SqlClient";
 import { ProviderThreadSwitchCoordinator } from "../orchestration/Services/ProviderThreadSwitchCoordinator.ts";
 import { ProviderService } from "../provider/Services/ProviderService.ts";
+import { ProviderSessionDirectory } from "../provider/Services/ProviderSessionDirectory.ts";
 import {
   CurrentManagedAttachmentPrincipal,
   type ManagedAttachmentPrincipal,
 } from "../managedAttachmentPrincipal.ts";
 import { ThreadPublisher } from "./ThreadPublisher.ts";
+import { ThreadLanes } from "./ThreadLanes.ts";
 import { nextCommittedDraftTimestamp } from "./threadDraftTimestamp.ts";
 import { resolveDraftSendSelection } from "./threadDraft.ts";
 import {
@@ -66,8 +68,10 @@ export const makeThreadSender = Effect.gen(function* () {
   const serverConfig = yield* ServerConfig;
   const sql = yield* SqlClient.SqlClient;
   const publisher = yield* ThreadPublisher;
+  const withLane = (yield* ThreadLanes).run;
   const coordinator = yield* ProviderThreadSwitchCoordinator;
   const provider = yield* ProviderService;
+  const directory = yield* ProviderSessionDirectory;
   const managedAttachments = yield* ManagedAttachmentRepository;
   const decodeDraftContent = Schema.decodeUnknownSync(
     Schema.Struct({
@@ -106,6 +110,20 @@ export const makeThreadSender = Effect.gen(function* () {
       return yield* Effect.fail(new Error("The queued attachment has an invalid owner."));
     });
   const driver: SendDriver = {
+    // Acceptance may precede turn.started in the durable stream. This keyed live binding closes that phase gap.
+    isRunning: (threadId) =>
+      directory.getBinding(ThreadId.makeUnsafe(threadId)).pipe(
+        Effect.map((binding) => {
+          if (Option.isNone(binding) || binding.value.status !== "running") return false;
+          const payload = binding.value.runtimePayload;
+          return (
+            typeof payload === "object" &&
+            payload !== null &&
+            "activeTurnId" in payload &&
+            typeof payload.activeTurnId === "string"
+          );
+        }),
+      ),
     claimAttachments: (input) =>
       Effect.gen(function* () {
         const principal = yield* CurrentManagedAttachmentPrincipal;
@@ -158,8 +176,7 @@ export const makeThreadSender = Effect.gen(function* () {
                 ...(input.skills === undefined ? {} : { skills: input.skills }),
                 ...(input.mentions === undefined ? {} : { mentions: input.mentions }),
               },
-              dispatchMode: mode === "deliver" ? "queue" : "steer",
-              origin: input.message.origin,
+              dispatchMode: mode === "deliver" ? "queue" : mode,
               modelSelection,
               connectionId,
               runtimeMode,
@@ -178,34 +195,6 @@ export const makeThreadSender = Effect.gen(function* () {
         }),
       ),
   };
-  const lanes = new Map<
-    string,
-    { admission: Semaphore.Semaphore; delivery: Semaphore.Semaphore; users: number }
-  >();
-  const withLane = <A, E, R>(
-    threadId: string,
-    action: Effect.Effect<A, E, R>,
-    kind: "admission" | "delivery" = "admission",
-  ) =>
-    Effect.suspend(() => {
-      let lane = lanes.get(threadId);
-      if (lane === undefined) {
-        lane = { admission: Semaphore.makeUnsafe(1), delivery: Semaphore.makeUnsafe(1), users: 0 };
-        lanes.set(threadId, lane);
-      }
-      lane.users += 1;
-      const acquired = lane;
-      return acquired[kind]
-        .withPermits(1)(action)
-        .pipe(
-          Effect.ensuring(
-            Effect.sync(() => {
-              acquired.users -= 1;
-              if (acquired.users === 0) lanes.delete(threadId);
-            }),
-          ),
-        );
-    });
   const deliverHead = (threadId: string, retryFailedHead = false) =>
     Effect.gen(function* () {
       const request = yield* withLane(
@@ -237,24 +226,35 @@ export const makeThreadSender = Effect.gen(function* () {
             const pending =
               yield* sql`SELECT 1 FROM thread_items WHERE thread_id=${threadId} AND kind='user' AND status='sending' LIMIT 1`;
             if (pending.length > 0) return null;
+            if (yield* driver.isRunning(threadId)) return null;
             const queue = decodeQueue(JSON.parse(thread.queue));
             const head = queue[0];
             if (head === undefined) return null;
             const input = {
               threadId,
               message: head,
+              skills: head.skills,
+              mentions: head.mentions,
               dispatchMode: "queue" as const,
               supportsSteer: providerSupportsNativeTurnSteering(thread.provider),
               ...resolveDraftSendSelection(thread),
             };
-            yield* writeSendingMessage(input, "deliver", yield* attachmentPrincipal(input));
-            return input;
+            const selected = yield* writeSendingMessage(
+              input,
+              "deliver",
+              yield* attachmentPrincipal(input),
+            );
+            return selected.delivery;
           }),
         ),
       );
       if (request === null) return;
       publisher.publish({ threadId });
-      yield* withLane(threadId, deliverMessage(publisher, driver, request, "deliver"), "delivery");
+      yield* withLane(
+        threadId,
+        deliverMessage(publisher, driver, request.input, request.plan),
+        "delivery",
+      );
     }).pipe(Effect.provideService(SqlClient.SqlClient, sql));
   const deliveryEvents = yield* PubSub.subscribe(publisher.deliveryReady);
   const providerEvents = yield* PubSub.subscribe(publisher.providerEvents);
@@ -429,8 +429,6 @@ export const makeThreadSender = Effect.gen(function* () {
           if (current === undefined)
             return yield* Effect.fail(new Error("The thread does not exist."));
           const selection = resolveDraftSendSelection(current, input);
-          const [existing] = yield* sql`SELECT 1 FROM thread_items WHERE thread_id=${input.threadId}
-        AND source_id=${input.message.messageId} AND kind='user'`;
           const request = {
             ...input,
             ...selection,
@@ -438,15 +436,15 @@ export const makeThreadSender = Effect.gen(function* () {
               providerSupportsNativeTurnSteering(current.provider) &&
               selection.connectionId === current.connectionId,
           };
-          const admission = yield* sendMessage(publisher, driver, request);
-          if (admission.plan === "queue") {
+          const { admission, delivery } = yield* sendMessage(publisher, driver, request);
+          if (delivery === null && admission.plan === "queue") {
             if (current.state !== "running")
               yield* Effect.forkIn(deliverHead(input.threadId, true), scope);
-          } else if (existing === undefined) {
+          } else if (delivery !== null) {
             yield* Effect.forkIn(
               withLane(
                 input.threadId,
-                deliverMessage(publisher, driver, request, admission.plan).pipe(
+                deliverMessage(publisher, driver, delivery.input, delivery.plan).pipe(
                   Effect.provideService(SqlClient.SqlClient, sql),
                 ),
                 "delivery",

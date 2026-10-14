@@ -2332,7 +2332,7 @@ routing.layer("ProviderServiceLive routing", (it) => {
         createdAt: "2026-02-27T00:05:00.000Z",
         threadId: session.threadId,
         turnId: turn.turnId,
-        payload: { message: "Provider crashed", class: "provider_error" },
+        payload: { message: "Provider crashed", terminal: true, class: "provider_error" },
       });
       yield* sleep(50);
 

@@ -904,13 +904,22 @@ function mapToRuntimeEvents(
     return [
       {
         ...runtimeEventBase(event, canonicalThreadId),
-        type: isWarning ? "runtime.warning" : "runtime.error",
         payload: {
           message: event.message,
-          ...(!isWarning ? { class: "provider_error" as const } : {}),
           ...(diagnostic ? { diagnostic } : {}),
           ...(event.payload !== undefined ? { detail: event.payload } : {}),
         },
+        ...(isWarning
+          ? { type: "runtime.warning" as const }
+          : {
+              type: "runtime.error" as const,
+              payload: {
+                message: event.message,
+                class: "provider_error" as const,
+                terminal: false,
+                ...(event.payload !== undefined ? { detail: event.payload } : {}),
+              },
+            }),
       },
     ];
   }
@@ -1479,13 +1488,24 @@ function mapToRuntimeEvents(
     const warningClass = willRetry ? CODEX_ACTIONABLE_WARNING_CLASSES.providerRetry : undefined;
     return [
       {
-        type: warningClass ? "runtime.warning" : "runtime.error",
         ...runtimeEventBase(event, canonicalThreadId),
-        payload: {
-          message,
-          ...(!warningClass ? { class: "provider_error" as const } : {}),
-          ...(event.payload !== undefined ? { detail: event.payload } : {}),
-        },
+        ...(warningClass
+          ? {
+              type: "runtime.warning" as const,
+              payload: {
+                message,
+                ...(event.payload !== undefined ? { detail: event.payload } : {}),
+              },
+            }
+          : {
+              type: "runtime.error" as const,
+              payload: {
+                message,
+                class: "provider_error" as const,
+                terminal: true,
+                ...(event.payload !== undefined ? { detail: event.payload } : {}),
+              },
+            }),
       },
     ];
   }

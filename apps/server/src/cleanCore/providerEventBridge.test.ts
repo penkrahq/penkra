@@ -207,7 +207,11 @@ it("maps a question open and answer", () => {
 });
 
 it("maps runtime errors to notices and ignores unrelated events", () => {
-  const notice = bridge({ ...base, type: "runtime.error", payload: { message: "Aborted" } })[0] as {
+  const notice = bridge({
+    ...base,
+    type: "runtime.error",
+    payload: { message: "Aborted", terminal: true },
+  })[0] as {
     item: { kind: string; text: string };
   };
   assert.equal(notice.item.kind, "notice");
