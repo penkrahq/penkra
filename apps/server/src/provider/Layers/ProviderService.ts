@@ -1,4 +1,5 @@
 import { consumeProviderRuntimeEvent } from "../../cleanCore/providerStreamConsumer.ts";
+import { makeReasoningSummaryBuffer } from "../../cleanCore/providerReasoningSummary.ts";
 import { ConnectionRateLimits } from "../../providerUsage/ConnectionRateLimits.ts";
 import { ProviderAuthCircuits } from "../providerAuthCircuit.ts";
 /**
@@ -2462,15 +2463,19 @@ export function makeManagedProviderServiceLive(options?: ProviderServiceLiveOpti
       const rateLimits = yield* ConnectionRateLimits;
       const circuits = yield* ProviderAuthCircuits;
       const launchResolver = yield* ProviderLaunchResolver;
+      const prepareReasoning = makeReasoningSummaryBuffer();
       return yield* makeProviderService({
         ...options,
-        consumeRuntimeEvent: (event) =>
-          consumeProviderRuntimeEvent(publisher, event).pipe(
+        consumeRuntimeEvent: (event) => {
+          const prepared = prepareReasoning(event);
+          if (prepared === null) return Effect.succeed(event);
+          return consumeProviderRuntimeEvent(publisher, prepared).pipe(
             Effect.provideService(SqlClient.SqlClient, sql),
             Effect.provideService(ConnectionRateLimits, rateLimits),
             Effect.provideService(ProviderAuthCircuits, circuits),
             Effect.as(event),
-          ),
+          );
+        },
         persistNativeResumeCursor: ({ threadId, provider, resumeCursor }) =>
           Effect.gen(function* () {
             const state = yield* readThreadNativeState(threadId).pipe(

@@ -78,6 +78,10 @@ it("failed and declined text or reasoning items are interrupted, never error", (
         itemId: "failed-item",
         payload: { itemType, status, detail: "Partial output" },
       });
+      if (itemType === "plan") {
+        assert.equal(event, undefined);
+        continue;
+      }
       assert.equal(event?.type, "item");
       if (event?.type !== "item") throw new Error("Expected item completion");
       assert.equal(event.item.status, "interrupted");
@@ -117,9 +121,9 @@ it("maps reasoning and notice items", () => {
     (
       bridge({
         ...base,
-        type: "item.started",
+        type: "item.completed",
         itemId: "r1",
-        payload: { itemType: "reasoning", status: "inProgress" },
+        payload: { itemType: "reasoning", status: "completed", detail: "Readable summary" },
       })[0] as {
         item: { kind: string; status: string };
       }
@@ -161,16 +165,14 @@ it("maps content deltas by stream kind", () => {
       },
     ],
   );
-  assert.equal(
-    (
-      bridge({
-        ...base,
-        type: "content.delta",
-        itemId: "r1",
-        payload: { streamKind: "reasoning_text", delta: "why" },
-      })[0] as { kind: string }
-    ).kind,
-    "reasoning",
+  assert.deepStrictEqual(
+    bridge({
+      ...base,
+      type: "content.delta",
+      itemId: "r1",
+      payload: { streamKind: "reasoning_text", delta: "why" },
+    }),
+    [],
   );
 });
 

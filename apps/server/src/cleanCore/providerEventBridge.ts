@@ -8,7 +8,10 @@
 
 import type { ProviderRuntimeEvent } from "@penkra/contracts";
 
-import { projectProviderRuntimeActivities } from "../orchestration/providerRuntimeActivityProjection.ts";
+import {
+  projectProviderRuntimeActivities,
+  readableReasoningDetail,
+} from "../orchestration/providerRuntimeActivityProjection.ts";
 import type { CleanCoreProviderEvent } from "./providerStreamConsumer.ts";
 import { threadItemActivityData } from "./threadItemData.ts";
 import type { ThreadItemKind } from "./threadStore.ts";
@@ -144,6 +147,15 @@ export function toCleanCoreProviderEvents(
     case "item.completed": {
       const payload = event.payload;
       const kind = itemKind(payload.itemType);
+      if (
+        kind === "reasoning" &&
+        (event.provider !== "codex" ||
+          event.type !== "item.completed" ||
+          payload.itemType !== "reasoning" ||
+          !event.itemId ||
+          readableReasoningDetail(payload.detail) === undefined)
+      )
+        return [];
       return [
         {
           type: "item",
@@ -154,7 +166,18 @@ export function toCleanCoreProviderEvents(
             turnId: event.turnId ?? null,
             kind,
             status: itemStatus(kind, payload.status),
-            text: payload.detail ?? payload.title ?? null,
+            // Claude can complete a streamed text block without repeating its
+            // text (ClaudeAdapter emits detail only when fallbackText exists).
+            ...(kind === "text"
+              ? payload.detail === undefined
+                ? {}
+                : { text: payload.detail }
+              : {
+                  text:
+                    kind === "reasoning"
+                      ? readableReasoningDetail(payload.detail)!
+                      : (payload.detail ?? payload.title ?? null),
+                }),
             data:
               kind === "tool" || kind === "notice"
                 ? activityItemData(event, {
@@ -174,13 +197,9 @@ export function toCleanCoreProviderEvents(
       const kind =
         streamKind === "assistant_text"
           ? ("text" as const)
-          : streamKind === "reasoning_text" ||
-              streamKind === "reasoning_summary_text" ||
-              streamKind === "plan_text"
-            ? ("reasoning" as const)
-            : streamKind === "command_output" || streamKind === "file_change_output"
-              ? ("tool" as const)
-              : null;
+          : streamKind === "command_output" || streamKind === "file_change_output"
+            ? ("tool" as const)
+            : null;
       if (kind === null || event.payload.delta.length === 0) return [];
       return [
         {
