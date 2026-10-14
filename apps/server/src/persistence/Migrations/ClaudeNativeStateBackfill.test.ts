@@ -86,6 +86,49 @@ it.effect("moves a thread-owned Claude folder into its native-state folder with 
   ).pipe(Effect.provide(NodeSqliteClient.layerMemory())),
 );
 
+it.effect("removes an unknown folder and stray file while moving the known conversation", () =>
+  Effect.scoped(
+    Effect.gen(function* () {
+      const { stateDir, source } = yield* fixture;
+      const oldParent = Path.join(stateDir, "provider-thread-native-state");
+      const orphan = Path.join(oldParent, "unknown-thread");
+      const stray = Path.join(oldParent, ".DS_Store");
+      yield* Effect.promise(async () => {
+        await mkdir(orphan);
+        await writeFile(Path.join(orphan, "session.jsonl"), "orphan");
+        await writeFile(stray, "stray");
+      });
+      const result = yield* withClaudeNativeStateBackfill(stateDir, Effect.succeed("migration"));
+      assert.strictEqual(result.migrations, "migration");
+      assert.strictEqual(result.movedFolders, 1);
+      for (const removed of [orphan, stray, source("a"), oldParent]) {
+        assert.isFalse(
+          yield* Effect.promise(() =>
+            access(removed).then(
+              () => true,
+              () => false,
+            ),
+          ),
+        );
+      }
+      assert.strictEqual(
+        yield* Effect.promise(() =>
+          readFile(
+            Path.join(
+              providerNativeStateRoot(stateDir, "native-a"),
+              "claude",
+              "project",
+              "session.jsonl",
+            ),
+            "utf8",
+          ),
+        ),
+        '{"type":"user","message":{"content":"keep"}}\n',
+      );
+    }),
+  ).pipe(Effect.provide(NodeSqliteClient.layerMemory())),
+);
+
 it.effect("a failed move rolls back SQL and restores a folder already moved", () =>
   Effect.scoped(
     Effect.gen(function* () {
