@@ -146,14 +146,14 @@ export function derivePendingThreadRequestIds(input: {
 }
 
 export function deriveThreadSummaryState(input: {
-  readonly messages: ReadonlyArray<Pick<OrchestrationMessage, "role" | "createdAt">>;
+  readonly messages: ReadonlyArray<Pick<OrchestrationMessage, "role" | "createdAt" | "origin">>;
   readonly activities: ReadonlyArray<
     Pick<OrchestrationThreadActivity, "createdAt" | "id" | "kind" | "payload" | "sequence">
   >;
 }): ThreadSummaryState {
   let latestUserMessageAt: string | null = null;
   for (const message of input.messages) {
-    if (message.role === "user") {
+    if (message.role === "user" && message.origin?._tag !== "recovery") {
       latestUserMessageAt = maxIso(latestUserMessageAt, message.createdAt);
     }
   }
@@ -168,7 +168,7 @@ export function deriveThreadSummaryState(input: {
 }
 
 export function deriveThreadSummaryMetadata(input: {
-  readonly messages: ReadonlyArray<Pick<OrchestrationMessage, "role" | "createdAt">>;
+  readonly messages: ReadonlyArray<Pick<OrchestrationMessage, "role" | "createdAt" | "origin">>;
   readonly activities: ReadonlyArray<
     Pick<OrchestrationThreadActivity, "createdAt" | "id" | "kind" | "payload" | "sequence">
   >;

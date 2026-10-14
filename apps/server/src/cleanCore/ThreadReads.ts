@@ -57,6 +57,7 @@ function transcriptRows(items: ReadonlyArray<ThreadItemRecord>) {
   >[number][] = [];
   for (const item of items.toSorted((a, b) => a.seq - b.seq)) {
     const data = item.data === null ? {} : JSON.parse(item.data);
+    if (item.kind === "user" && decodeUserItemData(data).origin._tag === "recovery") continue;
     if (item.kind === "user") userStatuses.set(item.sourceId, item.status);
     if (item.kind === "user" || item.kind === "text") {
       messages.push({
@@ -248,7 +249,7 @@ export const makeThreadReads = Effect.gen(function* () {
           const rows = yield* sql<
             ProjectionTranscriptSearchResult["messages"][number]
           >`SELECT i.thread_id AS "threadId",i.source_id AS "messageId",i.turn_id AS "turnId",CASE WHEN i.kind='user' THEN 'user' ELSE 'assistant' END AS role,t.title AS "threadTitle",t.provider AS "threadProvider",i.text,i.created_at AS "createdAt" FROM thread_items i JOIN threads t ON t.id=i.thread_id
-        WHERE t.space_id=${input.spaceId} AND t.deleted_at IS NULL AND i.kind IN ('user','text')
+        WHERE t.space_id=${input.spaceId} AND t.deleted_at IS NULL AND i.kind IN ('user','text') AND (i.kind<>'user' OR COALESCE(json_extract(i.data,'$.origin._tag'),'')<>'recovery')
         AND (${input.folderId} IS NULL OR t.folder_id=${input.folderId}) AND (${input.threadId} IS NULL OR i.thread_id=${input.threadId})
         AND (${input.turnId ?? null} IS NULL OR i.turn_id=${input.turnId ?? null})
         AND (${input.createdAfter ?? null} IS NULL OR i.created_at>=${input.createdAfter ?? null}) AND (${input.createdBefore ?? null} IS NULL OR i.created_at<=${input.createdBefore ?? null})
@@ -323,7 +324,7 @@ export const makeThreadReads = Effect.gen(function* () {
       run(
         sql<{
           count: number;
-        }>`SELECT count(*) AS count FROM thread_items WHERE thread_id=${threadId} AND kind IN ('user','text')`.pipe(
+        }>`SELECT count(*) AS count FROM thread_items WHERE thread_id=${threadId} AND kind IN ('user','text') AND (kind<>'user' OR COALESCE(json_extract(data,'$.origin._tag'),'')<>'recovery')`.pipe(
           Effect.map((rows) => rows[0]!.count),
         ),
       ),

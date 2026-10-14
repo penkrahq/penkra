@@ -7,6 +7,7 @@
 //   settleRunningItems
 
 import { ThreadId, type CleanCoreSidebarChange } from "@penkra/contracts";
+import { decodeUserItemData } from "@penkra/shared/userItemData";
 import { normalizeEntityName } from "@penkra/shared/entityNames";
 import { Effect, PubSub } from "effect";
 import * as SqlClient from "effect/unstable/sql/SqlClient";
@@ -122,6 +123,9 @@ export const upsertThreadItem = (input: ThreadItemInput) =>
       return yield* Effect.fail(new Error("A user item exceeded its admitted metadata size."));
     const data =
       input.kind === "user" ? (input.data ?? null) : capThreadItemData(input.data ?? null);
+    const recovery =
+      input.kind === "user" &&
+      decodeUserItemData(JSON.parse(input.data ?? "{}")).origin._tag === "recovery";
     yield* sql.withTransaction(
       Effect.gen(function* () {
         yield* sql`
@@ -146,12 +150,12 @@ export const upsertThreadItem = (input: ThreadItemInput) =>
           UPDATE threads SET
             last_activity_at = ${input.updatedAt},
             last_message_preview = CASE
-              WHEN ${input.kind} IN ('user', 'text') THEN (
+              WHEN ${Number(!recovery)}=1 AND ${input.kind} IN ('user', 'text') THEN (
                 SELECT text FROM thread_items WHERE thread_id=${input.threadId} AND source_id=${input.sourceId}
               )
               ELSE last_message_preview END,
             last_user_message_at = CASE
-              WHEN ${input.kind} = 'user' THEN ${input.updatedAt}
+              WHEN ${Number(!recovery)}=1 AND ${input.kind} = 'user' THEN ${input.updatedAt}
               ELSE last_user_message_at END,
             open_question_count = CASE
               WHEN ${input.kind} = 'question' THEN (

@@ -289,8 +289,8 @@ export const makeThreadSender = Effect.gen(function* () {
                 AND source_id=${input.messageId} AND kind='user' AND status='failed' RETURNING seq`;
               if (deleted.length === 0) return null;
               yield* sql`UPDATE threads SET last_message_preview=(SELECT text FROM thread_items WHERE thread_id=${input.threadId}
-                AND kind IN ('user','text') ORDER BY seq DESC LIMIT 1),
-                last_user_message_at=(SELECT created_at FROM thread_items WHERE thread_id=${input.threadId} AND kind='user' ORDER BY seq DESC LIMIT 1),
+                AND kind IN ('user','text') AND (kind<>'user' OR COALESCE(json_extract(data,'$.origin._tag'),'')<>'recovery') ORDER BY seq DESC LIMIT 1),
+                last_user_message_at=(SELECT created_at FROM thread_items WHERE thread_id=${input.threadId} AND kind='user' AND COALESCE(json_extract(data,'$.origin._tag'),'')<>'recovery' ORDER BY seq DESC LIMIT 1),
                 updated_at=${new Date().toISOString()} WHERE id=${input.threadId}`;
               return { wasHead: false };
             }

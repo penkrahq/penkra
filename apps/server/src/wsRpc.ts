@@ -464,7 +464,7 @@ const makeWsRpcHandlersLayer = () =>
                       messageId: update.messageId,
                       text: PLAY_TURN_RECOVERY_PROMPT,
                       attachments: [],
-                      origin: { _tag: "user" as const },
+                      origin: { _tag: "recovery" as const },
                       queuedAt: update.updatedAt,
                     },
                     dispatchMode: "queue",
