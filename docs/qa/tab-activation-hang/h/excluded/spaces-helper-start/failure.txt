@@ -1,0 +1,4 @@
+Error: QA native fullscreen event timed out h-spaces-first-enters-fullscreen
+    at /Users/emmanuelgyekyeatta-penkra/Penkra/qa-tab-additions-b9xq3rc4/source/qa/bundle/main.cjs:47101:13
+    at async full (/Users/emmanuelgyekyeatta-penkra/Penkra/qa-tab-additions-b9xq3rc4/source/qa/bundle/main.cjs:47100:5)
+    at async run2 (/Users/emmanuelgyekyeatta-penkra/Penkra/qa-tab-additions-b9xq3rc4/source/qa/bundle/main.cjs:47111:3)

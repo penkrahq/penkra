@@ -1,0 +1,4236 @@
+[
+  {
+    "caseId": "h-spaces-regular-control",
+    "samples": [
+      {
+        "epochMs": 1791963935421,
+        "monotonicMs": 4847.795125,
+        "shellVisible": true,
+        "shellMinimized": false,
+        "shellFullScreen": false,
+        "shellSimpleFullScreen": false,
+        "secondVisible": false,
+        "secondMinimized": false,
+        "secondFullScreen": false,
+        "secondSimpleFullScreen": false,
+        "shellBounds": {
+          "x": 50,
+          "y": 60,
+          "width": 1200,
+          "height": 800
+        },
+        "secondBounds": {
+          "x": 264,
+          "y": 159,
+          "width": 1200,
+          "height": 800
+        },
+        "shellDocument": {
+          "visibility": "visible",
+          "focus": true
+        },
+        "pageDocument": {
+          "visibility": "visible",
+          "focus": false
+        },
+        "secondDocument": {
+          "visibility": "visible",
+          "focus": false
+        },
+        "nativeTabVisible": true,
+        "shellChildViews": [
+          {
+            "id": 7,
+            "visible": true
+          },
+          {
+            "id": 2,
+            "visible": true
+          }
+        ],
+        "pageWebContentsId": 7,
+        "geometry": {
+          "windows": [
+            {
+              "zIndex": 0,
+              "pid": 15289,
+              "windowId": 162834,
+              "layer": 0,
+              "bounds": {
+                "Height": 720,
+                "Width": 640,
+                "X": 0,
+                "Y": 33
+              },
+              "onScreen": null,
+              "alpha": 0,
+              "title": null
+            },
+            {
+              "zIndex": 1,
+              "pid": 15289,
+              "windowId": 162819,
+              "layer": 0,
+              "bounds": {
+                "Height": 720,
+                "Width": 640,
+                "X": 0,
+                "Y": 33
+              },
+              "onScreen": true,
+              "alpha": 0,
+              "title": null
+            },
+            {
+              "zIndex": 2,
+              "pid": 15289,
+              "windowId": 162817,
+              "layer": 0,
+              "bounds": {
+                "Height": 30,
+                "Width": 1920,
+                "X": 1821,
+                "Y": -1200
+              },
+              "onScreen": null,
+              "alpha": 1,
+              "title": null
+            },
+            {
+              "zIndex": 3,
+              "pid": 15289,
+              "windowId": 162816,
+              "layer": 0,
+              "bounds": {
+                "Height": 30,
+                "Width": 1920,
+                "X": 1821,
+                "Y": -1200
+              },
+              "onScreen": null,
+              "alpha": 1,
+              "title": null
+            },
+            {
+              "zIndex": 4,
+              "pid": 15289,
+              "windowId": 162815,
+              "layer": 0,
+              "bounds": {
+                "Height": 30,
+                "Width": 1920,
+                "X": 1821,
+                "Y": -1200
+              },
+              "onScreen": null,
+              "alpha": 1,
+              "title": null
+            },
+            {
+              "zIndex": 5,
+              "pid": 15289,
+              "windowId": 162814,
+              "layer": 0,
+              "bounds": {
+                "Height": 30,
+                "Width": 1920,
+                "X": -99,
+                "Y": -1200
+              },
+              "onScreen": null,
+              "alpha": 1,
+              "title": null
+            },
+            {
+              "zIndex": 6,
+              "pid": 15289,
+              "windowId": 162813,
+              "layer": 0,
+              "bounds": {
+                "Height": 30,
+                "Width": 1920,
+                "X": -99,
+                "Y": -1200
+              },
+              "onScreen": null,
+              "alpha": 1,
+              "title": null
+            },
+            {
+              "zIndex": 7,
+              "pid": 15289,
+              "windowId": 162812,
+              "layer": 0,
+              "bounds": {
+                "Height": 30,
+                "Width": 1920,
+                "X": -99,
+                "Y": -1200
+              },
+              "onScreen": null,
+              "alpha": 1,
+              "title": null
+            },
+            {
+              "zIndex": 8,
+              "pid": 15289,
+              "windowId": 162810,
+              "layer": 0,
+              "bounds": {
+                "Height": 33,
+                "Width": 1728,
+                "X": 0,
+                "Y": 0
+              },
+              "onScreen": null,
+              "alpha": 1,
+              "title": null
+            },
+            {
+              "zIndex": 9,
+              "pid": 15289,
+              "windowId": 162809,
+              "layer": 0,
+              "bounds": {
+                "Height": 33,
+                "Width": 1728,
+                "X": 0,
+                "Y": 0
+              },
+              "onScreen": null,
+              "alpha": 1,
+              "title": null
+            },
+            {
+              "zIndex": 10,
+              "pid": 15289,
+              "windowId": 162808,
+              "layer": 0,
+              "bounds": {
+                "Height": 33,
+                "Width": 1728,
+                "X": 0,
+                "Y": 0
+              },
+              "onScreen": null,
+              "alpha": 1,
+              "title": null
+            },
+            {
+              "zIndex": 11,
+              "pid": 15289,
+              "windowId": 162807,
+              "layer": 0,
+              "bounds": {
+                "Height": 33,
+                "Width": 1728,
+                "X": 0,
+                "Y": 0
+              },
+              "onScreen": null,
+              "alpha": 1,
+              "title": null
+            },
+            {
+              "zIndex": 12,
+              "pid": 15289,
+              "windowId": 162806,
+              "layer": 0,
+              "bounds": {
+                "Height": 720,
+                "Width": 640,
+                "X": 0,
+                "Y": 33
+              },
+              "onScreen": null,
+              "alpha": 0,
+              "title": null
+            },
+            {
+              "zIndex": 13,
+              "pid": 15289,
+              "windowId": 162805,
+              "layer": 0,
+              "bounds": {
+                "Height": 800,
+                "Width": 1200,
+                "X": 50,
+                "Y": 60
+              },
+              "onScreen": true,
+              "alpha": 1,
+              "title": null
+            },
+            {
+              "zIndex": 203,
+              "pid": 15289,
+              "windowId": 162835,
+              "layer": 0,
+              "bounds": {
+                "Height": 800,
+                "Width": 1200,
+                "X": 264,
+                "Y": 159
+              },
+              "onScreen": null,
+              "alpha": 1,
+              "title": null
+            },
+            {
+              "zIndex": 211,
+              "pid": 15289,
+              "windowId": 162818,
+              "layer": 0,
+              "bounds": {
+                "Height": 30,
+                "Width": 1920,
+                "X": 1821,
+                "Y": -1200
+              },
+              "onScreen": null,
+              "alpha": 1,
+              "title": null
+            },
+            {
+              "zIndex": 421,
+              "pid": 15289,
+              "windowId": 162811,
+              "layer": 0,
+              "bounds": {
+                "Height": 30,
+                "Width": 1920,
+                "X": -99,
+                "Y": -1200
+              },
+              "onScreen": null,
+              "alpha": 1,
+              "title": null
+            }
+          ],
+          "targetWindow": {
+            "zIndex": 13,
+            "pid": 15289,
+            "windowId": 162805,
+            "layer": 0,
+            "bounds": {
+              "Height": 800,
+              "Width": 1200,
+              "X": 50,
+              "Y": 60
+            },
+            "onScreen": true,
+            "alpha": 1,
+            "title": null
+          }
+        }
+      },
+      {
+        "epochMs": 1791963935947,
+        "monotonicMs": 5374.114542,
+        "shellVisible": true,
+        "shellMinimized": false,
+        "shellFullScreen": false,
+        "shellSimpleFullScreen": false,
+        "secondVisible": false,
+        "secondMinimized": false,
+        "secondFullScreen": false,
+        "secondSimpleFullScreen": false,
+        "shellBounds": {
+          "x": 50,
+          "y": 60,
+          "width": 1200,
+          "height": 800
+        },
+        "secondBounds": {
+          "x": 264,
+          "y": 159,
+          "width": 1200,
+          "height": 800
+        },
+        "shellDocument": {
+          "visibility": "visible",
+          "focus": true
+        },
+        "pageDocument": {
+          "visibility": "visible",
+          "focus": false
+        },
+        "secondDocument": {
+          "visibility": "visible",
+          "focus": false
+        },
+        "nativeTabVisible": true,
+        "shellChildViews": [
+          {
+            "id": 7,
+            "visible": true
+          },
+          {
+            "id": 2,
+            "visible": true
+          }
+        ],
+        "pageWebContentsId": 7,
+        "geometry": {
+          "windows": [
+            {
+              "zIndex": 0,
+              "pid": 15289,
+              "windowId": 162834,
+              "layer": 0,
+              "bounds": {
+                "Height": 720,
+                "Width": 640,
+                "X": 0,
+                "Y": 33
+              },
+              "onScreen": null,
+              "alpha": 0,
+              "title": null
+            },
+            {
+              "zIndex": 1,
+              "pid": 15289,
+              "windowId": 162819,
+              "layer": 0,
+              "bounds": {
+                "Height": 720,
+                "Width": 640,
+                "X": 0,
+                "Y": 33
+              },
+              "onScreen": true,
+              "alpha": 0,
+              "title": null
+            },
+            {
+              "zIndex": 2,
+              "pid": 15289,
+              "windowId": 162817,
+              "layer": 0,
+              "bounds": {
+                "Height": 30,
+                "Width": 1920,
+                "X": 1821,
+                "Y": -1200
+              },
+              "onScreen": null,
+              "alpha": 1,
+              "title": null
+            },
+            {
+              "zIndex": 3,
+              "pid": 15289,
+              "windowId": 162816,
+              "layer": 0,
+              "bounds": {
+                "Height": 30,
+                "Width": 1920,
+                "X": 1821,
+                "Y": -1200
+              },
+              "onScreen": null,
+              "alpha": 1,
+              "title": null
+            },
+            {
+              "zIndex": 4,
+              "pid": 15289,
+              "windowId": 162815,
+              "layer": 0,
+              "bounds": {
+                "Height": 30,
+                "Width": 1920,
+                "X": 1821,
+                "Y": -1200
+              },
+              "onScreen": null,
+              "alpha": 1,
+              "title": null
+            },
+            {
+              "zIndex": 5,
+              "pid": 15289,
+              "windowId": 162814,
+              "layer": 0,
+              "bounds": {
+                "Height": 30,
+                "Width": 1920,
+                "X": -99,
+                "Y": -1200
+              },
+              "onScreen": null,
+              "alpha": 1,
+              "title": null
+            },
+            {
+              "zIndex": 6,
+              "pid": 15289,
+              "windowId": 162813,
+              "layer": 0,
+              "bounds": {
+                "Height": 30,
+                "Width": 1920,
+                "X": -99,
+                "Y": -1200
+              },
+              "onScreen": null,
+              "alpha": 1,
+              "title": null
+            },
+            {
+              "zIndex": 7,
+              "pid": 15289,
+              "windowId": 162812,
+              "layer": 0,
+              "bounds": {
+                "Height": 30,
+                "Width": 1920,
+                "X": -99,
+                "Y": -1200
+              },
+              "onScreen": null,
+              "alpha": 1,
+              "title": null
+            },
+            {
+              "zIndex": 8,
+              "pid": 15289,
+              "windowId": 162810,
+              "layer": 0,
+              "bounds": {
+                "Height": 33,
+                "Width": 1728,
+                "X": 0,
+                "Y": 0
+              },
+              "onScreen": null,
+              "alpha": 1,
+              "title": null
+            },
+            {
+              "zIndex": 9,
+              "pid": 15289,
+              "windowId": 162809,
+              "layer": 0,
+              "bounds": {
+                "Height": 33,
+                "Width": 1728,
+                "X": 0,
+                "Y": 0
+              },
+              "onScreen": null,
+              "alpha": 1,
+              "title": null
+            },
+            {
+              "zIndex": 10,
+              "pid": 15289,
+              "windowId": 162808,
+              "layer": 0,
+              "bounds": {
+                "Height": 33,
+                "Width": 1728,
+                "X": 0,
+                "Y": 0
+              },
+              "onScreen": null,
+              "alpha": 1,
+              "title": null
+            },
+            {
+              "zIndex": 11,
+              "pid": 15289,
+              "windowId": 162807,
+              "layer": 0,
+              "bounds": {
+                "Height": 33,
+                "Width": 1728,
+                "X": 0,
+                "Y": 0
+              },
+              "onScreen": null,
+              "alpha": 1,
+              "title": null
+            },
+            {
+              "zIndex": 12,
+              "pid": 15289,
+              "windowId": 162806,
+              "layer": 0,
+              "bounds": {
+                "Height": 720,
+                "Width": 640,
+                "X": 0,
+                "Y": 33
+              },
+              "onScreen": null,
+              "alpha": 0,
+              "title": null
+            },
+            {
+              "zIndex": 13,
+              "pid": 15289,
+              "windowId": 162805,
+              "layer": 0,
+              "bounds": {
+                "Height": 800,
+                "Width": 1200,
+                "X": 50,
+                "Y": 60
+              },
+              "onScreen": true,
+              "alpha": 1,
+              "title": null
+            },
+            {
+              "zIndex": 203,
+              "pid": 15289,
+              "windowId": 162835,
+              "layer": 0,
+              "bounds": {
+                "Height": 800,
+                "Width": 1200,
+                "X": 264,
+                "Y": 159
+              },
+              "onScreen": null,
+              "alpha": 1,
+              "title": null
+            },
+            {
+              "zIndex": 211,
+              "pid": 15289,
+              "windowId": 162818,
+              "layer": 0,
+              "bounds": {
+                "Height": 30,
+                "Width": 1920,
+                "X": 1821,
+                "Y": -1200
+              },
+              "onScreen": null,
+              "alpha": 1,
+              "title": null
+            },
+            {
+              "zIndex": 421,
+              "pid": 15289,
+              "windowId": 162811,
+              "layer": 0,
+              "bounds": {
+                "Height": 30,
+                "Width": 1920,
+                "X": -99,
+                "Y": -1200
+              },
+              "onScreen": null,
+              "alpha": 1,
+              "title": null
+            }
+          ],
+          "targetWindow": {
+            "zIndex": 13,
+            "pid": 15289,
+            "windowId": 162805,
+            "layer": 0,
+            "bounds": {
+              "Height": 800,
+              "Width": 1200,
+              "X": 50,
+              "Y": 60
+            },
+            "onScreen": true,
+            "alpha": 1,
+            "title": null
+          }
+        }
+      },
+      {
+        "epochMs": 1791963936429,
+        "monotonicMs": 5856.02925,
+        "shellVisible": true,
+        "shellMinimized": false,
+        "shellFullScreen": false,
+        "shellSimpleFullScreen": false,
+        "secondVisible": false,
+        "secondMinimized": false,
+        "secondFullScreen": false,
+        "secondSimpleFullScreen": false,
+        "shellBounds": {
+          "x": 50,
+          "y": 60,
+          "width": 1200,
+          "height": 800
+        },
+        "secondBounds": {
+          "x": 264,
+          "y": 159,
+          "width": 1200,
+          "height": 800
+        },
+        "shellDocument": {
+          "visibility": "visible",
+          "focus": true
+        },
+        "pageDocument": {
+          "visibility": "visible",
+          "focus": false
+        },
+        "secondDocument": {
+          "visibility": "visible",
+          "focus": false
+        },
+        "nativeTabVisible": true,
+        "shellChildViews": [
+          {
+            "id": 7,
+            "visible": true
+          },
+          {
+            "id": 2,
+            "visible": true
+          }
+        ],
+        "pageWebContentsId": 7,
+        "geometry": {
+          "windows": [
+            {
+              "zIndex": 0,
+              "pid": 15289,
+              "windowId": 162834,
+              "layer": 0,
+              "bounds": {
+                "Height": 720,
+                "Width": 640,
+                "X": 0,
+                "Y": 33
+              },
+              "onScreen": null,
+              "alpha": 0,
+              "title": null
+            },
+            {
+              "zIndex": 1,
+              "pid": 15289,
+              "windowId": 162819,
+              "layer": 0,
+              "bounds": {
+                "Height": 720,
+                "Width": 640,
+                "X": 0,
+                "Y": 33
+              },
+              "onScreen": true,
+              "alpha": 0,
+              "title": null
+            },
+            {
+              "zIndex": 2,
+              "pid": 15289,
+              "windowId": 162817,
+              "layer": 0,
+              "bounds": {
+                "Height": 30,
+                "Width": 1920,
+                "X": 1821,
+                "Y": -1200
+              },
+              "onScreen": null,
+              "alpha": 1,
+              "title": null
+            },
+            {
+              "zIndex": 3,
+              "pid": 15289,
+              "windowId": 162816,
+              "layer": 0,
+              "bounds": {
+                "Height": 30,
+                "Width": 1920,
+                "X": 1821,
+                "Y": -1200
+              },
+              "onScreen": null,
+              "alpha": 1,
+              "title": null
+            },
+            {
+              "zIndex": 4,
+              "pid": 15289,
+              "windowId": 162815,
+              "layer": 0,
+              "bounds": {
+                "Height": 30,
+                "Width": 1920,
+                "X": 1821,
+                "Y": -1200
+              },
+              "onScreen": null,
+              "alpha": 1,
+              "title": null
+            },
+            {
+              "zIndex": 5,
+              "pid": 15289,
+              "windowId": 162814,
+              "layer": 0,
+              "bounds": {
+                "Height": 30,
+                "Width": 1920,
+                "X": -99,
+                "Y": -1200
+              },
+              "onScreen": null,
+              "alpha": 1,
+              "title": null
+            },
+            {
+              "zIndex": 6,
+              "pid": 15289,
+              "windowId": 162813,
+              "layer": 0,
+              "bounds": {
+                "Height": 30,
+                "Width": 1920,
+                "X": -99,
+                "Y": -1200
+              },
+              "onScreen": null,
+              "alpha": 1,
+              "title": null
+            },
+            {
+              "zIndex": 7,
+              "pid": 15289,
+              "windowId": 162812,
+              "layer": 0,
+              "bounds": {
+                "Height": 30,
+                "Width": 1920,
+                "X": -99,
+                "Y": -1200
+              },
+              "onScreen": null,
+              "alpha": 1,
+              "title": null
+            },
+            {
+              "zIndex": 8,
+              "pid": 15289,
+              "windowId": 162810,
+              "layer": 0,
+              "bounds": {
+                "Height": 33,
+                "Width": 1728,
+                "X": 0,
+                "Y": 0
+              },
+              "onScreen": null,
+              "alpha": 1,
+              "title": null
+            },
+            {
+              "zIndex": 9,
+              "pid": 15289,
+              "windowId": 162809,
+              "layer": 0,
+              "bounds": {
+                "Height": 33,
+                "Width": 1728,
+                "X": 0,
+                "Y": 0
+              },
+              "onScreen": null,
+              "alpha": 1,
+              "title": null
+            },
+            {
+              "zIndex": 10,
+              "pid": 15289,
+              "windowId": 162808,
+              "layer": 0,
+              "bounds": {
+                "Height": 33,
+                "Width": 1728,
+                "X": 0,
+                "Y": 0
+              },
+              "onScreen": null,
+              "alpha": 1,
+              "title": null
+            },
+            {
+              "zIndex": 11,
+              "pid": 15289,
+              "windowId": 162807,
+              "layer": 0,
+              "bounds": {
+                "Height": 33,
+                "Width": 1728,
+                "X": 0,
+                "Y": 0
+              },
+              "onScreen": null,
+              "alpha": 1,
+              "title": null
+            },
+            {
+              "zIndex": 12,
+              "pid": 15289,
+              "windowId": 162806,
+              "layer": 0,
+              "bounds": {
+                "Height": 720,
+                "Width": 640,
+                "X": 0,
+                "Y": 33
+              },
+              "onScreen": null,
+              "alpha": 0,
+              "title": null
+            },
+            {
+              "zIndex": 13,
+              "pid": 15289,
+              "windowId": 162805,
+              "layer": 0,
+              "bounds": {
+                "Height": 800,
+                "Width": 1200,
+                "X": 50,
+                "Y": 60
+              },
+              "onScreen": true,
+              "alpha": 1,
+              "title": null
+            },
+            {
+              "zIndex": 203,
+              "pid": 15289,
+              "windowId": 162835,
+              "layer": 0,
+              "bounds": {
+                "Height": 800,
+                "Width": 1200,
+                "X": 264,
+                "Y": 159
+              },
+              "onScreen": null,
+              "alpha": 1,
+              "title": null
+            },
+            {
+              "zIndex": 211,
+              "pid": 15289,
+              "windowId": 162818,
+              "layer": 0,
+              "bounds": {
+                "Height": 30,
+                "Width": 1920,
+                "X": 1821,
+                "Y": -1200
+              },
+              "onScreen": null,
+              "alpha": 1,
+              "title": null
+            },
+            {
+              "zIndex": 421,
+              "pid": 15289,
+              "windowId": 162811,
+              "layer": 0,
+              "bounds": {
+                "Height": 30,
+                "Width": 1920,
+                "X": -99,
+                "Y": -1200
+              },
+              "onScreen": null,
+              "alpha": 1,
+              "title": null
+            }
+          ],
+          "targetWindow": {
+            "zIndex": 13,
+            "pid": 15289,
+            "windowId": 162805,
+            "layer": 0,
+            "bounds": {
+              "Height": 800,
+              "Width": 1200,
+              "X": 50,
+              "Y": 60
+            },
+            "onScreen": true,
+            "alpha": 1,
+            "title": null
+          }
+        }
+      },
+      {
+        "epochMs": 1791963936912,
+        "monotonicMs": 6338.884625,
+        "shellVisible": true,
+        "shellMinimized": false,
+        "shellFullScreen": false,
+        "shellSimpleFullScreen": false,
+        "secondVisible": false,
+        "secondMinimized": false,
+        "secondFullScreen": false,
+        "secondSimpleFullScreen": false,
+        "shellBounds": {
+          "x": 50,
+          "y": 60,
+          "width": 1200,
+          "height": 800
+        },
+        "secondBounds": {
+          "x": 264,
+          "y": 159,
+          "width": 1200,
+          "height": 800
+        },
+        "shellDocument": {
+          "visibility": "visible",
+          "focus": true
+        },
+        "pageDocument": {
+          "visibility": "visible",
+          "focus": false
+        },
+        "secondDocument": {
+          "visibility": "visible",
+          "focus": false
+        },
+        "nativeTabVisible": true,
+        "shellChildViews": [
+          {
+            "id": 7,
+            "visible": true
+          },
+          {
+            "id": 2,
+            "visible": true
+          }
+        ],
+        "pageWebContentsId": 7,
+        "geometry": {
+          "windows": [
+            {
+              "zIndex": 0,
+              "pid": 15289,
+              "windowId": 162834,
+              "layer": 0,
+              "bounds": {
+                "Height": 720,
+                "Width": 640,
+                "X": 0,
+                "Y": 33
+              },
+              "onScreen": null,
+              "alpha": 0,
+              "title": null
+            },
+            {
+              "zIndex": 1,
+              "pid": 15289,
+              "windowId": 162819,
+              "layer": 0,
+              "bounds": {
+                "Height": 720,
+                "Width": 640,
+                "X": 0,
+                "Y": 33
+              },
+              "onScreen": true,
+              "alpha": 0,
+              "title": null
+            },
+            {
+              "zIndex": 2,
+              "pid": 15289,
+              "windowId": 162817,
+              "layer": 0,
+              "bounds": {
+                "Height": 30,
+                "Width": 1920,
+                "X": 1821,
+                "Y": -1200
+              },
+              "onScreen": null,
+              "alpha": 1,
+              "title": null
+            },
+            {
+              "zIndex": 3,
+              "pid": 15289,
+              "windowId": 162816,
+              "layer": 0,
+              "bounds": {
+                "Height": 30,
+                "Width": 1920,
+                "X": 1821,
+                "Y": -1200
+              },
+              "onScreen": null,
+              "alpha": 1,
+              "title": null
+            },
+            {
+              "zIndex": 4,
+              "pid": 15289,
+              "windowId": 162815,
+              "layer": 0,
+              "bounds": {
+                "Height": 30,
+                "Width": 1920,
+                "X": 1821,
+                "Y": -1200
+              },
+              "onScreen": null,
+              "alpha": 1,
+              "title": null
+            },
+            {
+              "zIndex": 5,
+              "pid": 15289,
+              "windowId": 162814,
+              "layer": 0,
+              "bounds": {
+                "Height": 30,
+                "Width": 1920,
+                "X": -99,
+                "Y": -1200
+              },
+              "onScreen": null,
+              "alpha": 1,
+              "title": null
+            },
+            {
+              "zIndex": 6,
+              "pid": 15289,
+              "windowId": 162813,
+              "layer": 0,
+              "bounds": {
+                "Height": 30,
+                "Width": 1920,
+                "X": -99,
+                "Y": -1200
+              },
+              "onScreen": null,
+              "alpha": 1,
+              "title": null
+            },
+            {
+              "zIndex": 7,
+              "pid": 15289,
+              "windowId": 162812,
+              "layer": 0,
+              "bounds": {
+                "Height": 30,
+                "Width": 1920,
+                "X": -99,
+                "Y": -1200
+              },
+              "onScreen": null,
+              "alpha": 1,
+              "title": null
+            },
+            {
+              "zIndex": 8,
+              "pid": 15289,
+              "windowId": 162810,
+              "layer": 0,
+              "bounds": {
+                "Height": 33,
+                "Width": 1728,
+                "X": 0,
+                "Y": 0
+              },
+              "onScreen": null,
+              "alpha": 1,
+              "title": null
+            },
+            {
+              "zIndex": 9,
+              "pid": 15289,
+              "windowId": 162809,
+              "layer": 0,
+              "bounds": {
+                "Height": 33,
+                "Width": 1728,
+                "X": 0,
+                "Y": 0
+              },
+              "onScreen": null,
+              "alpha": 1,
+              "title": null
+            },
+            {
+              "zIndex": 10,
+              "pid": 15289,
+              "windowId": 162808,
+              "layer": 0,
+              "bounds": {
+                "Height": 33,
+                "Width": 1728,
+                "X": 0,
+                "Y": 0
+              },
+              "onScreen": null,
+              "alpha": 1,
+              "title": null
+            },
+            {
+              "zIndex": 11,
+              "pid": 15289,
+              "windowId": 162807,
+              "layer": 0,
+              "bounds": {
+                "Height": 33,
+                "Width": 1728,
+                "X": 0,
+                "Y": 0
+              },
+              "onScreen": null,
+              "alpha": 1,
+              "title": null
+            },
+            {
+              "zIndex": 12,
+              "pid": 15289,
+              "windowId": 162806,
+              "layer": 0,
+              "bounds": {
+                "Height": 720,
+                "Width": 640,
+                "X": 0,
+                "Y": 33
+              },
+              "onScreen": null,
+              "alpha": 0,
+              "title": null
+            },
+            {
+              "zIndex": 13,
+              "pid": 15289,
+              "windowId": 162805,
+              "layer": 0,
+              "bounds": {
+                "Height": 800,
+                "Width": 1200,
+                "X": 50,
+                "Y": 60
+              },
+              "onScreen": true,
+              "alpha": 1,
+              "title": null
+            },
+            {
+              "zIndex": 203,
+              "pid": 15289,
+              "windowId": 162835,
+              "layer": 0,
+              "bounds": {
+                "Height": 800,
+                "Width": 1200,
+                "X": 264,
+                "Y": 159
+              },
+              "onScreen": null,
+              "alpha": 1,
+              "title": null
+            },
+            {
+              "zIndex": 211,
+              "pid": 15289,
+              "windowId": 162818,
+              "layer": 0,
+              "bounds": {
+                "Height": 30,
+                "Width": 1920,
+                "X": 1821,
+                "Y": -1200
+              },
+              "onScreen": null,
+              "alpha": 1,
+              "title": null
+            },
+            {
+              "zIndex": 421,
+              "pid": 15289,
+              "windowId": 162811,
+              "layer": 0,
+              "bounds": {
+                "Height": 30,
+                "Width": 1920,
+                "X": -99,
+                "Y": -1200
+              },
+              "onScreen": null,
+              "alpha": 1,
+              "title": null
+            }
+          ],
+          "targetWindow": {
+            "zIndex": 13,
+            "pid": 15289,
+            "windowId": 162805,
+            "layer": 0,
+            "bounds": {
+              "Height": 800,
+              "Width": 1200,
+              "X": 50,
+              "Y": 60
+            },
+            "onScreen": true,
+            "alpha": 1,
+            "title": null
+          }
+        }
+      }
+    ]
+  },
+  {
+    "caseId": "h-spaces-first-front",
+    "samples": [
+      {
+        "epochMs": 1791963939410,
+        "monotonicMs": 8836.67475,
+        "shellVisible": true,
+        "shellMinimized": false,
+        "shellFullScreen": true,
+        "shellSimpleFullScreen": false,
+        "secondVisible": false,
+        "secondMinimized": false,
+        "secondFullScreen": false,
+        "secondSimpleFullScreen": false,
+        "shellBounds": {
+          "x": 0,
+          "y": 33,
+          "width": 1728,
+          "height": 1084
+        },
+        "secondBounds": {
+          "x": 264,
+          "y": 159,
+          "width": 1200,
+          "height": 800
+        },
+        "shellDocument": {
+          "visibility": "visible",
+          "focus": true
+        },
+        "pageDocument": {
+          "visibility": "visible",
+          "focus": false
+        },
+        "secondDocument": {
+          "visibility": "visible",
+          "focus": false
+        },
+        "nativeTabVisible": true,
+        "shellChildViews": [
+          {
+            "id": 7,
+            "visible": true
+          },
+          {
+            "id": 2,
+            "visible": true
+          }
+        ],
+        "pageWebContentsId": 7,
+        "geometry": {
+          "windows": [
+            {
+              "zIndex": 0,
+              "pid": 15289,
+              "windowId": 162846,
+              "layer": 0,
+              "bounds": {
+                "Height": 1038,
+                "Width": 863,
+                "X": 0,
+                "Y": 33
+              },
+              "onScreen": null,
+              "alpha": 0,
+              "title": null
+            },
+            {
+              "zIndex": 1,
+              "pid": 15289,
+              "windowId": 162844,
+              "layer": 0,
+              "bounds": {
+                "Height": 1038,
+                "Width": 863,
+                "X": 0,
+                "Y": 33
+              },
+              "onScreen": null,
+              "alpha": 0,
+              "title": null
+            },
+            {
+              "zIndex": 2,
+              "pid": 15289,
+              "windowId": 162841,
+              "layer": 26,
+              "bounds": {
+                "Height": 33,
+                "Width": 1728,
+                "X": 0,
+                "Y": 0
+              },
+              "onScreen": true,
+              "alpha": 0,
+              "title": null
+            },
+            {
+              "zIndex": 5,
+              "pid": 15289,
+              "windowId": 162837,
+              "layer": 0,
+              "bounds": {
+                "Height": 32,
+                "Width": 1728,
+                "X": 0,
+                "Y": 33
+              },
+              "onScreen": true,
+              "alpha": 0,
+              "title": null
+            },
+            {
+              "zIndex": 6,
+              "pid": 15289,
+              "windowId": 162836,
+              "layer": 0,
+              "bounds": {
+                "Height": 1117,
+                "Width": 1728,
+                "X": 0,
+                "Y": 0
+              },
+              "onScreen": null,
+              "alpha": 1,
+              "title": null
+            },
+            {
+              "zIndex": 7,
+              "pid": 15289,
+              "windowId": 162819,
+              "layer": 0,
+              "bounds": {
+                "Height": 720,
+                "Width": 640,
+                "X": 0,
+                "Y": 33
+              },
+              "onScreen": null,
+              "alpha": 0,
+              "title": null
+            },
+            {
+              "zIndex": 8,
+              "pid": 15289,
+              "windowId": 162817,
+              "layer": 0,
+              "bounds": {
+                "Height": 30,
+                "Width": 1920,
+                "X": 1821,
+                "Y": -1200
+              },
+              "onScreen": null,
+              "alpha": 1,
+              "title": null
+            },
+            {
+              "zIndex": 9,
+              "pid": 15289,
+              "windowId": 162816,
+              "layer": 0,
+              "bounds": {
+                "Height": 30,
+                "Width": 1920,
+                "X": 1821,
+                "Y": -1200
+              },
+              "onScreen": null,
+              "alpha": 1,
+              "title": null
+            },
+            {
+              "zIndex": 10,
+              "pid": 15289,
+              "windowId": 162815,
+              "layer": 0,
+              "bounds": {
+                "Height": 30,
+                "Width": 1920,
+                "X": 1821,
+                "Y": -1200
+              },
+              "onScreen": null,
+              "alpha": 1,
+              "title": null
+            },
+            {
+              "zIndex": 11,
+              "pid": 15289,
+              "windowId": 162814,
+              "layer": 0,
+              "bounds": {
+                "Height": 30,
+                "Width": 1920,
+                "X": -99,
+                "Y": -1200
+              },
+              "onScreen": null,
+              "alpha": 1,
+              "title": null
+            },
+            {
+              "zIndex": 12,
+              "pid": 15289,
+              "windowId": 162813,
+              "layer": 0,
+              "bounds": {
+                "Height": 30,
+                "Width": 1920,
+                "X": -99,
+                "Y": -1200
+              },
+              "onScreen": null,
+              "alpha": 1,
+              "title": null
+            },
+            {
+              "zIndex": 13,
+              "pid": 15289,
+              "windowId": 162812,
+              "layer": 0,
+              "bounds": {
+                "Height": 30,
+                "Width": 1920,
+                "X": -99,
+                "Y": -1200
+              },
+              "onScreen": null,
+              "alpha": 1,
+              "title": null
+            },
+            {
+              "zIndex": 14,
+              "pid": 15289,
+              "windowId": 162810,
+              "layer": 0,
+              "bounds": {
+                "Height": 33,
+                "Width": 1728,
+                "X": 0,
+                "Y": 0
+              },
+              "onScreen": null,
+              "alpha": 1,
+              "title": null
+            },
+            {
+              "zIndex": 15,
+              "pid": 15289,
+              "windowId": 162809,
+              "layer": 0,
+              "bounds": {
+                "Height": 33,
+                "Width": 1728,
+                "X": 0,
+                "Y": 0
+              },
+              "onScreen": null,
+              "alpha": 1,
+              "title": null
+            },
+            {
+              "zIndex": 16,
+              "pid": 15289,
+              "windowId": 162808,
+              "layer": 0,
+              "bounds": {
+                "Height": 33,
+                "Width": 1728,
+                "X": 0,
+                "Y": 0
+              },
+              "onScreen": null,
+              "alpha": 1,
+              "title": null
+            },
+            {
+              "zIndex": 17,
+              "pid": 15289,
+              "windowId": 162807,
+              "layer": 0,
+              "bounds": {
+                "Height": 33,
+                "Width": 1728,
+                "X": 0,
+                "Y": 0
+              },
+              "onScreen": null,
+              "alpha": 1,
+              "title": null
+            },
+            {
+              "zIndex": 18,
+              "pid": 15289,
+              "windowId": 162805,
+              "layer": 0,
+              "bounds": {
+                "Height": 1084,
+                "Width": 1728,
+                "X": 0,
+                "Y": 33
+              },
+              "onScreen": true,
+              "alpha": 1,
+              "title": null
+            },
+            {
+              "zIndex": 210,
+              "pid": 15289,
+              "windowId": 162835,
+              "layer": 0,
+              "bounds": {
+                "Height": 800,
+                "Width": 1200,
+                "X": 264,
+                "Y": 159
+              },
+              "onScreen": null,
+              "alpha": 1,
+              "title": null
+            },
+            {
+              "zIndex": 218,
+              "pid": 15289,
+              "windowId": 162818,
+              "layer": 0,
+              "bounds": {
+                "Height": 30,
+                "Width": 1920,
+                "X": 1821,
+                "Y": -1200
+              },
+              "onScreen": null,
+              "alpha": 1,
+              "title": null
+            },
+            {
+              "zIndex": 428,
+              "pid": 15289,
+              "windowId": 162811,
+              "layer": 0,
+              "bounds": {
+                "Height": 30,
+                "Width": 1920,
+                "X": -99,
+                "Y": -1200
+              },
+              "onScreen": null,
+              "alpha": 1,
+              "title": null
+            }
+          ],
+          "targetWindow": {
+            "zIndex": 18,
+            "pid": 15289,
+            "windowId": 162805,
+            "layer": 0,
+            "bounds": {
+              "Height": 1084,
+              "Width": 1728,
+              "X": 0,
+              "Y": 33
+            },
+            "onScreen": true,
+            "alpha": 1,
+            "title": null
+          }
+        }
+      },
+      {
+        "epochMs": 1791963939873,
+        "monotonicMs": 9299.248708,
+        "shellVisible": true,
+        "shellMinimized": false,
+        "shellFullScreen": true,
+        "shellSimpleFullScreen": false,
+        "secondVisible": false,
+        "secondMinimized": false,
+        "secondFullScreen": false,
+        "secondSimpleFullScreen": false,
+        "shellBounds": {
+          "x": 0,
+          "y": 33,
+          "width": 1728,
+          "height": 1084
+        },
+        "secondBounds": {
+          "x": 264,
+          "y": 159,
+          "width": 1200,
+          "height": 800
+        },
+        "shellDocument": {
+          "visibility": "visible",
+          "focus": true
+        },
+        "pageDocument": {
+          "visibility": "visible",
+          "focus": false
+        },
+        "secondDocument": {
+          "visibility": "visible",
+          "focus": false
+        },
+        "nativeTabVisible": true,
+        "shellChildViews": [
+          {
+            "id": 7,
+            "visible": true
+          },
+          {
+            "id": 2,
+            "visible": true
+          }
+        ],
+        "pageWebContentsId": 7,
+        "geometry": {
+          "windows": [
+            {
+              "zIndex": 0,
+              "pid": 15289,
+              "windowId": 162846,
+              "layer": 0,
+              "bounds": {
+                "Height": 1038,
+                "Width": 863,
+                "X": 0,
+                "Y": 33
+              },
+              "onScreen": null,
+              "alpha": 0,
+              "title": null
+            },
+            {
+              "zIndex": 1,
+              "pid": 15289,
+              "windowId": 162844,
+              "layer": 0,
+              "bounds": {
+                "Height": 1038,
+                "Width": 863,
+                "X": 0,
+                "Y": 33
+              },
+              "onScreen": null,
+              "alpha": 0,
+              "title": null
+            },
+            {
+              "zIndex": 2,
+              "pid": 15289,
+              "windowId": 162841,
+              "layer": 26,
+              "bounds": {
+                "Height": 33,
+                "Width": 1728,
+                "X": 0,
+                "Y": 0
+              },
+              "onScreen": true,
+              "alpha": 0,
+              "title": null
+            },
+            {
+              "zIndex": 5,
+              "pid": 15289,
+              "windowId": 162837,
+              "layer": 0,
+              "bounds": {
+                "Height": 32,
+                "Width": 1728,
+                "X": 0,
+                "Y": 33
+              },
+              "onScreen": true,
+              "alpha": 0,
+              "title": null
+            },
+            {
+              "zIndex": 6,
+              "pid": 15289,
+              "windowId": 162836,
+              "layer": 0,
+              "bounds": {
+                "Height": 1117,
+                "Width": 1728,
+                "X": 0,
+                "Y": 0
+              },
+              "onScreen": null,
+              "alpha": 1,
+              "title": null
+            },
+            {
+              "zIndex": 7,
+              "pid": 15289,
+              "windowId": 162819,
+              "layer": 0,
+              "bounds": {
+                "Height": 720,
+                "Width": 640,
+                "X": 0,
+                "Y": 33
+              },
+              "onScreen": null,
+              "alpha": 0,
+              "title": null
+            },
+            {
+              "zIndex": 8,
+              "pid": 15289,
+              "windowId": 162817,
+              "layer": 0,
+              "bounds": {
+                "Height": 30,
+                "Width": 1920,
+                "X": 1821,
+                "Y": -1200
+              },
+              "onScreen": null,
+              "alpha": 1,
+              "title": null
+            },
+            {
+              "zIndex": 9,
+              "pid": 15289,
+              "windowId": 162816,
+              "layer": 0,
+              "bounds": {
+                "Height": 30,
+                "Width": 1920,
+                "X": 1821,
+                "Y": -1200
+              },
+              "onScreen": null,
+              "alpha": 1,
+              "title": null
+            },
+            {
+              "zIndex": 10,
+              "pid": 15289,
+              "windowId": 162815,
+              "layer": 0,
+              "bounds": {
+                "Height": 30,
+                "Width": 1920,
+                "X": 1821,
+                "Y": -1200
+              },
+              "onScreen": null,
+              "alpha": 1,
+              "title": null
+            },
+            {
+              "zIndex": 11,
+              "pid": 15289,
+              "windowId": 162814,
+              "layer": 0,
+              "bounds": {
+                "Height": 30,
+                "Width": 1920,
+                "X": -99,
+                "Y": -1200
+              },
+              "onScreen": null,
+              "alpha": 1,
+              "title": null
+            },
+            {
+              "zIndex": 12,
+              "pid": 15289,
+              "windowId": 162813,
+              "layer": 0,
+              "bounds": {
+                "Height": 30,
+                "Width": 1920,
+                "X": -99,
+                "Y": -1200
+              },
+              "onScreen": null,
+              "alpha": 1,
+              "title": null
+            },
+            {
+              "zIndex": 13,
+              "pid": 15289,
+              "windowId": 162812,
+              "layer": 0,
+              "bounds": {
+                "Height": 30,
+                "Width": 1920,
+                "X": -99,
+                "Y": -1200
+              },
+              "onScreen": null,
+              "alpha": 1,
+              "title": null
+            },
+            {
+              "zIndex": 14,
+              "pid": 15289,
+              "windowId": 162810,
+              "layer": 0,
+              "bounds": {
+                "Height": 33,
+                "Width": 1728,
+                "X": 0,
+                "Y": 0
+              },
+              "onScreen": null,
+              "alpha": 1,
+              "title": null
+            },
+            {
+              "zIndex": 15,
+              "pid": 15289,
+              "windowId": 162809,
+              "layer": 0,
+              "bounds": {
+                "Height": 33,
+                "Width": 1728,
+                "X": 0,
+                "Y": 0
+              },
+              "onScreen": null,
+              "alpha": 1,
+              "title": null
+            },
+            {
+              "zIndex": 16,
+              "pid": 15289,
+              "windowId": 162808,
+              "layer": 0,
+              "bounds": {
+                "Height": 33,
+                "Width": 1728,
+                "X": 0,
+                "Y": 0
+              },
+              "onScreen": null,
+              "alpha": 1,
+              "title": null
+            },
+            {
+              "zIndex": 17,
+              "pid": 15289,
+              "windowId": 162807,
+              "layer": 0,
+              "bounds": {
+                "Height": 33,
+                "Width": 1728,
+                "X": 0,
+                "Y": 0
+              },
+              "onScreen": null,
+              "alpha": 1,
+              "title": null
+            },
+            {
+              "zIndex": 18,
+              "pid": 15289,
+              "windowId": 162805,
+              "layer": 0,
+              "bounds": {
+                "Height": 1084,
+                "Width": 1728,
+                "X": 0,
+                "Y": 33
+              },
+              "onScreen": true,
+              "alpha": 1,
+              "title": null
+            },
+            {
+              "zIndex": 210,
+              "pid": 15289,
+              "windowId": 162835,
+              "layer": 0,
+              "bounds": {
+                "Height": 800,
+                "Width": 1200,
+                "X": 264,
+                "Y": 159
+              },
+              "onScreen": null,
+              "alpha": 1,
+              "title": null
+            },
+            {
+              "zIndex": 218,
+              "pid": 15289,
+              "windowId": 162818,
+              "layer": 0,
+              "bounds": {
+                "Height": 30,
+                "Width": 1920,
+                "X": 1821,
+                "Y": -1200
+              },
+              "onScreen": null,
+              "alpha": 1,
+              "title": null
+            },
+            {
+              "zIndex": 428,
+              "pid": 15289,
+              "windowId": 162811,
+              "layer": 0,
+              "bounds": {
+                "Height": 30,
+                "Width": 1920,
+                "X": -99,
+                "Y": -1200
+              },
+              "onScreen": null,
+              "alpha": 1,
+              "title": null
+            }
+          ],
+          "targetWindow": {
+            "zIndex": 18,
+            "pid": 15289,
+            "windowId": 162805,
+            "layer": 0,
+            "bounds": {
+              "Height": 1084,
+              "Width": 1728,
+              "X": 0,
+              "Y": 33
+            },
+            "onScreen": true,
+            "alpha": 1,
+            "title": null
+          }
+        }
+      },
+      {
+        "epochMs": 1791963940340,
+        "monotonicMs": 9766.400417,
+        "shellVisible": true,
+        "shellMinimized": false,
+        "shellFullScreen": true,
+        "shellSimpleFullScreen": false,
+        "secondVisible": false,
+        "secondMinimized": false,
+        "secondFullScreen": false,
+        "secondSimpleFullScreen": false,
+        "shellBounds": {
+          "x": 0,
+          "y": 33,
+          "width": 1728,
+          "height": 1084
+        },
+        "secondBounds": {
+          "x": 264,
+          "y": 159,
+          "width": 1200,
+          "height": 800
+        },
+        "shellDocument": {
+          "visibility": "visible",
+          "focus": true
+        },
+        "pageDocument": {
+          "visibility": "visible",
+          "focus": false
+        },
+        "secondDocument": {
+          "visibility": "visible",
+          "focus": false
+        },
+        "nativeTabVisible": true,
+        "shellChildViews": [
+          {
+            "id": 7,
+            "visible": true
+          },
+          {
+            "id": 2,
+            "visible": true
+          }
+        ],
+        "pageWebContentsId": 7,
+        "geometry": {
+          "windows": [
+            {
+              "zIndex": 0,
+              "pid": 15289,
+              "windowId": 162846,
+              "layer": 0,
+              "bounds": {
+                "Height": 1038,
+                "Width": 863,
+                "X": 0,
+                "Y": 33
+              },
+              "onScreen": null,
+              "alpha": 0,
+              "title": null
+            },
+            {
+              "zIndex": 1,
+              "pid": 15289,
+              "windowId": 162844,
+              "layer": 0,
+              "bounds": {
+                "Height": 1038,
+                "Width": 863,
+                "X": 0,
+                "Y": 33
+              },
+              "onScreen": null,
+              "alpha": 0,
+              "title": null
+            },
+            {
+              "zIndex": 2,
+              "pid": 15289,
+              "windowId": 162841,
+              "layer": 26,
+              "bounds": {
+                "Height": 33,
+                "Width": 1728,
+                "X": 0,
+                "Y": 0
+              },
+              "onScreen": true,
+              "alpha": 0,
+              "title": null
+            },
+            {
+              "zIndex": 5,
+              "pid": 15289,
+              "windowId": 162837,
+              "layer": 0,
+              "bounds": {
+                "Height": 32,
+                "Width": 1728,
+                "X": 0,
+                "Y": 33
+              },
+              "onScreen": true,
+              "alpha": 0,
+              "title": null
+            },
+            {
+              "zIndex": 6,
+              "pid": 15289,
+              "windowId": 162836,
+              "layer": 0,
+              "bounds": {
+                "Height": 1117,
+                "Width": 1728,
+                "X": 0,
+                "Y": 0
+              },
+              "onScreen": null,
+              "alpha": 1,
+              "title": null
+            },
+            {
+              "zIndex": 7,
+              "pid": 15289,
+              "windowId": 162819,
+              "layer": 0,
+              "bounds": {
+                "Height": 720,
+                "Width": 640,
+                "X": 0,
+                "Y": 33
+              },
+              "onScreen": null,
+              "alpha": 0,
+              "title": null
+            },
+            {
+              "zIndex": 8,
+              "pid": 15289,
+              "windowId": 162817,
+              "layer": 0,
+              "bounds": {
+                "Height": 30,
+                "Width": 1920,
+                "X": 1821,
+                "Y": -1200
+              },
+              "onScreen": null,
+              "alpha": 1,
+              "title": null
+            },
+            {
+              "zIndex": 9,
+              "pid": 15289,
+              "windowId": 162816,
+              "layer": 0,
+              "bounds": {
+                "Height": 30,
+                "Width": 1920,
+                "X": 1821,
+                "Y": -1200
+              },
+              "onScreen": null,
+              "alpha": 1,
+              "title": null
+            },
+            {
+              "zIndex": 10,
+              "pid": 15289,
+              "windowId": 162815,
+              "layer": 0,
+              "bounds": {
+                "Height": 30,
+                "Width": 1920,
+                "X": 1821,
+                "Y": -1200
+              },
+              "onScreen": null,
+              "alpha": 1,
+              "title": null
+            },
+            {
+              "zIndex": 11,
+              "pid": 15289,
+              "windowId": 162814,
+              "layer": 0,
+              "bounds": {
+                "Height": 30,
+                "Width": 1920,
+                "X": -99,
+                "Y": -1200
+              },
+              "onScreen": null,
+              "alpha": 1,
+              "title": null
+            },
+            {
+              "zIndex": 12,
+              "pid": 15289,
+              "windowId": 162813,
+              "layer": 0,
+              "bounds": {
+                "Height": 30,
+                "Width": 1920,
+                "X": -99,
+                "Y": -1200
+              },
+              "onScreen": null,
+              "alpha": 1,
+              "title": null
+            },
+            {
+              "zIndex": 13,
+              "pid": 15289,
+              "windowId": 162812,
+              "layer": 0,
+              "bounds": {
+                "Height": 30,
+                "Width": 1920,
+                "X": -99,
+                "Y": -1200
+              },
+              "onScreen": null,
+              "alpha": 1,
+              "title": null
+            },
+            {
+              "zIndex": 14,
+              "pid": 15289,
+              "windowId": 162810,
+              "layer": 0,
+              "bounds": {
+                "Height": 33,
+                "Width": 1728,
+                "X": 0,
+                "Y": 0
+              },
+              "onScreen": null,
+              "alpha": 1,
+              "title": null
+            },
+            {
+              "zIndex": 15,
+              "pid": 15289,
+              "windowId": 162809,
+              "layer": 0,
+              "bounds": {
+                "Height": 33,
+                "Width": 1728,
+                "X": 0,
+                "Y": 0
+              },
+              "onScreen": null,
+              "alpha": 1,
+              "title": null
+            },
+            {
+              "zIndex": 16,
+              "pid": 15289,
+              "windowId": 162808,
+              "layer": 0,
+              "bounds": {
+                "Height": 33,
+                "Width": 1728,
+                "X": 0,
+                "Y": 0
+              },
+              "onScreen": null,
+              "alpha": 1,
+              "title": null
+            },
+            {
+              "zIndex": 17,
+              "pid": 15289,
+              "windowId": 162807,
+              "layer": 0,
+              "bounds": {
+                "Height": 33,
+                "Width": 1728,
+                "X": 0,
+                "Y": 0
+              },
+              "onScreen": null,
+              "alpha": 1,
+              "title": null
+            },
+            {
+              "zIndex": 18,
+              "pid": 15289,
+              "windowId": 162805,
+              "layer": 0,
+              "bounds": {
+                "Height": 1084,
+                "Width": 1728,
+                "X": 0,
+                "Y": 33
+              },
+              "onScreen": true,
+              "alpha": 1,
+              "title": null
+            },
+            {
+              "zIndex": 210,
+              "pid": 15289,
+              "windowId": 162835,
+              "layer": 0,
+              "bounds": {
+                "Height": 800,
+                "Width": 1200,
+                "X": 264,
+                "Y": 159
+              },
+              "onScreen": null,
+              "alpha": 1,
+              "title": null
+            },
+            {
+              "zIndex": 218,
+              "pid": 15289,
+              "windowId": 162818,
+              "layer": 0,
+              "bounds": {
+                "Height": 30,
+                "Width": 1920,
+                "X": 1821,
+                "Y": -1200
+              },
+              "onScreen": null,
+              "alpha": 1,
+              "title": null
+            },
+            {
+              "zIndex": 428,
+              "pid": 15289,
+              "windowId": 162811,
+              "layer": 0,
+              "bounds": {
+                "Height": 30,
+                "Width": 1920,
+                "X": -99,
+                "Y": -1200
+              },
+              "onScreen": null,
+              "alpha": 1,
+              "title": null
+            }
+          ],
+          "targetWindow": {
+            "zIndex": 18,
+            "pid": 15289,
+            "windowId": 162805,
+            "layer": 0,
+            "bounds": {
+              "Height": 1084,
+              "Width": 1728,
+              "X": 0,
+              "Y": 33
+            },
+            "onScreen": true,
+            "alpha": 1,
+            "title": null
+          }
+        }
+      },
+      {
+        "epochMs": 1791963940792,
+        "monotonicMs": 10218.731125,
+        "shellVisible": true,
+        "shellMinimized": false,
+        "shellFullScreen": true,
+        "shellSimpleFullScreen": false,
+        "secondVisible": false,
+        "secondMinimized": false,
+        "secondFullScreen": false,
+        "secondSimpleFullScreen": false,
+        "shellBounds": {
+          "x": 0,
+          "y": 33,
+          "width": 1728,
+          "height": 1084
+        },
+        "secondBounds": {
+          "x": 264,
+          "y": 159,
+          "width": 1200,
+          "height": 800
+        },
+        "shellDocument": {
+          "visibility": "visible",
+          "focus": true
+        },
+        "pageDocument": {
+          "visibility": "visible",
+          "focus": false
+        },
+        "secondDocument": {
+          "visibility": "visible",
+          "focus": false
+        },
+        "nativeTabVisible": true,
+        "shellChildViews": [
+          {
+            "id": 7,
+            "visible": true
+          },
+          {
+            "id": 2,
+            "visible": true
+          }
+        ],
+        "pageWebContentsId": 7,
+        "geometry": {
+          "windows": [
+            {
+              "zIndex": 0,
+              "pid": 15289,
+              "windowId": 162846,
+              "layer": 0,
+              "bounds": {
+                "Height": 1038,
+                "Width": 863,
+                "X": 0,
+                "Y": 33
+              },
+              "onScreen": null,
+              "alpha": 0,
+              "title": null
+            },
+            {
+              "zIndex": 1,
+              "pid": 15289,
+              "windowId": 162844,
+              "layer": 0,
+              "bounds": {
+                "Height": 1038,
+                "Width": 863,
+                "X": 0,
+                "Y": 33
+              },
+              "onScreen": null,
+              "alpha": 0,
+              "title": null
+            },
+            {
+              "zIndex": 2,
+              "pid": 15289,
+              "windowId": 162841,
+              "layer": 26,
+              "bounds": {
+                "Height": 33,
+                "Width": 1728,
+                "X": 0,
+                "Y": 0
+              },
+              "onScreen": true,
+              "alpha": 0,
+              "title": null
+            },
+            {
+              "zIndex": 5,
+              "pid": 15289,
+              "windowId": 162837,
+              "layer": 0,
+              "bounds": {
+                "Height": 32,
+                "Width": 1728,
+                "X": 0,
+                "Y": 33
+              },
+              "onScreen": true,
+              "alpha": 0,
+              "title": null
+            },
+            {
+              "zIndex": 6,
+              "pid": 15289,
+              "windowId": 162836,
+              "layer": 0,
+              "bounds": {
+                "Height": 1117,
+                "Width": 1728,
+                "X": 0,
+                "Y": 0
+              },
+              "onScreen": null,
+              "alpha": 1,
+              "title": null
+            },
+            {
+              "zIndex": 7,
+              "pid": 15289,
+              "windowId": 162819,
+              "layer": 0,
+              "bounds": {
+                "Height": 720,
+                "Width": 640,
+                "X": 0,
+                "Y": 33
+              },
+              "onScreen": null,
+              "alpha": 0,
+              "title": null
+            },
+            {
+              "zIndex": 8,
+              "pid": 15289,
+              "windowId": 162817,
+              "layer": 0,
+              "bounds": {
+                "Height": 30,
+                "Width": 1920,
+                "X": 1821,
+                "Y": -1200
+              },
+              "onScreen": null,
+              "alpha": 1,
+              "title": null
+            },
+            {
+              "zIndex": 9,
+              "pid": 15289,
+              "windowId": 162816,
+              "layer": 0,
+              "bounds": {
+                "Height": 30,
+                "Width": 1920,
+                "X": 1821,
+                "Y": -1200
+              },
+              "onScreen": null,
+              "alpha": 1,
+              "title": null
+            },
+            {
+              "zIndex": 10,
+              "pid": 15289,
+              "windowId": 162815,
+              "layer": 0,
+              "bounds": {
+                "Height": 30,
+                "Width": 1920,
+                "X": 1821,
+                "Y": -1200
+              },
+              "onScreen": null,
+              "alpha": 1,
+              "title": null
+            },
+            {
+              "zIndex": 11,
+              "pid": 15289,
+              "windowId": 162814,
+              "layer": 0,
+              "bounds": {
+                "Height": 30,
+                "Width": 1920,
+                "X": -99,
+                "Y": -1200
+              },
+              "onScreen": null,
+              "alpha": 1,
+              "title": null
+            },
+            {
+              "zIndex": 12,
+              "pid": 15289,
+              "windowId": 162813,
+              "layer": 0,
+              "bounds": {
+                "Height": 30,
+                "Width": 1920,
+                "X": -99,
+                "Y": -1200
+              },
+              "onScreen": null,
+              "alpha": 1,
+              "title": null
+            },
+            {
+              "zIndex": 13,
+              "pid": 15289,
+              "windowId": 162812,
+              "layer": 0,
+              "bounds": {
+                "Height": 30,
+                "Width": 1920,
+                "X": -99,
+                "Y": -1200
+              },
+              "onScreen": null,
+              "alpha": 1,
+              "title": null
+            },
+            {
+              "zIndex": 14,
+              "pid": 15289,
+              "windowId": 162810,
+              "layer": 0,
+              "bounds": {
+                "Height": 33,
+                "Width": 1728,
+                "X": 0,
+                "Y": 0
+              },
+              "onScreen": null,
+              "alpha": 1,
+              "title": null
+            },
+            {
+              "zIndex": 15,
+              "pid": 15289,
+              "windowId": 162809,
+              "layer": 0,
+              "bounds": {
+                "Height": 33,
+                "Width": 1728,
+                "X": 0,
+                "Y": 0
+              },
+              "onScreen": null,
+              "alpha": 1,
+              "title": null
+            },
+            {
+              "zIndex": 16,
+              "pid": 15289,
+              "windowId": 162808,
+              "layer": 0,
+              "bounds": {
+                "Height": 33,
+                "Width": 1728,
+                "X": 0,
+                "Y": 0
+              },
+              "onScreen": null,
+              "alpha": 1,
+              "title": null
+            },
+            {
+              "zIndex": 17,
+              "pid": 15289,
+              "windowId": 162807,
+              "layer": 0,
+              "bounds": {
+                "Height": 33,
+                "Width": 1728,
+                "X": 0,
+                "Y": 0
+              },
+              "onScreen": null,
+              "alpha": 1,
+              "title": null
+            },
+            {
+              "zIndex": 18,
+              "pid": 15289,
+              "windowId": 162805,
+              "layer": 0,
+              "bounds": {
+                "Height": 1084,
+                "Width": 1728,
+                "X": 0,
+                "Y": 33
+              },
+              "onScreen": true,
+              "alpha": 1,
+              "title": null
+            },
+            {
+              "zIndex": 210,
+              "pid": 15289,
+              "windowId": 162835,
+              "layer": 0,
+              "bounds": {
+                "Height": 800,
+                "Width": 1200,
+                "X": 264,
+                "Y": 159
+              },
+              "onScreen": null,
+              "alpha": 1,
+              "title": null
+            },
+            {
+              "zIndex": 218,
+              "pid": 15289,
+              "windowId": 162818,
+              "layer": 0,
+              "bounds": {
+                "Height": 30,
+                "Width": 1920,
+                "X": 1821,
+                "Y": -1200
+              },
+              "onScreen": null,
+              "alpha": 1,
+              "title": null
+            },
+            {
+              "zIndex": 428,
+              "pid": 15289,
+              "windowId": 162811,
+              "layer": 0,
+              "bounds": {
+                "Height": 30,
+                "Width": 1920,
+                "X": -99,
+                "Y": -1200
+              },
+              "onScreen": null,
+              "alpha": 1,
+              "title": null
+            }
+          ],
+          "targetWindow": {
+            "zIndex": 18,
+            "pid": 15289,
+            "windowId": 162805,
+            "layer": 0,
+            "bounds": {
+              "Height": 1084,
+              "Width": 1728,
+              "X": 0,
+              "Y": 33
+            },
+            "onScreen": true,
+            "alpha": 1,
+            "title": null
+          }
+        }
+      },
+      {
+        "epochMs": 1791963941261,
+        "monotonicMs": 10687.695042,
+        "shellVisible": true,
+        "shellMinimized": false,
+        "shellFullScreen": true,
+        "shellSimpleFullScreen": false,
+        "secondVisible": false,
+        "secondMinimized": false,
+        "secondFullScreen": false,
+        "secondSimpleFullScreen": false,
+        "shellBounds": {
+          "x": 0,
+          "y": 33,
+          "width": 1728,
+          "height": 1084
+        },
+        "secondBounds": {
+          "x": 264,
+          "y": 159,
+          "width": 1200,
+          "height": 800
+        },
+        "shellDocument": {
+          "visibility": "visible",
+          "focus": true
+        },
+        "pageDocument": {
+          "visibility": "visible",
+          "focus": false
+        },
+        "secondDocument": {
+          "visibility": "visible",
+          "focus": false
+        },
+        "nativeTabVisible": true,
+        "shellChildViews": [
+          {
+            "id": 7,
+            "visible": true
+          },
+          {
+            "id": 2,
+            "visible": true
+          }
+        ],
+        "pageWebContentsId": 7,
+        "geometry": {
+          "windows": [
+            {
+              "zIndex": 0,
+              "pid": 15289,
+              "windowId": 162846,
+              "layer": 0,
+              "bounds": {
+                "Height": 1038,
+                "Width": 863,
+                "X": 0,
+                "Y": 33
+              },
+              "onScreen": null,
+              "alpha": 0,
+              "title": null
+            },
+            {
+              "zIndex": 1,
+              "pid": 15289,
+              "windowId": 162844,
+              "layer": 0,
+              "bounds": {
+                "Height": 1038,
+                "Width": 863,
+                "X": 0,
+                "Y": 33
+              },
+              "onScreen": null,
+              "alpha": 0,
+              "title": null
+            },
+            {
+              "zIndex": 2,
+              "pid": 15289,
+              "windowId": 162841,
+              "layer": 26,
+              "bounds": {
+                "Height": 33,
+                "Width": 1728,
+                "X": 0,
+                "Y": 0
+              },
+              "onScreen": true,
+              "alpha": 0,
+              "title": null
+            },
+            {
+              "zIndex": 5,
+              "pid": 15289,
+              "windowId": 162837,
+              "layer": 0,
+              "bounds": {
+                "Height": 32,
+                "Width": 1728,
+                "X": 0,
+                "Y": 33
+              },
+              "onScreen": true,
+              "alpha": 0,
+              "title": null
+            },
+            {
+              "zIndex": 6,
+              "pid": 15289,
+              "windowId": 162836,
+              "layer": 0,
+              "bounds": {
+                "Height": 1117,
+                "Width": 1728,
+                "X": 0,
+                "Y": 0
+              },
+              "onScreen": null,
+              "alpha": 1,
+              "title": null
+            },
+            {
+              "zIndex": 7,
+              "pid": 15289,
+              "windowId": 162819,
+              "layer": 0,
+              "bounds": {
+                "Height": 720,
+                "Width": 640,
+                "X": 0,
+                "Y": 33
+              },
+              "onScreen": null,
+              "alpha": 0,
+              "title": null
+            },
+            {
+              "zIndex": 8,
+              "pid": 15289,
+              "windowId": 162817,
+              "layer": 0,
+              "bounds": {
+                "Height": 30,
+                "Width": 1920,
+                "X": 1821,
+                "Y": -1200
+              },
+              "onScreen": null,
+              "alpha": 1,
+              "title": null
+            },
+            {
+              "zIndex": 9,
+              "pid": 15289,
+              "windowId": 162816,
+              "layer": 0,
+              "bounds": {
+                "Height": 30,
+                "Width": 1920,
+                "X": 1821,
+                "Y": -1200
+              },
+              "onScreen": null,
+              "alpha": 1,
+              "title": null
+            },
+            {
+              "zIndex": 10,
+              "pid": 15289,
+              "windowId": 162815,
+              "layer": 0,
+              "bounds": {
+                "Height": 30,
+                "Width": 1920,
+                "X": 1821,
+                "Y": -1200
+              },
+              "onScreen": null,
+              "alpha": 1,
+              "title": null
+            },
+            {
+              "zIndex": 11,
+              "pid": 15289,
+              "windowId": 162814,
+              "layer": 0,
+              "bounds": {
+                "Height": 30,
+                "Width": 1920,
+                "X": -99,
+                "Y": -1200
+              },
+              "onScreen": null,
+              "alpha": 1,
+              "title": null
+            },
+            {
+              "zIndex": 12,
+              "pid": 15289,
+              "windowId": 162813,
+              "layer": 0,
+              "bounds": {
+                "Height": 30,
+                "Width": 1920,
+                "X": -99,
+                "Y": -1200
+              },
+              "onScreen": null,
+              "alpha": 1,
+              "title": null
+            },
+            {
+              "zIndex": 13,
+              "pid": 15289,
+              "windowId": 162812,
+              "layer": 0,
+              "bounds": {
+                "Height": 30,
+                "Width": 1920,
+                "X": -99,
+                "Y": -1200
+              },
+              "onScreen": null,
+              "alpha": 1,
+              "title": null
+            },
+            {
+              "zIndex": 14,
+              "pid": 15289,
+              "windowId": 162810,
+              "layer": 0,
+              "bounds": {
+                "Height": 33,
+                "Width": 1728,
+                "X": 0,
+                "Y": 0
+              },
+              "onScreen": null,
+              "alpha": 1,
+              "title": null
+            },
+            {
+              "zIndex": 15,
+              "pid": 15289,
+              "windowId": 162809,
+              "layer": 0,
+              "bounds": {
+                "Height": 33,
+                "Width": 1728,
+                "X": 0,
+                "Y": 0
+              },
+              "onScreen": null,
+              "alpha": 1,
+              "title": null
+            },
+            {
+              "zIndex": 16,
+              "pid": 15289,
+              "windowId": 162808,
+              "layer": 0,
+              "bounds": {
+                "Height": 33,
+                "Width": 1728,
+                "X": 0,
+                "Y": 0
+              },
+              "onScreen": null,
+              "alpha": 1,
+              "title": null
+            },
+            {
+              "zIndex": 17,
+              "pid": 15289,
+              "windowId": 162807,
+              "layer": 0,
+              "bounds": {
+                "Height": 33,
+                "Width": 1728,
+                "X": 0,
+                "Y": 0
+              },
+              "onScreen": null,
+              "alpha": 1,
+              "title": null
+            },
+            {
+              "zIndex": 18,
+              "pid": 15289,
+              "windowId": 162805,
+              "layer": 0,
+              "bounds": {
+                "Height": 1084,
+                "Width": 1728,
+                "X": 0,
+                "Y": 33
+              },
+              "onScreen": true,
+              "alpha": 1,
+              "title": null
+            },
+            {
+              "zIndex": 210,
+              "pid": 15289,
+              "windowId": 162835,
+              "layer": 0,
+              "bounds": {
+                "Height": 800,
+                "Width": 1200,
+                "X": 264,
+                "Y": 159
+              },
+              "onScreen": null,
+              "alpha": 1,
+              "title": null
+            },
+            {
+              "zIndex": 218,
+              "pid": 15289,
+              "windowId": 162818,
+              "layer": 0,
+              "bounds": {
+                "Height": 30,
+                "Width": 1920,
+                "X": 1821,
+                "Y": -1200
+              },
+              "onScreen": null,
+              "alpha": 1,
+              "title": null
+            },
+            {
+              "zIndex": 428,
+              "pid": 15289,
+              "windowId": 162811,
+              "layer": 0,
+              "bounds": {
+                "Height": 30,
+                "Width": 1920,
+                "X": -99,
+                "Y": -1200
+              },
+              "onScreen": null,
+              "alpha": 1,
+              "title": null
+            }
+          ],
+          "targetWindow": {
+            "zIndex": 18,
+            "pid": 15289,
+            "windowId": 162805,
+            "layer": 0,
+            "bounds": {
+              "Height": 1084,
+              "Width": 1728,
+              "X": 0,
+              "Y": 33
+            },
+            "onScreen": true,
+            "alpha": 1,
+            "title": null
+          }
+        }
+      },
+      {
+        "epochMs": 1791963941761,
+        "monotonicMs": 11187.442417,
+        "shellVisible": true,
+        "shellMinimized": false,
+        "shellFullScreen": true,
+        "shellSimpleFullScreen": false,
+        "secondVisible": false,
+        "secondMinimized": false,
+        "secondFullScreen": false,
+        "secondSimpleFullScreen": false,
+        "shellBounds": {
+          "x": 0,
+          "y": 33,
+          "width": 1728,
+          "height": 1084
+        },
+        "secondBounds": {
+          "x": 264,
+          "y": 159,
+          "width": 1200,
+          "height": 800
+        },
+        "shellDocument": {
+          "visibility": "visible",
+          "focus": true
+        },
+        "pageDocument": {
+          "visibility": "visible",
+          "focus": false
+        },
+        "secondDocument": {
+          "visibility": "visible",
+          "focus": false
+        },
+        "nativeTabVisible": true,
+        "shellChildViews": [
+          {
+            "id": 7,
+            "visible": true
+          },
+          {
+            "id": 2,
+            "visible": true
+          }
+        ],
+        "pageWebContentsId": 7,
+        "geometry": {
+          "windows": [
+            {
+              "zIndex": 0,
+              "pid": 15289,
+              "windowId": 162846,
+              "layer": 0,
+              "bounds": {
+                "Height": 1038,
+                "Width": 863,
+                "X": 0,
+                "Y": 33
+              },
+              "onScreen": null,
+              "alpha": 0,
+              "title": null
+            },
+            {
+              "zIndex": 1,
+              "pid": 15289,
+              "windowId": 162844,
+              "layer": 0,
+              "bounds": {
+                "Height": 1038,
+                "Width": 863,
+                "X": 0,
+                "Y": 33
+              },
+              "onScreen": null,
+              "alpha": 0,
+              "title": null
+            },
+            {
+              "zIndex": 2,
+              "pid": 15289,
+              "windowId": 162841,
+              "layer": 26,
+              "bounds": {
+                "Height": 33,
+                "Width": 1728,
+                "X": 0,
+                "Y": 0
+              },
+              "onScreen": true,
+              "alpha": 0,
+              "title": null
+            },
+            {
+              "zIndex": 5,
+              "pid": 15289,
+              "windowId": 162837,
+              "layer": 0,
+              "bounds": {
+                "Height": 32,
+                "Width": 1728,
+                "X": 0,
+                "Y": 33
+              },
+              "onScreen": true,
+              "alpha": 0,
+              "title": null
+            },
+            {
+              "zIndex": 6,
+              "pid": 15289,
+              "windowId": 162836,
+              "layer": 0,
+              "bounds": {
+                "Height": 1117,
+                "Width": 1728,
+                "X": 0,
+                "Y": 0
+              },
+              "onScreen": null,
+              "alpha": 1,
+              "title": null
+            },
+            {
+              "zIndex": 7,
+              "pid": 15289,
+              "windowId": 162819,
+              "layer": 0,
+              "bounds": {
+                "Height": 720,
+                "Width": 640,
+                "X": 0,
+                "Y": 33
+              },
+              "onScreen": null,
+              "alpha": 0,
+              "title": null
+            },
+            {
+              "zIndex": 8,
+              "pid": 15289,
+              "windowId": 162817,
+              "layer": 0,
+              "bounds": {
+                "Height": 30,
+                "Width": 1920,
+                "X": 1821,
+                "Y": -1200
+              },
+              "onScreen": null,
+              "alpha": 1,
+              "title": null
+            },
+            {
+              "zIndex": 9,
+              "pid": 15289,
+              "windowId": 162816,
+              "layer": 0,
+              "bounds": {
+                "Height": 30,
+                "Width": 1920,
+                "X": 1821,
+                "Y": -1200
+              },
+              "onScreen": null,
+              "alpha": 1,
+              "title": null
+            },
+            {
+              "zIndex": 10,
+              "pid": 15289,
+              "windowId": 162815,
+              "layer": 0,
+              "bounds": {
+                "Height": 30,
+                "Width": 1920,
+                "X": 1821,
+                "Y": -1200
+              },
+              "onScreen": null,
+              "alpha": 1,
+              "title": null
+            },
+            {
+              "zIndex": 11,
+              "pid": 15289,
+              "windowId": 162814,
+              "layer": 0,
+              "bounds": {
+                "Height": 30,
+                "Width": 1920,
+                "X": -99,
+                "Y": -1200
+              },
+              "onScreen": null,
+              "alpha": 1,
+              "title": null
+            },
+            {
+              "zIndex": 12,
+              "pid": 15289,
+              "windowId": 162813,
+              "layer": 0,
+              "bounds": {
+                "Height": 30,
+                "Width": 1920,
+                "X": -99,
+                "Y": -1200
+              },
+              "onScreen": null,
+              "alpha": 1,
+              "title": null
+            },
+            {
+              "zIndex": 13,
+              "pid": 15289,
+              "windowId": 162812,
+              "layer": 0,
+              "bounds": {
+                "Height": 30,
+                "Width": 1920,
+                "X": -99,
+                "Y": -1200
+              },
+              "onScreen": null,
+              "alpha": 1,
+              "title": null
+            },
+            {
+              "zIndex": 14,
+              "pid": 15289,
+              "windowId": 162810,
+              "layer": 0,
+              "bounds": {
+                "Height": 33,
+                "Width": 1728,
+                "X": 0,
+                "Y": 0
+              },
+              "onScreen": null,
+              "alpha": 1,
+              "title": null
+            },
+            {
+              "zIndex": 15,
+              "pid": 15289,
+              "windowId": 162809,
+              "layer": 0,
+              "bounds": {
+                "Height": 33,
+                "Width": 1728,
+                "X": 0,
+                "Y": 0
+              },
+              "onScreen": null,
+              "alpha": 1,
+              "title": null
+            },
+            {
+              "zIndex": 16,
+              "pid": 15289,
+              "windowId": 162808,
+              "layer": 0,
+              "bounds": {
+                "Height": 33,
+                "Width": 1728,
+                "X": 0,
+                "Y": 0
+              },
+              "onScreen": null,
+              "alpha": 1,
+              "title": null
+            },
+            {
+              "zIndex": 17,
+              "pid": 15289,
+              "windowId": 162807,
+              "layer": 0,
+              "bounds": {
+                "Height": 33,
+                "Width": 1728,
+                "X": 0,
+                "Y": 0
+              },
+              "onScreen": null,
+              "alpha": 1,
+              "title": null
+            },
+            {
+              "zIndex": 18,
+              "pid": 15289,
+              "windowId": 162805,
+              "layer": 0,
+              "bounds": {
+                "Height": 1084,
+                "Width": 1728,
+                "X": 0,
+                "Y": 33
+              },
+              "onScreen": true,
+              "alpha": 1,
+              "title": null
+            },
+            {
+              "zIndex": 210,
+              "pid": 15289,
+              "windowId": 162835,
+              "layer": 0,
+              "bounds": {
+                "Height": 800,
+                "Width": 1200,
+                "X": 264,
+                "Y": 159
+              },
+              "onScreen": null,
+              "alpha": 1,
+              "title": null
+            },
+            {
+              "zIndex": 218,
+              "pid": 15289,
+              "windowId": 162818,
+              "layer": 0,
+              "bounds": {
+                "Height": 30,
+                "Width": 1920,
+                "X": 1821,
+                "Y": -1200
+              },
+              "onScreen": null,
+              "alpha": 1,
+              "title": null
+            },
+            {
+              "zIndex": 428,
+              "pid": 15289,
+              "windowId": 162811,
+              "layer": 0,
+              "bounds": {
+                "Height": 30,
+                "Width": 1920,
+                "X": -99,
+                "Y": -1200
+              },
+              "onScreen": null,
+              "alpha": 1,
+              "title": null
+            }
+          ],
+          "targetWindow": {
+            "zIndex": 18,
+            "pid": 15289,
+            "windowId": 162805,
+            "layer": 0,
+            "bounds": {
+              "Height": 1084,
+              "Width": 1728,
+              "X": 0,
+              "Y": 33
+            },
+            "onScreen": true,
+            "alpha": 1,
+            "title": null
+          }
+        }
+      },
+      {
+        "epochMs": 1791963942215,
+        "monotonicMs": 11641.337333,
+        "shellVisible": true,
+        "shellMinimized": false,
+        "shellFullScreen": true,
+        "shellSimpleFullScreen": false,
+        "secondVisible": false,
+        "secondMinimized": false,
+        "secondFullScreen": false,
+        "secondSimpleFullScreen": false,
+        "shellBounds": {
+          "x": 0,
+          "y": 33,
+          "width": 1728,
+          "height": 1084
+        },
+        "secondBounds": {
+          "x": 264,
+          "y": 159,
+          "width": 1200,
+          "height": 800
+        },
+        "shellDocument": {
+          "visibility": "visible",
+          "focus": true
+        },
+        "pageDocument": {
+          "visibility": "visible",
+          "focus": false
+        },
+        "secondDocument": {
+          "visibility": "visible",
+          "focus": false
+        },
+        "nativeTabVisible": true,
+        "shellChildViews": [
+          {
+            "id": 7,
+            "visible": true
+          },
+          {
+            "id": 2,
+            "visible": true
+          }
+        ],
+        "pageWebContentsId": 7,
+        "geometry": {
+          "windows": [
+            {
+              "zIndex": 0,
+              "pid": 15289,
+              "windowId": 162846,
+              "layer": 0,
+              "bounds": {
+                "Height": 1038,
+                "Width": 863,
+                "X": 0,
+                "Y": 33
+              },
+              "onScreen": null,
+              "alpha": 0,
+              "title": null
+            },
+            {
+              "zIndex": 1,
+              "pid": 15289,
+              "windowId": 162844,
+              "layer": 0,
+              "bounds": {
+                "Height": 1038,
+                "Width": 863,
+                "X": 0,
+                "Y": 33
+              },
+              "onScreen": null,
+              "alpha": 0,
+              "title": null
+            },
+            {
+              "zIndex": 2,
+              "pid": 15289,
+              "windowId": 162841,
+              "layer": 26,
+              "bounds": {
+                "Height": 33,
+                "Width": 1728,
+                "X": 0,
+                "Y": 0
+              },
+              "onScreen": true,
+              "alpha": 0,
+              "title": null
+            },
+            {
+              "zIndex": 5,
+              "pid": 15289,
+              "windowId": 162837,
+              "layer": 0,
+              "bounds": {
+                "Height": 32,
+                "Width": 1728,
+                "X": 0,
+                "Y": 33
+              },
+              "onScreen": true,
+              "alpha": 0,
+              "title": null
+            },
+            {
+              "zIndex": 6,
+              "pid": 15289,
+              "windowId": 162836,
+              "layer": 0,
+              "bounds": {
+                "Height": 1117,
+                "Width": 1728,
+                "X": 0,
+                "Y": 0
+              },
+              "onScreen": null,
+              "alpha": 1,
+              "title": null
+            },
+            {
+              "zIndex": 7,
+              "pid": 15289,
+              "windowId": 162819,
+              "layer": 0,
+              "bounds": {
+                "Height": 720,
+                "Width": 640,
+                "X": 0,
+                "Y": 33
+              },
+              "onScreen": null,
+              "alpha": 0,
+              "title": null
+            },
+            {
+              "zIndex": 8,
+              "pid": 15289,
+              "windowId": 162817,
+              "layer": 0,
+              "bounds": {
+                "Height": 30,
+                "Width": 1920,
+                "X": 1821,
+                "Y": -1200
+              },
+              "onScreen": null,
+              "alpha": 1,
+              "title": null
+            },
+            {
+              "zIndex": 9,
+              "pid": 15289,
+              "windowId": 162816,
+              "layer": 0,
+              "bounds": {
+                "Height": 30,
+                "Width": 1920,
+                "X": 1821,
+                "Y": -1200
+              },
+              "onScreen": null,
+              "alpha": 1,
+              "title": null
+            },
+            {
+              "zIndex": 10,
+              "pid": 15289,
+              "windowId": 162815,
+              "layer": 0,
+              "bounds": {
+                "Height": 30,
+                "Width": 1920,
+                "X": 1821,
+                "Y": -1200
+              },
+              "onScreen": null,
+              "alpha": 1,
+              "title": null
+            },
+            {
+              "zIndex": 11,
+              "pid": 15289,
+              "windowId": 162814,
+              "layer": 0,
+              "bounds": {
+                "Height": 30,
+                "Width": 1920,
+                "X": -99,
+                "Y": -1200
+              },
+              "onScreen": null,
+              "alpha": 1,
+              "title": null
+            },
+            {
+              "zIndex": 12,
+              "pid": 15289,
+              "windowId": 162813,
+              "layer": 0,
+              "bounds": {
+                "Height": 30,
+                "Width": 1920,
+                "X": -99,
+                "Y": -1200
+              },
+              "onScreen": null,
+              "alpha": 1,
+              "title": null
+            },
+            {
+              "zIndex": 13,
+              "pid": 15289,
+              "windowId": 162812,
+              "layer": 0,
+              "bounds": {
+                "Height": 30,
+                "Width": 1920,
+                "X": -99,
+                "Y": -1200
+              },
+              "onScreen": null,
+              "alpha": 1,
+              "title": null
+            },
+            {
+              "zIndex": 14,
+              "pid": 15289,
+              "windowId": 162810,
+              "layer": 0,
+              "bounds": {
+                "Height": 33,
+                "Width": 1728,
+                "X": 0,
+                "Y": 0
+              },
+              "onScreen": null,
+              "alpha": 1,
+              "title": null
+            },
+            {
+              "zIndex": 15,
+              "pid": 15289,
+              "windowId": 162809,
+              "layer": 0,
+              "bounds": {
+                "Height": 33,
+                "Width": 1728,
+                "X": 0,
+                "Y": 0
+              },
+              "onScreen": null,
+              "alpha": 1,
+              "title": null
+            },
+            {
+              "zIndex": 16,
+              "pid": 15289,
+              "windowId": 162808,
+              "layer": 0,
+              "bounds": {
+                "Height": 33,
+                "Width": 1728,
+                "X": 0,
+                "Y": 0
+              },
+              "onScreen": null,
+              "alpha": 1,
+              "title": null
+            },
+            {
+              "zIndex": 17,
+              "pid": 15289,
+              "windowId": 162807,
+              "layer": 0,
+              "bounds": {
+                "Height": 33,
+                "Width": 1728,
+                "X": 0,
+                "Y": 0
+              },
+              "onScreen": null,
+              "alpha": 1,
+              "title": null
+            },
+            {
+              "zIndex": 18,
+              "pid": 15289,
+              "windowId": 162805,
+              "layer": 0,
+              "bounds": {
+                "Height": 1084,
+                "Width": 1728,
+                "X": 0,
+                "Y": 33
+              },
+              "onScreen": true,
+              "alpha": 1,
+              "title": null
+            },
+            {
+              "zIndex": 210,
+              "pid": 15289,
+              "windowId": 162835,
+              "layer": 0,
+              "bounds": {
+                "Height": 800,
+                "Width": 1200,
+                "X": 264,
+                "Y": 159
+              },
+              "onScreen": null,
+              "alpha": 1,
+              "title": null
+            },
+            {
+              "zIndex": 218,
+              "pid": 15289,
+              "windowId": 162818,
+              "layer": 0,
+              "bounds": {
+                "Height": 30,
+                "Width": 1920,
+                "X": 1821,
+                "Y": -1200
+              },
+              "onScreen": null,
+              "alpha": 1,
+              "title": null
+            },
+            {
+              "zIndex": 428,
+              "pid": 15289,
+              "windowId": 162811,
+              "layer": 0,
+              "bounds": {
+                "Height": 30,
+                "Width": 1920,
+                "X": -99,
+                "Y": -1200
+              },
+              "onScreen": null,
+              "alpha": 1,
+              "title": null
+            }
+          ],
+          "targetWindow": {
+            "zIndex": 18,
+            "pid": 15289,
+            "windowId": 162805,
+            "layer": 0,
+            "bounds": {
+              "Height": 1084,
+              "Width": 1728,
+              "X": 0,
+              "Y": 33
+            },
+            "onScreen": true,
+            "alpha": 1,
+            "title": null
+          }
+        }
+      },
+      {
+        "epochMs": 1791963942668,
+        "monotonicMs": 12095.051792,
+        "shellVisible": true,
+        "shellMinimized": false,
+        "shellFullScreen": true,
+        "shellSimpleFullScreen": false,
+        "secondVisible": false,
+        "secondMinimized": false,
+        "secondFullScreen": false,
+        "secondSimpleFullScreen": false,
+        "shellBounds": {
+          "x": 0,
+          "y": 33,
+          "width": 1728,
+          "height": 1084
+        },
+        "secondBounds": {
+          "x": 264,
+          "y": 159,
+          "width": 1200,
+          "height": 800
+        },
+        "shellDocument": {
+          "visibility": "visible",
+          "focus": true
+        },
+        "pageDocument": {
+          "visibility": "visible",
+          "focus": false
+        },
+        "secondDocument": {
+          "visibility": "visible",
+          "focus": false
+        },
+        "nativeTabVisible": true,
+        "shellChildViews": [
+          {
+            "id": 7,
+            "visible": true
+          },
+          {
+            "id": 2,
+            "visible": true
+          }
+        ],
+        "pageWebContentsId": 7,
+        "geometry": {
+          "windows": [
+            {
+              "zIndex": 0,
+              "pid": 15289,
+              "windowId": 162846,
+              "layer": 0,
+              "bounds": {
+                "Height": 1038,
+                "Width": 863,
+                "X": 0,
+                "Y": 33
+              },
+              "onScreen": null,
+              "alpha": 0,
+              "title": null
+            },
+            {
+              "zIndex": 1,
+              "pid": 15289,
+              "windowId": 162844,
+              "layer": 0,
+              "bounds": {
+                "Height": 1038,
+                "Width": 863,
+                "X": 0,
+                "Y": 33
+              },
+              "onScreen": null,
+              "alpha": 0,
+              "title": null
+            },
+            {
+              "zIndex": 2,
+              "pid": 15289,
+              "windowId": 162841,
+              "layer": 26,
+              "bounds": {
+                "Height": 33,
+                "Width": 1728,
+                "X": 0,
+                "Y": 0
+              },
+              "onScreen": true,
+              "alpha": 0,
+              "title": null
+            },
+            {
+              "zIndex": 5,
+              "pid": 15289,
+              "windowId": 162837,
+              "layer": 0,
+              "bounds": {
+                "Height": 32,
+                "Width": 1728,
+                "X": 0,
+                "Y": 33
+              },
+              "onScreen": true,
+              "alpha": 0,
+              "title": null
+            },
+            {
+              "zIndex": 6,
+              "pid": 15289,
+              "windowId": 162836,
+              "layer": 0,
+              "bounds": {
+                "Height": 1117,
+                "Width": 1728,
+                "X": 0,
+                "Y": 0
+              },
+              "onScreen": null,
+              "alpha": 1,
+              "title": null
+            },
+            {
+              "zIndex": 7,
+              "pid": 15289,
+              "windowId": 162819,
+              "layer": 0,
+              "bounds": {
+                "Height": 720,
+                "Width": 640,
+                "X": 0,
+                "Y": 33
+              },
+              "onScreen": null,
+              "alpha": 0,
+              "title": null
+            },
+            {
+              "zIndex": 8,
+              "pid": 15289,
+              "windowId": 162817,
+              "layer": 0,
+              "bounds": {
+                "Height": 30,
+                "Width": 1920,
+                "X": 1821,
+                "Y": -1200
+              },
+              "onScreen": null,
+              "alpha": 1,
+              "title": null
+            },
+            {
+              "zIndex": 9,
+              "pid": 15289,
+              "windowId": 162816,
+              "layer": 0,
+              "bounds": {
+                "Height": 30,
+                "Width": 1920,
+                "X": 1821,
+                "Y": -1200
+              },
+              "onScreen": null,
+              "alpha": 1,
+              "title": null
+            },
+            {
+              "zIndex": 10,
+              "pid": 15289,
+              "windowId": 162815,
+              "layer": 0,
+              "bounds": {
+                "Height": 30,
+                "Width": 1920,
+                "X": 1821,
+                "Y": -1200
+              },
+              "onScreen": null,
+              "alpha": 1,
+              "title": null
+            },
+            {
+              "zIndex": 11,
+              "pid": 15289,
+              "windowId": 162814,
+              "layer": 0,
+              "bounds": {
+                "Height": 30,
+                "Width": 1920,
+                "X": -99,
+                "Y": -1200
+              },
+              "onScreen": null,
+              "alpha": 1,
+              "title": null
+            },
+            {
+              "zIndex": 12,
+              "pid": 15289,
+              "windowId": 162813,
+              "layer": 0,
+              "bounds": {
+                "Height": 30,
+                "Width": 1920,
+                "X": -99,
+                "Y": -1200
+              },
+              "onScreen": null,
+              "alpha": 1,
+              "title": null
+            },
+            {
+              "zIndex": 13,
+              "pid": 15289,
+              "windowId": 162812,
+              "layer": 0,
+              "bounds": {
+                "Height": 30,
+                "Width": 1920,
+                "X": -99,
+                "Y": -1200
+              },
+              "onScreen": null,
+              "alpha": 1,
+              "title": null
+            },
+            {
+              "zIndex": 14,
+              "pid": 15289,
+              "windowId": 162810,
+              "layer": 0,
+              "bounds": {
+                "Height": 33,
+                "Width": 1728,
+                "X": 0,
+                "Y": 0
+              },
+              "onScreen": null,
+              "alpha": 1,
+              "title": null
+            },
+            {
+              "zIndex": 15,
+              "pid": 15289,
+              "windowId": 162809,
+              "layer": 0,
+              "bounds": {
+                "Height": 33,
+                "Width": 1728,
+                "X": 0,
+                "Y": 0
+              },
+              "onScreen": null,
+              "alpha": 1,
+              "title": null
+            },
+            {
+              "zIndex": 16,
+              "pid": 15289,
+              "windowId": 162808,
+              "layer": 0,
+              "bounds": {
+                "Height": 33,
+                "Width": 1728,
+                "X": 0,
+                "Y": 0
+              },
+              "onScreen": null,
+              "alpha": 1,
+              "title": null
+            },
+            {
+              "zIndex": 17,
+              "pid": 15289,
+              "windowId": 162807,
+              "layer": 0,
+              "bounds": {
+                "Height": 33,
+                "Width": 1728,
+                "X": 0,
+                "Y": 0
+              },
+              "onScreen": null,
+              "alpha": 1,
+              "title": null
+            },
+            {
+              "zIndex": 18,
+              "pid": 15289,
+              "windowId": 162805,
+              "layer": 0,
+              "bounds": {
+                "Height": 1084,
+                "Width": 1728,
+                "X": 0,
+                "Y": 33
+              },
+              "onScreen": true,
+              "alpha": 1,
+              "title": null
+            },
+            {
+              "zIndex": 210,
+              "pid": 15289,
+              "windowId": 162835,
+              "layer": 0,
+              "bounds": {
+                "Height": 800,
+                "Width": 1200,
+                "X": 264,
+                "Y": 159
+              },
+              "onScreen": null,
+              "alpha": 1,
+              "title": null
+            },
+            {
+              "zIndex": 218,
+              "pid": 15289,
+              "windowId": 162818,
+              "layer": 0,
+              "bounds": {
+                "Height": 30,
+                "Width": 1920,
+                "X": 1821,
+                "Y": -1200
+              },
+              "onScreen": null,
+              "alpha": 1,
+              "title": null
+            },
+            {
+              "zIndex": 428,
+              "pid": 15289,
+              "windowId": 162811,
+              "layer": 0,
+              "bounds": {
+                "Height": 30,
+                "Width": 1920,
+                "X": -99,
+                "Y": -1200
+              },
+              "onScreen": null,
+              "alpha": 1,
+              "title": null
+            }
+          ],
+          "targetWindow": {
+            "zIndex": 18,
+            "pid": 15289,
+            "windowId": 162805,
+            "layer": 0,
+            "bounds": {
+              "Height": 1084,
+              "Width": 1728,
+              "X": 0,
+              "Y": 33
+            },
+            "onScreen": true,
+            "alpha": 1,
+            "title": null
+          }
+        }
+      }
+    ]
+  }
+]

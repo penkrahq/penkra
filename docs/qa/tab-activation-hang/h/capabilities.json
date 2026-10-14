@@ -1,0 +1,17 @@
+{
+  "CGPreflightPostEventAccess": false,
+  "physicalSwipe": "not sent; native focus switched existing fullscreen Spaces",
+  "source": "a0a576730cacc6a3301c7bdefec3cdae485505cf",
+  "version": "0.14.4",
+  "scratchRoots": {
+    "spaces": "/Users/emmanuelgyekyeatta-penkra/Penkra/qa-tab-spaces-native-vln6y85y",
+    "cover": "/Users/emmanuelgyekyeatta-penkra/Penkra/qa-tab-cover-ordered-8rhv0gf6",
+    "excluded/cover-initial": "/Users/emmanuelgyekyeatta-penkra/Penkra/qa-tab-cover-me5n8633",
+    "excluded/cover-unordered-repeat": "/Users/emmanuelgyekyeatta-penkra/Penkra/qa-tab-cover-repeat-z0dq7tpu",
+    "excluded/cover-floating-unordered": "/Users/emmanuelgyekyeatta-penkra/Penkra/qa-tab-cover-verified-yhnjzf2v",
+    "excluded/spaces-initial": "/Users/emmanuelgyekyeatta-penkra/Penkra/qa-tab-spaces-7ym521ae",
+    "excluded/spaces-helper-start": "/Users/emmanuelgyekyeatta-penkra/Penkra/qa-tab-spaces-repeat-1z26r13o",
+    "cover-other-app": "/Users/emmanuelgyekyeatta-penkra/Penkra/qa-tab-cover-passive-qgj1n3xw"
+  },
+  "coverOrderingAPI": "kCGWindowListOptionOnScreenOnly; kCGWindowListOptionAll is unordered"
+}

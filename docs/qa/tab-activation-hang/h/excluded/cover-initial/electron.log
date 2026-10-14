@@ -1,0 +1,4896 @@
+[app-tab-host] {
+  tabId: 'qa-browser-A',
+  rendererId: 2,
+  appId: 'com.penkra.browser',
+  spaceId: 'qa-space',
+  folderId: 'qa-folder',
+  threadId: 'qa-agent-thread',
+  sequence: 1,
+  monotonicMs: 964,
+  event: 'app-renderer-created'
+}
+[app-tab-host] {
+  tabId: 'qa-browser-A',
+  rendererId: 2,
+  sequence: 2,
+  monotonicMs: 965,
+  event: 'app-renderer-initial-load-requested'
+}
+[app-tab-host] {
+  tabId: 'qa-browser-A',
+  rendererId: 2,
+  sequence: 3,
+  monotonicMs: 974,
+  event: 'app-renderer-load-started'
+}
+[app-tab-host] {
+  tabId: 'qa-browser-A',
+  rendererId: 2,
+  sequence: 4,
+  monotonicMs: 1185,
+  event: 'app-renderer-navigated'
+}
+[app-tab-host] {
+  tabId: 'qa-browser-A',
+  rendererId: 2,
+  durationMs: 331,
+  sequence: 5,
+  monotonicMs: 1249,
+  event: 'app-renderer-ready'
+}
+[app-tab-host] {
+  tabId: 'qa-browser-B',
+  rendererId: 4,
+  appId: 'com.penkra.browser',
+  spaceId: 'qa-space',
+  folderId: 'qa-folder',
+  threadId: 'qa-agent-thread',
+  sequence: 6,
+  monotonicMs: 1349,
+  event: 'app-renderer-created'
+}
+[app-tab-host] {
+  tabId: 'qa-browser-B',
+  rendererId: 4,
+  sequence: 7,
+  monotonicMs: 1349,
+  event: 'app-renderer-initial-load-requested'
+}
+[app-tab-host] {
+  tabId: 'qa-browser-B',
+  rendererId: 4,
+  sequence: 8,
+  monotonicMs: 1351,
+  event: 'app-renderer-load-started'
+}
+[app-tab-host] {
+  windowId: 1,
+  visible: true,
+  sequence: 9,
+  monotonicMs: 1353,
+  event: 'window-visibility-started'
+}
+[app-tab-host] {
+  windowId: 1,
+  visible: true,
+  sequence: 10,
+  monotonicMs: 1353,
+  event: 'window-visibility-completed'
+}
+[app-tab-host] {
+  tabId: 'qa-browser-A',
+  rendererId: 2,
+  sequence: 11,
+  monotonicMs: 1564,
+  event: 'app-renderer-load-stopped'
+}
+[app-tab-host] {
+  tabId: 'qa-browser-B',
+  rendererId: 4,
+  sequence: 12,
+  monotonicMs: 1608,
+  event: 'app-renderer-navigated'
+}
+[app-tab-host] {
+  tabId: 'qa-browser-B',
+  rendererId: 4,
+  durationMs: 381,
+  sequence: 13,
+  monotonicMs: 1631,
+  event: 'app-renderer-ready'
+}
+[app-tab-host] {
+  tabId: 'qa-browser-B',
+  rendererId: 4,
+  sequence: 14,
+  monotonicMs: 1645,
+  event: 'app-renderer-load-stopped'
+}
+(electron) 'console-message' arguments are deprecated and will be removed. Please use Event<WebContentsConsoleMessageEventParams> object instead.
+[qa-control] {
+  event: 'renderer-console',
+  level: 0,
+  message: '[vite] connecting...'
+}
+[qa-control] { event: 'renderer-console', level: 0, message: '[vite] connected.' }
+[qa-control] {
+  event: 'renderer-console',
+  level: 1,
+  message: '%cDownload the React DevTools for a better development experience: https://react.dev/link/react-devtools font-weight:bold'
+}
+[qa-control] {
+  event: 'renderer-console',
+  level: 2,
+  message: '%cElectron Security Warning (Insecure Content-Security-Policy) font-weight: bold; This renderer process has either no Content Security\n' +
+    '  Policy set or a policy with "unsafe-eval" enabled. This exposes users of\n' +
+    '  this app to unnecessary security risks.\n' +
+    '\n' +
+    'For more information and help, consult\n' +
+    'https://electronjs.org/docs/tutorial/security.\n' +
+    'This warning will not show up\n' +
+    'once the app is packaged.'
+}
+[app-tab-diagnostic] {
+  browserWindowId: 1,
+  rendererId: 1,
+  isVisible: true,
+  isMinimized: false,
+  isFocused: true,
+  rendererState: { visibilityState: 'visible', hasFocus: false },
+  sequence: 1,
+  monotonicMs: 3462,
+  event: 'shell-window-show'
+}
+[app-tab-host] {
+  tabId: 'qa-browser-A',
+  pageId: null,
+  hasInitialUrl: true,
+  sequence: 15,
+  monotonicMs: 4664,
+  event: 'browser-open-requested'
+}
+(node:9806) ExtensionLoadWarning: Warnings loading extension at /Users/emmanuelgyekyeatta-penkra/Penkra/qa-tab-additions-b9xq3rc4/source/apps/desktop/resources/extensions/darkreader:
+  Manifest version 2 is deprecated, and support will be removed in 2025. See https://developer.chrome.com/docs/extensions/develop/migrate/mv2-deprecation-timeline for details.
+  Permission 'fontSettings' is unknown or URL pattern is malformed.
+  Permission 'contextMenus' is unknown or URL pattern is malformed.
+
+(Use `Electron --trace-warnings ...` to show where the warning was created)
+[app-tab-host] {
+  tabId: 'qa-browser-A',
+  pageId: '8d94eb36-11ba-4bc2-a132-bf0ffb119914',
+  rendererId: 7,
+  currentBounds: { x: 0, y: 0, width: 0, height: 0 },
+  bounds: { x: 0, y: 0, width: 600, height: 652 },
+  currentVisible: true,
+  visible: true,
+  visibleRequested: false,
+  freezeDepth: 0,
+  ownerWindowVisible: false,
+  pageHasError: false,
+  sequence: 16,
+  monotonicMs: 4712,
+  event: 'hosted-page-view-layout-change'
+}
+[app-tab-host] {
+  tabId: 'qa-browser-A',
+  pageId: '8d94eb36-11ba-4bc2-a132-bf0ffb119914',
+  rendererId: 7,
+  hadPendingLoad: false,
+  sequence: 17,
+  monotonicMs: 4713,
+  event: 'hosted-page-load-queued'
+}
+[app-tab-host] {
+  tabId: 'qa-browser-A',
+  pageId: '8d94eb36-11ba-4bc2-a132-bf0ffb119914',
+  rendererId: 7,
+  sequence: 18,
+  monotonicMs: 4714,
+  event: 'hosted-page-load-requested'
+}
+[app-tab-host] {
+  tabId: 'qa-browser-A',
+  pageId: '8d94eb36-11ba-4bc2-a132-bf0ffb119914',
+  rendererId: 7,
+  sequence: 19,
+  monotonicMs: 4715,
+  event: 'hosted-page-load-started'
+}
+[app-tab-host] {
+  tabId: 'qa-browser-A',
+  pageId: '8d94eb36-11ba-4bc2-a132-bf0ffb119914',
+  rendererId: 7,
+  isMainFrame: true,
+  isSameDocument: false,
+  frameProcessId: 10,
+  frameRoutingId: 1,
+  urlOrigin: 'http://127.0.0.1:3919',
+  sequence: 20,
+  monotonicMs: 4716,
+  event: 'hosted-page-frame-navigation-started'
+}
+[app-tab-host] {
+  tabId: 'qa-browser-A',
+  pageId: '8d94eb36-11ba-4bc2-a132-bf0ffb119914',
+  rendererId: 7,
+  sequence: 21,
+  monotonicMs: 4801,
+  event: 'hosted-page-navigated'
+}
+[app-tab-host] {
+  tabId: 'qa-browser-A',
+  pageId: '8d94eb36-11ba-4bc2-a132-bf0ffb119914',
+  rendererId: 7,
+  isMainFrame: true,
+  frameProcessId: 10,
+  frameRoutingId: 1,
+  sequence: 22,
+  monotonicMs: 4831,
+  event: 'hosted-page-frame-load-finished'
+}
+[app-tab-host] {
+  tabId: 'qa-browser-A',
+  pageId: '8d94eb36-11ba-4bc2-a132-bf0ffb119914',
+  rendererId: 7,
+  sequence: 23,
+  monotonicMs: 4831,
+  event: 'hosted-page-load-resolved'
+}
+[app-tab-host] {
+  tabId: 'qa-browser-A',
+  pageId: '8d94eb36-11ba-4bc2-a132-bf0ffb119914',
+  rendererId: 7,
+  sequence: 24,
+  monotonicMs: 4833,
+  event: 'hosted-page-load-stopped'
+}
+[app-tab-host] {
+  windowId: 1,
+  visible: true,
+  sequence: 25,
+  monotonicMs: 5391,
+  event: 'window-visibility-started'
+}
+[app-tab-host] {
+  windowId: 1,
+  visible: true,
+  sequence: 26,
+  monotonicMs: 5392,
+  event: 'window-visibility-completed'
+}
+[app-tab-diagnostic] {
+  rendererMonotonicMs: 3761,
+  documentVisibility: 'visible',
+  documentHasFocus: false,
+  threadId: 'qa-agent-thread',
+  status: 'ready',
+  paneVisible: true,
+  rendererId: 1,
+  tabId: 'qa-browser-A',
+  sequence: 2,
+  monotonicMs: 5400,
+  event: 'renderer-pane-mounted'
+}
+[app-tab-diagnostic] {
+  rendererMonotonicMs: 3764,
+  documentVisibility: 'visible',
+  documentHasFocus: false,
+  threadId: 'qa-agent-thread',
+  width: 1,
+  animate: false,
+  status: 'ready',
+  paneVisible: true,
+  rendererId: 1,
+  tabId: 'qa-browser-A',
+  sequence: 3,
+  monotonicMs: 5400,
+  event: 'renderer-present-requested'
+}
+[app-tab-diagnostic] {
+  tabId: 'qa-browser-A',
+  rendererId: 1,
+  folderId: 'qa-folder',
+  threadId: 'qa-agent-thread',
+  animate: false,
+  bounds: { x: 1200, y: 46, width: 1, height: 722 },
+  sequence: 4,
+  monotonicMs: 5401,
+  event: 'shell-present-ipc'
+}
+[app-tab-host] {
+  tabId: 'qa-browser-A',
+  windowId: 1,
+  folderId: 'qa-folder',
+  threadId: 'qa-agent-thread',
+  ownerWindowId: null,
+  freezeDepth: 0,
+  appViewVisible: true,
+  sequence: 27,
+  monotonicMs: 5401,
+  event: 'present-started'
+}
+[app-tab-host] {
+  tabId: 'qa-browser-A',
+  pageId: '8d94eb36-11ba-4bc2-a132-bf0ffb119914',
+  rendererId: 7,
+  currentBounds: { x: 0, y: 0, width: 600, height: 652 },
+  bounds: { x: 1199, y: 94, width: 1, height: 674 },
+  currentVisible: true,
+  visible: true,
+  visibleRequested: true,
+  freezeDepth: 0,
+  ownerWindowVisible: true,
+  pageHasError: false,
+  sequence: 28,
+  monotonicMs: 5516,
+  event: 'hosted-page-view-layout-change'
+}
+[app-tab-host] {
+  tabId: 'qa-browser-A',
+  folderId: 'qa-folder',
+  threadId: 'qa-agent-thread',
+  windowId: 1,
+  ownerWindowId: 1,
+  selectedAt: 1,
+  bounds: { x: 1199, y: 46, width: 1, height: 722 },
+  animate: false,
+  windowVisible: true,
+  windowMinimized: false,
+  appViewVisible: true,
+  appViewIndex: 1,
+  childViewCount: 2,
+  hostedPageVisible: true,
+  appViewLoading: false,
+  appViewCrashed: false,
+  hostedPageLoading: false,
+  sequence: 29,
+  monotonicMs: 5517,
+  event: 'present-applied'
+}
+[app-tab-diagnostic] {
+  tabId: 'qa-browser-A',
+  rendererId: 1,
+  folderId: 'qa-folder',
+  threadId: 'qa-agent-thread',
+  animate: false,
+  bounds: { x: 601, y: 46, width: 599, height: 722 },
+  sequence: 5,
+  monotonicMs: 5618,
+  event: 'shell-present-ipc'
+}
+[app-tab-host] {
+  tabId: 'qa-browser-A',
+  windowId: 1,
+  folderId: 'qa-folder',
+  threadId: 'qa-agent-thread',
+  ownerWindowId: 1,
+  freezeDepth: 0,
+  appViewVisible: true,
+  sequence: 30,
+  monotonicMs: 5618,
+  event: 'present-started'
+}
+[app-tab-host] {
+  tabId: 'qa-browser-A',
+  pageId: '8d94eb36-11ba-4bc2-a132-bf0ffb119914',
+  rendererId: 7,
+  currentBounds: { x: 1199, y: 94, width: 1, height: 674 },
+  bounds: { x: 601, y: 94, width: 599, height: 674 },
+  currentVisible: true,
+  visible: true,
+  visibleRequested: true,
+  freezeDepth: 0,
+  ownerWindowVisible: true,
+  pageHasError: false,
+  sequence: 31,
+  monotonicMs: 5618,
+  event: 'hosted-page-view-layout-change'
+}
+[app-tab-host] {
+  tabId: 'qa-browser-A',
+  folderId: 'qa-folder',
+  threadId: 'qa-agent-thread',
+  windowId: 1,
+  ownerWindowId: 1,
+  selectedAt: 2,
+  bounds: { x: 601, y: 46, width: 599, height: 722 },
+  animate: false,
+  windowVisible: true,
+  windowMinimized: false,
+  appViewVisible: true,
+  appViewIndex: 1,
+  childViewCount: 2,
+  hostedPageVisible: true,
+  appViewLoading: false,
+  appViewCrashed: false,
+  hostedPageLoading: false,
+  sequence: 32,
+  monotonicMs: 5618,
+  event: 'present-applied'
+}
+[app-tab-diagnostic] {
+  rendererMonotonicMs: 3768,
+  documentVisibility: 'visible',
+  documentHasFocus: false,
+  threadId: 'qa-agent-thread',
+  width: 1,
+  animate: true,
+  status: 'ready',
+  paneVisible: true,
+  rendererId: 1,
+  tabId: 'qa-browser-A',
+  sequence: 6,
+  monotonicMs: 5619,
+  event: 'renderer-present-requested'
+}
+[app-tab-diagnostic] {
+  tabId: 'qa-browser-A',
+  rendererId: 1,
+  folderId: 'qa-folder',
+  threadId: 'qa-agent-thread',
+  animate: true,
+  bounds: { x: 1200, y: 46, width: 1, height: 722 },
+  sequence: 7,
+  monotonicMs: 5619,
+  event: 'shell-present-ipc'
+}
+[app-tab-host] {
+  tabId: 'qa-browser-A',
+  windowId: 1,
+  folderId: 'qa-folder',
+  threadId: 'qa-agent-thread',
+  ownerWindowId: 1,
+  freezeDepth: 0,
+  appViewVisible: true,
+  sequence: 33,
+  monotonicMs: 5619,
+  event: 'present-started'
+}
+[app-tab-host] {
+  tabId: 'qa-browser-A',
+  pageId: '8d94eb36-11ba-4bc2-a132-bf0ffb119914',
+  rendererId: 7,
+  currentBounds: { x: 601, y: 94, width: 599, height: 674 },
+  bounds: { x: 1199, y: 94, width: 1, height: 674 },
+  currentVisible: true,
+  visible: true,
+  visibleRequested: true,
+  freezeDepth: 0,
+  ownerWindowVisible: true,
+  pageHasError: false,
+  sequence: 34,
+  monotonicMs: 5619,
+  event: 'hosted-page-view-layout-change'
+}
+[app-tab-host] {
+  tabId: 'qa-browser-A',
+  folderId: 'qa-folder',
+  threadId: 'qa-agent-thread',
+  windowId: 1,
+  ownerWindowId: 1,
+  selectedAt: 3,
+  bounds: { x: 1199, y: 46, width: 1, height: 722 },
+  animate: true,
+  windowVisible: true,
+  windowMinimized: false,
+  appViewVisible: true,
+  appViewIndex: 1,
+  childViewCount: 2,
+  hostedPageVisible: true,
+  appViewLoading: false,
+  appViewCrashed: false,
+  hostedPageLoading: false,
+  sequence: 35,
+  monotonicMs: 5619,
+  event: 'present-applied'
+}
+[app-tab-diagnostic] {
+  rendererMonotonicMs: 3769,
+  documentVisibility: 'visible',
+  documentHasFocus: true,
+  threadId: 'qa-agent-thread',
+  rendererId: 1,
+  tabId: 'qa-browser-A',
+  sequence: 8,
+  monotonicMs: 5620,
+  event: 'renderer-window-focused'
+}
+[app-tab-diagnostic] {
+  tabId: 'qa-browser-A',
+  rendererId: 1,
+  folderId: 'qa-folder',
+  threadId: 'qa-agent-thread',
+  animate: false,
+  bounds: { x: 601, y: 46, width: 599, height: 722 },
+  sequence: 9,
+  monotonicMs: 5635,
+  event: 'shell-present-ipc'
+}
+[app-tab-host] {
+  tabId: 'qa-browser-A',
+  windowId: 1,
+  folderId: 'qa-folder',
+  threadId: 'qa-agent-thread',
+  ownerWindowId: 1,
+  freezeDepth: 0,
+  appViewVisible: true,
+  sequence: 36,
+  monotonicMs: 5635,
+  event: 'present-started'
+}
+[app-tab-host] {
+  tabId: 'qa-browser-A',
+  pageId: '8d94eb36-11ba-4bc2-a132-bf0ffb119914',
+  rendererId: 7,
+  currentBounds: { x: 1199, y: 94, width: 1, height: 674 },
+  bounds: { x: 601, y: 94, width: 599, height: 674 },
+  currentVisible: true,
+  visible: true,
+  visibleRequested: true,
+  freezeDepth: 0,
+  ownerWindowVisible: true,
+  pageHasError: false,
+  sequence: 37,
+  monotonicMs: 5635,
+  event: 'hosted-page-view-layout-change'
+}
+[app-tab-host] {
+  tabId: 'qa-browser-A',
+  folderId: 'qa-folder',
+  threadId: 'qa-agent-thread',
+  windowId: 1,
+  ownerWindowId: 1,
+  selectedAt: 4,
+  bounds: { x: 601, y: 46, width: 599, height: 722 },
+  animate: false,
+  windowVisible: true,
+  windowMinimized: false,
+  appViewVisible: true,
+  appViewIndex: 1,
+  childViewCount: 2,
+  hostedPageVisible: true,
+  appViewLoading: false,
+  appViewCrashed: false,
+  hostedPageLoading: false,
+  sequence: 38,
+  monotonicMs: 5635,
+  event: 'present-applied'
+}
+[qa-page-event] {
+  caseId: 'bootstrap',
+  kind: 'visibilitychange',
+  epochMs: 1791963371923,
+  pageMonotonicMs: 791.2999999523163,
+  visibility: 'hidden',
+  focus: false
+}
+[qa-page-event] {
+  caseId: 'bootstrap',
+  kind: 'visibilitychange',
+  epochMs: 1791963371935,
+  pageMonotonicMs: 802.7000000476837,
+  visibility: 'visible',
+  focus: false
+}
+[app-tab-diagnostic] {
+  rendererMonotonicMs: 3884,
+  documentVisibility: 'visible',
+  documentHasFocus: true,
+  threadId: 'qa-agent-thread',
+  mode: 'live',
+  ownerWindowId: 1,
+  rendererId: 1,
+  tabId: 'qa-browser-A',
+  sequence: 10,
+  monotonicMs: 5651,
+  event: 'renderer-presentation-received'
+}
+[app-tab-diagnostic] {
+  rendererMonotonicMs: 3985,
+  documentVisibility: 'visible',
+  documentHasFocus: true,
+  threadId: 'qa-agent-thread',
+  mode: 'live',
+  ownerWindowId: 1,
+  rendererId: 1,
+  tabId: 'qa-browser-A',
+  sequence: 11,
+  monotonicMs: 5651,
+  event: 'renderer-presentation-received'
+}
+[app-tab-diagnostic] {
+  rendererMonotonicMs: 3986,
+  documentVisibility: 'visible',
+  documentHasFocus: true,
+  threadId: 'qa-agent-thread',
+  mode: 'live',
+  ownerWindowId: 1,
+  rendererId: 1,
+  tabId: 'qa-browser-A',
+  sequence: 12,
+  monotonicMs: 5651,
+  event: 'renderer-presentation-received'
+}
+[app-tab-diagnostic] {
+  rendererMonotonicMs: 4002,
+  documentVisibility: 'visible',
+  documentHasFocus: true,
+  threadId: 'qa-agent-thread',
+  mode: 'live',
+  ownerWindowId: 1,
+  rendererId: 1,
+  tabId: 'qa-browser-A',
+  sequence: 13,
+  monotonicMs: 5652,
+  event: 'renderer-presentation-received'
+}
+[app-tab-diagnostic] {
+  rendererMonotonicMs: 4063,
+  documentVisibility: 'visible',
+  documentHasFocus: true,
+  threadId: 'qa-agent-thread',
+  width: 600,
+  animate: false,
+  status: 'ready',
+  paneVisible: true,
+  rendererId: 1,
+  tabId: 'qa-browser-A',
+  sequence: 14,
+  monotonicMs: 5697,
+  event: 'renderer-present-requested'
+}
+[app-tab-diagnostic] {
+  tabId: 'qa-browser-A',
+  rendererId: 1,
+  folderId: 'qa-folder',
+  threadId: 'qa-agent-thread',
+  animate: false,
+  bounds: { x: 601, y: 46, width: 599, height: 722 },
+  sequence: 15,
+  monotonicMs: 5697,
+  event: 'shell-present-ipc'
+}
+[app-tab-host] {
+  tabId: 'qa-browser-A',
+  windowId: 1,
+  folderId: 'qa-folder',
+  threadId: 'qa-agent-thread',
+  ownerWindowId: 1,
+  freezeDepth: 0,
+  appViewVisible: true,
+  sequence: 39,
+  monotonicMs: 5697,
+  event: 'present-started'
+}
+[app-tab-host] {
+  tabId: 'qa-browser-A',
+  folderId: 'qa-folder',
+  threadId: 'qa-agent-thread',
+  windowId: 1,
+  ownerWindowId: 1,
+  selectedAt: 5,
+  bounds: { x: 601, y: 46, width: 599, height: 722 },
+  animate: false,
+  windowVisible: true,
+  windowMinimized: false,
+  appViewVisible: true,
+  appViewIndex: 1,
+  childViewCount: 2,
+  hostedPageVisible: true,
+  appViewLoading: false,
+  appViewCrashed: false,
+  hostedPageLoading: false,
+  sequence: 40,
+  monotonicMs: 5697,
+  event: 'present-applied'
+}
+[app-tab-diagnostic] {
+  rendererMonotonicMs: 4064,
+  documentVisibility: 'visible',
+  documentHasFocus: true,
+  threadId: 'qa-agent-thread',
+  mode: 'live',
+  ownerWindowId: 1,
+  rendererId: 1,
+  tabId: 'qa-browser-A',
+  sequence: 16,
+  monotonicMs: 5698,
+  event: 'renderer-presentation-received'
+}
+[app-tab-host] {
+  tabId: 'qa-browser-A',
+  windowId: 1,
+  folderId: 'qa-folder',
+  threadId: 'qa-agent-thread',
+  ownerWindowId: 1,
+  freezeDepth: 0,
+  appViewVisible: true,
+  sequence: 41,
+  monotonicMs: 5744,
+  event: 'present-started'
+}
+[app-tab-host] {
+  tabId: 'qa-browser-A',
+  pageId: '8d94eb36-11ba-4bc2-a132-bf0ffb119914',
+  rendererId: 7,
+  currentBounds: { x: 601, y: 94, width: 599, height: 674 },
+  bounds: { x: 650, y: 48, width: 550, height: 720 },
+  currentVisible: true,
+  visible: true,
+  visibleRequested: true,
+  freezeDepth: 0,
+  ownerWindowVisible: true,
+  pageHasError: false,
+  sequence: 42,
+  monotonicMs: 5745,
+  event: 'hosted-page-view-layout-change'
+}
+[app-tab-host] {
+  tabId: 'qa-browser-A',
+  folderId: 'qa-folder',
+  threadId: 'qa-agent-thread',
+  windowId: 1,
+  ownerWindowId: 1,
+  selectedAt: 6,
+  bounds: { x: 650, y: 0, width: 550, height: 768 },
+  animate: false,
+  windowVisible: true,
+  windowMinimized: false,
+  appViewVisible: true,
+  appViewIndex: 1,
+  childViewCount: 2,
+  hostedPageVisible: true,
+  appViewLoading: false,
+  appViewCrashed: false,
+  hostedPageLoading: false,
+  sequence: 43,
+  monotonicMs: 5745,
+  event: 'present-applied'
+}
+[app-tab-diagnostic] {
+  rendererMonotonicMs: 4112,
+  documentVisibility: 'visible',
+  documentHasFocus: true,
+  threadId: 'qa-agent-thread',
+  mode: 'live',
+  ownerWindowId: 1,
+  rendererId: 1,
+  tabId: 'qa-browser-A',
+  sequence: 17,
+  monotonicMs: 5746,
+  event: 'renderer-presentation-received'
+}
+[app-tab-diagnostic] {
+  rendererMonotonicMs: 4486,
+  documentVisibility: 'visible',
+  documentHasFocus: false,
+  threadId: 'qa-agent-thread',
+  rendererId: 1,
+  tabId: 'qa-browser-A',
+  sequence: 18,
+  monotonicMs: 6123,
+  event: 'renderer-window-blurred'
+}
+[qa-control] {
+  event: 'cover-action-started',
+  name: 'h-uncovered-control',
+  owner: 'none',
+  extent: 'none',
+  before: {
+    epochMs: 1791963373675,
+    monotonicMs: 7256.640875,
+    shellVisible: true,
+    shellMinimized: false,
+    shellBounds: { x: 50, y: 60, width: 1200, height: 800 },
+    shellDocument: { visibility: 'visible', focus: false },
+    pageDocument: { visibility: 'visible', focus: false },
+    nativeTabVisible: true,
+    nativeOwner: 1,
+    shellChildViews: [ [Object], [Object] ],
+    pageWebContentsId: 7,
+    helper: {
+      ready: true,
+      serial: 1791963371657,
+      visible: false,
+      fullscreen: false,
+      pid: 9721,
+      active: false,
+      styleMask: 15,
+      frontPid: 39467,
+      epochMs: 1791963373631
+    },
+    geometry: { windows: [Array], targetWindow: [Object] }
+  }
+}
+[app-tab-host] {
+  windowId: 1,
+  visible: false,
+  sequence: 44,
+  monotonicMs: 15549,
+  event: 'window-visibility-started'
+}
+[app-tab-host] {
+  tabId: 'qa-browser-A',
+  windowId: 1,
+  visible: false,
+  presentationVisible: true,
+  ownerWindowId: 1,
+  appViewVisible: true,
+  sequence: 45,
+  monotonicMs: 15550,
+  event: 'window-visibility-tab'
+}
+[app-tab-host] {
+  tabId: 'qa-browser-A',
+  windowId: 1,
+  sequence: 46,
+  monotonicMs: 15550,
+  event: 'window-hide-replica-capture-started'
+}
+[app-tab-diagnostic] {
+  rendererMonotonicMs: 13916,
+  documentVisibility: 'hidden',
+  documentHasFocus: false,
+  threadId: 'qa-agent-thread',
+  rendererId: 1,
+  tabId: 'qa-browser-A',
+  sequence: 19,
+  monotonicMs: 15554,
+  event: 'renderer-document-visibility-changed'
+}
+[app-tab-host] {
+  tabId: 'qa-browser-A',
+  windowId: 1,
+  sequence: 47,
+  monotonicMs: 15588,
+  event: 'window-hide-replica-capture-completed'
+}
+[app-tab-host] {
+  tabId: 'qa-browser-A',
+  pageId: '8d94eb36-11ba-4bc2-a132-bf0ffb119914',
+  rendererId: 7,
+  currentBounds: { x: 650, y: 48, width: 550, height: 720 },
+  bounds: { x: 0, y: 0, width: 550, height: 720 },
+  currentVisible: true,
+  visible: true,
+  visibleRequested: true,
+  freezeDepth: 0,
+  ownerWindowVisible: false,
+  pageHasError: false,
+  sequence: 48,
+  monotonicMs: 15647,
+  event: 'hosted-page-view-layout-change'
+}
+[app-tab-host] {
+  tabId: 'qa-browser-A',
+  windowId: 1,
+  visibleRequested: true,
+  freezeDepth: 0,
+  appViewVisible: true,
+  hostedPageVisible: true,
+  sequence: 49,
+  monotonicMs: 15654,
+  event: 'window-hide-applied'
+}
+[app-tab-host] {
+  windowId: 1,
+  visible: false,
+  sequence: 50,
+  monotonicMs: 15654,
+  event: 'window-visibility-completed'
+}
+[app-tab-diagnostic] {
+  browserWindowId: 1,
+  rendererId: 1,
+  isVisible: true,
+  isMinimized: false,
+  isFocused: false,
+  rendererState: { visibilityState: 'hidden', hasFocus: false },
+  sequence: 20,
+  monotonicMs: 15661,
+  event: 'shell-window-hide'
+}
+[app-tab-diagnostic] {
+  rendererMonotonicMs: 13955,
+  documentVisibility: 'hidden',
+  documentHasFocus: false,
+  threadId: 'qa-agent-thread',
+  mode: 'replica',
+  ownerWindowId: 1,
+  rendererId: 1,
+  tabId: 'qa-browser-A',
+  sequence: 21,
+  monotonicMs: 15661,
+  event: 'renderer-presentation-received'
+}
+[qa-page-event] {
+  caseId: 'bootstrap',
+  kind: 'visibilitychange',
+  epochMs: 1791963382007,
+  pageMonotonicMs: 10875.299999952316,
+  visibility: 'hidden',
+  focus: false
+}
+[qa-control] { event: 'cover-removal-started', owner: 'none' }
+[qa-control] {
+  event: 'cover-action-finished',
+  caseId: 'h-uncovered-control',
+  owner: 'none',
+  extent: 'none',
+  startEpochMs: 1791963374059,
+  durationMs: 19499,
+  expectedCoverBounds: null,
+  before: {
+    epochMs: 1791963373675,
+    monotonicMs: 7256.640875,
+    shellVisible: true,
+    shellMinimized: false,
+    shellBounds: { x: 50, y: 60, width: 1200, height: 800 },
+    shellDocument: { visibility: 'visible', focus: false },
+    pageDocument: { visibility: 'visible', focus: false },
+    nativeTabVisible: true,
+    nativeOwner: 1,
+    shellChildViews: [ [Object], [Object] ],
+    pageWebContentsId: 7,
+    helper: {
+      ready: true,
+      serial: 1791963371657,
+      visible: false,
+      fullscreen: false,
+      pid: 9721,
+      active: false,
+      styleMask: 15,
+      frontPid: 39467,
+      epochMs: 1791963373631
+    },
+    geometry: { windows: [Array], targetWindow: [Object] }
+  },
+  covered: [
+    {
+      epochMs: 1791963374059,
+      monotonicMs: 7640.905875,
+      shellVisible: true,
+      shellMinimized: false,
+      shellBounds: [Object],
+      shellDocument: [Object],
+      pageDocument: [Object],
+      nativeTabVisible: true,
+      nativeOwner: 1,
+      shellChildViews: [Array],
+      pageWebContentsId: 7,
+      helper: [Object],
+      geometry: [Object]
+    },
+    {
+      epochMs: 1791963374559,
+      monotonicMs: 8140.685125,
+      shellVisible: true,
+      shellMinimized: false,
+      shellBounds: [Object],
+      shellDocument: [Object],
+      pageDocument: [Object],
+      nativeTabVisible: true,
+      nativeOwner: 1,
+      shellChildViews: [Array],
+      pageWebContentsId: 7,
+      helper: [Object],
+      geometry: [Object]
+    },
+    {
+      epochMs: 1791963375054,
+      monotonicMs: 8635.791584,
+      shellVisible: true,
+      shellMinimized: false,
+      shellBounds: [Object],
+      shellDocument: [Object],
+      pageDocument: [Object],
+      nativeTabVisible: true,
+      nativeOwner: 1,
+      shellChildViews: [Array],
+      pageWebContentsId: 7,
+      helper: [Object],
+      geometry: [Object]
+    },
+    {
+      epochMs: 1791963375547,
+      monotonicMs: 9128.518709,
+      shellVisible: true,
+      shellMinimized: false,
+      shellBounds: [Object],
+      shellDocument: [Object],
+      pageDocument: [Object],
+      nativeTabVisible: true,
+      nativeOwner: 1,
+      shellChildViews: [Array],
+      pageWebContentsId: 7,
+      helper: [Object],
+      geometry: [Object]
+    },
+    {
+      epochMs: 1791963376154,
+      monotonicMs: 9735.486917,
+      shellVisible: true,
+      shellMinimized: false,
+      shellBounds: [Object],
+      shellDocument: [Object],
+      pageDocument: [Object],
+      nativeTabVisible: true,
+      nativeOwner: 1,
+      shellChildViews: [Array],
+      pageWebContentsId: 7,
+      helper: [Object],
+      geometry: [Object]
+    },
+    {
+      epochMs: 1791963376761,
+      monotonicMs: 10342.897209,
+      shellVisible: true,
+      shellMinimized: false,
+      shellBounds: [Object],
+      shellDocument: [Object],
+      pageDocument: [Object],
+      nativeTabVisible: true,
+      nativeOwner: 1,
+      shellChildViews: [Array],
+      pageWebContentsId: 7,
+      helper: [Object],
+      geometry: [Object]
+    },
+    {
+      epochMs: 1791963377288,
+      monotonicMs: 10870.086667,
+      shellVisible: true,
+      shellMinimized: false,
+      shellBounds: [Object],
+      shellDocument: [Object],
+      pageDocument: [Object],
+      nativeTabVisible: true,
+      nativeOwner: 1,
+      shellChildViews: [Array],
+      pageWebContentsId: 7,
+      helper: [Object],
+      geometry: [Object]
+    },
+    {
+      epochMs: 1791963377998,
+      monotonicMs: 11579.721375,
+      shellVisible: true,
+      shellMinimized: false,
+      shellBounds: [Object],
+      shellDocument: [Object],
+      pageDocument: [Object],
+      nativeTabVisible: true,
+      nativeOwner: 1,
+      shellChildViews: [Array],
+      pageWebContentsId: 7,
+      helper: [Object],
+      geometry: [Object]
+    },
+    {
+      epochMs: 1791963378855,
+      monotonicMs: 12437.061667,
+      shellVisible: true,
+      shellMinimized: false,
+      shellBounds: [Object],
+      shellDocument: [Object],
+      pageDocument: [Object],
+      nativeTabVisible: true,
+      nativeOwner: 1,
+      shellChildViews: [Array],
+      pageWebContentsId: 7,
+      helper: [Object],
+      geometry: [Object]
+    },
+    {
+      epochMs: 1791963379596,
+      monotonicMs: 13177.12175,
+      shellVisible: true,
+      shellMinimized: false,
+      shellBounds: [Object],
+      shellDocument: [Object],
+      pageDocument: [Object],
+      nativeTabVisible: true,
+      nativeOwner: 1,
+      shellChildViews: [Array],
+      pageWebContentsId: 7,
+      helper: [Object],
+      geometry: [Object]
+    },
+    {
+      epochMs: 1791963380813,
+      monotonicMs: 14394.774959,
+      shellVisible: true,
+      shellMinimized: false,
+      shellBounds: [Object],
+      shellDocument: [Object],
+      pageDocument: [Object],
+      nativeTabVisible: true,
+      nativeOwner: 1,
+      shellChildViews: [Array],
+      pageWebContentsId: 7,
+      helper: [Object],
+      geometry: [Object]
+    },
+    {
+      epochMs: 1791963382170,
+      monotonicMs: 15751.727625,
+      shellVisible: true,
+      shellMinimized: false,
+      shellBounds: [Object],
+      shellDocument: [Object],
+      pageDocument: [Object],
+      nativeTabVisible: false,
+      nativeOwner: null,
+      shellChildViews: [],
+      pageWebContentsId: 7,
+      helper: [Object],
+      geometry: [Object]
+    },
+    {
+      epochMs: 1791963382959,
+      monotonicMs: 16540.901542,
+      shellVisible: true,
+      shellMinimized: false,
+      shellBounds: [Object],
+      shellDocument: [Object],
+      pageDocument: [Object],
+      nativeTabVisible: false,
+      nativeOwner: null,
+      shellChildViews: [],
+      pageWebContentsId: 7,
+      helper: [Object],
+      geometry: [Object]
+    },
+    {
+      epochMs: 1791963383747,
+      monotonicMs: 17328.539209,
+      shellVisible: true,
+      shellMinimized: false,
+      shellBounds: [Object],
+      shellDocument: [Object],
+      pageDocument: [Object],
+      nativeTabVisible: false,
+      nativeOwner: null,
+      shellChildViews: [],
+      pageWebContentsId: 7,
+      helper: [Object],
+      geometry: [Object]
+    },
+    {
+      epochMs: 1791963384264,
+      monotonicMs: 17845.770667,
+      shellVisible: true,
+      shellMinimized: false,
+      shellBounds: [Object],
+      shellDocument: [Object],
+      pageDocument: [Object],
+      nativeTabVisible: false,
+      nativeOwner: null,
+      shellChildViews: [],
+      pageWebContentsId: 7,
+      helper: [Object],
+      geometry: [Object]
+    },
+    {
+      epochMs: 1791963385655,
+      monotonicMs: 19236.486959,
+      shellVisible: true,
+      shellMinimized: false,
+      shellBounds: [Object],
+      shellDocument: [Object],
+      pageDocument: [Object],
+      nativeTabVisible: false,
+      nativeOwner: null,
+      shellChildViews: [],
+      pageWebContentsId: 7,
+      helper: [Object],
+      geometry: [Object]
+    },
+    {
+      epochMs: 1791963386149,
+      monotonicMs: 19730.263709,
+      shellVisible: true,
+      shellMinimized: false,
+      shellBounds: [Object],
+      shellDocument: [Object],
+      pageDocument: [Object],
+      nativeTabVisible: false,
+      nativeOwner: null,
+      shellChildViews: [],
+      pageWebContentsId: 7,
+      helper: [Object],
+      geometry: [Object]
+    },
+    {
+      epochMs: 1791963387069,
+      monotonicMs: 20650.092,
+      shellVisible: true,
+      shellMinimized: false,
+      shellBounds: [Object],
+      shellDocument: [Object],
+      pageDocument: [Object],
+      nativeTabVisible: false,
+      nativeOwner: null,
+      shellChildViews: [],
+      pageWebContentsId: 7,
+      helper: [Object],
+      geometry: [Object]
+    },
+    {
+      epochMs: 1791963387531,
+      monotonicMs: 21112.458292,
+      shellVisible: true,
+      shellMinimized: false,
+      shellBounds: [Object],
+      shellDocument: [Object],
+      pageDocument: [Object],
+      nativeTabVisible: false,
+      nativeOwner: null,
+      shellChildViews: [],
+      pageWebContentsId: 7,
+      helper: [Object],
+      geometry: [Object]
+    },
+    {
+      epochMs: 1791963388040,
+      monotonicMs: 21621.82325,
+      shellVisible: true,
+      shellMinimized: false,
+      shellBounds: [Object],
+      shellDocument: [Object],
+      pageDocument: [Object],
+      nativeTabVisible: false,
+      nativeOwner: null,
+      shellChildViews: [],
+      pageWebContentsId: 7,
+      helper: [Object],
+      geometry: [Object]
+    }
+  ],
+  uncovered: [
+    {
+      epochMs: 1791963388768,
+      monotonicMs: 22349.598709,
+      shellVisible: true,
+      shellMinimized: false,
+      shellBounds: [Object],
+      shellDocument: [Object],
+      pageDocument: [Object],
+      nativeTabVisible: false,
+      nativeOwner: null,
+      shellChildViews: [],
+      pageWebContentsId: 7,
+      helper: [Object],
+      geometry: [Object]
+    },
+    {
+      epochMs: 1791963389256,
+      monotonicMs: 22837.781084,
+      shellVisible: true,
+      shellMinimized: false,
+      shellBounds: [Object],
+      shellDocument: [Object],
+      pageDocument: [Object],
+      nativeTabVisible: false,
+      nativeOwner: null,
+      shellChildViews: [],
+      pageWebContentsId: 7,
+      helper: [Object],
+      geometry: [Object]
+    },
+    {
+      epochMs: 1791963389719,
+      monotonicMs: 23300.356375,
+      shellVisible: true,
+      shellMinimized: false,
+      shellBounds: [Object],
+      shellDocument: [Object],
+      pageDocument: [Object],
+      nativeTabVisible: false,
+      nativeOwner: null,
+      shellChildViews: [],
+      pageWebContentsId: 7,
+      helper: [Object],
+      geometry: [Object]
+    },
+    {
+      epochMs: 1791963390198,
+      monotonicMs: 23779.749417,
+      shellVisible: true,
+      shellMinimized: false,
+      shellBounds: [Object],
+      shellDocument: [Object],
+      pageDocument: [Object],
+      nativeTabVisible: false,
+      nativeOwner: null,
+      shellChildViews: [],
+      pageWebContentsId: 7,
+      helper: [Object],
+      geometry: [Object]
+    },
+    {
+      epochMs: 1791963390689,
+      monotonicMs: 24270.234167,
+      shellVisible: true,
+      shellMinimized: false,
+      shellBounds: [Object],
+      shellDocument: [Object],
+      pageDocument: [Object],
+      nativeTabVisible: false,
+      nativeOwner: null,
+      shellChildViews: [],
+      pageWebContentsId: 7,
+      helper: [Object],
+      geometry: [Object]
+    },
+    {
+      epochMs: 1791963391148,
+      monotonicMs: 24729.668459,
+      shellVisible: true,
+      shellMinimized: false,
+      shellBounds: [Object],
+      shellDocument: [Object],
+      pageDocument: [Object],
+      nativeTabVisible: false,
+      nativeOwner: null,
+      shellChildViews: [],
+      pageWebContentsId: 7,
+      helper: [Object],
+      geometry: [Object]
+    },
+    {
+      epochMs: 1791963391623,
+      monotonicMs: 25204.725292,
+      shellVisible: true,
+      shellMinimized: false,
+      shellBounds: [Object],
+      shellDocument: [Object],
+      pageDocument: [Object],
+      nativeTabVisible: false,
+      nativeOwner: null,
+      shellChildViews: [],
+      pageWebContentsId: 7,
+      helper: [Object],
+      geometry: [Object]
+    },
+    {
+      epochMs: 1791963392117,
+      monotonicMs: 25698.858084,
+      shellVisible: true,
+      shellMinimized: false,
+      shellBounds: [Object],
+      shellDocument: [Object],
+      pageDocument: [Object],
+      nativeTabVisible: false,
+      nativeOwner: null,
+      shellChildViews: [],
+      pageWebContentsId: 7,
+      helper: [Object],
+      geometry: [Object]
+    },
+    {
+      epochMs: 1791963392611,
+      monotonicMs: 26192.8035,
+      shellVisible: true,
+      shellMinimized: false,
+      shellBounds: [Object],
+      shellDocument: [Object],
+      pageDocument: [Object],
+      nativeTabVisible: false,
+      nativeOwner: null,
+      shellChildViews: [],
+      pageWebContentsId: 7,
+      helper: [Object],
+      geometry: [Object]
+    },
+    {
+      epochMs: 1791963393093,
+      monotonicMs: 26674.322042,
+      shellVisible: true,
+      shellMinimized: false,
+      shellBounds: [Object],
+      shellDocument: [Object],
+      pageDocument: [Object],
+      nativeTabVisible: false,
+      nativeOwner: null,
+      shellChildViews: [],
+      pageWebContentsId: 7,
+      helper: [Object],
+      geometry: [Object]
+    }
+  ]
+}
+[app-tab-host] {
+  windowId: 1,
+  visible: true,
+  sequence: 51,
+  monotonicMs: 27340,
+  event: 'window-visibility-started'
+}
+[app-tab-host] {
+  tabId: 'qa-browser-A',
+  windowId: 1,
+  visible: true,
+  presentationVisible: true,
+  ownerWindowId: null,
+  appViewVisible: true,
+  sequence: 52,
+  monotonicMs: 27340,
+  event: 'window-visibility-tab'
+}
+[app-tab-host] {
+  tabId: 'qa-browser-A',
+  windowId: 1,
+  folderId: 'qa-folder',
+  threadId: 'qa-agent-thread',
+  ownerWindowId: null,
+  freezeDepth: 0,
+  appViewVisible: true,
+  sequence: 53,
+  monotonicMs: 27340,
+  event: 'present-started'
+}
+[app-tab-host] {
+  tabId: 'qa-browser-A',
+  pageId: '8d94eb36-11ba-4bc2-a132-bf0ffb119914',
+  rendererId: 7,
+  currentBounds: { x: 0, y: 0, width: 550, height: 720 },
+  bounds: { x: 650, y: 48, width: 550, height: 720 },
+  currentVisible: true,
+  visible: true,
+  visibleRequested: true,
+  freezeDepth: 0,
+  ownerWindowVisible: true,
+  pageHasError: false,
+  sequence: 54,
+  monotonicMs: 27341,
+  event: 'hosted-page-view-layout-change'
+}
+[app-tab-host] {
+  tabId: 'qa-browser-A',
+  folderId: 'qa-folder',
+  threadId: 'qa-agent-thread',
+  windowId: 1,
+  ownerWindowId: 1,
+  selectedAt: 7,
+  bounds: { x: 650, y: 0, width: 550, height: 768 },
+  animate: false,
+  windowVisible: true,
+  windowMinimized: false,
+  appViewVisible: true,
+  appViewIndex: 1,
+  childViewCount: 2,
+  hostedPageVisible: true,
+  appViewLoading: false,
+  appViewCrashed: false,
+  hostedPageLoading: false,
+  sequence: 55,
+  monotonicMs: 27342,
+  event: 'present-applied'
+}
+[app-tab-host] {
+  tabId: 'qa-browser-A',
+  windowId: 1,
+  visibleRequested: true,
+  freezeDepth: 0,
+  appViewVisible: true,
+  hostedPageVisible: true,
+  sequence: 56,
+  monotonicMs: 27342,
+  event: 'window-show-applied'
+}
+[app-tab-host] {
+  windowId: 1,
+  visible: true,
+  sequence: 57,
+  monotonicMs: 27342,
+  event: 'window-visibility-completed'
+}
+[app-tab-diagnostic] {
+  rendererMonotonicMs: 25702,
+  documentVisibility: 'visible',
+  documentHasFocus: false,
+  threadId: 'qa-agent-thread',
+  rendererId: 1,
+  tabId: 'qa-browser-A',
+  sequence: 22,
+  monotonicMs: 27351,
+  event: 'renderer-document-visibility-changed'
+}
+[app-tab-diagnostic] {
+  rendererMonotonicMs: 25708,
+  documentVisibility: 'visible',
+  documentHasFocus: false,
+  threadId: 'qa-agent-thread',
+  mode: 'live',
+  ownerWindowId: 1,
+  rendererId: 1,
+  tabId: 'qa-browser-A',
+  sequence: 23,
+  monotonicMs: 27359,
+  event: 'renderer-presentation-received'
+}
+[app-tab-diagnostic] {
+  rendererMonotonicMs: 25709,
+  documentVisibility: 'visible',
+  documentHasFocus: false,
+  threadId: 'qa-agent-thread',
+  mode: 'live',
+  ownerWindowId: 1,
+  rendererId: 1,
+  tabId: 'qa-browser-A',
+  sequence: 24,
+  monotonicMs: 27360,
+  event: 'renderer-presentation-received'
+}
+[app-tab-diagnostic] {
+  rendererMonotonicMs: 25712,
+  documentVisibility: 'visible',
+  documentHasFocus: true,
+  threadId: 'qa-agent-thread',
+  rendererId: 1,
+  tabId: 'qa-browser-A',
+  sequence: 25,
+  monotonicMs: 27360,
+  event: 'renderer-window-focused'
+}
+[app-tab-host] {
+  windowId: 1,
+  visible: true,
+  sequence: 58,
+  monotonicMs: 27456,
+  event: 'window-visibility-started'
+}
+[app-tab-host] {
+  tabId: 'qa-browser-A',
+  windowId: 1,
+  visible: true,
+  presentationVisible: true,
+  ownerWindowId: 1,
+  appViewVisible: true,
+  sequence: 59,
+  monotonicMs: 27456,
+  event: 'window-visibility-tab'
+}
+[app-tab-host] {
+  tabId: 'qa-browser-A',
+  windowId: 1,
+  visibleRequested: true,
+  freezeDepth: 0,
+  appViewVisible: true,
+  hostedPageVisible: true,
+  sequence: 60,
+  monotonicMs: 27456,
+  event: 'window-show-applied'
+}
+[app-tab-host] {
+  windowId: 1,
+  visible: true,
+  sequence: 61,
+  monotonicMs: 27456,
+  event: 'window-visibility-completed'
+}
+[app-tab-diagnostic] {
+  rendererMonotonicMs: 25823,
+  documentVisibility: 'visible',
+  documentHasFocus: true,
+  threadId: 'qa-agent-thread',
+  mode: 'live',
+  ownerWindowId: 1,
+  rendererId: 1,
+  tabId: 'qa-browser-A',
+  sequence: 26,
+  monotonicMs: 27461,
+  event: 'renderer-presentation-received'
+}
+[app-tab-diagnostic] {
+  browserWindowId: 1,
+  rendererId: 1,
+  isVisible: true,
+  isMinimized: false,
+  isFocused: true,
+  rendererState: { visibilityState: 'visible', hasFocus: true },
+  sequence: 27,
+  monotonicMs: 27461,
+  event: 'shell-window-show'
+}
+[qa-page-event] {
+  caseId: 'bootstrap',
+  kind: 'visibilitychange',
+  epochMs: 1791963393879,
+  pageMonotonicMs: 22746.89999985695,
+  visibility: 'visible',
+  focus: false
+}
+[app-tab-host] {
+  tabId: 'qa-browser-A',
+  windowId: 1,
+  folderId: 'qa-folder',
+  threadId: 'qa-agent-thread',
+  ownerWindowId: 1,
+  freezeDepth: 0,
+  appViewVisible: true,
+  sequence: 62,
+  monotonicMs: 27695,
+  event: 'present-started'
+}
+[app-tab-host] {
+  tabId: 'qa-browser-A',
+  folderId: 'qa-folder',
+  threadId: 'qa-agent-thread',
+  windowId: 1,
+  ownerWindowId: 1,
+  selectedAt: 8,
+  bounds: { x: 650, y: 0, width: 550, height: 768 },
+  animate: false,
+  windowVisible: true,
+  windowMinimized: false,
+  appViewVisible: true,
+  appViewIndex: 1,
+  childViewCount: 2,
+  hostedPageVisible: true,
+  appViewLoading: false,
+  appViewCrashed: false,
+  hostedPageLoading: false,
+  sequence: 63,
+  monotonicMs: 27696,
+  event: 'present-applied'
+}
+[app-tab-diagnostic] {
+  rendererMonotonicMs: 26062,
+  documentVisibility: 'visible',
+  documentHasFocus: true,
+  threadId: 'qa-agent-thread',
+  mode: 'live',
+  ownerWindowId: 1,
+  rendererId: 1,
+  tabId: 'qa-browser-A',
+  sequence: 28,
+  monotonicMs: 27696,
+  event: 'renderer-presentation-received'
+}
+[qa-control] {
+  event: 'cover-action-started',
+  name: 'h-shell-partial',
+  owner: 'shell',
+  extent: 'partial',
+  before: {
+    epochMs: 1791963395622,
+    monotonicMs: 29203.162042,
+    shellVisible: true,
+    shellMinimized: false,
+    shellBounds: { x: 50, y: 60, width: 1200, height: 800 },
+    shellDocument: { visibility: 'visible', focus: true },
+    pageDocument: { visibility: 'visible', focus: false },
+    nativeTabVisible: true,
+    nativeOwner: 1,
+    shellChildViews: [ [Object], [Object] ],
+    pageWebContentsId: 7,
+    helper: {
+      ready: true,
+      serial: 1791963393563,
+      visible: false,
+      fullscreen: false,
+      pid: 9721,
+      active: false,
+      styleMask: 15,
+      frontPid: 9806,
+      epochMs: 1791963395587
+    },
+    geometry: { windows: [Array], targetWindow: [Object] }
+  }
+}
+[app-tab-diagnostic] {
+  rendererMonotonicMs: 27872,
+  documentVisibility: 'visible',
+  documentHasFocus: false,
+  threadId: 'qa-agent-thread',
+  rendererId: 1,
+  tabId: 'qa-browser-A',
+  sequence: 29,
+  monotonicMs: 29525,
+  event: 'renderer-window-blurred'
+}
+[qa-control] { event: 'cover-removal-started', owner: 'shell' }
+[qa-control] {
+  event: 'cover-action-finished',
+  caseId: 'h-shell-partial',
+  owner: 'shell',
+  extent: 'partial',
+  startEpochMs: 1791963395915,
+  durationMs: 15574,
+  expectedCoverBounds: { x: 650, y: 56, width: 604, height: 808 },
+  before: {
+    epochMs: 1791963395622,
+    monotonicMs: 29203.162042,
+    shellVisible: true,
+    shellMinimized: false,
+    shellBounds: { x: 50, y: 60, width: 1200, height: 800 },
+    shellDocument: { visibility: 'visible', focus: true },
+    pageDocument: { visibility: 'visible', focus: false },
+    nativeTabVisible: true,
+    nativeOwner: 1,
+    shellChildViews: [ [Object], [Object] ],
+    pageWebContentsId: 7,
+    helper: {
+      ready: true,
+      serial: 1791963393563,
+      visible: false,
+      fullscreen: false,
+      pid: 9721,
+      active: false,
+      styleMask: 15,
+      frontPid: 9806,
+      epochMs: 1791963395587
+    },
+    geometry: { windows: [Array], targetWindow: [Object] }
+  },
+  covered: [
+    {
+      epochMs: 1791963395927,
+      monotonicMs: 29508.763209,
+      shellVisible: true,
+      shellMinimized: false,
+      shellBounds: [Object],
+      shellDocument: [Object],
+      pageDocument: [Object],
+      nativeTabVisible: true,
+      nativeOwner: 1,
+      shellChildViews: [Array],
+      pageWebContentsId: 7,
+      helper: [Object],
+      geometry: [Object]
+    },
+    {
+      epochMs: 1791963396432,
+      monotonicMs: 30013.134667,
+      shellVisible: true,
+      shellMinimized: false,
+      shellBounds: [Object],
+      shellDocument: [Object],
+      pageDocument: [Object],
+      nativeTabVisible: true,
+      nativeOwner: 1,
+      shellChildViews: [Array],
+      pageWebContentsId: 7,
+      helper: [Object],
+      geometry: [Object]
+    },
+    {
+      epochMs: 1791963396925,
+      monotonicMs: 30506.584542,
+      shellVisible: true,
+      shellMinimized: false,
+      shellBounds: [Object],
+      shellDocument: [Object],
+      pageDocument: [Object],
+      nativeTabVisible: true,
+      nativeOwner: 1,
+      shellChildViews: [Array],
+      pageWebContentsId: 7,
+      helper: [Object],
+      geometry: [Object]
+    },
+    {
+      epochMs: 1791963397397,
+      monotonicMs: 30978.844417,
+      shellVisible: true,
+      shellMinimized: false,
+      shellBounds: [Object],
+      shellDocument: [Object],
+      pageDocument: [Object],
+      nativeTabVisible: true,
+      nativeOwner: 1,
+      shellChildViews: [Array],
+      pageWebContentsId: 7,
+      helper: [Object],
+      geometry: [Object]
+    },
+    {
+      epochMs: 1791963397965,
+      monotonicMs: 31546.301584,
+      shellVisible: true,
+      shellMinimized: false,
+      shellBounds: [Object],
+      shellDocument: [Object],
+      pageDocument: [Object],
+      nativeTabVisible: true,
+      nativeOwner: 1,
+      shellChildViews: [Array],
+      pageWebContentsId: 7,
+      helper: [Object],
+      geometry: [Object]
+    },
+    {
+      epochMs: 1791963398492,
+      monotonicMs: 32073.887584,
+      shellVisible: true,
+      shellMinimized: false,
+      shellBounds: [Object],
+      shellDocument: [Object],
+      pageDocument: [Object],
+      nativeTabVisible: true,
+      nativeOwner: 1,
+      shellChildViews: [Array],
+      pageWebContentsId: 7,
+      helper: [Object],
+      geometry: [Object]
+    },
+    {
+      epochMs: 1791963398976,
+      monotonicMs: 32557.388209,
+      shellVisible: true,
+      shellMinimized: false,
+      shellBounds: [Object],
+      shellDocument: [Object],
+      pageDocument: [Object],
+      nativeTabVisible: true,
+      nativeOwner: 1,
+      shellChildViews: [Array],
+      pageWebContentsId: 7,
+      helper: [Object],
+      geometry: [Object]
+    },
+    {
+      epochMs: 1791963399471,
+      monotonicMs: 33052.558709,
+      shellVisible: true,
+      shellMinimized: false,
+      shellBounds: [Object],
+      shellDocument: [Object],
+      pageDocument: [Object],
+      nativeTabVisible: true,
+      nativeOwner: 1,
+      shellChildViews: [Array],
+      pageWebContentsId: 7,
+      helper: [Object],
+      geometry: [Object]
+    },
+    {
+      epochMs: 1791963399953,
+      monotonicMs: 33534.454,
+      shellVisible: true,
+      shellMinimized: false,
+      shellBounds: [Object],
+      shellDocument: [Object],
+      pageDocument: [Object],
+      nativeTabVisible: true,
+      nativeOwner: 1,
+      shellChildViews: [Array],
+      pageWebContentsId: 7,
+      helper: [Object],
+      geometry: [Object]
+    },
+    {
+      epochMs: 1791963400441,
+      monotonicMs: 34022.206084,
+      shellVisible: true,
+      shellMinimized: false,
+      shellBounds: [Object],
+      shellDocument: [Object],
+      pageDocument: [Object],
+      nativeTabVisible: true,
+      nativeOwner: 1,
+      shellChildViews: [Array],
+      pageWebContentsId: 7,
+      helper: [Object],
+      geometry: [Object]
+    },
+    {
+      epochMs: 1791963400925,
+      monotonicMs: 34506.98975,
+      shellVisible: true,
+      shellMinimized: false,
+      shellBounds: [Object],
+      shellDocument: [Object],
+      pageDocument: [Object],
+      nativeTabVisible: true,
+      nativeOwner: 1,
+      shellChildViews: [Array],
+      pageWebContentsId: 7,
+      helper: [Object],
+      geometry: [Object]
+    },
+    {
+      epochMs: 1791963401415,
+      monotonicMs: 34996.091375,
+      shellVisible: true,
+      shellMinimized: false,
+      shellBounds: [Object],
+      shellDocument: [Object],
+      pageDocument: [Object],
+      nativeTabVisible: true,
+      nativeOwner: 1,
+      shellChildViews: [Array],
+      pageWebContentsId: 7,
+      helper: [Object],
+      geometry: [Object]
+    },
+    {
+      epochMs: 1791963401916,
+      monotonicMs: 35497.551709,
+      shellVisible: true,
+      shellMinimized: false,
+      shellBounds: [Object],
+      shellDocument: [Object],
+      pageDocument: [Object],
+      nativeTabVisible: true,
+      nativeOwner: 1,
+      shellChildViews: [Array],
+      pageWebContentsId: 7,
+      helper: [Object],
+      geometry: [Object]
+    },
+    {
+      epochMs: 1791963402405,
+      monotonicMs: 35986.566375,
+      shellVisible: true,
+      shellMinimized: false,
+      shellBounds: [Object],
+      shellDocument: [Object],
+      pageDocument: [Object],
+      nativeTabVisible: true,
+      nativeOwner: 1,
+      shellChildViews: [Array],
+      pageWebContentsId: 7,
+      helper: [Object],
+      geometry: [Object]
+    },
+    {
+      epochMs: 1791963402896,
+      monotonicMs: 36477.170292,
+      shellVisible: true,
+      shellMinimized: false,
+      shellBounds: [Object],
+      shellDocument: [Object],
+      pageDocument: [Object],
+      nativeTabVisible: true,
+      nativeOwner: 1,
+      shellChildViews: [Array],
+      pageWebContentsId: 7,
+      helper: [Object],
+      geometry: [Object]
+    },
+    {
+      epochMs: 1791963403353,
+      monotonicMs: 36934.554959,
+      shellVisible: true,
+      shellMinimized: false,
+      shellBounds: [Object],
+      shellDocument: [Object],
+      pageDocument: [Object],
+      nativeTabVisible: true,
+      nativeOwner: 1,
+      shellChildViews: [Array],
+      pageWebContentsId: 7,
+      helper: [Object],
+      geometry: [Object]
+    },
+    {
+      epochMs: 1791963403869,
+      monotonicMs: 37450.007417,
+      shellVisible: true,
+      shellMinimized: false,
+      shellBounds: [Object],
+      shellDocument: [Object],
+      pageDocument: [Object],
+      nativeTabVisible: true,
+      nativeOwner: 1,
+      shellChildViews: [Array],
+      pageWebContentsId: 7,
+      helper: [Object],
+      geometry: [Object]
+    },
+    {
+      epochMs: 1791963404348,
+      monotonicMs: 37929.741667,
+      shellVisible: true,
+      shellMinimized: false,
+      shellBounds: [Object],
+      shellDocument: [Object],
+      pageDocument: [Object],
+      nativeTabVisible: true,
+      nativeOwner: 1,
+      shellChildViews: [Array],
+      pageWebContentsId: 7,
+      helper: [Object],
+      geometry: [Object]
+    },
+    {
+      epochMs: 1791963404838,
+      monotonicMs: 38419.429334,
+      shellVisible: true,
+      shellMinimized: false,
+      shellBounds: [Object],
+      shellDocument: [Object],
+      pageDocument: [Object],
+      nativeTabVisible: true,
+      nativeOwner: 1,
+      shellChildViews: [Array],
+      pageWebContentsId: 7,
+      helper: [Object],
+      geometry: [Object]
+    },
+    {
+      epochMs: 1791963405335,
+      monotonicMs: 38916.912792,
+      shellVisible: true,
+      shellMinimized: false,
+      shellBounds: [Object],
+      shellDocument: [Object],
+      pageDocument: [Object],
+      nativeTabVisible: true,
+      nativeOwner: 1,
+      shellChildViews: [Array],
+      pageWebContentsId: 7,
+      helper: [Object],
+      geometry: [Object]
+    }
+  ],
+  uncovered: [
+    {
+      epochMs: 1791963405833,
+      monotonicMs: 39414.064875,
+      shellVisible: true,
+      shellMinimized: false,
+      shellBounds: [Object],
+      shellDocument: [Object],
+      pageDocument: [Object],
+      nativeTabVisible: true,
+      nativeOwner: 1,
+      shellChildViews: [Array],
+      pageWebContentsId: 7,
+      helper: [Object],
+      geometry: [Object]
+    },
+    {
+      epochMs: 1791963406457,
+      monotonicMs: 40038.468125,
+      shellVisible: true,
+      shellMinimized: false,
+      shellBounds: [Object],
+      shellDocument: [Object],
+      pageDocument: [Object],
+      nativeTabVisible: true,
+      nativeOwner: 1,
+      shellChildViews: [Array],
+      pageWebContentsId: 7,
+      helper: [Object],
+      geometry: [Object]
+    },
+    {
+      epochMs: 1791963407190,
+      monotonicMs: 40771.01225,
+      shellVisible: true,
+      shellMinimized: false,
+      shellBounds: [Object],
+      shellDocument: [Object],
+      pageDocument: [Object],
+      nativeTabVisible: true,
+      nativeOwner: 1,
+      shellChildViews: [Array],
+      pageWebContentsId: 7,
+      helper: [Object],
+      geometry: [Object]
+    },
+    {
+      epochMs: 1791963407705,
+      monotonicMs: 41286.778709,
+      shellVisible: true,
+      shellMinimized: false,
+      shellBounds: [Object],
+      shellDocument: [Object],
+      pageDocument: [Object],
+      nativeTabVisible: true,
+      nativeOwner: 1,
+      shellChildViews: [Array],
+      pageWebContentsId: 7,
+      helper: [Object],
+      geometry: [Object]
+    },
+    {
+      epochMs: 1791963408258,
+      monotonicMs: 41839.918334,
+      shellVisible: true,
+      shellMinimized: false,
+      shellBounds: [Object],
+      shellDocument: [Object],
+      pageDocument: [Object],
+      nativeTabVisible: true,
+      nativeOwner: 1,
+      shellChildViews: [Array],
+      pageWebContentsId: 7,
+      helper: [Object],
+      geometry: [Object]
+    },
+    {
+      epochMs: 1791963408762,
+      monotonicMs: 42343.829125,
+      shellVisible: true,
+      shellMinimized: false,
+      shellBounds: [Object],
+      shellDocument: [Object],
+      pageDocument: [Object],
+      nativeTabVisible: true,
+      nativeOwner: 1,
+      shellChildViews: [Array],
+      pageWebContentsId: 7,
+      helper: [Object],
+      geometry: [Object]
+    },
+    {
+      epochMs: 1791963409331,
+      monotonicMs: 42912.037875,
+      shellVisible: true,
+      shellMinimized: false,
+      shellBounds: [Object],
+      shellDocument: [Object],
+      pageDocument: [Object],
+      nativeTabVisible: true,
+      nativeOwner: 1,
+      shellChildViews: [Array],
+      pageWebContentsId: 7,
+      helper: [Object],
+      geometry: [Object]
+    },
+    {
+      epochMs: 1791963409858,
+      monotonicMs: 43439.397667,
+      shellVisible: true,
+      shellMinimized: false,
+      shellBounds: [Object],
+      shellDocument: [Object],
+      pageDocument: [Object],
+      nativeTabVisible: true,
+      nativeOwner: 1,
+      shellChildViews: [Array],
+      pageWebContentsId: 7,
+      helper: [Object],
+      geometry: [Object]
+    },
+    {
+      epochMs: 1791963410403,
+      monotonicMs: 43984.757125,
+      shellVisible: true,
+      shellMinimized: false,
+      shellBounds: [Object],
+      shellDocument: [Object],
+      pageDocument: [Object],
+      nativeTabVisible: true,
+      nativeOwner: 1,
+      shellChildViews: [Array],
+      pageWebContentsId: 7,
+      helper: [Object],
+      geometry: [Object]
+    },
+    {
+      epochMs: 1791963410955,
+      monotonicMs: 44536.6505,
+      shellVisible: true,
+      shellMinimized: false,
+      shellBounds: [Object],
+      shellDocument: [Object],
+      pageDocument: [Object],
+      nativeTabVisible: true,
+      nativeOwner: 1,
+      shellChildViews: [Array],
+      pageWebContentsId: 7,
+      helper: [Object],
+      geometry: [Object]
+    }
+  ]
+}
+[app-tab-host] {
+  windowId: 1,
+  visible: true,
+  sequence: 64,
+  monotonicMs: 45276,
+  event: 'window-visibility-started'
+}
+[app-tab-host] {
+  tabId: 'qa-browser-A',
+  windowId: 1,
+  visible: true,
+  presentationVisible: true,
+  ownerWindowId: 1,
+  appViewVisible: true,
+  sequence: 65,
+  monotonicMs: 45276,
+  event: 'window-visibility-tab'
+}
+[app-tab-host] {
+  tabId: 'qa-browser-A',
+  windowId: 1,
+  visibleRequested: true,
+  freezeDepth: 0,
+  appViewVisible: true,
+  hostedPageVisible: true,
+  sequence: 66,
+  monotonicMs: 45276,
+  event: 'window-show-applied'
+}
+[app-tab-host] {
+  windowId: 1,
+  visible: true,
+  sequence: 67,
+  monotonicMs: 45277,
+  event: 'window-visibility-completed'
+}
+[app-tab-diagnostic] {
+  rendererMonotonicMs: 43643,
+  documentVisibility: 'visible',
+  documentHasFocus: false,
+  threadId: 'qa-agent-thread',
+  mode: 'live',
+  ownerWindowId: 1,
+  rendererId: 1,
+  tabId: 'qa-browser-A',
+  sequence: 30,
+  monotonicMs: 45294,
+  event: 'renderer-presentation-received'
+}
+[app-tab-diagnostic] {
+  rendererMonotonicMs: 43656,
+  documentVisibility: 'visible',
+  documentHasFocus: true,
+  threadId: 'qa-agent-thread',
+  rendererId: 1,
+  tabId: 'qa-browser-A',
+  sequence: 31,
+  monotonicMs: 45295,
+  event: 'renderer-window-focused'
+}
+[app-tab-diagnostic] {
+  rendererMonotonicMs: 43943,
+  documentVisibility: 'visible',
+  documentHasFocus: false,
+  threadId: 'qa-agent-thread',
+  rendererId: 1,
+  tabId: 'qa-browser-A',
+  sequence: 32,
+  monotonicMs: 45579,
+  event: 'renderer-window-blurred'
+}
+[app-tab-host] {
+  tabId: 'qa-browser-A',
+  windowId: 1,
+  folderId: 'qa-folder',
+  threadId: 'qa-agent-thread',
+  ownerWindowId: 1,
+  freezeDepth: 0,
+  appViewVisible: true,
+  sequence: 68,
+  monotonicMs: 45629,
+  event: 'present-started'
+}
+[app-tab-host] {
+  tabId: 'qa-browser-A',
+  folderId: 'qa-folder',
+  threadId: 'qa-agent-thread',
+  windowId: 1,
+  ownerWindowId: 1,
+  selectedAt: 9,
+  bounds: { x: 650, y: 0, width: 550, height: 768 },
+  animate: false,
+  windowVisible: true,
+  windowMinimized: false,
+  appViewVisible: true,
+  appViewIndex: 1,
+  childViewCount: 2,
+  hostedPageVisible: true,
+  appViewLoading: false,
+  appViewCrashed: false,
+  hostedPageLoading: false,
+  sequence: 69,
+  monotonicMs: 45629,
+  event: 'present-applied'
+}
+[app-tab-diagnostic] {
+  rendererMonotonicMs: 43996,
+  documentVisibility: 'visible',
+  documentHasFocus: false,
+  threadId: 'qa-agent-thread',
+  mode: 'live',
+  ownerWindowId: 1,
+  rendererId: 1,
+  tabId: 'qa-browser-A',
+  sequence: 33,
+  monotonicMs: 45630,
+  event: 'renderer-presentation-received'
+}
+[app-tab-diagnostic] {
+  rendererMonotonicMs: 44328,
+  documentVisibility: 'visible',
+  documentHasFocus: true,
+  threadId: 'qa-agent-thread',
+  rendererId: 1,
+  tabId: 'qa-browser-A',
+  sequence: 34,
+  monotonicMs: 45965,
+  event: 'renderer-window-focused'
+}
+[app-tab-diagnostic] {
+  rendererMonotonicMs: 44710,
+  documentVisibility: 'visible',
+  documentHasFocus: false,
+  threadId: 'qa-agent-thread',
+  rendererId: 1,
+  tabId: 'qa-browser-A',
+  sequence: 35,
+  monotonicMs: 46346,
+  event: 'renderer-window-blurred'
+}
+[qa-control] {
+  event: 'cover-action-started',
+  name: 'h-shell-full',
+  owner: 'shell',
+  extent: 'full',
+  before: {
+    epochMs: 1791963413577,
+    monotonicMs: 47158.641417,
+    shellVisible: true,
+    shellMinimized: false,
+    shellBounds: { x: 50, y: 60, width: 1200, height: 800 },
+    shellDocument: { visibility: 'visible', focus: false },
+    pageDocument: { visibility: 'visible', focus: false },
+    nativeTabVisible: true,
+    nativeOwner: 1,
+    shellChildViews: [ [Object], [Object] ],
+    pageWebContentsId: 7,
+    helper: {
+      ready: true,
+      serial: 1791963411494,
+      visible: false,
+      fullscreen: false,
+      pid: 9721,
+      active: false,
+      styleMask: 15,
+      frontPid: 39467,
+      epochMs: 1791963413574
+    },
+    geometry: { windows: [Array], targetWindow: [Object] }
+  }
+}
+[app-tab-host] {
+  windowId: 1,
+  visible: false,
+  sequence: 70,
+  monotonicMs: 52386,
+  event: 'window-visibility-started'
+}
+[app-tab-host] {
+  tabId: 'qa-browser-A',
+  windowId: 1,
+  visible: false,
+  presentationVisible: true,
+  ownerWindowId: 1,
+  appViewVisible: true,
+  sequence: 71,
+  monotonicMs: 52386,
+  event: 'window-visibility-tab'
+}
+[app-tab-host] {
+  tabId: 'qa-browser-A',
+  windowId: 1,
+  sequence: 72,
+  monotonicMs: 52387,
+  event: 'window-hide-replica-capture-started'
+}
+[app-tab-host] {
+  windowId: 1,
+  visible: true,
+  sequence: 73,
+  monotonicMs: 52387,
+  event: 'window-visibility-started'
+}
+[app-tab-host] {
+  tabId: 'qa-browser-A',
+  windowId: 1,
+  visible: true,
+  presentationVisible: true,
+  ownerWindowId: 1,
+  appViewVisible: true,
+  sequence: 74,
+  monotonicMs: 52387,
+  event: 'window-visibility-tab'
+}
+[app-tab-host] {
+  tabId: 'qa-browser-A',
+  windowId: 1,
+  visibleRequested: true,
+  freezeDepth: 0,
+  appViewVisible: true,
+  hostedPageVisible: true,
+  sequence: 75,
+  monotonicMs: 52388,
+  event: 'window-show-applied'
+}
+[app-tab-host] {
+  windowId: 1,
+  visible: true,
+  sequence: 76,
+  monotonicMs: 52388,
+  event: 'window-visibility-completed'
+}
+[app-tab-diagnostic] {
+  rendererMonotonicMs: 50752,
+  documentVisibility: 'hidden',
+  documentHasFocus: false,
+  threadId: 'qa-agent-thread',
+  rendererId: 1,
+  tabId: 'qa-browser-A',
+  sequence: 36,
+  monotonicMs: 52398,
+  event: 'renderer-document-visibility-changed'
+}
+[app-tab-diagnostic] {
+  browserWindowId: 1,
+  rendererId: 1,
+  isVisible: true,
+  isMinimized: false,
+  isFocused: false,
+  rendererState: { visibilityState: 'hidden', hasFocus: false },
+  sequence: 37,
+  monotonicMs: 52399,
+  event: 'shell-window-hide'
+}
+[app-tab-diagnostic] {
+  rendererMonotonicMs: 50754,
+  documentVisibility: 'visible',
+  documentHasFocus: false,
+  threadId: 'qa-agent-thread',
+  rendererId: 1,
+  tabId: 'qa-browser-A',
+  sequence: 38,
+  monotonicMs: 52399,
+  event: 'renderer-document-visibility-changed'
+}
+[app-tab-diagnostic] {
+  rendererMonotonicMs: 50754,
+  documentVisibility: 'visible',
+  documentHasFocus: false,
+  threadId: 'qa-agent-thread',
+  mode: 'live',
+  ownerWindowId: 1,
+  rendererId: 1,
+  tabId: 'qa-browser-A',
+  sequence: 39,
+  monotonicMs: 52400,
+  event: 'renderer-presentation-received'
+}
+[app-tab-diagnostic] {
+  browserWindowId: 1,
+  rendererId: 1,
+  isVisible: true,
+  isMinimized: false,
+  isFocused: false,
+  rendererState: { visibilityState: 'visible', hasFocus: false },
+  sequence: 40,
+  monotonicMs: 52400,
+  event: 'shell-window-show'
+}
+[app-tab-host] {
+  tabId: 'qa-browser-A',
+  windowId: 1,
+  sequence: 77,
+  monotonicMs: 52420,
+  event: 'window-hide-replica-capture-completed'
+}
+[app-tab-host] {
+  tabId: 'qa-browser-A',
+  pageId: '8d94eb36-11ba-4bc2-a132-bf0ffb119914',
+  rendererId: 7,
+  currentBounds: { x: 650, y: 48, width: 550, height: 720 },
+  bounds: { x: 0, y: 0, width: 550, height: 720 },
+  currentVisible: true,
+  visible: true,
+  visibleRequested: true,
+  freezeDepth: 0,
+  ownerWindowVisible: false,
+  pageHasError: false,
+  sequence: 78,
+  monotonicMs: 52566,
+  event: 'hosted-page-view-layout-change'
+}
+[app-tab-host] {
+  tabId: 'qa-browser-A',
+  windowId: 1,
+  visibleRequested: true,
+  freezeDepth: 0,
+  appViewVisible: true,
+  hostedPageVisible: true,
+  sequence: 79,
+  monotonicMs: 52583,
+  event: 'window-hide-applied'
+}
+[app-tab-host] {
+  windowId: 1,
+  visible: false,
+  sequence: 80,
+  monotonicMs: 52583,
+  event: 'window-visibility-completed'
+}
+[app-tab-diagnostic] {
+  rendererMonotonicMs: 50787,
+  documentVisibility: 'visible',
+  documentHasFocus: false,
+  threadId: 'qa-agent-thread',
+  mode: 'live',
+  ownerWindowId: 1,
+  rendererId: 1,
+  tabId: 'qa-browser-A',
+  sequence: 41,
+  monotonicMs: 52592,
+  event: 'renderer-presentation-received'
+}
+[qa-page-event] {
+  caseId: 'bootstrap',
+  kind: 'visibilitychange',
+  epochMs: 1791963418840,
+  pageMonotonicMs: 47707.299999952316,
+  visibility: 'hidden',
+  focus: false
+}
+[qa-page-event] {
+  caseId: 'bootstrap',
+  kind: 'visibilitychange',
+  epochMs: 1791963419437,
+  pageMonotonicMs: 48304.5,
+  visibility: 'visible',
+  focus: false
+}
+[app-tab-host] {
+  windowId: 1,
+  visible: false,
+  sequence: 81,
+  monotonicMs: 54654,
+  event: 'window-visibility-started'
+}
+[app-tab-host] {
+  tabId: 'qa-browser-A',
+  windowId: 1,
+  visible: false,
+  presentationVisible: true,
+  ownerWindowId: null,
+  appViewVisible: true,
+  sequence: 82,
+  monotonicMs: 54654,
+  event: 'window-visibility-tab'
+}
+[app-tab-host] {
+  windowId: 1,
+  visible: false,
+  sequence: 83,
+  monotonicMs: 54654,
+  event: 'window-visibility-completed'
+}
+[app-tab-diagnostic] {
+  rendererMonotonicMs: 53021,
+  documentVisibility: 'hidden',
+  documentHasFocus: false,
+  threadId: 'qa-agent-thread',
+  rendererId: 1,
+  tabId: 'qa-browser-A',
+  sequence: 42,
+  monotonicMs: 54655,
+  event: 'renderer-document-visibility-changed'
+}
+[app-tab-diagnostic] {
+  rendererMonotonicMs: 53021,
+  documentVisibility: 'hidden',
+  documentHasFocus: false,
+  threadId: 'qa-agent-thread',
+  mode: 'replica',
+  ownerWindowId: null,
+  rendererId: 1,
+  tabId: 'qa-browser-A',
+  sequence: 43,
+  monotonicMs: 54655,
+  event: 'renderer-presentation-received'
+}
+[app-tab-diagnostic] {
+  browserWindowId: 1,
+  rendererId: 1,
+  isVisible: true,
+  isMinimized: false,
+  isFocused: false,
+  rendererState: { visibilityState: 'hidden', hasFocus: false },
+  sequence: 44,
+  monotonicMs: 54656,
+  event: 'shell-window-hide'
+}
+[qa-page-event] {
+  caseId: 'bootstrap',
+  kind: 'visibilitychange',
+  epochMs: 1791963421770,
+  pageMonotonicMs: 50637.39999985695,
+  visibility: 'hidden',
+  focus: false
+}
+[qa-control] { event: 'cover-removal-started', owner: 'shell' }
+[qa-control] {
+  event: 'cover-action-finished',
+  caseId: 'h-shell-full',
+  owner: 'shell',
+  extent: 'full',
+  startEpochMs: 1791963414012,
+  durationMs: 15357,
+  expectedCoverBounds: { x: 46, y: 56, width: 1208, height: 808 },
+  before: {
+    epochMs: 1791963413577,
+    monotonicMs: 47158.641417,
+    shellVisible: true,
+    shellMinimized: false,
+    shellBounds: { x: 50, y: 60, width: 1200, height: 800 },
+    shellDocument: { visibility: 'visible', focus: false },
+    pageDocument: { visibility: 'visible', focus: false },
+    nativeTabVisible: true,
+    nativeOwner: 1,
+    shellChildViews: [ [Object], [Object] ],
+    pageWebContentsId: 7,
+    helper: {
+      ready: true,
+      serial: 1791963411494,
+      visible: false,
+      fullscreen: false,
+      pid: 9721,
+      active: false,
+      styleMask: 15,
+      frontPid: 39467,
+      epochMs: 1791963413574
+    },
+    geometry: { windows: [Array], targetWindow: [Object] }
+  },
+  covered: [
+    {
+      epochMs: 1791963414041,
+      monotonicMs: 47622.75825,
+      shellVisible: true,
+      shellMinimized: false,
+      shellBounds: [Object],
+      shellDocument: [Object],
+      pageDocument: [Object],
+      nativeTabVisible: true,
+      nativeOwner: 1,
+      shellChildViews: [Array],
+      pageWebContentsId: 7,
+      helper: [Object],
+      geometry: [Object]
+    },
+    {
+      epochMs: 1791963414671,
+      monotonicMs: 48252.74575,
+      shellVisible: true,
+      shellMinimized: false,
+      shellBounds: [Object],
+      shellDocument: [Object],
+      pageDocument: [Object],
+      nativeTabVisible: true,
+      nativeOwner: 1,
+      shellChildViews: [Array],
+      pageWebContentsId: 7,
+      helper: [Object],
+      geometry: [Object]
+    },
+    {
+      epochMs: 1791963415198,
+      monotonicMs: 48779.467334,
+      shellVisible: true,
+      shellMinimized: false,
+      shellBounds: [Object],
+      shellDocument: [Object],
+      pageDocument: [Object],
+      nativeTabVisible: true,
+      nativeOwner: 1,
+      shellChildViews: [Array],
+      pageWebContentsId: 7,
+      helper: [Object],
+      geometry: [Object]
+    },
+    {
+      epochMs: 1791963415686,
+      monotonicMs: 49267.713542,
+      shellVisible: true,
+      shellMinimized: false,
+      shellBounds: [Object],
+      shellDocument: [Object],
+      pageDocument: [Object],
+      nativeTabVisible: true,
+      nativeOwner: 1,
+      shellChildViews: [Array],
+      pageWebContentsId: 7,
+      helper: [Object],
+      geometry: [Object]
+    },
+    {
+      epochMs: 1791963416187,
+      monotonicMs: 49768.681375,
+      shellVisible: true,
+      shellMinimized: false,
+      shellBounds: [Object],
+      shellDocument: [Object],
+      pageDocument: [Object],
+      nativeTabVisible: true,
+      nativeOwner: 1,
+      shellChildViews: [Array],
+      pageWebContentsId: 7,
+      helper: [Object],
+      geometry: [Object]
+    },
+    {
+      epochMs: 1791963416673,
+      monotonicMs: 50254.466709,
+      shellVisible: true,
+      shellMinimized: false,
+      shellBounds: [Object],
+      shellDocument: [Object],
+      pageDocument: [Object],
+      nativeTabVisible: true,
+      nativeOwner: 1,
+      shellChildViews: [Array],
+      pageWebContentsId: 7,
+      helper: [Object],
+      geometry: [Object]
+    },
+    {
+      epochMs: 1791963417195,
+      monotonicMs: 50776.009,
+      shellVisible: true,
+      shellMinimized: false,
+      shellBounds: [Object],
+      shellDocument: [Object],
+      pageDocument: [Object],
+      nativeTabVisible: true,
+      nativeOwner: 1,
+      shellChildViews: [Array],
+      pageWebContentsId: 7,
+      helper: [Object],
+      geometry: [Object]
+    },
+    {
+      epochMs: 1791963417699,
+      monotonicMs: 51280.673042,
+      shellVisible: true,
+      shellMinimized: false,
+      shellBounds: [Object],
+      shellDocument: [Object],
+      pageDocument: [Object],
+      nativeTabVisible: true,
+      nativeOwner: 1,
+      shellChildViews: [Array],
+      pageWebContentsId: 7,
+      helper: [Object],
+      geometry: [Object]
+    },
+    {
+      epochMs: 1791963418360,
+      monotonicMs: 51941.781709,
+      shellVisible: true,
+      shellMinimized: false,
+      shellBounds: [Object],
+      shellDocument: [Object],
+      pageDocument: [Object],
+      nativeTabVisible: true,
+      nativeOwner: 1,
+      shellChildViews: [Array],
+      pageWebContentsId: 7,
+      helper: [Object],
+      geometry: [Object]
+    },
+    {
+      epochMs: 1791963419011,
+      monotonicMs: 52592.870125,
+      shellVisible: true,
+      shellMinimized: false,
+      shellBounds: [Object],
+      shellDocument: [Object],
+      pageDocument: [Object],
+      nativeTabVisible: false,
+      nativeOwner: null,
+      shellChildViews: [],
+      pageWebContentsId: 7,
+      helper: [Object],
+      geometry: [Object]
+    },
+    {
+      epochMs: 1791963419636,
+      monotonicMs: 53217.904625,
+      shellVisible: true,
+      shellMinimized: false,
+      shellBounds: [Object],
+      shellDocument: [Object],
+      pageDocument: [Object],
+      nativeTabVisible: false,
+      nativeOwner: null,
+      shellChildViews: [],
+      pageWebContentsId: 7,
+      helper: [Object],
+      geometry: [Object]
+    },
+    {
+      epochMs: 1791963420271,
+      monotonicMs: 53852.143584,
+      shellVisible: true,
+      shellMinimized: false,
+      shellBounds: [Object],
+      shellDocument: [Object],
+      pageDocument: [Object],
+      nativeTabVisible: false,
+      nativeOwner: null,
+      shellChildViews: [],
+      pageWebContentsId: 7,
+      helper: [Object],
+      geometry: [Object]
+    },
+    {
+      epochMs: 1791963420779,
+      monotonicMs: 54359.956875,
+      shellVisible: true,
+      shellMinimized: false,
+      shellBounds: [Object],
+      shellDocument: [Object],
+      pageDocument: [Object],
+      nativeTabVisible: false,
+      nativeOwner: null,
+      shellChildViews: [],
+      pageWebContentsId: 7,
+      helper: [Object],
+      geometry: [Object]
+    },
+    {
+      epochMs: 1791963421272,
+      monotonicMs: 54853.6545,
+      shellVisible: true,
+      shellMinimized: false,
+      shellBounds: [Object],
+      shellDocument: [Object],
+      pageDocument: [Object],
+      nativeTabVisible: false,
+      nativeOwner: null,
+      shellChildViews: [],
+      pageWebContentsId: 7,
+      helper: [Object],
+      geometry: [Object]
+    },
+    {
+      epochMs: 1791963421770,
+      monotonicMs: 55351.831292,
+      shellVisible: true,
+      shellMinimized: false,
+      shellBounds: [Object],
+      shellDocument: [Object],
+      pageDocument: [Object],
+      nativeTabVisible: false,
+      nativeOwner: null,
+      shellChildViews: [],
+      pageWebContentsId: 7,
+      helper: [Object],
+      geometry: [Object]
+    },
+    {
+      epochMs: 1791963422251,
+      monotonicMs: 55832.741125,
+      shellVisible: true,
+      shellMinimized: false,
+      shellBounds: [Object],
+      shellDocument: [Object],
+      pageDocument: [Object],
+      nativeTabVisible: false,
+      nativeOwner: null,
+      shellChildViews: [],
+      pageWebContentsId: 7,
+      helper: [Object],
+      geometry: [Object]
+    },
+    {
+      epochMs: 1791963422708,
+      monotonicMs: 56289.596959,
+      shellVisible: true,
+      shellMinimized: false,
+      shellBounds: [Object],
+      shellDocument: [Object],
+      pageDocument: [Object],
+      nativeTabVisible: false,
+      nativeOwner: null,
+      shellChildViews: [],
+      pageWebContentsId: 7,
+      helper: [Object],
+      geometry: [Object]
+    },
+    {
+      epochMs: 1791963423165,
+      monotonicMs: 56745.957875,
+      shellVisible: true,
+      shellMinimized: false,
+      shellBounds: [Object],
+      shellDocument: [Object],
+      pageDocument: [Object],
+      nativeTabVisible: false,
+      nativeOwner: null,
+      shellChildViews: [],
+      pageWebContentsId: 7,
+      helper: [Object],
+      geometry: [Object]
+    },
+    {
+      epochMs: 1791963423662,
+      monotonicMs: 57243.06225,
+      shellVisible: true,
+      shellMinimized: false,
+      shellBounds: [Object],
+      shellDocument: [Object],
+      pageDocument: [Object],
+      nativeTabVisible: false,
+      nativeOwner: null,
+      shellChildViews: [],
+      pageWebContentsId: 7,
+      helper: [Object],
+      geometry: [Object]
+    },
+    {
+      epochMs: 1791963424129,
+      monotonicMs: 57709.974084,
+      shellVisible: true,
+      shellMinimized: false,
+      shellBounds: [Object],
+      shellDocument: [Object],
+      pageDocument: [Object],
+      nativeTabVisible: false,
+      nativeOwner: null,
+      shellChildViews: [],
+      pageWebContentsId: 7,
+      helper: [Object],
+      geometry: [Object]
+    }
+  ],
+  uncovered: [
+    {
+      epochMs: 1791963424609,
+      monotonicMs: 58190.171167,
+      shellVisible: true,
+      shellMinimized: false,
+      shellBounds: [Object],
+      shellDocument: [Object],
+      pageDocument: [Object],
+      nativeTabVisible: false,
+      nativeOwner: null,
+      shellChildViews: [],
+      pageWebContentsId: 7,
+      helper: [Object],
+      geometry: [Object]
+    },
+    {
+      epochMs: 1791963425083,
+      monotonicMs: 58664.266917,
+      shellVisible: true,
+      shellMinimized: false,
+      shellBounds: [Object],
+      shellDocument: [Object],
+      pageDocument: [Object],
+      nativeTabVisible: false,
+      nativeOwner: null,
+      shellChildViews: [],
+      pageWebContentsId: 7,
+      helper: [Object],
+      geometry: [Object]
+    },
+    {
+      epochMs: 1791963425580,
+      monotonicMs: 59160.899417,
+      shellVisible: true,
+      shellMinimized: false,
+      shellBounds: [Object],
+      shellDocument: [Object],
+      pageDocument: [Object],
+      nativeTabVisible: false,
+      nativeOwner: null,
+      shellChildViews: [],
+      pageWebContentsId: 7,
+      helper: [Object],
+      geometry: [Object]
+    },
+    {
+      epochMs: 1791963426038,
+      monotonicMs: 59619.843542,
+      shellVisible: true,
+      shellMinimized: false,
+      shellBounds: [Object],
+      shellDocument: [Object],
+      pageDocument: [Object],
+      nativeTabVisible: false,
+      nativeOwner: null,
+      shellChildViews: [],
+      pageWebContentsId: 7,
+      helper: [Object],
+      geometry: [Object]
+    },
+    {
+      epochMs: 1791963426516,
+      monotonicMs: 60097.518792,
+      shellVisible: true,
+      shellMinimized: false,
+      shellBounds: [Object],
+      shellDocument: [Object],
+      pageDocument: [Object],
+      nativeTabVisible: false,
+      nativeOwner: null,
+      shellChildViews: [],
+      pageWebContentsId: 7,
+      helper: [Object],
+      geometry: [Object]
+    },
+    {
+      epochMs: 1791963426992,
+      monotonicMs: 60573.800375,
+      shellVisible: true,
+      shellMinimized: false,
+      shellBounds: [Object],
+      shellDocument: [Object],
+      pageDocument: [Object],
+      nativeTabVisible: false,
+      nativeOwner: null,
+      shellChildViews: [],
+      pageWebContentsId: 7,
+      helper: [Object],
+      geometry: [Object]
+    },
+    {
+      epochMs: 1791963427471,
+      monotonicMs: 61051.944459,
+      shellVisible: true,
+      shellMinimized: false,
+      shellBounds: [Object],
+      shellDocument: [Object],
+      pageDocument: [Object],
+      nativeTabVisible: false,
+      nativeOwner: null,
+      shellChildViews: [],
+      pageWebContentsId: 7,
+      helper: [Object],
+      geometry: [Object]
+    },
+    {
+      epochMs: 1791963427983,
+      monotonicMs: 61564.137584,
+      shellVisible: true,
+      shellMinimized: false,
+      shellBounds: [Object],
+      shellDocument: [Object],
+      pageDocument: [Object],
+      nativeTabVisible: false,
+      nativeOwner: null,
+      shellChildViews: [],
+      pageWebContentsId: 7,
+      helper: [Object],
+      geometry: [Object]
+    },
+    {
+      epochMs: 1791963428436,
+      monotonicMs: 62017.061792,
+      shellVisible: true,
+      shellMinimized: false,
+      shellBounds: [Object],
+      shellDocument: [Object],
+      pageDocument: [Object],
+      nativeTabVisible: false,
+      nativeOwner: null,
+      shellChildViews: [],
+      pageWebContentsId: 7,
+      helper: [Object],
+      geometry: [Object]
+    },
+    {
+      epochMs: 1791963428910,
+      monotonicMs: 62491.54725,
+      shellVisible: true,
+      shellMinimized: false,
+      shellBounds: [Object],
+      shellDocument: [Object],
+      pageDocument: [Object],
+      nativeTabVisible: false,
+      nativeOwner: null,
+      shellChildViews: [],
+      pageWebContentsId: 7,
+      helper: [Object],
+      geometry: [Object]
+    }
+  ]
+}
+[app-tab-host] {
+  windowId: 1,
+  visible: true,
+  sequence: 84,
+  monotonicMs: 63231,
+  event: 'window-visibility-started'
+}
+[app-tab-host] {
+  tabId: 'qa-browser-A',
+  windowId: 1,
+  visible: true,
+  presentationVisible: true,
+  ownerWindowId: null,
+  appViewVisible: true,
+  sequence: 85,
+  monotonicMs: 63231,
+  event: 'window-visibility-tab'
+}
+[app-tab-host] {
+  tabId: 'qa-browser-A',
+  windowId: 1,
+  folderId: 'qa-folder',
+  threadId: 'qa-agent-thread',
+  ownerWindowId: null,
+  freezeDepth: 0,
+  appViewVisible: true,
+  sequence: 86,
+  monotonicMs: 63231,
+  event: 'present-started'
+}
+[app-tab-host] {
+  tabId: 'qa-browser-A',
+  pageId: '8d94eb36-11ba-4bc2-a132-bf0ffb119914',
+  rendererId: 7,
+  currentBounds: { x: 0, y: 0, width: 550, height: 720 },
+  bounds: { x: 650, y: 48, width: 550, height: 720 },
+  currentVisible: true,
+  visible: true,
+  visibleRequested: true,
+  freezeDepth: 0,
+  ownerWindowVisible: true,
+  pageHasError: false,
+  sequence: 87,
+  monotonicMs: 63233,
+  event: 'hosted-page-view-layout-change'
+}
+[app-tab-host] {
+  tabId: 'qa-browser-A',
+  folderId: 'qa-folder',
+  threadId: 'qa-agent-thread',
+  windowId: 1,
+  ownerWindowId: 1,
+  selectedAt: 10,
+  bounds: { x: 650, y: 0, width: 550, height: 768 },
+  animate: false,
+  windowVisible: true,
+  windowMinimized: false,
+  appViewVisible: true,
+  appViewIndex: 1,
+  childViewCount: 2,
+  hostedPageVisible: true,
+  appViewLoading: false,
+  appViewCrashed: false,
+  hostedPageLoading: false,
+  sequence: 88,
+  monotonicMs: 63234,
+  event: 'present-applied'
+}
+[app-tab-host] {
+  tabId: 'qa-browser-A',
+  windowId: 1,
+  visibleRequested: true,
+  freezeDepth: 0,
+  appViewVisible: true,
+  hostedPageVisible: true,
+  sequence: 89,
+  monotonicMs: 63234,
+  event: 'window-show-applied'
+}
+[app-tab-host] {
+  windowId: 1,
+  visible: true,
+  sequence: 90,
+  monotonicMs: 63234,
+  event: 'window-visibility-completed'
+}
+[app-tab-diagnostic] {
+  rendererMonotonicMs: 61592,
+  documentVisibility: 'visible',
+  documentHasFocus: false,
+  threadId: 'qa-agent-thread',
+  rendererId: 1,
+  tabId: 'qa-browser-A',
+  sequence: 45,
+  monotonicMs: 63246,
+  event: 'renderer-document-visibility-changed'
+}
+[app-tab-diagnostic] {
+  rendererMonotonicMs: 61600,
+  documentVisibility: 'visible',
+  documentHasFocus: false,
+  threadId: 'qa-agent-thread',
+  mode: 'live',
+  ownerWindowId: 1,
+  rendererId: 1,
+  tabId: 'qa-browser-A',
+  sequence: 46,
+  monotonicMs: 63253,
+  event: 'renderer-presentation-received'
+}
+[app-tab-diagnostic] {
+  rendererMonotonicMs: 61601,
+  documentVisibility: 'visible',
+  documentHasFocus: false,
+  threadId: 'qa-agent-thread',
+  mode: 'live',
+  ownerWindowId: 1,
+  rendererId: 1,
+  tabId: 'qa-browser-A',
+  sequence: 47,
+  monotonicMs: 63254,
+  event: 'renderer-presentation-received'
+}
+[app-tab-diagnostic] {
+  rendererMonotonicMs: 61607,
+  documentVisibility: 'visible',
+  documentHasFocus: true,
+  threadId: 'qa-agent-thread',
+  rendererId: 1,
+  tabId: 'qa-browser-A',
+  sequence: 48,
+  monotonicMs: 63254,
+  event: 'renderer-window-focused'
+}
+[app-tab-host] {
+  windowId: 1,
+  visible: true,
+  sequence: 91,
+  monotonicMs: 63346,
+  event: 'window-visibility-started'
+}
+[app-tab-host] {
+  tabId: 'qa-browser-A',
+  windowId: 1,
+  visible: true,
+  presentationVisible: true,
+  ownerWindowId: 1,
+  appViewVisible: true,
+  sequence: 92,
+  monotonicMs: 63347,
+  event: 'window-visibility-tab'
+}
+[app-tab-host] {
+  tabId: 'qa-browser-A',
+  windowId: 1,
+  visibleRequested: true,
+  freezeDepth: 0,
+  appViewVisible: true,
+  hostedPageVisible: true,
+  sequence: 93,
+  monotonicMs: 63347,
+  event: 'window-show-applied'
+}
+[app-tab-host] {
+  windowId: 1,
+  visible: true,
+  sequence: 94,
+  monotonicMs: 63347,
+  event: 'window-visibility-completed'
+}
+[app-tab-diagnostic] {
+  rendererMonotonicMs: 61713,
+  documentVisibility: 'visible',
+  documentHasFocus: true,
+  threadId: 'qa-agent-thread',
+  mode: 'live',
+  ownerWindowId: 1,
+  rendererId: 1,
+  tabId: 'qa-browser-A',
+  sequence: 49,
+  monotonicMs: 63347,
+  event: 'renderer-presentation-received'
+}
+[app-tab-diagnostic] {
+  browserWindowId: 1,
+  rendererId: 1,
+  isVisible: true,
+  isMinimized: false,
+  isFocused: true,
+  rendererState: { visibilityState: 'visible', hasFocus: true },
+  sequence: 50,
+  monotonicMs: 63348,
+  event: 'shell-window-show'
+}
+[qa-page-event] {
+  caseId: 'bootstrap',
+  kind: 'visibilitychange',
+  epochMs: 1791963429766,
+  pageMonotonicMs: 58634.09999990463,
+  visibility: 'visible',
+  focus: false
+}
+[app-tab-host] {
+  tabId: 'qa-browser-A',
+  windowId: 1,
+  folderId: 'qa-folder',
+  threadId: 'qa-agent-thread',
+  ownerWindowId: 1,
+  freezeDepth: 0,
+  appViewVisible: true,
+  sequence: 95,
+  monotonicMs: 63587,
+  event: 'present-started'
+}
+[app-tab-host] {
+  tabId: 'qa-browser-A',
+  folderId: 'qa-folder',
+  threadId: 'qa-agent-thread',
+  windowId: 1,
+  ownerWindowId: 1,
+  selectedAt: 11,
+  bounds: { x: 650, y: 0, width: 550, height: 768 },
+  animate: false,
+  windowVisible: true,
+  windowMinimized: false,
+  appViewVisible: true,
+  appViewIndex: 1,
+  childViewCount: 2,
+  hostedPageVisible: true,
+  appViewLoading: false,
+  appViewCrashed: false,
+  hostedPageLoading: false,
+  sequence: 96,
+  monotonicMs: 63587,
+  event: 'present-applied'
+}
+[app-tab-diagnostic] {
+  rendererMonotonicMs: 61954,
+  documentVisibility: 'visible',
+  documentHasFocus: true,
+  threadId: 'qa-agent-thread',
+  mode: 'live',
+  ownerWindowId: 1,
+  rendererId: 1,
+  tabId: 'qa-browser-A',
+  sequence: 51,
+  monotonicMs: 63587,
+  event: 'renderer-presentation-received'
+}
+[qa-control] {
+  event: 'cover-action-started',
+  name: 'h-other-app-partial',
+  owner: 'app',
+  extent: 'partial',
+  before: {
+    epochMs: 1791963431514,
+    monotonicMs: 65095.803792,
+    shellVisible: true,
+    shellMinimized: false,
+    shellBounds: { x: 50, y: 60, width: 1200, height: 800 },
+    shellDocument: { visibility: 'visible', focus: true },
+    pageDocument: { visibility: 'visible', focus: false },
+    nativeTabVisible: true,
+    nativeOwner: 1,
+    shellChildViews: [ [Object], [Object] ],
+    pageWebContentsId: 7,
+    helper: {
+      ready: true,
+      serial: 1791963429380,
+      visible: false,
+      fullscreen: false,
+      pid: 9721,
+      active: false,
+      styleMask: 15,
+      frontPid: 9806,
+      epochMs: 1791963431482
+    },
+    geometry: { windows: [Array], targetWindow: null }
+  }
+}
+[app-tab-host] {
+  windowId: 1,
+  visible: false,
+  sequence: 97,
+  monotonicMs: 65433,
+  event: 'window-visibility-started'
+}
+[app-tab-host] {
+  tabId: 'qa-browser-A',
+  windowId: 1,
+  visible: false,
+  presentationVisible: true,
+  ownerWindowId: 1,
+  appViewVisible: true,
+  sequence: 98,
+  monotonicMs: 65433,
+  event: 'window-visibility-tab'
+}
+[app-tab-host] {
+  tabId: 'qa-browser-A',
+  windowId: 1,
+  sequence: 99,
+  monotonicMs: 65433,
+  event: 'window-hide-replica-capture-started'
+}
+[app-tab-diagnostic] {
+  rendererMonotonicMs: 63800,
+  documentVisibility: 'hidden',
+  documentHasFocus: true,
+  threadId: 'qa-agent-thread',
+  rendererId: 1,
+  tabId: 'qa-browser-A',
+  sequence: 52,
+  monotonicMs: 65434,
+  event: 'renderer-document-visibility-changed'
+}
+[app-tab-diagnostic] {
+  browserWindowId: 1,
+  rendererId: 1,
+  isVisible: true,
+  isMinimized: false,
+  isFocused: true,
+  rendererState: { visibilityState: 'hidden', hasFocus: true },
+  sequence: 53,
+  monotonicMs: 65438,
+  event: 'shell-window-hide'
+}
+[app-tab-host] {
+  tabId: 'qa-browser-A',
+  windowId: 1,
+  sequence: 100,
+  monotonicMs: 65457,
+  event: 'window-hide-replica-capture-completed'
+}
+[app-tab-host] {
+  tabId: 'qa-browser-A',
+  pageId: '8d94eb36-11ba-4bc2-a132-bf0ffb119914',
+  rendererId: 7,
+  currentBounds: { x: 650, y: 48, width: 550, height: 720 },
+  bounds: { x: 0, y: 0, width: 550, height: 720 },
+  currentVisible: true,
+  visible: true,
+  visibleRequested: true,
+  freezeDepth: 0,
+  ownerWindowVisible: false,
+  pageHasError: false,
+  sequence: 101,
+  monotonicMs: 65495,
+  event: 'hosted-page-view-layout-change'
+}
+[app-tab-host] {
+  tabId: 'qa-browser-A',
+  windowId: 1,
+  visibleRequested: true,
+  freezeDepth: 0,
+  appViewVisible: true,
+  hostedPageVisible: true,
+  sequence: 102,
+  monotonicMs: 65496,
+  event: 'window-hide-applied'
+}
+[app-tab-host] {
+  windowId: 1,
+  visible: false,
+  sequence: 103,
+  monotonicMs: 65496,
+  event: 'window-visibility-completed'
+}
+[app-tab-diagnostic] {
+  rendererMonotonicMs: 63825,
+  documentVisibility: 'hidden',
+  documentHasFocus: true,
+  threadId: 'qa-agent-thread',
+  mode: 'replica',
+  ownerWindowId: 1,
+  rendererId: 1,
+  tabId: 'qa-browser-A',
+  sequence: 54,
+  monotonicMs: 65505,
+  event: 'renderer-presentation-received'
+}
+[qa-page-event] {
+  caseId: 'bootstrap',
+  kind: 'visibilitychange',
+  epochMs: 1791963431877,
+  pageMonotonicMs: 60744.700000047684,
+  visibility: 'hidden',
+  focus: false
+}
+[app-tab-diagnostic] {
+  rendererMonotonicMs: 64075,
+  documentVisibility: 'hidden',
+  documentHasFocus: false,
+  threadId: 'qa-agent-thread',
+  rendererId: 1,
+  tabId: 'qa-browser-A',
+  sequence: 55,
+  monotonicMs: 65712,
+  event: 'renderer-window-blurred'
+}
+[qa-control] { event: 'cover-removal-started', owner: 'app' }
+[qa-control] {
+  event: 'cover-action-finished',
+  caseId: 'h-other-app-partial',
+  owner: 'app',
+  extent: 'partial',
+  startEpochMs: 1791963431851,
+  durationMs: 18768,
+  expectedCoverBounds: { x: 650, y: 56, width: 604, height: 808 },
+  before: {
+    epochMs: 1791963431514,
+    monotonicMs: 65095.803792,
+    shellVisible: true,
+    shellMinimized: false,
+    shellBounds: { x: 50, y: 60, width: 1200, height: 800 },
+    shellDocument: { visibility: 'visible', focus: true },
+    pageDocument: { visibility: 'visible', focus: false },
+    nativeTabVisible: true,
+    nativeOwner: 1,
+    shellChildViews: [ [Object], [Object] ],
+    pageWebContentsId: 7,
+    helper: {
+      ready: true,
+      serial: 1791963429380,
+      visible: false,
+      fullscreen: false,
+      pid: 9721,
+      active: false,
+      styleMask: 15,
+      frontPid: 9806,
+      epochMs: 1791963431482
+    },
+    geometry: { windows: [Array], targetWindow: null }
+  },
+  covered: [
+    {
+      epochMs: 1791963432236,
+      monotonicMs: 65817.268292,
+      shellVisible: true,
+      shellMinimized: false,
+      shellBounds: [Object],
+      shellDocument: [Object],
+      pageDocument: [Object],
+      nativeTabVisible: false,
+      nativeOwner: null,
+      shellChildViews: [],
+      pageWebContentsId: 7,
+      helper: [Object],
+      geometry: [Object]
+    },
+    {
+      epochMs: 1791963432761,
+      monotonicMs: 66342.557959,
+      shellVisible: true,
+      shellMinimized: false,
+      shellBounds: [Object],
+      shellDocument: [Object],
+      pageDocument: [Object],
+      nativeTabVisible: false,
+      nativeOwner: null,
+      shellChildViews: [],
+      pageWebContentsId: 7,
+      helper: [Object],
+      geometry: [Object]
+    },
+    {
+      epochMs: 1791963434512,
+      monotonicMs: 68093.5695,
+      shellVisible: true,
+      shellMinimized: false,
+      shellBounds: [Object],
+      shellDocument: [Object],
+      pageDocument: [Object],
+      nativeTabVisible: false,
+      nativeOwner: null,
+      shellChildViews: [],
+      pageWebContentsId: 7,
+      helper: [Object],
+      geometry: [Object]
+    },
+    {
+      epochMs: 1791963434985,
+      monotonicMs: 68566.4055,
+      shellVisible: true,
+      shellMinimized: false,
+      shellBounds: [Object],
+      shellDocument: [Object],
+      pageDocument: [Object],
+      nativeTabVisible: false,
+      nativeOwner: null,
+      shellChildViews: [],
+      pageWebContentsId: 7,
+      helper: [Object],
+      geometry: [Object]
+    },
+    {
+      epochMs: 1791963435450,
+      monotonicMs: 69031.1055,
+      shellVisible: true,
+      shellMinimized: false,
+      shellBounds: [Object],
+      shellDocument: [Object],
+      pageDocument: [Object],
+      nativeTabVisible: false,
+      nativeOwner: null,
+      shellChildViews: [],
+      pageWebContentsId: 7,
+      helper: [Object],
+      geometry: [Object]
+    },
+    {
+      epochMs: 1791963435910,
+      monotonicMs: 69491.008792,
+      shellVisible: true,
+      shellMinimized: false,
+      shellBounds: [Object],
+      shellDocument: [Object],
+      pageDocument: [Object],
+      nativeTabVisible: false,
+      nativeOwner: null,
+      shellChildViews: [],
+      pageWebContentsId: 7,
+      helper: [Object],
+      geometry: [Object]
+    },
+    {
+      epochMs: 1791963436373,
+      monotonicMs: 69953.87625,
+      shellVisible: true,
+      shellMinimized: false,
+      shellBounds: [Object],
+      shellDocument: [Object],
+      pageDocument: [Object],
+      nativeTabVisible: false,
+      nativeOwner: null,
+      shellChildViews: [],
+      pageWebContentsId: 7,
+      helper: [Object],
+      geometry: [Object]
+    },
+    {
+      epochMs: 1791963436946,
+      monotonicMs: 70526.956959,
+      shellVisible: true,
+      shellMinimized: false,
+      shellBounds: [Object],
+      shellDocument: [Object],
+      pageDocument: [Object],
+      nativeTabVisible: false,
+      nativeOwner: null,
+      shellChildViews: [],
+      pageWebContentsId: 7,
+      helper: [Object],
+      geometry: [Object]
+    },
+    {
+      epochMs: 1791963438071,
+      monotonicMs: 71652.479209,
+      shellVisible: true,
+      shellMinimized: false,
+      shellBounds: [Object],
+      shellDocument: [Object],
+      pageDocument: [Object],
+      nativeTabVisible: false,
+      nativeOwner: null,
+      shellChildViews: [],
+      pageWebContentsId: 7,
+      helper: [Object],
+      geometry: [Object]
+    },
+    {
+      epochMs: 1791963438591,
+      monotonicMs: 72172.706167,
+      shellVisible: true,
+      shellMinimized: false,
+      shellBounds: [Object],
+      shellDocument: [Object],
+      pageDocument: [Object],
+      nativeTabVisible: false,
+      nativeOwner: null,
+      shellChildViews: [],
+      pageWebContentsId: 7,
+      helper: [Object],
+      geometry: [Object]
+    },
+    {
+      epochMs: 1791963439070,
+      monotonicMs: 72650.877167,
+      shellVisible: true,
+      shellMinimized: false,
+      shellBounds: [Object],
+      shellDocument: [Object],
+      pageDocument: [Object],
+      nativeTabVisible: false,
+      nativeOwner: null,
+      shellChildViews: [],
+      pageWebContentsId: 7,
+      helper: [Object],
+      geometry: [Object]
+    },
+    {
+      epochMs: 1791963440101,
+      monotonicMs: 73682.765834,
+      shellVisible: true,
+      shellMinimized: false,
+      shellBounds: [Object],
+      shellDocument: [Object],
+      pageDocument: [Object],
+      nativeTabVisible: false,
+      nativeOwner: null,
+      shellChildViews: [],
+      pageWebContentsId: 7,
+      helper: [Object],
+      geometry: [Object]
+    },
+    {
+      epochMs: 1791963440948,
+      monotonicMs: 74529.217459,
+      shellVisible: true,
+      shellMinimized: false,
+      shellBounds: [Object],
+      shellDocument: [Object],
+      pageDocument: [Object],
+      nativeTabVisible: false,
+      nativeOwner: null,
+      shellChildViews: [],
+      pageWebContentsId: 7,
+      helper: [Object],
+      geometry: [Object]
+    },
+    {
+      epochMs: 1791963441409,
+      monotonicMs: 74990.043917,
+      shellVisible: true,
+      shellMinimized: false,
+      shellBounds: [Object],
+      shellDocument: [Object],
+      pageDocument: [Object],
+      nativeTabVisible: false,
+      nativeOwner: null,
+      shellChildViews: [],
+      pageWebContentsId: 7,
+      helper: [Object],
+      geometry: [Object]
+    },
+    {
+      epochMs: 1791963441879,
+      monotonicMs: 75460.03875,
+      shellVisible: true,
+      shellMinimized: false,
+      shellBounds: [Object],
+      shellDocument: [Object],
+      pageDocument: [Object],
+      nativeTabVisible: false,
+      nativeOwner: null,
+      shellChildViews: [],
+      pageWebContentsId: 7,
+      helper: [Object],
+      geometry: [Object]
+    },
+    {
+      epochMs: 1791963442574,
+      monotonicMs: 76154.937459,
+      shellVisible: true,
+      shellMinimized: false,
+      shellBounds: [Object],
+      shellDocument: [Object],
+      pageDocument: [Object],
+      nativeTabVisible: false,
+      nativeOwner: null,
+      shellChildViews: [],
+      pageWebContentsId: 7,
+      helper: [Object],
+      geometry: [Object]
+    },
+    {
+      epochMs: 1791963443033,
+      monotonicMs: 76614.223167,
+      shellVisible: true,
+      shellMinimized: false,
+      shellBounds: [Object],
+      shellDocument: [Object],
+      pageDocument: [Object],
+      nativeTabVisible: false,
+      nativeOwner: null,
+      shellChildViews: [],
+      pageWebContentsId: 7,
+      helper: [Object],
+      geometry: [Object]
+    },
+    {
+      epochMs: 1791963443512,
+      monotonicMs: 77093.339834,
+      shellVisible: true,
+      shellMinimized: false,
+      shellBounds: [Object],
+      shellDocument: [Object],
+      pageDocument: [Object],
+      nativeTabVisible: false,
+      nativeOwner: null,
+      shellChildViews: [],
+      pageWebContentsId: 7,
+      helper: [Object],
+      geometry: [Object]
+    },
+    {
+      epochMs: 1791963444461,
+      monotonicMs: 78042.290084,
+      shellVisible: true,
+      shellMinimized: false,
+      shellBounds: [Object],
+      shellDocument: [Object],
+      pageDocument: [Object],
+      nativeTabVisible: false,
+      nativeOwner: null,
+      shellChildViews: [],
+      pageWebContentsId: 7,
+      helper: [Object],
+      geometry: [Object]
+    },
+    {
+      epochMs: 1791963444919,
+      monotonicMs: 78500.654375,
+      shellVisible: true,
+      shellMinimized: false,
+      shellBounds: [Object],
+      shellDocument: [Object],
+      pageDocument: [Object],
+      nativeTabVisible: false,
+      nativeOwner: null,
+      shellChildViews: [],
+      pageWebContentsId: 7,
+      helper: [Object],
+      geometry: [Object]
+    }
+  ],
+  uncovered: [
+    {
+      epochMs: 1791963445637,
+      monotonicMs: 79218.057667,
+      shellVisible: true,
+      shellMinimized: false,
+      shellBounds: [Object],
+      shellDocument: [Object],
+      pageDocument: [Object],
+      nativeTabVisible: false,
+      nativeOwner: null,
+      shellChildViews: [],
+      pageWebContentsId: 7,
+      helper: [Object],
+      geometry: [Object]
+    },
+    {
+      epochMs: 1791963446110,
+      monotonicMs: 79690.986792,
+      shellVisible: true,
+      shellMinimized: false,
+      shellBounds: [Object],
+      shellDocument: [Object],
+      pageDocument: [Object],
+      nativeTabVisible: false,
+      nativeOwner: null,
+      shellChildViews: [],
+      pageWebContentsId: 7,
+      helper: [Object],
+      geometry: [Object]
+    },
+    {
+      epochMs: 1791963446567,
+      monotonicMs: 80148.319167,
+      shellVisible: true,
+      shellMinimized: false,
+      shellBounds: [Object],
+      shellDocument: [Object],
+      pageDocument: [Object],
+      nativeTabVisible: false,
+      nativeOwner: null,
+      shellChildViews: [],
+      pageWebContentsId: 7,
+      helper: [Object],
+      geometry: [Object]
+    },
+    {
+      epochMs: 1791963447044,
+      monotonicMs: 80625.113042,
+      shellVisible: true,
+      shellMinimized: false,
+      shellBounds: [Object],
+      shellDocument: [Object],
+      pageDocument: [Object],
+      nativeTabVisible: false,
+      nativeOwner: null,
+      shellChildViews: [],
+      pageWebContentsId: 7,
+      helper: [Object],
+      geometry: [Object]
+    },
+    {
+      epochMs: 1791963447526,
+      monotonicMs: 81107.109625,
+      shellVisible: true,
+      shellMinimized: false,
+      shellBounds: [Object],
+      shellDocument: [Object],
+      pageDocument: [Object],
+      nativeTabVisible: false,
+      nativeOwner: null,
+      shellChildViews: [],
+      pageWebContentsId: 7,
+      helper: [Object],
+      geometry: [Object]
+    },
+    {
+      epochMs: 1791963448060,
+      monotonicMs: 81641.759417,
+      shellVisible: true,
+      shellMinimized: false,
+      shellBounds: [Object],
+      shellDocument: [Object],
+      pageDocument: [Object],
+      nativeTabVisible: false,
+      nativeOwner: null,
+      shellChildViews: [],
+      pageWebContentsId: 7,
+      helper: [Object],
+      geometry: [Object]
+    },
+    {
+      epochMs: 1791963448522,
+      monotonicMs: 82103.317542,
+      shellVisible: true,
+      shellMinimized: false,
+      shellBounds: [Object],
+      shellDocument: [Object],
+      pageDocument: [Object],
+      nativeTabVisible: false,
+      nativeOwner: null,
+      shellChildViews: [],
+      pageWebContentsId: 7,
+      helper: [Object],
+      geometry: [Object]
+    },
+    {
+      epochMs: 1791963449071,
+      monotonicMs: 82652.791875,
+      shellVisible: true,
+      shellMinimized: false,
+      shellBounds: [Object],
+      shellDocument: [Object],
+      pageDocument: [Object],
+      nativeTabVisible: false,
+      nativeOwner: null,
+      shellChildViews: [],
+      pageWebContentsId: 7,
+      helper: [Object],
+      geometry: [Object]
+    },
+    {
+      epochMs: 1791963449619,
+      monotonicMs: 83200.603625,
+      shellVisible: true,
+      shellMinimized: false,
+      shellBounds: [Object],
+      shellDocument: [Object],
+      pageDocument: [Object],
+      nativeTabVisible: false,
+      nativeOwner: null,
+      shellChildViews: [],
+      pageWebContentsId: 7,
+      helper: [Object],
+      geometry: [Object]
+    },
+    {
+      epochMs: 1791963450122,
+      monotonicMs: 83702.842875,
+      shellVisible: true,
+      shellMinimized: false,
+      shellBounds: [Object],
+      shellDocument: [Object],
+      pageDocument: [Object],
+      nativeTabVisible: false,
+      nativeOwner: null,
+      shellChildViews: [],
+      pageWebContentsId: 7,
+      helper: [Object],
+      geometry: [Object]
+    }
+  ]
+}
+[app-tab-host] {
+  windowId: 1,
+  visible: true,
+  sequence: 104,
+  monotonicMs: 84498,
+  event: 'window-visibility-started'
+}
+[app-tab-host] {
+  tabId: 'qa-browser-A',
+  windowId: 1,
+  visible: true,
+  presentationVisible: true,
+  ownerWindowId: null,
+  appViewVisible: true,
+  sequence: 105,
+  monotonicMs: 84498,
+  event: 'window-visibility-tab'
+}
+[app-tab-host] {
+  tabId: 'qa-browser-A',
+  windowId: 1,
+  folderId: 'qa-folder',
+  threadId: 'qa-agent-thread',
+  ownerWindowId: null,
+  freezeDepth: 0,
+  appViewVisible: true,
+  sequence: 106,
+  monotonicMs: 84499,
+  event: 'present-started'
+}
+[app-tab-host] {
+  tabId: 'qa-browser-A',
+  pageId: '8d94eb36-11ba-4bc2-a132-bf0ffb119914',
+  rendererId: 7,
+  currentBounds: { x: 0, y: 0, width: 550, height: 720 },
+  bounds: { x: 650, y: 48, width: 550, height: 720 },
+  currentVisible: true,
+  visible: true,
+  visibleRequested: true,
+  freezeDepth: 0,
+  ownerWindowVisible: true,
+  pageHasError: false,
+  sequence: 107,
+  monotonicMs: 84500,
+  event: 'hosted-page-view-layout-change'
+}
+[app-tab-host] {
+  tabId: 'qa-browser-A',
+  folderId: 'qa-folder',
+  threadId: 'qa-agent-thread',
+  windowId: 1,
+  ownerWindowId: 1,
+  selectedAt: 12,
+  bounds: { x: 650, y: 0, width: 550, height: 768 },
+  animate: false,
+  windowVisible: true,
+  windowMinimized: false,
+  appViewVisible: true,
+  appViewIndex: 1,
+  childViewCount: 2,
+  hostedPageVisible: true,
+  appViewLoading: false,
+  appViewCrashed: false,
+  hostedPageLoading: false,
+  sequence: 108,
+  monotonicMs: 84500,
+  event: 'present-applied'
+}
+[app-tab-host] {
+  tabId: 'qa-browser-A',
+  windowId: 1,
+  visibleRequested: true,
+  freezeDepth: 0,
+  appViewVisible: true,
+  hostedPageVisible: true,
+  sequence: 109,
+  monotonicMs: 84501,
+  event: 'window-show-applied'
+}
+[app-tab-host] {
+  windowId: 1,
+  visible: true,
+  sequence: 110,
+  monotonicMs: 84501,
+  event: 'window-visibility-completed'
+}
+[app-tab-diagnostic] {
+  rendererMonotonicMs: 82863,
+  documentVisibility: 'visible',
+  documentHasFocus: false,
+  threadId: 'qa-agent-thread',
+  rendererId: 1,
+  tabId: 'qa-browser-A',
+  sequence: 56,
+  monotonicMs: 84516,
+  event: 'renderer-document-visibility-changed'
+}
+[app-tab-diagnostic] {
+  rendererMonotonicMs: 82867,
+  documentVisibility: 'visible',
+  documentHasFocus: false,
+  threadId: 'qa-agent-thread',
+  mode: 'live',
+  ownerWindowId: 1,
+  rendererId: 1,
+  tabId: 'qa-browser-A',
+  sequence: 57,
+  monotonicMs: 84520,
+  event: 'renderer-presentation-received'
+}
+[app-tab-diagnostic] {
+  rendererMonotonicMs: 82868,
+  documentVisibility: 'visible',
+  documentHasFocus: false,
+  threadId: 'qa-agent-thread',
+  mode: 'live',
+  ownerWindowId: 1,
+  rendererId: 1,
+  tabId: 'qa-browser-A',
+  sequence: 58,
+  monotonicMs: 84521,
+  event: 'renderer-presentation-received'
+}
+[app-tab-diagnostic] {
+  rendererMonotonicMs: 82876,
+  documentVisibility: 'visible',
+  documentHasFocus: true,
+  threadId: 'qa-agent-thread',
+  rendererId: 1,
+  tabId: 'qa-browser-A',
+  sequence: 59,
+  monotonicMs: 84521,
+  event: 'renderer-window-focused'
+}
+[app-tab-host] {
+  windowId: 1,
+  visible: true,
+  sequence: 111,
+  monotonicMs: 84614,
+  event: 'window-visibility-started'
+}
+[app-tab-host] {
+  tabId: 'qa-browser-A',
+  windowId: 1,
+  visible: true,
+  presentationVisible: true,
+  ownerWindowId: 1,
+  appViewVisible: true,
+  sequence: 112,
+  monotonicMs: 84614,
+  event: 'window-visibility-tab'
+}
+[app-tab-host] {
+  tabId: 'qa-browser-A',
+  windowId: 1,
+  visibleRequested: true,
+  freezeDepth: 0,
+  appViewVisible: true,
+  hostedPageVisible: true,
+  sequence: 113,
+  monotonicMs: 84615,
+  event: 'window-show-applied'
+}
+[app-tab-host] {
+  windowId: 1,
+  visible: true,
+  sequence: 114,
+  monotonicMs: 84615,
+  event: 'window-visibility-completed'
+}
+[app-tab-diagnostic] {
+  rendererMonotonicMs: 82981,
+  documentVisibility: 'visible',
+  documentHasFocus: true,
+  threadId: 'qa-agent-thread',
+  mode: 'live',
+  ownerWindowId: 1,
+  rendererId: 1,
+  tabId: 'qa-browser-A',
+  sequence: 60,
+  monotonicMs: 84615,
+  event: 'renderer-presentation-received'
+}
+[app-tab-diagnostic] {
+  browserWindowId: 1,
+  rendererId: 1,
+  isVisible: true,
+  isMinimized: false,
+  isFocused: true,
+  rendererState: { visibilityState: 'visible', hasFocus: true },
+  sequence: 61,
+  monotonicMs: 84616,
+  event: 'shell-window-show'
+}
+[qa-page-event] {
+  caseId: 'bootstrap',
+  kind: 'visibilitychange',
+  epochMs: 1791963451034,
+  pageMonotonicMs: 79902,
+  visibility: 'visible',
+  focus: false
+}
+[app-tab-host] {
+  tabId: 'qa-browser-A',
+  windowId: 1,
+  folderId: 'qa-folder',
+  threadId: 'qa-agent-thread',
+  ownerWindowId: 1,
+  freezeDepth: 0,
+  appViewVisible: true,
+  sequence: 115,
+  monotonicMs: 84853,
+  event: 'present-started'
+}
+[app-tab-host] {
+  tabId: 'qa-browser-A',
+  folderId: 'qa-folder',
+  threadId: 'qa-agent-thread',
+  windowId: 1,
+  ownerWindowId: 1,
+  selectedAt: 13,
+  bounds: { x: 650, y: 0, width: 550, height: 768 },
+  animate: false,
+  windowVisible: true,
+  windowMinimized: false,
+  appViewVisible: true,
+  appViewIndex: 1,
+  childViewCount: 2,
+  hostedPageVisible: true,
+  appViewLoading: false,
+  appViewCrashed: false,
+  hostedPageLoading: false,
+  sequence: 116,
+  monotonicMs: 84853,
+  event: 'present-applied'
+}
+[app-tab-diagnostic] {
+  rendererMonotonicMs: 83220,
+  documentVisibility: 'visible',
+  documentHasFocus: true,
+  threadId: 'qa-agent-thread',
+  mode: 'live',
+  ownerWindowId: 1,
+  rendererId: 1,
+  tabId: 'qa-browser-A',
+  sequence: 62,
+  monotonicMs: 84853,
+  event: 'renderer-presentation-received'
+}
+[qa-control] {
+  event: 'cover-action-started',
+  name: 'h-other-app-full',
+  owner: 'app',
+  extent: 'full',
+  before: {
+    epochMs: 1791963452789,
+    monotonicMs: 86370.048417,
+    shellVisible: true,
+    shellMinimized: false,
+    shellBounds: { x: 50, y: 60, width: 1200, height: 800 },
+    shellDocument: { visibility: 'visible', focus: true },
+    pageDocument: { visibility: 'visible', focus: false },
+    nativeTabVisible: true,
+    nativeOwner: 1,
+    shellChildViews: [ [Object], [Object] ],
+    pageWebContentsId: 7,
+    helper: {
+      ready: true,
+      serial: 1791963450625,
+      visible: false,
+      fullscreen: false,
+      pid: 9721,
+      active: false,
+      styleMask: 15,
+      frontPid: 9806,
+      epochMs: 1791963452782
+    },
+    geometry: { windows: [Array], targetWindow: null }
+  }
+}
+[app-tab-host] {
+  windowId: 1,
+  visible: false,
+  sequence: 117,
+  monotonicMs: 86701,
+  event: 'window-visibility-started'
+}
+[app-tab-host] {
+  tabId: 'qa-browser-A',
+  windowId: 1,
+  visible: false,
+  presentationVisible: true,
+  ownerWindowId: 1,
+  appViewVisible: true,
+  sequence: 118,
+  monotonicMs: 86701,
+  event: 'window-visibility-tab'
+}
+[app-tab-host] {
+  tabId: 'qa-browser-A',
+  windowId: 1,
+  sequence: 119,
+  monotonicMs: 86701,
+  event: 'window-hide-replica-capture-started'
+}
+[app-tab-diagnostic] {
+  rendererMonotonicMs: 85068,
+  documentVisibility: 'hidden',
+  documentHasFocus: true,
+  threadId: 'qa-agent-thread',
+  rendererId: 1,
+  tabId: 'qa-browser-A',
+  sequence: 63,
+  monotonicMs: 86705,
+  event: 'renderer-document-visibility-changed'
+}
+[app-tab-diagnostic] {
+  browserWindowId: 1,
+  rendererId: 1,
+  isVisible: true,
+  isMinimized: false,
+  isFocused: true,
+  rendererState: { visibilityState: 'hidden', hasFocus: true },
+  sequence: 64,
+  monotonicMs: 86706,
+  event: 'shell-window-hide'
+}
+[app-tab-host] {
+  tabId: 'qa-browser-A',
+  windowId: 1,
+  sequence: 120,
+  monotonicMs: 86727,
+  event: 'window-hide-replica-capture-completed'
+}
+[app-tab-host] {
+  tabId: 'qa-browser-A',
+  pageId: '8d94eb36-11ba-4bc2-a132-bf0ffb119914',
+  rendererId: 7,
+  currentBounds: { x: 650, y: 48, width: 550, height: 720 },
+  bounds: { x: 0, y: 0, width: 550, height: 720 },
+  currentVisible: true,
+  visible: true,
+  visibleRequested: true,
+  freezeDepth: 0,
+  ownerWindowVisible: false,
+  pageHasError: false,
+  sequence: 121,
+  monotonicMs: 86768,
+  event: 'hosted-page-view-layout-change'
+}
+[app-tab-host] {
+  tabId: 'qa-browser-A',
+  windowId: 1,
+  visibleRequested: true,
+  freezeDepth: 0,
+  appViewVisible: true,
+  hostedPageVisible: true,
+  sequence: 122,
+  monotonicMs: 86772,
+  event: 'window-hide-applied'
+}
+[app-tab-host] {
+  windowId: 1,
+  visible: false,
+  sequence: 123,
+  monotonicMs: 86772,
+  event: 'window-visibility-completed'
+}
+[app-tab-diagnostic] {
+  rendererMonotonicMs: 85094,
+  documentVisibility: 'hidden',
+  documentHasFocus: true,
+  threadId: 'qa-agent-thread',
+  mode: 'replica',
+  ownerWindowId: 1,
+  rendererId: 1,
+  tabId: 'qa-browser-A',
+  sequence: 65,
+  monotonicMs: 86781,
+  event: 'renderer-presentation-received'
+}
+[qa-page-event] {
+  caseId: 'bootstrap',
+  kind: 'visibilitychange',
+  epochMs: 1791963453146,
+  pageMonotonicMs: 82014.09999990463,
+  visibility: 'hidden',
+  focus: false
+}
+[app-tab-diagnostic] {
+  rendererMonotonicMs: 85250,
+  documentVisibility: 'hidden',
+  documentHasFocus: false,
+  threadId: 'qa-agent-thread',
+  rendererId: 1,
+  tabId: 'qa-browser-A',
+  sequence: 66,
+  monotonicMs: 86887,
+  event: 'renderer-window-blurred'
+}
+[qa-control] { event: 'cover-removal-started', owner: 'app' }
+[qa-control] {
+  event: 'cover-action-finished',
+  caseId: 'h-other-app-full',
+  owner: 'app',
+  extent: 'full',
+  startEpochMs: 1791963453119,
+  durationMs: 16898,
+  expectedCoverBounds: { x: 46, y: 56, width: 1208, height: 808 },
+  before: {
+    epochMs: 1791963452789,
+    monotonicMs: 86370.048417,
+    shellVisible: true,
+    shellMinimized: false,
+    shellBounds: { x: 50, y: 60, width: 1200, height: 800 },
+    shellDocument: { visibility: 'visible', focus: true },
+    pageDocument: { visibility: 'visible', focus: false },
+    nativeTabVisible: true,
+    nativeOwner: 1,
+    shellChildViews: [ [Object], [Object] ],
+    pageWebContentsId: 7,
+    helper: {
+      ready: true,
+      serial: 1791963450625,
+      visible: false,
+      fullscreen: false,
+      pid: 9721,
+      active: false,
+      styleMask: 15,
+      frontPid: 9806,
+      epochMs: 1791963452782
+    },
+    geometry: { windows: [Array], targetWindow: null }
+  },
+  covered: [
+    {
+      epochMs: 1791963453437,
+      monotonicMs: 87017.859,
+      shellVisible: true,
+      shellMinimized: false,
+      shellBounds: [Object],
+      shellDocument: [Object],
+      pageDocument: [Object],
+      nativeTabVisible: false,
+      nativeOwner: null,
+      shellChildViews: [],
+      pageWebContentsId: 7,
+      helper: [Object],
+      geometry: [Object]
+    },
+    {
+      epochMs: 1791963453901,
+      monotonicMs: 87481.85725,
+      shellVisible: true,
+      shellMinimized: false,
+      shellBounds: [Object],
+      shellDocument: [Object],
+      pageDocument: [Object],
+      nativeTabVisible: false,
+      nativeOwner: null,
+      shellChildViews: [],
+      pageWebContentsId: 7,
+      helper: [Object],
+      geometry: [Object]
+    },
+    {
+      epochMs: 1791963454885,
+      monotonicMs: 88465.835417,
+      shellVisible: true,
+      shellMinimized: false,
+      shellBounds: [Object],
+      shellDocument: [Object],
+      pageDocument: [Object],
+      nativeTabVisible: false,
+      nativeOwner: null,
+      shellChildViews: [],
+      pageWebContentsId: 7,
+      helper: [Object],
+      geometry: [Object]
+    },
+    {
+      epochMs: 1791963455361,
+      monotonicMs: 88942.376167,
+      shellVisible: true,
+      shellMinimized: false,
+      shellBounds: [Object],
+      shellDocument: [Object],
+      pageDocument: [Object],
+      nativeTabVisible: false,
+      nativeOwner: null,
+      shellChildViews: [],
+      pageWebContentsId: 7,
+      helper: [Object],
+      geometry: [Object]
+    },
+    {
+      epochMs: 1791963455905,
+      monotonicMs: 89486.472042,
+      shellVisible: true,
+      shellMinimized: false,
+      shellBounds: [Object],
+      shellDocument: [Object],
+      pageDocument: [Object],
+      nativeTabVisible: false,
+      nativeOwner: null,
+      shellChildViews: [],
+      pageWebContentsId: 7,
+      helper: [Object],
+      geometry: [Object]
+    },
+    {
+      epochMs: 1791963456436,
+      monotonicMs: 90017.404792,
+      shellVisible: true,
+      shellMinimized: false,
+      shellBounds: [Object],
+      shellDocument: [Object],
+      pageDocument: [Object],
+      nativeTabVisible: false,
+      nativeOwner: null,
+      shellChildViews: [],
+      pageWebContentsId: 7,
+      helper: [Object],
+      geometry: [Object]
+    },
+    {
+      epochMs: 1791963456927,
+      monotonicMs: 90508.162125,
+      shellVisible: true,
+      shellMinimized: false,
+      shellBounds: [Object],
+      shellDocument: [Object],
+      pageDocument: [Object],
+      nativeTabVisible: false,
+      nativeOwner: null,
+      shellChildViews: [],
+      pageWebContentsId: 7,
+      helper: [Object],
+      geometry: [Object]
+    },
+    {
+      epochMs: 1791963457392,
+      monotonicMs: 90973.386209,
+      shellVisible: true,
+      shellMinimized: false,
+      shellBounds: [Object],
+      shellDocument: [Object],
+      pageDocument: [Object],
+      nativeTabVisible: false,
+      nativeOwner: null,
+      shellChildViews: [],
+      pageWebContentsId: 7,
+      helper: [Object],
+      geometry: [Object]
+    },
+    {
+      epochMs: 1791963457977,
+      monotonicMs: 91558.0165,
+      shellVisible: true,
+      shellMinimized: false,
+      shellBounds: [Object],
+      shellDocument: [Object],
+      pageDocument: [Object],
+      nativeTabVisible: false,
+      nativeOwner: null,
+      shellChildViews: [],
+      pageWebContentsId: 7,
+      helper: [Object],
+      geometry: [Object]
+    },
+    {
+      epochMs: 1791963458615,
+      monotonicMs: 92196.377167,
+      shellVisible: true,
+      shellMinimized: false,
+      shellBounds: [Object],
+      shellDocument: [Object],
+      pageDocument: [Object],
+      nativeTabVisible: false,
+      nativeOwner: null,
+      shellChildViews: [],
+      pageWebContentsId: 7,
+      helper: [Object],
+      geometry: [Object]
+    },
+    {
+      epochMs: 1791963459082,
+      monotonicMs: 92662.845125,
+      shellVisible: true,
+      shellMinimized: false,
+      shellBounds: [Object],
+      shellDocument: [Object],
+      pageDocument: [Object],
+      nativeTabVisible: false,
+      nativeOwner: null,
+      shellChildViews: [],
+      pageWebContentsId: 7,
+      helper: [Object],
+      geometry: [Object]
+    },
+    {
+      epochMs: 1791963459676,
+      monotonicMs: 93257.4495,
+      shellVisible: true,
+      shellMinimized: false,
+      shellBounds: [Object],
+      shellDocument: [Object],
+      pageDocument: [Object],
+      nativeTabVisible: false,
+      nativeOwner: null,
+      shellChildViews: [],
+      pageWebContentsId: 7,
+      helper: [Object],
+      geometry: [Object]
+    },
+    {
+      epochMs: 1791963460145,
+      monotonicMs: 93726.052625,
+      shellVisible: true,
+      shellMinimized: false,
+      shellBounds: [Object],
+      shellDocument: [Object],
+      pageDocument: [Object],
+      nativeTabVisible: false,
+      nativeOwner: null,
+      shellChildViews: [],
+      pageWebContentsId: 7,
+      helper: [Object],
+      geometry: [Object]
+    },
+    {
+      epochMs: 1791963460715,
+      monotonicMs: 94296.18725,
+      shellVisible: true,
+      shellMinimized: false,
+      shellBounds: [Object],
+      shellDocument: [Object],
+      pageDocument: [Object],
+      nativeTabVisible: false,
+      nativeOwner: null,
+      shellChildViews: [],
+      pageWebContentsId: 7,
+      helper: [Object],
+      geometry: [Object]
+    },
+    {
+      epochMs: 1791963461172,
+      monotonicMs: 94753.59175,
+      shellVisible: true,
+      shellMinimized: false,
+      shellBounds: [Object],
+      shellDocument: [Object],
+      pageDocument: [Object],
+      nativeTabVisible: false,
+      nativeOwner: null,
+      shellChildViews: [],
+      pageWebContentsId: 7,
+      helper: [Object],
+      geometry: [Object]
+    },
+    {
+      epochMs: 1791963461643,
+      monotonicMs: 95224.397917,
+      shellVisible: true,
+      shellMinimized: false,
+      shellBounds: [Object],
+      shellDocument: [Object],
+      pageDocument: [Object],
+      nativeTabVisible: false,
+      nativeOwner: null,
+      shellChildViews: [],
+      pageWebContentsId: 7,
+      helper: [Object],
+      geometry: [Object]
+    },
+    {
+      epochMs: 1791963462102,
+      monotonicMs: 95683.240709,
+      shellVisible: true,
+      shellMinimized: false,
+      shellBounds: [Object],
+      shellDocument: [Object],
+      pageDocument: [Object],
+      nativeTabVisible: false,
+      nativeOwner: null,
+      shellChildViews: [],
+      pageWebContentsId: 7,
+      helper: [Object],
+      geometry: [Object]
+    },
+    {
+      epochMs: 1791963462577,
+      monotonicMs: 96158.62025,
+      shellVisible: true,
+      shellMinimized: false,
+      shellBounds: [Object],
+      shellDocument: [Object],
+      pageDocument: [Object],
+      nativeTabVisible: false,
+      nativeOwner: null,
+      shellChildViews: [],
+      pageWebContentsId: 7,
+      helper: [Object],
+      geometry: [Object]
+    },
+    {
+      epochMs: 1791963463066,
+      monotonicMs: 96647.246709,
+      shellVisible: true,
+      shellMinimized: false,
+      shellBounds: [Object],
+      shellDocument: [Object],
+      pageDocument: [Object],
+      nativeTabVisible: false,
+      nativeOwner: null,
+      shellChildViews: [],
+      pageWebContentsId: 7,
+      helper: [Object],
+      geometry: [Object]
+    },
+    {
+      epochMs: 1791963463645,
+      monotonicMs: 97226.127,
+      shellVisible: true,
+      shellMinimized: false,
+      shellBounds: [Object],
+      shellDocument: [Object],
+      pageDocument: [Object],
+      nativeTabVisible: false,
+      nativeOwner: null,
+      shellChildViews: [],
+      pageWebContentsId: 7,
+      helper: [Object],
+      geometry: [Object]
+    }
+  ],
+  uncovered: [
+    {
+      epochMs: 1791963465100,
+      monotonicMs: 98681.13425,
+      shellVisible: true,
+      shellMinimized: false,
+      shellBounds: [Object],
+      shellDocument: [Object],
+      pageDocument: [Object],
+      nativeTabVisible: false,
+      nativeOwner: null,
+      shellChildViews: [],
+      pageWebContentsId: 7,
+      helper: [Object],
+      geometry: [Object]
+    },
+    {
+      epochMs: 1791963465583,
+      monotonicMs: 99164.469292,
+      shellVisible: true,
+      shellMinimized: false,
+      shellBounds: [Object],
+      shellDocument: [Object],
+      pageDocument: [Object],
+      nativeTabVisible: false,
+      nativeOwner: null,
+      shellChildViews: [],
+      pageWebContentsId: 7,
+      helper: [Object],
+      geometry: [Object]
+    },
+    {
+      epochMs: 1791963466050,
+      monotonicMs: 99630.85375,
+      shellVisible: true,
+      shellMinimized: false,
+      shellBounds: [Object],
+      shellDocument: [Object],
+      pageDocument: [Object],
+      nativeTabVisible: false,
+      nativeOwner: null,
+      shellChildViews: [],
+      pageWebContentsId: 7,
+      helper: [Object],
+      geometry: [Object]
+    },
+    {
+      epochMs: 1791963466524,
+      monotonicMs: 100105.365792,
+      shellVisible: true,
+      shellMinimized: false,
+      shellBounds: [Object],
+      shellDocument: [Object],
+      pageDocument: [Object],
+      nativeTabVisible: false,
+      nativeOwner: null,
+      shellChildViews: [],
+      pageWebContentsId: 7,
+      helper: [Object],
+      geometry: [Object]
+    },
+    {
+      epochMs: 1791963467018,
+      monotonicMs: 100598.805875,
+      shellVisible: true,
+      shellMinimized: false,
+      shellBounds: [Object],
+      shellDocument: [Object],
+      pageDocument: [Object],
+      nativeTabVisible: false,
+      nativeOwner: null,
+      shellChildViews: [],
+      pageWebContentsId: 7,
+      helper: [Object],
+      geometry: [Object]
+    },
+    {
+      epochMs: 1791963467498,
+      monotonicMs: 101079.430209,
+      shellVisible: true,
+      shellMinimized: false,
+      shellBounds: [Object],
+      shellDocument: [Object],
+      pageDocument: [Object],
+      nativeTabVisible: false,
+      nativeOwner: null,
+      shellChildViews: [],
+      pageWebContentsId: 7,
+      helper: [Object],
+      geometry: [Object]
+    },
+    {
+      epochMs: 1791963467963,
+      monotonicMs: 101544.003375,
+      shellVisible: true,
+      shellMinimized: false,
+      shellBounds: [Object],
+      shellDocument: [Object],
+      pageDocument: [Object],
+      nativeTabVisible: false,
+      nativeOwner: null,
+      shellChildViews: [],
+      pageWebContentsId: 7,
+      helper: [Object],
+      geometry: [Object]
+    },
+    {
+      epochMs: 1791963468482,
+      monotonicMs: 102062.7845,
+      shellVisible: true,
+      shellMinimized: false,
+      shellBounds: [Object],
+      shellDocument: [Object],
+      pageDocument: [Object],
+      nativeTabVisible: false,
+      nativeOwner: null,
+      shellChildViews: [],
+      pageWebContentsId: 7,
+      helper: [Object],
+      geometry: [Object]
+    },
+    {
+      epochMs: 1791963469003,
+      monotonicMs: 102583.779375,
+      shellVisible: true,
+      shellMinimized: false,
+      shellBounds: [Object],
+      shellDocument: [Object],
+      pageDocument: [Object],
+      nativeTabVisible: false,
+      nativeOwner: null,
+      shellChildViews: [],
+      pageWebContentsId: 7,
+      helper: [Object],
+      geometry: [Object]
+    },
+    {
+      epochMs: 1791963469498,
+      monotonicMs: 103079.314792,
+      shellVisible: true,
+      shellMinimized: false,
+      shellBounds: [Object],
+      shellDocument: [Object],
+      pageDocument: [Object],
+      nativeTabVisible: false,
+      nativeOwner: null,
+      shellChildViews: [],
+      pageWebContentsId: 7,
+      helper: [Object],
+      geometry: [Object]
+    }
+  ]
+}
+Error: QA wait timed out: helper acknowledgement
+    at waitUntil (/Users/emmanuelgyekyeatta-penkra/Penkra/qa-tab-additions-b9xq3rc4/source/qa/bundle/main.cjs:46877:9)
+    at async helper (/Users/emmanuelgyekyeatta-penkra/Penkra/qa-tab-additions-b9xq3rc4/source/qa/bundle/main.cjs:47071:5)
+    at async run2 (/Users/emmanuelgyekyeatta-penkra/Penkra/qa-tab-additions-b9xq3rc4/source/qa/bundle/main.cjs:47149:3)
+[app-tab-host] {
+  tabId: 'qa-browser-B',
+  rendererId: 4,
+  sequence: 124,
+  monotonicMs: 118651,
+  event: 'app-renderer-destroyed'
+}
+[app-tab-host] {
+  tabId: 'qa-browser-B',
+  reason: 'host-stopped',
+  rendererId: 4,
+  ownerWindowId: null,
+  sequence: 125,
+  monotonicMs: 118651,
+  event: 'tab-close-started'
+}

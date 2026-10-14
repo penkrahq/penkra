@@ -1,0 +1,31 @@
+{
+  "jsonAndJsonlFilesParsed": 22,
+  "coverageGeometryOrderingAndLiveViewAssertions": "passed for accepted samples",
+  "offscreenInputAssertions": "passed; input-summary.json",
+  "method": "OnScreenOnly ranking; All enumeration never used as rank in accepted comparison",
+  "checks": [
+    "input-summary.json",
+    "coverage-summary.json",
+    "capabilities.json",
+    "integrity.json",
+    "spaces/offscreen-input-results.json",
+    "spaces/command-results.json",
+    "spaces/spaces-results.json",
+    "cover-other-app/coverage-results.json",
+    "cover/coverage-results.json",
+    "excluded/cover-floating-unordered/coverage-results.json",
+    "excluded/spaces-helper-start/spaces-results.json",
+    "excluded/cover-unordered-repeat/coverage-results.json",
+    "excluded/spaces-initial/spaces-results.json",
+    "excluded/cover-initial/coverage-results.json",
+    "spaces/events.jsonl",
+    "cover-other-app/events.jsonl",
+    "cover/events.jsonl",
+    "excluded/cover-floating-unordered/events.jsonl",
+    "excluded/spaces-helper-start/events.jsonl",
+    "excluded/cover-unordered-repeat/events.jsonl",
+    "excluded/spaces-initial/events.jsonl",
+    "excluded/cover-initial/events.jsonl"
+  ],
+  "scratchPorts3919And5919": "Stopped; no lsof listeners"
+}

@@ -1,0 +1,80 @@
+[
+  {
+    "caseId": "h-shell-partial",
+    "evidenceDirectory": "cover",
+    "acceptedSamples": 12,
+    "excludedSamples": 0,
+    "acceptedFromIssuedMs": 31,
+    "acceptedThroughIssuedMs": 6411,
+    "stableSpanMs": 6380,
+    "coverageRatioRange": [0.5, 0.5],
+    "acceptedHideShowAndViewRemovalEvents": [],
+    "allCaseHideShowAndRemovalEvents": [
+      {
+        "event": "shell-window-hide",
+        "monotonicMs": 29007.606459,
+        "isVisible": true,
+        "isMinimized": false
+      },
+      {
+        "event": "window-hide-applied",
+        "monotonicMs": 29089.40675,
+        "isVisible": null,
+        "isMinimized": null
+      }
+    ],
+    "excludedSampleIssuedOffsetsMs": []
+  },
+  {
+    "caseId": "h-shell-full",
+    "evidenceDirectory": "cover",
+    "acceptedSamples": 12,
+    "excludedSamples": 0,
+    "acceptedFromIssuedMs": 15,
+    "acceptedThroughIssuedMs": 6127,
+    "stableSpanMs": 6112,
+    "coverageRatioRange": [1.0, 1.0],
+    "acceptedHideShowAndViewRemovalEvents": [],
+    "allCaseHideShowAndRemovalEvents": [],
+    "excludedSampleIssuedOffsetsMs": []
+  },
+  {
+    "caseId": "h-other-app-partial",
+    "evidenceDirectory": "cover-other-app",
+    "acceptedSamples": 12,
+    "excludedSamples": 0,
+    "acceptedFromIssuedMs": 135,
+    "acceptedThroughIssuedMs": 5769,
+    "stableSpanMs": 5634,
+    "coverageRatioRange": [0.5, 0.5],
+    "acceptedHideShowAndViewRemovalEvents": [],
+    "allCaseHideShowAndRemovalEvents": [],
+    "excludedSampleIssuedOffsetsMs": []
+  },
+  {
+    "caseId": "h-other-app-full",
+    "evidenceDirectory": "cover-other-app",
+    "acceptedSamples": 10,
+    "excludedSamples": 2,
+    "acceptedFromIssuedMs": 155,
+    "acceptedThroughIssuedMs": 5104,
+    "stableSpanMs": 4949,
+    "coverageRatioRange": [1.0, 1.0],
+    "acceptedHideShowAndViewRemovalEvents": [],
+    "allCaseHideShowAndRemovalEvents": [
+      {
+        "event": "shell-window-hide",
+        "monotonicMs": 38474.260458,
+        "isVisible": true,
+        "isMinimized": false
+      },
+      {
+        "event": "window-hide-applied",
+        "monotonicMs": 38575.07725,
+        "isVisible": null,
+        "isMinimized": null
+      }
+    ],
+    "excludedSampleIssuedOffsetsMs": [5718, 6277]
+  }
+]

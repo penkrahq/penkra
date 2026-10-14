@@ -1,0 +1,116 @@
+$ turbo run typecheck
+• turbo 2.10.5
+
+   • Packages in scope: @penkra/cli, @penkra/contracts, @penkra/desktop, @penkra/marketing, @penkra/scripts, @penkra/sdk, @penkra/shared, @penkra/ui, @penkra/web, penkra-sample-app
+   • Running typecheck in 10 packages
+   • Remote caching disabled, using shared worktree cache
+
+@penkra/contracts:typecheck: cache hit, replaying logs b0f324869f6d5be7
+@penkra/sdk:typecheck: cache hit, replaying logs 957c0e977539e32d
+@penkra/contracts:typecheck: $ tsc --noEmit
+@penkra/marketing:typecheck: cache hit, replaying logs bddb6ccbed773621
+@penkra/sdk:typecheck: $ tsc --noEmit
+@penkra/contracts:build: cache hit, replaying logs 05b58b50f97c0ac4
+@penkra/marketing:typecheck: $ astro check
+@penkra/marketing:typecheck: 05:12:15 [WARN] [vite] warning: `optimizeDeps.esbuildOptions` option was specified by "astro:dev-toolbar" plugin. This option is deprecated, please use `optimizeDeps.rolldownOptions` instead.
+@penkra/marketing:typecheck: 05:12:15 [WARN] [vite] You or a plugin you are using have set `optimizeDeps.esbuildOptions` but this option is now deprecated. Vite now uses Rolldown to optimize the dependencies. Please use `optimizeDeps.rolldownOptions` instead.
+@penkra/marketing:typecheck: 05:12:16 [types] Generated 108ms
+@penkra/marketing:typecheck: 05:12:16 [check] Getting diagnostics for Astro files in /Users/emmanuelgyekyeatta-penkra/Penkra/00000000-0000-4000-8000-000000000000/penkra-worktrees/diagnostics-0143/apps/marketing...
+@penkra/marketing:typecheck: Result (7 files):
+@penkra/marketing:typecheck: - 0 errors
+@penkra/marketing:typecheck: - 0 warnings
+@penkra/marketing:typecheck: - 0 hints
+@penkra/marketing:typecheck:
+@penkra/contracts:build: $ tsdown src/index.ts --format esm,cjs --dts --clean
+@penkra/contracts:build: ℹ tsdown v0.20.3 powered by rolldown v1.0.0-rc.3
+@penkra/contracts:build: ℹ entry: src/index.ts
+@penkra/contracts:build: ℹ tsconfig: tsconfig.json
+@penkra/contracts:build: ℹ Build start
+@penkra/contracts:build: ℹ Cleaning 4 files
+@penkra/contracts:build: ℹ [CJS] dist/index.cjs  196.04 kB │ gzip: 29.97 kB
+@penkra/contracts:build: ℹ [CJS] 1 files, total: 196.04 kB
+@penkra/contracts:build: [33m[PLUGIN_TIMINGS] Warning:[0m Your build spent significant time in plugins. Here is a breakdown:
+@penkra/contracts:build:   - tsdown:external (50%)
+@penkra/contracts:build:   - tsdown:report (50%)
+@penkra/contracts:build: See https://rolldown.rs/options/checks#plugintimings for more details.
+@penkra/contracts:build:
+@penkra/contracts:build: ℹ [CJS] dist/index.d.cts  1142.51 kB
+@penkra/contracts:build: ℹ [CJS] 1 files, total: 1142.51 kB
+@penkra/contracts:build: [33m[PLUGIN_TIMINGS] Warning:[0m Your build spent significant time in plugin `rolldown-plugin-dts:resolver`. See https://rolldown.rs/options/checks#plugintimings for more details.
+@penkra/contracts:build:
+@penkra/contracts:build: ✔ Build complete in 4714ms
+@penkra/contracts:build: ℹ [ESM] dist/index.mjs     162.91 kB │ gzip: 27.22 kB
+@penkra/contracts:build: ℹ [ESM] dist/index.d.mts  1142.51 kB
+@penkra/contracts:build: ℹ [ESM] 2 files, total: 1305.42 kB
+@penkra/contracts:build: ✔ Build complete in 4716ms
+@penkra/contracts:build: [33m[PLUGIN_TIMINGS] Warning:[0m Your build spent significant time in plugins. Here is a breakdown:
+@penkra/contracts:build:   - rolldown-plugin-dts:generate (58%)
+@penkra/contracts:build:   - rolldown-plugin-dts:fake-js (24%)
+@penkra/contracts:build: See https://rolldown.rs/options/checks#plugintimings for more details.
+@penkra/contracts:build:
+@penkra/ui:build: cache hit, replaying logs 7b9559d3b6c63b44
+@penkra/ui:build: $ tsdown src/index.ts src/react.tsx --format esm,cjs --dts --clean
+@penkra/ui:build: ℹ tsdown v0.20.3 powered by rolldown v1.0.0-rc.3
+@penkra/ui:build: ℹ entry: src/index.ts, src/react.tsx
+@penkra/ui:build: ℹ tsconfig: tsconfig.json
+@penkra/ui:build: ℹ Build start
+@penkra/ui:build: ℹ Cleaning 8 files
+@penkra/ui:build: ℹ [CJS] dist/index.cjs  3.99 kB │ gzip: 1.39 kB
+@penkra/ui:build: ℹ [CJS] dist/react.cjs  2.97 kB │ gzip: 1.06 kB
+@penkra/ui:build: ℹ [CJS] 2 files, total: 6.96 kB
+@penkra/ui:build: ℹ [ESM] dist/index.mjs    3.85 kB │ gzip: 1.34 kB
+@penkra/ui:build: ℹ [ESM] dist/react.mjs    2.54 kB │ gzip: 0.98 kB
+@penkra/ui:build: ℹ [ESM] dist/index.d.mts  1.27 kB │ gzip: 0.53 kB
+@penkra/ui:build: ℹ [ESM] dist/react.d.mts  1.08 kB │ gzip: 0.47 kB
+@penkra/ui:build: ℹ [ESM] 4 files, total: 8.74 kB
+@penkra/ui:build: ✔ Build complete in 862ms
+@penkra/ui:build: ℹ [CJS] dist/index.d.cts  1.27 kB │ gzip: 0.53 kB
+@penkra/ui:build: ℹ [CJS] dist/react.d.cts  1.08 kB │ gzip: 0.47 kB
+@penkra/ui:build: ℹ [CJS] 2 files, total: 2.35 kB
+@penkra/ui:build: ✔ Build complete in 868ms
+@penkra/sdk:build: cache hit, replaying logs 52fc7e8acadb89d3
+@penkra/sdk:build: $ tsdown src/index.ts src/react.ts src/tab.ts src/controller.ts --format esm,cjs --dts --clean
+@penkra/sdk:build: ℹ tsdown v0.20.3 powered by rolldown v1.0.0-rc.3
+@penkra/sdk:build: ℹ entry: src/index.ts, src/react.ts, src/tab.ts, src/controller.ts
+@penkra/sdk:build: ℹ tsconfig: tsconfig.json
+@penkra/sdk:build: ℹ Build start
+@penkra/sdk:build: ℹ Cleaning 20 files
+@penkra/sdk:build: ℹ [CJS] dist/index.cjs             31.67 kB │ gzip: 7.68 kB
+@penkra/sdk:build: ℹ [CJS] dist/react.cjs              2.57 kB │ gzip: 0.71 kB
+@penkra/sdk:build: ℹ [CJS] dist/controller.cjs         2.41 kB │ gzip: 0.82 kB
+@penkra/sdk:build: ℹ [CJS] dist/tab.cjs                0.87 kB │ gzip: 0.30 kB
+@penkra/sdk:build: ℹ [CJS] dist/runtime-cRpzl9CZ.cjs  10.10 kB │ gzip: 2.23 kB
+@penkra/sdk:build: ℹ [CJS] 5 files, total: 47.63 kB
+@penkra/sdk:build: ℹ [CJS] dist/index.d.cts              8.04 kB │ gzip:  2.25 kB
+@penkra/sdk:build: ℹ [CJS] dist/tab.d.cts                2.48 kB │ gzip:  0.80 kB
+@penkra/sdk:build: ℹ [CJS] dist/controller.d.cts         1.90 kB │ gzip:  0.54 kB
+@penkra/sdk:build: ℹ [CJS] dist/react.d.cts              1.07 kB │ gzip:  0.43 kB
+@penkra/sdk:build: ℹ [CJS] dist/runtime-CCKAHP44.d.cts  41.28 kB │ gzip: 10.42 kB
+@penkra/sdk:build: ℹ [CJS] 5 files, total: 54.77 kB
+@penkra/sdk:build: ✔ Build complete in 1043ms
+@penkra/sdk:build: ℹ [ESM] dist/index.mjs               30.93 kB │ gzip:  7.55 kB
+@penkra/sdk:build: ℹ [ESM] dist/react.mjs                2.19 kB │ gzip:  0.65 kB
+@penkra/sdk:build: ℹ [ESM] dist/controller.mjs           2.18 kB │ gzip:  0.74 kB
+@penkra/sdk:build: ℹ [ESM] dist/tab.mjs                  0.45 kB │ gzip:  0.25 kB
+@penkra/sdk:build: ℹ [ESM] dist/runtime-FnZSUO16.mjs     8.43 kB │ gzip:  2.13 kB
+@penkra/sdk:build: ℹ [ESM] dist/index.d.mts              8.04 kB │ gzip:  2.25 kB
+@penkra/sdk:build: ℹ [ESM] dist/tab.d.mts                2.48 kB │ gzip:  0.80 kB
+@penkra/sdk:build: ℹ [ESM] dist/controller.d.mts         1.90 kB │ gzip:  0.54 kB
+@penkra/sdk:build: ℹ [ESM] dist/react.d.mts              1.07 kB │ gzip:  0.42 kB
+@penkra/sdk:build: ℹ [ESM] dist/runtime-uZfYpR1N.d.mts  41.28 kB │ gzip: 10.42 kB
+@penkra/sdk:build: ℹ [ESM] 10 files, total: 98.95 kB
+@penkra/sdk:build: ✔ Build complete in 1044ms
+@penkra/shared:typecheck: cache hit, replaying logs 1052fa4dbdbce9e9
+@penkra/shared:typecheck: $ tsc --noEmit
+@penkra/web:typecheck: cache hit, replaying logs 3c3d46f38cb3cd27
+@penkra/scripts:typecheck: cache hit, replaying logs 2ce0d9ccae47d0bb
+@penkra/web:typecheck: $ tsc --noEmit
+@penkra/desktop:typecheck: cache hit, replaying logs 36925179cf3e4fd9
+@penkra/scripts:typecheck: $ tsc --noEmit
+@penkra/cli:typecheck: cache hit, replaying logs 58e121f27ddeff2e
+@penkra/desktop:typecheck: $ tsc --noEmit
+@penkra/cli:typecheck: $ tsc --noEmit
+
+ Tasks:    11 successful, 11 total
+Cached:    11 cached, 11 total
+  Time:    522ms >>> FULL TURBO

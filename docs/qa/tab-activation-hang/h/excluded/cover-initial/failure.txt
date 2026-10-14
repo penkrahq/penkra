@@ -1,0 +1,4 @@
+Error: QA wait timed out: helper acknowledgement
+    at waitUntil (/Users/emmanuelgyekyeatta-penkra/Penkra/qa-tab-additions-b9xq3rc4/source/qa/bundle/main.cjs:46877:9)
+    at async helper (/Users/emmanuelgyekyeatta-penkra/Penkra/qa-tab-additions-b9xq3rc4/source/qa/bundle/main.cjs:47071:5)
+    at async run2 (/Users/emmanuelgyekyeatta-penkra/Penkra/qa-tab-additions-b9xq3rc4/source/qa/bundle/main.cjs:47149:3)

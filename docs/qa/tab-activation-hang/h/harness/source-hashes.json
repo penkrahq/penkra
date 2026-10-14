@@ -1,0 +1,58 @@
+{
+  "productSource": "a0a576730cacc6a3301c7bdefec3cdae485505cf",
+  "version": "0.14.4",
+  "files": [
+    {
+      "path": "README.md",
+      "sha256": "e58f823ce054685c280c7f1cc9a5d88333c93e1148a9329dff26e6dd62e0f473"
+    },
+    {
+      "path": "build.mjs",
+      "sha256": "a55eca37e698fbeef17139f882108b1a62aa3e1807f3065e27067c2c00b32206"
+    },
+    {
+      "path": "cg-window-list-spaces-legacy.py",
+      "sha256": "f3c8a999fc578aef91280b485eba0cb8f74b1b51dcd7e946a071dcd527ca541b"
+    },
+    {
+      "path": "cg-window-list.py",
+      "sha256": "8879c599b0bcc2a8b2fbebd1955c496fd493dac08f0da496d26607a96196b30e"
+    },
+    {
+      "path": "cover-helper-passive.js",
+      "sha256": "2fddb8425fca08fd64c9134e2fda5b873591d845c0d5d2725163fe8cdbc6480a"
+    },
+    {
+      "path": "cover-helper.js",
+      "sha256": "eedeb33f42dd4919c937b41eeda34c6121d13c10b485fdc3f46a663cb56e2818"
+    },
+    {
+      "path": "main-cover-other.ts",
+      "sha256": "9b64f7760e48b854e48b1610808c7dfba8404eabbefee93b3b68d9d9267f2efe"
+    },
+    {
+      "path": "main-cover.ts",
+      "sha256": "b8f368ee8ef08724f948812351e89dca4f5cbe00cde95451703380828ee087e8"
+    },
+    {
+      "path": "main-spaces-excluded.ts",
+      "sha256": "faf7cc38138e798ffca8e990a6d3151e3ac4fd68b7aa90ffa4615977291f75bf"
+    },
+    {
+      "path": "main-spaces.ts",
+      "sha256": "a8f0cad059aff4e09f8ffccb8afc55573dcecf87560d1c03a8c127ceeca98975"
+    },
+    {
+      "path": "main-spaces2-excluded.ts",
+      "sha256": "9a73447061026d4e0e3cd57a3caa88d02f55db32d8db085a6ee7a9f06a321e5a"
+    },
+    {
+      "path": "probe.html",
+      "sha256": "214b3c5d7ea32db9ee74278fdd643bfb032770db1a533f5197d4767f6037a013"
+    },
+    {
+      "path": "spaces-helper.js",
+      "sha256": "63b2d90ec8f5dd7c6a7e20dceb6e6cbe242f1be02d4cf19f50635796fa9be05f"
+    }
+  ]
+}

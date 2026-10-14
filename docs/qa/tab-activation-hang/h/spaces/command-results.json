@@ -1,0 +1,234 @@
+[
+  {
+    "caseId": "h-spaces-focus-second",
+    "id": "h-offscreen-snapshot",
+    "command": "penkra tabs snapshot --tab-id qa-browser-A --document d2",
+    "startedEpochMs": 1791964298429,
+    "durationMs": 70.57495899999776,
+    "ok": true,
+    "result": {
+      "tabId": "qa-browser-A",
+      "document": "d2",
+      "loaderId": "C37D6E574815744A420BFD0F1A6CB50E",
+      "snapshotId": "7a91cc12-8bb3-45d7-9c45-e47b043d1339",
+      "app": "browser",
+      "url": "http://127.0.0.1:3919/probe",
+      "title": "Penkra QA event probe",
+      "snapshot": "--- AGENT_BROWSER_PAGE_CONTENT nonce=9cec9a43a572407532d5aafe138967f5 origin=http://127.0.0.1:3919/probe ---\n- document \"Penkra QA event probe\"\n  - button \"Click probe\" [ref=d2:e1]\n    - text: \"Click probe\"\n      - text: \"Click probe\"\n  - textbox \"Text probe\" [ref=d2:e2]\n  - button \"Upload probe\" value=\"No file chosen\" [ref=d2:e3]\n  - combobox \"Select probe\" value=\"A\" [ref=d2:e4]\n    - MenuListPopup\n      - option \"A\" [selected] [ref=d2:e6]\n      - option \"B\" [ref=d2:e7]\n  - button \"Covered probe\" [ref=d2:e5]\n    - text: \"Covered probe\"\n      - text: \"Covered probe\"\n--- END_AGENT_BROWSER_PAGE_CONTENT nonce=9cec9a43a572407532d5aafe138967f5 ---",
+      "refs": {
+        "d2:e1": {
+          "role": "button",
+          "name": "Click probe"
+        },
+        "d2:e2": {
+          "role": "textbox",
+          "name": "Text probe"
+        },
+        "d2:e3": {
+          "role": "button",
+          "name": "Upload probe"
+        },
+        "d2:e4": {
+          "role": "combobox",
+          "name": "Select probe"
+        },
+        "d2:e5": {
+          "role": "button",
+          "name": "Covered probe"
+        },
+        "d2:e6": {
+          "role": "option",
+          "name": "A"
+        },
+        "d2:e7": {
+          "role": "option",
+          "name": "B"
+        }
+      },
+      "removedRefs": []
+    }
+  },
+  {
+    "caseId": "h-offscreen-click-0",
+    "id": "h-offscreen-click-0",
+    "command": "penkra tabs act --input '{\"tabId\":\"qa-browser-A\",\"steps\":[{\"action\":\"click\",\"ref\":\"d2:e1\"}]}'",
+    "startedEpochMs": 1791964299123,
+    "durationMs": 24.374791999995068,
+    "ok": true,
+    "result": {
+      "tabId": "qa-browser-A",
+      "inputMode": "smooth",
+      "steps": [
+        {
+          "tabId": "qa-browser-A",
+          "target": "d2:e1",
+          "clicked": true,
+          "deliveryMethod": "cdp-pointer",
+          "trusted": true
+        }
+      ]
+    }
+  },
+  {
+    "caseId": "h-offscreen-type-0",
+    "id": "h-offscreen-type-0",
+    "command": "penkra tabs act --input '{\"tabId\":\"qa-browser-A\",\"steps\":[{\"action\":\"type\",\"ref\":\"d2:e2\",\"text\":\"h-offscreen-type-0\"}]}'",
+    "startedEpochMs": 1791964301088,
+    "durationMs": 310.50470899999345,
+    "ok": true,
+    "result": {
+      "tabId": "qa-browser-A",
+      "inputMode": "smooth",
+      "steps": [
+        {
+          "tabId": "qa-browser-A",
+          "target": "d2:e2",
+          "typed": true,
+          "characters": 18
+        }
+      ]
+    }
+  },
+  {
+    "caseId": "h-offscreen-scroll-0",
+    "id": "h-offscreen-scroll-0",
+    "command": "penkra tabs act --input '{\"tabId\":\"qa-browser-A\",\"steps\":[{\"action\":\"scroll\",\"document\":\"d2\",\"deltaY\":400}]}'",
+    "startedEpochMs": 1791964303293,
+    "durationMs": 2.204958999995142,
+    "ok": true,
+    "result": {
+      "tabId": "qa-browser-A",
+      "inputMode": "smooth",
+      "steps": [
+        {
+          "tabId": "qa-browser-A",
+          "deltaX": 0,
+          "deltaY": 400,
+          "scrolled": true
+        }
+      ]
+    }
+  },
+  {
+    "caseId": "h-offscreen-click-1",
+    "id": "h-offscreen-click-1",
+    "command": "penkra tabs act --input '{\"tabId\":\"qa-browser-A\",\"steps\":[{\"action\":\"click\",\"ref\":\"d2:e1\"}]}'",
+    "startedEpochMs": 1791964305177,
+    "durationMs": 7.832999999998719,
+    "ok": true,
+    "result": {
+      "tabId": "qa-browser-A",
+      "inputMode": "smooth",
+      "steps": [
+        {
+          "tabId": "qa-browser-A",
+          "target": "d2:e1",
+          "clicked": true,
+          "deliveryMethod": "cdp-pointer",
+          "trusted": true
+        }
+      ]
+    }
+  },
+  {
+    "caseId": "h-offscreen-type-1",
+    "id": "h-offscreen-type-1",
+    "command": "penkra tabs act --input '{\"tabId\":\"qa-browser-A\",\"steps\":[{\"action\":\"type\",\"ref\":\"d2:e2\",\"text\":\"h-offscreen-type-1\"}]}'",
+    "startedEpochMs": 1791964307169,
+    "durationMs": 303.1833329999936,
+    "ok": true,
+    "result": {
+      "tabId": "qa-browser-A",
+      "inputMode": "smooth",
+      "steps": [
+        {
+          "tabId": "qa-browser-A",
+          "target": "d2:e2",
+          "typed": true,
+          "characters": 18
+        }
+      ]
+    }
+  },
+  {
+    "caseId": "h-offscreen-scroll-1",
+    "id": "h-offscreen-scroll-1",
+    "command": "penkra tabs act --input '{\"tabId\":\"qa-browser-A\",\"steps\":[{\"action\":\"scroll\",\"document\":\"d2\",\"deltaY\":400}]}'",
+    "startedEpochMs": 1791964309411,
+    "durationMs": 2.5970830000005662,
+    "ok": true,
+    "result": {
+      "tabId": "qa-browser-A",
+      "inputMode": "smooth",
+      "steps": [
+        {
+          "tabId": "qa-browser-A",
+          "deltaX": 0,
+          "deltaY": 400,
+          "scrolled": true
+        }
+      ]
+    }
+  },
+  {
+    "caseId": "h-offscreen-click-2",
+    "id": "h-offscreen-click-2",
+    "command": "penkra tabs act --input '{\"tabId\":\"qa-browser-A\",\"steps\":[{\"action\":\"click\",\"ref\":\"d2:e1\"}]}'",
+    "startedEpochMs": 1791964311304,
+    "durationMs": 6.213292000000365,
+    "ok": true,
+    "result": {
+      "tabId": "qa-browser-A",
+      "inputMode": "smooth",
+      "steps": [
+        {
+          "tabId": "qa-browser-A",
+          "target": "d2:e1",
+          "clicked": true,
+          "deliveryMethod": "cdp-pointer",
+          "trusted": true
+        }
+      ]
+    }
+  },
+  {
+    "caseId": "h-offscreen-type-2",
+    "id": "h-offscreen-type-2",
+    "command": "penkra tabs act --input '{\"tabId\":\"qa-browser-A\",\"steps\":[{\"action\":\"type\",\"ref\":\"d2:e2\",\"text\":\"h-offscreen-type-2\"}]}'",
+    "startedEpochMs": 1791964313222,
+    "durationMs": 291.9491249999992,
+    "ok": true,
+    "result": {
+      "tabId": "qa-browser-A",
+      "inputMode": "smooth",
+      "steps": [
+        {
+          "tabId": "qa-browser-A",
+          "target": "d2:e2",
+          "typed": true,
+          "characters": 18
+        }
+      ]
+    }
+  },
+  {
+    "caseId": "h-offscreen-scroll-2",
+    "id": "h-offscreen-scroll-2",
+    "command": "penkra tabs act --input '{\"tabId\":\"qa-browser-A\",\"steps\":[{\"action\":\"scroll\",\"document\":\"d2\",\"deltaY\":400}]}'",
+    "startedEpochMs": 1791964315384,
+    "durationMs": 1.6809999999968568,
+    "ok": true,
+    "result": {
+      "tabId": "qa-browser-A",
+      "inputMode": "smooth",
+      "steps": [
+        {
+          "tabId": "qa-browser-A",
+          "deltaX": 0,
+          "deltaY": 400,
+          "scrolled": true
+        }
+      ]
+    }
+  }
+]

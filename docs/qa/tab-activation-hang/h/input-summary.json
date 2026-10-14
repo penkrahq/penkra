@@ -1,0 +1,91 @@
+{
+  "trials": [
+    {
+      "id": "h-offscreen-click-0",
+      "action": "click",
+      "eventDelayMs": 23,
+      "within1Second": true,
+      "commandDurationMs": 24.374791999995068,
+      "eventTrusted": true,
+      "backgroundThrottling": true
+    },
+    {
+      "id": "h-offscreen-type-0",
+      "action": "type",
+      "eventDelayMs": 310,
+      "within1Second": true,
+      "commandDurationMs": 310.50470899999345,
+      "eventTrusted": false,
+      "backgroundThrottling": true
+    },
+    {
+      "id": "h-offscreen-scroll-0",
+      "action": "scroll",
+      "eventDelayMs": 8,
+      "within1Second": true,
+      "commandDurationMs": 2.204958999995142,
+      "eventTrusted": true,
+      "backgroundThrottling": true
+    },
+    {
+      "id": "h-offscreen-click-1",
+      "action": "click",
+      "eventDelayMs": 7,
+      "within1Second": true,
+      "commandDurationMs": 7.832999999998719,
+      "eventTrusted": true,
+      "backgroundThrottling": true
+    },
+    {
+      "id": "h-offscreen-type-1",
+      "action": "type",
+      "eventDelayMs": 303,
+      "within1Second": true,
+      "commandDurationMs": 303.1833329999936,
+      "eventTrusted": false,
+      "backgroundThrottling": true
+    },
+    {
+      "id": "h-offscreen-scroll-1",
+      "action": "scroll",
+      "eventDelayMs": 6,
+      "within1Second": true,
+      "commandDurationMs": 2.5970830000005662,
+      "eventTrusted": true,
+      "backgroundThrottling": true
+    },
+    {
+      "id": "h-offscreen-click-2",
+      "action": "click",
+      "eventDelayMs": 5,
+      "within1Second": true,
+      "commandDurationMs": 6.213292000000365,
+      "eventTrusted": true,
+      "backgroundThrottling": true
+    },
+    {
+      "id": "h-offscreen-type-2",
+      "action": "type",
+      "eventDelayMs": 291,
+      "within1Second": true,
+      "commandDurationMs": 291.9491249999992,
+      "eventTrusted": false,
+      "backgroundThrottling": true
+    },
+    {
+      "id": "h-offscreen-scroll-2",
+      "action": "scroll",
+      "eventDelayMs": 8,
+      "within1Second": true,
+      "commandDurationMs": 1.6809999999968568,
+      "eventTrusted": true,
+      "backgroundThrottling": true
+    }
+  ],
+  "worstObservedMs": {
+    "click": 23,
+    "type": 310,
+    "scroll": 8
+  },
+  "allWithin1Second": true
+}
