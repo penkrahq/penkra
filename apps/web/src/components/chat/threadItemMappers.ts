@@ -75,7 +75,15 @@ const TOOL_STATUS_BY_ITEM_STATUS: Record<string, PenkraMcpToolStatus> = {
 };
 
 export function threadItemToActivity(item: CleanCoreThreadItem): OrchestrationThreadActivity {
-  const data = parseThreadItemData(item.data);
+  const data =
+    item.kind === "reasoning"
+      ? {
+          tone: "tool",
+          kind: "task.progress",
+          summary: "Reasoning trace",
+          payload: { detail: item.text, data: { toolCallId: item.sourceId } },
+        }
+      : parseThreadItemData(item.data);
   const hasActivityShape = data !== null && ("payload" in data || "kind" in data || "tone" in data);
   const rawPayload = hasActivityShape
     ? (data?.payload ?? null)
@@ -105,7 +113,6 @@ export function threadItemToActivity(item: CleanCoreThreadItem): OrchestrationTh
 export function threadItemToWorkLogEntry(item: CleanCoreThreadItem): WorkLogEntry | null {
   // Turn records supply timing, not an extra work-log row.
   if (item.kind === "turn") return null;
-  if (item.kind === "reasoning" && (item.text === null || item.text.length === 0)) return null;
   const entry = deriveWorkLogEntries([threadItemToActivity(item)], undefined)[0] ?? null;
   if (entry === null || item.kind !== "tool") return entry;
   const toolStatus = TOOL_STATUS_BY_ITEM_STATUS[item.status];
