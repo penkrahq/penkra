@@ -185,3 +185,15 @@ The official GitHub latest-release endpoint returned v1.19.0 (published October 
 Safe catalogs: `/tmp/penkra-image-budget-connections.json`. Native measurements: `/tmp/penkra-image-budget-session-measurements.json`; live metadata `/tmp/penkra-image-budget-native-summary.json`; refined reference matcher output `/tmp/penkra-image-budget-reference-measurements.json`. Source snapshots/tree SHAs under `/tmp/penkra-image-budget-source`; local readers and fixture are task-owned scratch, not product code.
 
 Unverified: HerWebCraft's upstream provider/model and request image count; numeric Go limits for other models/routes; 7 older native histories rejected by the API; actual Penkra-turn grouping across synthetic compaction user prompts; real per-image billed tokens/full outgoing request bytes; semantic image attention; V2 binary compatibility. No product code, plugin, credentials, Production DB, provider session or installed app was changed. N and the budget shape remain with the operator.
+
+## Implemented budget verification (2026-10-13)
+
+The standalone transform retains every image occurrence in the newest user message, then fills the four-image budget from newest occurrences across the request. It examines only top-level file parts and top-level tool attachment arrays. Older file parts become text notes; older tool images are removed and noted in string outputs, preserving non-image attachments and empty arrays. The same hook applies during compaction.
+
+Startup writes the plugin before a thread program can start: `OpenCodeAdapter.startSession` awaits `loadOpenCodeConfigContent(serverConfig.homeDir)`, which awaits `ensureOpenCodeImageTransformPlugin`, before `connectToOpenCodeServer`. The ensure function compares the complete source and rewrites stale files. The approved swap restarts the app and its programs; no manual Chore repair is required for thread startup. Discovery/probe startup is separate and currently does not call this writer; whether to include that path was raised for review rather than silently widening the cut.
+
+The local OpenCode 1.19.0 fixture passes with the plugin enabled and disabled: first tool-image turn HTTP 200 (two model-fixture calls), second turn HTTP 200 (one call), no errors and no paid requests. Evidence: `~/penkra-rehearsal/opencode-image-budget-fixed-repro/report.json`.
+
+Chore's copied native history was read through GET only and transformed in memory: 1,008 messages, 35 image occurrences before, four after, four surviving tool attachments, zero undefined MIME values and zero malformed file parts. The exact converter MIME-filter operation that previously threw now passes. This validates converter input, rather than claiming a paid native replay of the entire Chore conversation. Evidence: `~/penkra-rehearsal/opencode-image-budget-fixed-repro/chore-replay.json`. Production data was untouched.
+
+Focused plugin/config tests: 11 passed. Root typecheck: 11/11 successful, 7.803 s.

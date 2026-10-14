@@ -1,8 +1,8 @@
 // FILE: openCodeImageTransformPlugin.ts
 // Purpose: The OpenCode plugin Penkra installs so a thread that accumulates
-// many images stays usable: only the newest user message keeps image parts;
-// every image part in every other message (any role or nesting) becomes the
-// text `[image: <path or filename or mime>]`.
+// many images stays usable: keep the newest four image occurrences and every
+// image in the newest user message; older images become text notes. Tool
+// attachments are removed and noted in the tool output, never made into text parts.
 // Layer: Provider runtime utility
 // Exports: OPENCODE_IMAGE_TRANSFORM_PLUGIN_SOURCE,
 //          openCodeImageTransformPluginPath, ensureOpenCodeImageTransformPlugin
@@ -19,11 +19,14 @@ export const OPENCODE_IMAGE_TRANSFORM_PLUGIN_FILE_NAME = "penkra-image-transform
 
 /**
  * A standalone OpenCode plugin. `output.messages` is `{ info, parts }[]`. The
- * newest user message keeps its image parts; every image part anywhere else is
- * replaced by a text part. Image parts are recognised by an `image/` mime (or a
- * `data:image/` URL), so both `file:` and `data:` shapes are handled.
+ * newest user message keeps every image. Remaining budget goes to the newest
+ * top-level file parts and tool attachments. No other nested values are touched.
  */
-export const OPENCODE_IMAGE_TRANSFORM_PLUGIN_SOURCE = `const IMAGE_MIME_PREFIX = "image/";
+export const OPENCODE_IMAGE_TRANSFORM_PLUGIN_SOURCE = `// The smallest observed provider cap is 4 (HerWebCraft: "At most 4 image(s)").
+// Go routes the same model to upstreams capped at 20/64 without limit metadata,
+// so use one global cap; measured back-references are mostly k-1/k-2.
+export const IMAGE_BUDGET = 4;
+const IMAGE_MIME_PREFIX = "image/";
 
 // Match only the SDK FilePartInput shape: type "file" with an image/ mime.
 const isImagePart = (value) =>
@@ -52,24 +55,6 @@ const toTextPart = (part) => {
   return { ...rest, type: "text", text: "[image: " + imageLabel(part) + "]" };
 };
 
-const replaceImagePartsInPlace = (value) => {
-  if (Array.isArray(value)) {
-    for (let index = 0; index < value.length; index += 1) {
-      const child = value[index];
-      if (isImagePart(child)) value[index] = toTextPart(child);
-      else replaceImagePartsInPlace(child);
-    }
-    return;
-  }
-  if (value && typeof value === "object") {
-    for (const key of Object.keys(value)) {
-      const child = value[key];
-      if (isImagePart(child)) value[key] = toTextPart(child);
-      else replaceImagePartsInPlace(child);
-    }
-  }
-};
-
 export const PenkraOpenCodeImageTransform = async () => ({
   "experimental.chat.messages.transform": async (_input, output) => {
     const messages = output?.messages;
@@ -81,11 +66,40 @@ export const PenkraOpenCodeImageTransform = async () => ({
         break;
       }
     }
-    for (let index = 0; index < messages.length; index += 1) {
-      if (index === newestUserIndex) continue;
-      const message = messages[index];
-      if (!message || typeof message !== "object") continue;
-      replaceImagePartsInPlace(message.parts);
+    const occurrences = [];
+    for (let messageIndex = 0; messageIndex < messages.length; messageIndex += 1) {
+      const parts = messages[messageIndex]?.parts;
+      if (!Array.isArray(parts)) continue;
+      for (let partIndex = 0; partIndex < parts.length; partIndex += 1) {
+        const part = parts[partIndex];
+        if (isImagePart(part)) occurrences.push({ messageIndex, parts, partIndex, image: part });
+        else if (part?.type === "tool" && Array.isArray(part.state?.attachments)) {
+          for (let attachmentIndex = 0; attachmentIndex < part.state.attachments.length; attachmentIndex += 1) {
+            const image = part.state.attachments[attachmentIndex];
+            if (isImagePart(image)) occurrences.push({ messageIndex, tool: part, attachmentIndex, image });
+          }
+        }
+      }
+    }
+    const kept = new Set(occurrences.filter((entry) => entry.messageIndex === newestUserIndex));
+    for (let index = occurrences.length - 1; index >= 0 && kept.size < IMAGE_BUDGET; index -= 1) {
+      kept.add(occurrences[index]);
+    }
+    const removedByTool = new Map();
+    for (const entry of occurrences) {
+      if (kept.has(entry)) continue;
+      if (!entry.tool) entry.parts[entry.partIndex] = toTextPart(entry.image);
+      else {
+        let removed = removedByTool.get(entry.tool);
+        if (!removed) removedByTool.set(entry.tool, removed = new Set());
+        removed.add(entry.attachmentIndex);
+        if (typeof entry.tool.state.output === "string") {
+          entry.tool.state.output += "\\n[image: " + imageLabel(entry.image) + "]";
+        }
+      }
+    }
+    for (const [tool, removed] of removedByTool) {
+      tool.state.attachments = tool.state.attachments.filter((_attachment, index) => !removed.has(index));
     }
   },
 });
