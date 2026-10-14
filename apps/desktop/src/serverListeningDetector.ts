@@ -1,3 +1,4 @@
+// effectServer.ts emits this exact stdout prefix only after full server readiness.
 const LISTENING_LOG_FRAGMENT = "Listening on http://";
 const MAX_BUFFER_CHARS = 8_192;
 

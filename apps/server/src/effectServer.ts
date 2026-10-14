@@ -29,7 +29,7 @@ import { ServerLifecycleEvents } from "./serverLifecycleEvents";
 import { ServerRuntimeStartup } from "./serverRuntimeStartup";
 import { runStartupStage } from "./startupTiming";
 import { ServerSettingsService } from "./serverSettings";
-import { makeServerReadiness } from "./server/readiness";
+import { makeServerReadiness, type ServerReadiness } from "./server/readiness";
 import { makeServerShutdownController, type ServerShutdownController } from "./serverShutdown";
 import { makeBoundedNodeHttpServer } from "./nodeHttpServer";
 import { websocketRpcRouteLayer } from "./wsRpc";
@@ -108,6 +108,21 @@ export function closeServerRuntimePipeline(input: {
   );
 }
 
+export const writeServerListeningWhenReady = (
+  readiness: Pick<ServerReadiness, "awaitServerReady">,
+  configuredHost: string | undefined,
+  listeningPort: number,
+) =>
+  readiness.awaitServerReady.pipe(
+    Effect.andThen(
+      Effect.sync(() => {
+        const host = configuredHost?.trim() || "127.0.0.1";
+        const addressHost = host.includes(":") ? `[${host}]` : host;
+        process.stdout.write(`Listening on http://${addressHost}:${listeningPort}\n`);
+      }),
+    ),
+  );
+
 export const createEffectServer = Effect.fn(function* (
   shutdownController: ServerShutdownController,
 ) {
@@ -185,6 +200,10 @@ export const createEffectServer = Effect.fn(function* (
   );
   yield* Effect.addFinalizer(() => clearPersistedServerRuntimeState(config.serverRuntimeStatePath));
   yield* readiness.markHttpListening;
+  // The desktop ServerListeningDetector depends on this exact stdout prefix after full readiness.
+  yield* writeServerListeningWhenReady(readiness, config.host, listeningPort).pipe(
+    Effect.forkScoped,
+  );
 
   const subscriptionsScope = yield* Scope.make("sequential");
   const shutdown = yield* Effect.cached(
