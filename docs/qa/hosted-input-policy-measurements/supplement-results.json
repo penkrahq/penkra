@@ -1,0 +1,30 @@
+[
+  {
+    "policy": "B",
+    "label": "covered",
+    "state": "covered",
+    "throttling": "true",
+    "exit": 0
+  },
+  {
+    "policy": "A",
+    "label": "covered",
+    "state": "covered",
+    "throttling": "true",
+    "exit": 0
+  },
+  {
+    "policy": "B",
+    "label": "windowhidden",
+    "state": "windowhidden",
+    "throttling": "true",
+    "exit": 0
+  },
+  {
+    "policy": "A",
+    "label": "minimized-unthrottled",
+    "state": "minimized",
+    "throttling": "false",
+    "exit": 1
+  }
+]

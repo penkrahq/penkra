@@ -1,0 +1,2 @@
+import React from "react";import {createRoot} from "react-dom/client";import {AppDockPane} from "../apps/web/src/components/chat/AppDockPane";
+const seed=await window.desktopBridge.qa.seed();createRoot(document.getElementById('root')!).render(<div data-slot="sidebar-wrapper" style={{position:'absolute',right:0,top:0,width:400,height:'100%'}}><AppDockPane {...seed} /></div>);setTimeout(()=>window.desktopBridge.qa.ready(),500);

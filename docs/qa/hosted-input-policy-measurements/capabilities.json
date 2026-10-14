@@ -1,0 +1,13 @@
+{
+  "platform": "macOS-26.3-arm64-arm-64bit-Mach-O",
+  "CGPreflightScreenCaptureAccess": false,
+  "CGPreflightPostEventAccess": false,
+  "sourceCommit": "c5adb021dd132ac9595c7a8b84adf9a2cbcc4bf0",
+  "ports": [
+    3919,
+    5919
+  ],
+  "paidProviderCalls": 0,
+  "primaryBackgroundThrottling": true,
+  "instrumentation": "Full CDP start/end calls; page event epochMs; real CLI/pipe/observer, scratch presentation guard bypass; cached renderer visibility with direct page qaState verification."
+}

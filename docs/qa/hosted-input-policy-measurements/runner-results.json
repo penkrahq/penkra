@@ -1,0 +1,32 @@
+[
+  {
+    "policy": "B",
+    "state": "apphide",
+    "exit": 0
+  },
+  {
+    "policy": "A",
+    "state": "apphide",
+    "exit": 0
+  },
+  {
+    "policy": "B",
+    "state": "covered",
+    "exit": 0
+  },
+  {
+    "policy": "A",
+    "state": "covered",
+    "exit": 0
+  },
+  {
+    "policy": "B",
+    "state": "space",
+    "exit": 0
+  },
+  {
+    "policy": "A",
+    "state": "space",
+    "exit": 0
+  }
+]

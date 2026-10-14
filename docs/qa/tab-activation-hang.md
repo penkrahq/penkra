@@ -190,3 +190,8 @@ Scratch-only roots, capabilities and source/version are recorded in [capabilitie
 ## (i) Earlier hosted-view preservation regression
 
 The follow-up [runtime investigation](hosted-view-visibility-regression.md) identifies `d752139131f59082991a6c56d70845689fb3fd3b` as the adjacent-pair boundary for detaching live views on window hide. A native full-screen Space switch emits hide while BrowserWindow.isVisible remains true; pure focus loss did not reproduce removal. October `981a34425` separately reclassifies detached tabs from background to window-hidden. Native application Hide bounced back to show in the diagnostic run; physical swipe/Cmd-H delivery remains unverified. See that report for source lines, event sequences, exclusions and scratch evidence.
+
+
+## (j) Preserved versus detached background input
+
+The [117-trial policy measurement](hosted-input-policy-measurements.md) records all 72 requested policy/state trials plus 45 supplemental trials. With default throttling, preserved off-screen/minimized/app-hidden views timed out on typing; disabling throttling on all scratch WebContents passed all 27 supplemental trials in those states. The old 11.5-second delay was in cursor movement, and its host-visible/page-hidden record is not evidence of completed detachment. Current full tracing localizes the matching wait to CDP mouseMoved dispatch acknowledgments. B app.hide re-showed before input, so it did not qualify as hidden-app evidence. Native attachment continuity was verified on return; a painted replica flash remains unverified because screen-capture access is unavailable.

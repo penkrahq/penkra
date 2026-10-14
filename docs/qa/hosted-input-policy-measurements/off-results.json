@@ -1,0 +1,16 @@
+[
+  {
+    "policy": "A",
+    "label": "spaceoff",
+    "state": "space",
+    "throttling": false,
+    "exit": 0
+  },
+  {
+    "policy": "A",
+    "label": "hideoff",
+    "state": "apphide",
+    "throttling": false,
+    "exit": 0
+  }
+]

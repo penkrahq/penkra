@@ -1,0 +1,58 @@
+[
+  {
+    "policy": "A",
+    "path": "apps/desktop/src/appTabViewHost.ts",
+    "originalSha256": "5cc39c95dbb8865aa15dbe7b71f95a996c939d5b2acff558f6a19cea10e4986f",
+    "executedSha256": "8a0f3fb07e1f72d829039adee40e0d735ca7e3beeebbac82296d0459754c672a",
+    "unchanged": false
+  },
+  {
+    "policy": "A",
+    "path": "apps/desktop/src/appTabObserver.ts",
+    "originalSha256": "332dc0db747de5861a4c9270fa68ebb2f6d4e95c378d896cbf81bce8f3363da8",
+    "executedSha256": "609a3e255e124abda54c4db4dae8c4e40025c3932d07c70349c6dcfe6b12b6ef",
+    "unchanged": false
+  },
+  {
+    "policy": "A",
+    "path": "apps/desktop/src/main.ts",
+    "originalSha256": "a058dbb8997ba3a13b7bacf728fb5d7a3238d59b00dd5a705eb36039824f3393",
+    "executedSha256": "a058dbb8997ba3a13b7bacf728fb5d7a3238d59b00dd5a705eb36039824f3393",
+    "unchanged": true
+  },
+  {
+    "policy": "A",
+    "path": "apps/web/src/components/chat/AppDockPane.tsx",
+    "originalSha256": "4ed7cbca8f5ef9a8a27252384dfc50ad0b0b7a67d9d1e8f3118fa4dc93a18174",
+    "executedSha256": "4ed7cbca8f5ef9a8a27252384dfc50ad0b0b7a67d9d1e8f3118fa4dc93a18174",
+    "unchanged": true
+  },
+  {
+    "policy": "B",
+    "path": "apps/desktop/src/appTabViewHost.ts",
+    "originalSha256": "5cc39c95dbb8865aa15dbe7b71f95a996c939d5b2acff558f6a19cea10e4986f",
+    "executedSha256": "5cc39c95dbb8865aa15dbe7b71f95a996c939d5b2acff558f6a19cea10e4986f",
+    "unchanged": true
+  },
+  {
+    "policy": "B",
+    "path": "apps/desktop/src/appTabObserver.ts",
+    "originalSha256": "332dc0db747de5861a4c9270fa68ebb2f6d4e95c378d896cbf81bce8f3363da8",
+    "executedSha256": "609a3e255e124abda54c4db4dae8c4e40025c3932d07c70349c6dcfe6b12b6ef",
+    "unchanged": false
+  },
+  {
+    "policy": "B",
+    "path": "apps/desktop/src/main.ts",
+    "originalSha256": "a058dbb8997ba3a13b7bacf728fb5d7a3238d59b00dd5a705eb36039824f3393",
+    "executedSha256": "a058dbb8997ba3a13b7bacf728fb5d7a3238d59b00dd5a705eb36039824f3393",
+    "unchanged": true
+  },
+  {
+    "policy": "B",
+    "path": "apps/web/src/components/chat/AppDockPane.tsx",
+    "originalSha256": "4ed7cbca8f5ef9a8a27252384dfc50ad0b0b7a67d9d1e8f3118fa4dc93a18174",
+    "executedSha256": "4ed7cbca8f5ef9a8a27252384dfc50ad0b0b7a67d9d1e8f3118fa4dc93a18174",
+    "unchanged": true
+  }
+]

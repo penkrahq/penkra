@@ -1,0 +1,12 @@
+{
+  "jsonAndJsonGzipFilesParsed": 57,
+  "jsonlEventsParsed": 12660,
+  "primaryRows": 72,
+  "allRows": 117,
+  "sourceGitHashesVerified": 8,
+  "primaryOwnershipBeforeAfterPassed": 72,
+  "unthrottledBackgroundEventAndResponseChecksPassed": 27,
+  "primaryQualifiedRows": 63,
+  "completeCoverGeometryAssertionsPassed": 18,
+  "TAB_NOT_ACTIVEObserved": false
+}

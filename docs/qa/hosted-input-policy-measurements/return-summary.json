@@ -1,0 +1,2528 @@
+[
+  {
+    "policy": "A",
+    "run": "space",
+    "allSampleChildCounts": [
+      2,
+      2,
+      2,
+      2,
+      2,
+      2,
+      2,
+      2,
+      2,
+      2,
+      2,
+      2
+    ],
+    "allSampleOwners": [
+      1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      1
+    ],
+    "onScreenSamples": 10,
+    "firstOnScreen": {
+      "atMs": 125081.182125,
+      "ownerWindowId": 1,
+      "childViews": [
+        {
+          "id": 5,
+          "visible": true
+        },
+        {
+          "id": 2,
+          "visible": true
+        }
+      ],
+      "presentation": {
+        "tabId": "qa-A",
+        "mode": "live",
+        "ownerWindowId": 1,
+        "appImage": false,
+        "pageImage": false
+      },
+      "shellDocument": {
+        "visibility": "visible",
+        "source": "renderer visibility event cache"
+      }
+    },
+    "captureAttempts": [
+      {
+        "atMs": 125260.094667,
+        "event": "return-window-capture",
+        "i": 2,
+        "status": 1,
+        "stderr": "could not create image from window\n"
+      },
+      {
+        "atMs": 125458.896125,
+        "event": "return-window-capture",
+        "i": 3,
+        "status": 1,
+        "stderr": "could not create image from window\n"
+      },
+      {
+        "atMs": 125662.642334,
+        "event": "return-window-capture",
+        "i": 4,
+        "status": 1,
+        "stderr": "could not create image from window\n"
+      },
+      {
+        "atMs": 125859.097875,
+        "event": "return-window-capture",
+        "i": 5,
+        "status": 1,
+        "stderr": "could not create image from window\n"
+      },
+      {
+        "atMs": 126059.949417,
+        "event": "return-window-capture",
+        "i": 6,
+        "status": 1,
+        "stderr": "could not create image from window\n"
+      },
+      {
+        "atMs": 126264.660209,
+        "event": "return-window-capture",
+        "i": 7,
+        "status": 1,
+        "stderr": "could not create image from window\n"
+      },
+      {
+        "atMs": 126476.405834,
+        "event": "return-window-capture",
+        "i": 8,
+        "status": 1,
+        "stderr": "could not create image from window\n"
+      },
+      {
+        "atMs": 126694.575042,
+        "event": "return-window-capture",
+        "i": 9,
+        "status": 1,
+        "stderr": "could not create image from window\n"
+      },
+      {
+        "atMs": 126914.534209,
+        "event": "return-window-capture",
+        "i": 10,
+        "status": 1,
+        "stderr": "could not create image from window\n"
+      },
+      {
+        "atMs": 127121.492375,
+        "event": "return-window-capture",
+        "i": 11,
+        "status": 1,
+        "stderr": "could not create image from window\n"
+      }
+    ],
+    "nativeReturnEvents": [
+      {
+        "atMs": 124771.999042,
+        "event": "return-request",
+        "requestedState": "space"
+      },
+      {
+        "atMs": 125050.7595,
+        "event": "shell-window-show",
+        "windowId": 1,
+        "rendererId": 1,
+        "isVisible": true,
+        "isMinimized": false,
+        "isFocused": false
+      },
+      {
+        "atMs": 125051.205292,
+        "event": "presentation",
+        "windowId": 1,
+        "mode": "live",
+        "ownerWindowId": 1,
+        "appImage": false,
+        "pageImage": false
+      },
+      {
+        "atMs": 125051.272417,
+        "tabId": "qa-A",
+        "windowId": 1,
+        "visibleRequested": true,
+        "freezeDepth": 0,
+        "appViewVisible": true,
+        "hostedPageVisible": true,
+        "sequence": 57,
+        "monotonicMs": 125051,
+        "event": "window-show-applied"
+      },
+      {
+        "atMs": 131489.970875,
+        "event": "presentation",
+        "windowId": 1,
+        "mode": "replica",
+        "ownerWindowId": 1,
+        "appImage": true,
+        "pageImage": true
+      },
+      {
+        "atMs": 132036.68475,
+        "event": "shell-window-show",
+        "windowId": 1,
+        "rendererId": 1,
+        "isVisible": true,
+        "isMinimized": false,
+        "isFocused": true
+      },
+      {
+        "atMs": 132037.148125,
+        "event": "presentation",
+        "windowId": 1,
+        "mode": "live",
+        "ownerWindowId": 1,
+        "appImage": false,
+        "pageImage": false
+      },
+      {
+        "atMs": 132037.218959,
+        "tabId": "qa-A",
+        "windowId": 1,
+        "visibleRequested": true,
+        "freezeDepth": 0,
+        "appViewVisible": true,
+        "hostedPageVisible": true,
+        "sequence": 67,
+        "monotonicMs": 132037,
+        "event": "window-show-applied"
+      }
+    ]
+  },
+  {
+    "policy": "A",
+    "run": "minimized",
+    "allSampleChildCounts": [
+      2,
+      2,
+      2,
+      2,
+      2,
+      2,
+      2,
+      2,
+      2,
+      2,
+      2,
+      2
+    ],
+    "allSampleOwners": [
+      1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      1
+    ],
+    "onScreenSamples": 11,
+    "firstOnScreen": {
+      "atMs": 114988.058084,
+      "ownerWindowId": 1,
+      "childViews": [
+        {
+          "id": 5,
+          "visible": true
+        },
+        {
+          "id": 2,
+          "visible": true
+        }
+      ],
+      "presentation": {
+        "tabId": "qa-A",
+        "mode": "live",
+        "ownerWindowId": 1,
+        "appImage": false,
+        "pageImage": false
+      },
+      "shellDocument": {
+        "visibility": "hidden",
+        "source": "renderer visibility event cache"
+      }
+    },
+    "captureAttempts": [
+      {
+        "atMs": 115174.427709,
+        "event": "return-window-capture",
+        "i": 1,
+        "status": 1,
+        "stderr": "could not create image from window\n"
+      },
+      {
+        "atMs": 115404.438625,
+        "event": "return-window-capture",
+        "i": 2,
+        "status": 1,
+        "stderr": "could not create image from window\n"
+      },
+      {
+        "atMs": 115638.079667,
+        "event": "return-window-capture",
+        "i": 3,
+        "status": 1,
+        "stderr": "could not create image from window\n"
+      },
+      {
+        "atMs": 115871.454375,
+        "event": "return-window-capture",
+        "i": 4,
+        "status": 1,
+        "stderr": "could not create image from window\n"
+      },
+      {
+        "atMs": 116121.979709,
+        "event": "return-window-capture",
+        "i": 5,
+        "status": 1,
+        "stderr": "could not create image from window\n"
+      },
+      {
+        "atMs": 116337.404292,
+        "event": "return-window-capture",
+        "i": 6,
+        "status": 1,
+        "stderr": "could not create image from window\n"
+      },
+      {
+        "atMs": 116553.567375,
+        "event": "return-window-capture",
+        "i": 7,
+        "status": 1,
+        "stderr": "could not create image from window\n"
+      },
+      {
+        "atMs": 116769.638042,
+        "event": "return-window-capture",
+        "i": 8,
+        "status": 1,
+        "stderr": "could not create image from window\n"
+      },
+      {
+        "atMs": 117004.955584,
+        "event": "return-window-capture",
+        "i": 9,
+        "status": 1,
+        "stderr": "could not create image from window\n"
+      },
+      {
+        "atMs": 117221.2375,
+        "event": "return-window-capture",
+        "i": 10,
+        "status": 1,
+        "stderr": "could not create image from window\n"
+      },
+      {
+        "atMs": 117449.5865,
+        "event": "return-window-capture",
+        "i": 11,
+        "status": 1,
+        "stderr": "could not create image from window\n"
+      }
+    ],
+    "nativeReturnEvents": [
+      {
+        "atMs": 114327.382125,
+        "event": "return-request",
+        "requestedState": "minimized"
+      },
+      {
+        "atMs": 114974.415542,
+        "event": "shell-window-restore",
+        "windowId": 1,
+        "rendererId": 1,
+        "isVisible": true,
+        "isMinimized": false,
+        "isFocused": false
+      },
+      {
+        "atMs": 114975.010167,
+        "event": "presentation",
+        "windowId": 1,
+        "mode": "live",
+        "ownerWindowId": 1,
+        "appImage": false,
+        "pageImage": false
+      },
+      {
+        "atMs": 114975.113834,
+        "tabId": "qa-A",
+        "windowId": 1,
+        "visibleRequested": true,
+        "freezeDepth": 0,
+        "appViewVisible": true,
+        "hostedPageVisible": true,
+        "sequence": 43,
+        "monotonicMs": 114975,
+        "event": "window-show-applied"
+      },
+      {
+        "atMs": 114975.571584,
+        "event": "shell-window-show",
+        "windowId": 1,
+        "rendererId": 1,
+        "isVisible": true,
+        "isMinimized": false,
+        "isFocused": false
+      },
+      {
+        "atMs": 114975.777667,
+        "event": "presentation",
+        "windowId": 1,
+        "mode": "live",
+        "ownerWindowId": 1,
+        "appImage": false,
+        "pageImage": false
+      },
+      {
+        "atMs": 114975.864834,
+        "tabId": "qa-A",
+        "windowId": 1,
+        "visibleRequested": true,
+        "freezeDepth": 0,
+        "appViewVisible": true,
+        "hostedPageVisible": true,
+        "sequence": 47,
+        "monotonicMs": 114976,
+        "event": "window-show-applied"
+      }
+    ]
+  },
+  {
+    "policy": "A",
+    "run": "apphide",
+    "allSampleChildCounts": [
+      2,
+      2,
+      2,
+      2,
+      2,
+      2,
+      2,
+      2,
+      2,
+      2,
+      2,
+      2
+    ],
+    "allSampleOwners": [
+      1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      1
+    ],
+    "onScreenSamples": 11,
+    "firstOnScreen": {
+      "atMs": 111209.386584,
+      "ownerWindowId": 1,
+      "childViews": [
+        {
+          "id": 5,
+          "visible": true
+        },
+        {
+          "id": 2,
+          "visible": true
+        }
+      ],
+      "presentation": {
+        "tabId": "qa-A",
+        "mode": "live",
+        "ownerWindowId": 1,
+        "appImage": false,
+        "pageImage": false
+      },
+      "shellDocument": {
+        "visibility": "visible",
+        "source": "renderer visibility event cache"
+      }
+    },
+    "captureAttempts": [
+      {
+        "atMs": 111438.601667,
+        "event": "return-window-capture",
+        "i": 1,
+        "status": 1,
+        "stderr": "could not create image from window\n"
+      },
+      {
+        "atMs": 111658.880917,
+        "event": "return-window-capture",
+        "i": 2,
+        "status": 1,
+        "stderr": "could not create image from window\n"
+      },
+      {
+        "atMs": 111920.419,
+        "event": "return-window-capture",
+        "i": 3,
+        "status": 1,
+        "stderr": "could not create image from window\n"
+      },
+      {
+        "atMs": 112142.948584,
+        "event": "return-window-capture",
+        "i": 4,
+        "status": 1,
+        "stderr": "could not create image from window\n"
+      },
+      {
+        "atMs": 112362.834209,
+        "event": "return-window-capture",
+        "i": 5,
+        "status": 1,
+        "stderr": "could not create image from window\n"
+      },
+      {
+        "atMs": 112575.247375,
+        "event": "return-window-capture",
+        "i": 6,
+        "status": 1,
+        "stderr": "could not create image from window\n"
+      },
+      {
+        "atMs": 112803.646959,
+        "event": "return-window-capture",
+        "i": 7,
+        "status": 1,
+        "stderr": "could not create image from window\n"
+      },
+      {
+        "atMs": 113008.587417,
+        "event": "return-window-capture",
+        "i": 8,
+        "status": 1,
+        "stderr": "could not create image from window\n"
+      },
+      {
+        "atMs": 113224.847792,
+        "event": "return-window-capture",
+        "i": 9,
+        "status": 1,
+        "stderr": "could not create image from window\n"
+      },
+      {
+        "atMs": 113443.266042,
+        "event": "return-window-capture",
+        "i": 10,
+        "status": 1,
+        "stderr": "could not create image from window\n"
+      },
+      {
+        "atMs": 113659.957334,
+        "event": "return-window-capture",
+        "i": 11,
+        "status": 1,
+        "stderr": "could not create image from window\n"
+      }
+    ],
+    "nativeReturnEvents": [
+      {
+        "atMs": 111000.189625,
+        "event": "return-request",
+        "requestedState": "apphide"
+      },
+      {
+        "atMs": 111197.15075,
+        "event": "shell-window-show",
+        "windowId": 1,
+        "rendererId": 1,
+        "isVisible": true,
+        "isMinimized": false,
+        "isFocused": true
+      },
+      {
+        "atMs": 111197.61325,
+        "event": "presentation",
+        "windowId": 1,
+        "mode": "live",
+        "ownerWindowId": 1,
+        "appImage": false,
+        "pageImage": false
+      },
+      {
+        "atMs": 111197.693209,
+        "tabId": "qa-A",
+        "windowId": 1,
+        "visibleRequested": true,
+        "freezeDepth": 0,
+        "appViewVisible": true,
+        "hostedPageVisible": true,
+        "sequence": 37,
+        "monotonicMs": 111198,
+        "event": "window-show-applied"
+      }
+    ]
+  },
+  {
+    "policy": "A",
+    "run": "covered",
+    "allSampleChildCounts": [
+      2,
+      2,
+      2,
+      2,
+      2,
+      2,
+      2,
+      2,
+      2,
+      2,
+      2,
+      2
+    ],
+    "allSampleOwners": [
+      1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      1
+    ],
+    "onScreenSamples": 12,
+    "firstOnScreen": {
+      "atMs": 22435.448917,
+      "ownerWindowId": 1,
+      "childViews": [
+        {
+          "id": 5,
+          "visible": true
+        },
+        {
+          "id": 2,
+          "visible": true
+        }
+      ],
+      "presentation": {
+        "tabId": "qa-A",
+        "mode": "live",
+        "ownerWindowId": 1,
+        "appImage": false,
+        "pageImage": false
+      },
+      "shellDocument": {
+        "visibility": "visible",
+        "source": "renderer visibility event cache"
+      }
+    },
+    "captureAttempts": [
+      {
+        "atMs": 22622.82425,
+        "event": "return-window-capture",
+        "i": 0,
+        "status": 1,
+        "stderr": "could not create image from window\n"
+      },
+      {
+        "atMs": 22857.055583,
+        "event": "return-window-capture",
+        "i": 1,
+        "status": 1,
+        "stderr": "could not create image from window\n"
+      },
+      {
+        "atMs": 23072.9645,
+        "event": "return-window-capture",
+        "i": 2,
+        "status": 1,
+        "stderr": "could not create image from window\n"
+      },
+      {
+        "atMs": 23279.341,
+        "event": "return-window-capture",
+        "i": 3,
+        "status": 1,
+        "stderr": "could not create image from window\n"
+      },
+      {
+        "atMs": 23507.744125,
+        "event": "return-window-capture",
+        "i": 4,
+        "status": 1,
+        "stderr": "could not create image from window\n"
+      },
+      {
+        "atMs": 23738.96975,
+        "event": "return-window-capture",
+        "i": 5,
+        "status": 1,
+        "stderr": "could not create image from window\n"
+      },
+      {
+        "atMs": 23958.920958,
+        "event": "return-window-capture",
+        "i": 6,
+        "status": 1,
+        "stderr": "could not create image from window\n"
+      },
+      {
+        "atMs": 24169.449458,
+        "event": "return-window-capture",
+        "i": 7,
+        "status": 1,
+        "stderr": "could not create image from window\n"
+      },
+      {
+        "atMs": 24407.092417,
+        "event": "return-window-capture",
+        "i": 8,
+        "status": 1,
+        "stderr": "could not create image from window\n"
+      },
+      {
+        "atMs": 24607.73625,
+        "event": "return-window-capture",
+        "i": 9,
+        "status": 1,
+        "stderr": "could not create image from window\n"
+      },
+      {
+        "atMs": 24857.867417,
+        "event": "return-window-capture",
+        "i": 10,
+        "status": 1,
+        "stderr": "could not create image from window\n"
+      },
+      {
+        "atMs": 25090.355708,
+        "event": "return-window-capture",
+        "i": 11,
+        "status": 1,
+        "stderr": "could not create image from window\n"
+      }
+    ],
+    "nativeReturnEvents": [
+      {
+        "atMs": 21934.084917,
+        "event": "return-request",
+        "requestedState": "covered"
+      }
+    ]
+  },
+  {
+    "policy": "A",
+    "run": "minoff",
+    "allSampleChildCounts": [
+      2,
+      2,
+      2,
+      2,
+      2,
+      2,
+      2,
+      2,
+      2,
+      2,
+      2,
+      2
+    ],
+    "allSampleOwners": [
+      1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      1
+    ],
+    "onScreenSamples": 11,
+    "firstOnScreen": {
+      "atMs": 24837.469875,
+      "ownerWindowId": 1,
+      "childViews": [
+        {
+          "id": 5,
+          "visible": true
+        },
+        {
+          "id": 2,
+          "visible": true
+        }
+      ],
+      "presentation": {
+        "tabId": "qa-A",
+        "mode": "live",
+        "ownerWindowId": 1,
+        "appImage": false,
+        "pageImage": false
+      },
+      "shellDocument": {
+        "visibility": "visible",
+        "source": "renderer visibility event cache"
+      }
+    },
+    "captureAttempts": [
+      {
+        "atMs": 25187.038083,
+        "event": "return-window-capture",
+        "i": 1,
+        "status": 1,
+        "stderr": "could not create image from window\n"
+      },
+      {
+        "atMs": 25565.104417,
+        "event": "return-window-capture",
+        "i": 2,
+        "status": 1,
+        "stderr": "could not create image from window\n"
+      },
+      {
+        "atMs": 25952.284833,
+        "event": "return-window-capture",
+        "i": 3,
+        "status": 1,
+        "stderr": "could not create image from window\n"
+      },
+      {
+        "atMs": 26323.293,
+        "event": "return-window-capture",
+        "i": 4,
+        "status": 1,
+        "stderr": "could not create image from window\n"
+      },
+      {
+        "atMs": 26715.561625,
+        "event": "return-window-capture",
+        "i": 5,
+        "status": 1,
+        "stderr": "could not create image from window\n"
+      },
+      {
+        "atMs": 27087.594083,
+        "event": "return-window-capture",
+        "i": 6,
+        "status": 1,
+        "stderr": "could not create image from window\n"
+      },
+      {
+        "atMs": 27451.321833,
+        "event": "return-window-capture",
+        "i": 7,
+        "status": 1,
+        "stderr": "could not create image from window\n"
+      },
+      {
+        "atMs": 27822.981333,
+        "event": "return-window-capture",
+        "i": 8,
+        "status": 1,
+        "stderr": "could not create image from window\n"
+      },
+      {
+        "atMs": 28186.439125,
+        "event": "return-window-capture",
+        "i": 9,
+        "status": 1,
+        "stderr": "could not create image from window\n"
+      },
+      {
+        "atMs": 28539.951667,
+        "event": "return-window-capture",
+        "i": 10,
+        "status": 1,
+        "stderr": "could not create image from window\n"
+      },
+      {
+        "atMs": 28901.966875,
+        "event": "return-window-capture",
+        "i": 11,
+        "status": 1,
+        "stderr": "could not create image from window\n"
+      }
+    ],
+    "nativeReturnEvents": [
+      {
+        "atMs": 24019.875333,
+        "event": "return-request",
+        "requestedState": "minimized"
+      },
+      {
+        "atMs": 24823.417708,
+        "event": "shell-window-restore",
+        "windowId": 1,
+        "rendererId": 1,
+        "isVisible": true,
+        "isMinimized": false,
+        "isFocused": true,
+        "ownerWindowId": 1,
+        "childViews": [
+          {
+            "id": 5,
+            "visible": true,
+            "bounds": {
+              "x": 601,
+              "y": 92,
+              "width": 399,
+              "height": 576
+            }
+          },
+          {
+            "id": 2,
+            "visible": true,
+            "bounds": {
+              "x": 601,
+              "y": 44,
+              "width": 399,
+              "height": 48
+            }
+          }
+        ]
+      },
+      {
+        "atMs": 24823.907333,
+        "event": "presentation",
+        "windowId": 1,
+        "mode": "live",
+        "ownerWindowId": 1,
+        "appImage": false,
+        "pageImage": false
+      },
+      {
+        "atMs": 24823.97075,
+        "tabId": "qa-A",
+        "windowId": 1,
+        "visibleRequested": true,
+        "freezeDepth": 0,
+        "appViewVisible": true,
+        "hostedPageVisible": true,
+        "sequence": 43,
+        "monotonicMs": 24824,
+        "event": "window-show-applied"
+      },
+      {
+        "atMs": 24824.4005,
+        "event": "shell-window-show",
+        "windowId": 1,
+        "rendererId": 1,
+        "isVisible": true,
+        "isMinimized": false,
+        "isFocused": true,
+        "ownerWindowId": 1,
+        "childViews": [
+          {
+            "id": 5,
+            "visible": true,
+            "bounds": {
+              "x": 601,
+              "y": 92,
+              "width": 399,
+              "height": 576
+            }
+          },
+          {
+            "id": 2,
+            "visible": true,
+            "bounds": {
+              "x": 601,
+              "y": 44,
+              "width": 399,
+              "height": 48
+            }
+          }
+        ]
+      },
+      {
+        "atMs": 24824.661958,
+        "event": "presentation",
+        "windowId": 1,
+        "mode": "live",
+        "ownerWindowId": 1,
+        "appImage": false,
+        "pageImage": false
+      },
+      {
+        "atMs": 24824.732542,
+        "tabId": "qa-A",
+        "windowId": 1,
+        "visibleRequested": true,
+        "freezeDepth": 0,
+        "appViewVisible": true,
+        "hostedPageVisible": true,
+        "sequence": 47,
+        "monotonicMs": 24825,
+        "event": "window-show-applied"
+      }
+    ]
+  },
+  {
+    "policy": "A",
+    "run": "winhide",
+    "allSampleChildCounts": [
+      2,
+      2,
+      2,
+      2,
+      2,
+      2,
+      2,
+      2,
+      2,
+      2,
+      2,
+      2
+    ],
+    "allSampleOwners": [
+      1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      1
+    ],
+    "onScreenSamples": 11,
+    "firstOnScreen": {
+      "atMs": 192918.313292,
+      "ownerWindowId": 1,
+      "childViews": [
+        {
+          "id": 5,
+          "visible": true
+        },
+        {
+          "id": 2,
+          "visible": true
+        }
+      ],
+      "presentation": {
+        "tabId": "qa-A",
+        "mode": "live",
+        "ownerWindowId": 1,
+        "appImage": false,
+        "pageImage": false
+      },
+      "shellDocument": {
+        "visibility": "visible",
+        "source": "renderer visibility event cache"
+      }
+    },
+    "captureAttempts": [
+      {
+        "atMs": 193450.179125,
+        "event": "return-window-capture",
+        "i": 1,
+        "status": 1,
+        "stderr": "could not create image from window\n"
+      },
+      {
+        "atMs": 193915.008417,
+        "event": "return-window-capture",
+        "i": 2,
+        "status": 1,
+        "stderr": "could not create image from window\n"
+      },
+      {
+        "atMs": 194461.66325,
+        "event": "return-window-capture",
+        "i": 3,
+        "status": 1,
+        "stderr": "could not create image from window\n"
+      },
+      {
+        "atMs": 195041.101833,
+        "event": "return-window-capture",
+        "i": 4,
+        "status": 1,
+        "stderr": "could not create image from window\n"
+      },
+      {
+        "atMs": 195526.395833,
+        "event": "return-window-capture",
+        "i": 5,
+        "status": 1,
+        "stderr": "could not create image from window\n"
+      },
+      {
+        "atMs": 196176.387958,
+        "event": "return-window-capture",
+        "i": 6,
+        "status": 1,
+        "stderr": "could not create image from window\n"
+      },
+      {
+        "atMs": 196789.320542,
+        "event": "return-window-capture",
+        "i": 7,
+        "status": 1,
+        "stderr": "could not create image from window\n"
+      },
+      {
+        "atMs": 197390.441667,
+        "event": "return-window-capture",
+        "i": 8,
+        "status": 1,
+        "stderr": "could not create image from window\n"
+      },
+      {
+        "atMs": 197939.103208,
+        "event": "return-window-capture",
+        "i": 9,
+        "status": 1,
+        "stderr": "could not create image from window\n"
+      },
+      {
+        "atMs": 198491.742708,
+        "event": "return-window-capture",
+        "i": 10,
+        "status": 1,
+        "stderr": "could not create image from window\n"
+      },
+      {
+        "atMs": 199143.551958,
+        "event": "return-window-capture",
+        "i": 11,
+        "status": 1,
+        "stderr": "could not create image from window\n"
+      }
+    ],
+    "nativeReturnEvents": [
+      {
+        "atMs": 192460.249667,
+        "event": "return-request",
+        "requestedState": "windowhidden"
+      },
+      {
+        "atMs": 192906.669292,
+        "event": "shell-window-show",
+        "windowId": 1,
+        "rendererId": 1,
+        "isVisible": true,
+        "isMinimized": false,
+        "isFocused": true,
+        "ownerWindowId": 1,
+        "childViews": [
+          {
+            "id": 5,
+            "visible": true,
+            "bounds": {
+              "x": 601,
+              "y": 92,
+              "width": 399,
+              "height": 576
+            }
+          },
+          {
+            "id": 2,
+            "visible": true,
+            "bounds": {
+              "x": 601,
+              "y": 44,
+              "width": 399,
+              "height": 48
+            }
+          }
+        ]
+      },
+      {
+        "atMs": 192907.531625,
+        "event": "presentation",
+        "windowId": 1,
+        "mode": "live",
+        "ownerWindowId": 1,
+        "appImage": false,
+        "pageImage": false
+      },
+      {
+        "atMs": 192907.653,
+        "tabId": "qa-A",
+        "windowId": 1,
+        "visibleRequested": true,
+        "freezeDepth": 0,
+        "appViewVisible": true,
+        "hostedPageVisible": true,
+        "sequence": 37,
+        "monotonicMs": 192908,
+        "event": "window-show-applied"
+      }
+    ]
+  },
+  {
+    "policy": "A",
+    "run": "spaceoff",
+    "allSampleChildCounts": [
+      2,
+      2,
+      2,
+      2,
+      2,
+      2,
+      2,
+      2,
+      2,
+      2,
+      2,
+      2
+    ],
+    "allSampleOwners": [
+      1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      1
+    ],
+    "onScreenSamples": 2,
+    "firstOnScreen": {
+      "atMs": 36144.20725,
+      "ownerWindowId": 1,
+      "childViews": [
+        {
+          "id": 5,
+          "visible": true
+        },
+        {
+          "id": 2,
+          "visible": true
+        }
+      ],
+      "presentation": {
+        "tabId": "qa-A",
+        "mode": "live",
+        "ownerWindowId": 1,
+        "appImage": false,
+        "pageImage": false
+      },
+      "shellDocument": {
+        "visibility": "visible",
+        "source": "renderer visibility event cache"
+      }
+    },
+    "captureAttempts": [
+      {
+        "atMs": 36668.080959,
+        "event": "return-window-capture",
+        "i": 0,
+        "status": 1,
+        "stderr": "could not create image from window\n"
+      },
+      {
+        "atMs": 36963.496125,
+        "event": "return-window-capture",
+        "i": 1,
+        "status": 1,
+        "stderr": "could not create image from window\n"
+      }
+    ],
+    "nativeReturnEvents": [
+      {
+        "atMs": 36115.953959,
+        "event": "return-request",
+        "requestedState": "space"
+      },
+      {
+        "atMs": 37249.22675,
+        "event": "presentation",
+        "windowId": 1,
+        "mode": "replica",
+        "ownerWindowId": 1,
+        "appImage": true,
+        "pageImage": true
+      },
+      {
+        "atMs": 40676.289709,
+        "event": "shell-window-show",
+        "windowId": 1,
+        "rendererId": 1,
+        "isVisible": true,
+        "isMinimized": false,
+        "isFocused": false,
+        "ownerWindowId": 1,
+        "childViews": [
+          {
+            "id": 5,
+            "visible": true,
+            "bounds": {
+              "x": 601,
+              "y": 92,
+              "width": 399,
+              "height": 576
+            }
+          },
+          {
+            "id": 2,
+            "visible": true,
+            "bounds": {
+              "x": 601,
+              "y": 44,
+              "width": 399,
+              "height": 48
+            }
+          }
+        ]
+      },
+      {
+        "atMs": 40676.773084,
+        "event": "presentation",
+        "windowId": 1,
+        "mode": "live",
+        "ownerWindowId": 1,
+        "appImage": false,
+        "pageImage": false
+      },
+      {
+        "atMs": 40677.349917,
+        "tabId": "qa-A",
+        "windowId": 1,
+        "visibleRequested": true,
+        "freezeDepth": 0,
+        "appViewVisible": true,
+        "hostedPageVisible": true,
+        "sequence": 67,
+        "monotonicMs": 40677,
+        "event": "window-show-applied"
+      },
+      {
+        "atMs": 43304.301917,
+        "event": "presentation",
+        "windowId": 1,
+        "mode": "replica",
+        "ownerWindowId": 1,
+        "appImage": true,
+        "pageImage": true
+      },
+      {
+        "atMs": 43883.995584,
+        "event": "shell-window-show",
+        "windowId": 1,
+        "rendererId": 1,
+        "isVisible": true,
+        "isMinimized": false,
+        "isFocused": false,
+        "ownerWindowId": 1,
+        "childViews": [
+          {
+            "id": 5,
+            "visible": true,
+            "bounds": {
+              "x": 601,
+              "y": 92,
+              "width": 399,
+              "height": 576
+            }
+          },
+          {
+            "id": 2,
+            "visible": true,
+            "bounds": {
+              "x": 601,
+              "y": 44,
+              "width": 399,
+              "height": 48
+            }
+          }
+        ]
+      },
+      {
+        "atMs": 43884.487542,
+        "event": "presentation",
+        "windowId": 1,
+        "mode": "live",
+        "ownerWindowId": 1,
+        "appImage": false,
+        "pageImage": false
+      },
+      {
+        "atMs": 43884.642792,
+        "tabId": "qa-A",
+        "windowId": 1,
+        "visibleRequested": true,
+        "freezeDepth": 0,
+        "appViewVisible": true,
+        "hostedPageVisible": true,
+        "sequence": 77,
+        "monotonicMs": 43885,
+        "event": "window-show-applied"
+      }
+    ]
+  },
+  {
+    "policy": "A",
+    "run": "hideoff",
+    "allSampleChildCounts": [
+      2,
+      2,
+      2,
+      2,
+      2,
+      2,
+      2,
+      2,
+      2,
+      2,
+      2,
+      2
+    ],
+    "allSampleOwners": [
+      1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      1
+    ],
+    "onScreenSamples": 11,
+    "firstOnScreen": {
+      "atMs": 22102.59125,
+      "ownerWindowId": 1,
+      "childViews": [
+        {
+          "id": 5,
+          "visible": true
+        },
+        {
+          "id": 2,
+          "visible": true
+        }
+      ],
+      "presentation": {
+        "tabId": "qa-A",
+        "mode": "replica",
+        "ownerWindowId": 1,
+        "appImage": true,
+        "pageImage": true
+      },
+      "shellDocument": {
+        "visibility": "visible",
+        "source": "renderer visibility event cache"
+      }
+    },
+    "captureAttempts": [
+      {
+        "atMs": 22341.644333,
+        "event": "return-window-capture",
+        "i": 1,
+        "status": 1,
+        "stderr": "could not create image from window\n"
+      },
+      {
+        "atMs": 22606.569666,
+        "event": "return-window-capture",
+        "i": 2,
+        "status": 1,
+        "stderr": "could not create image from window\n"
+      },
+      {
+        "atMs": 22854.753958,
+        "event": "return-window-capture",
+        "i": 3,
+        "status": 1,
+        "stderr": "could not create image from window\n"
+      },
+      {
+        "atMs": 23090.492333,
+        "event": "return-window-capture",
+        "i": 4,
+        "status": 1,
+        "stderr": "could not create image from window\n"
+      },
+      {
+        "atMs": 23338.415458,
+        "event": "return-window-capture",
+        "i": 5,
+        "status": 1,
+        "stderr": "could not create image from window\n"
+      },
+      {
+        "atMs": 23605.323083,
+        "event": "return-window-capture",
+        "i": 6,
+        "status": 1,
+        "stderr": "could not create image from window\n"
+      },
+      {
+        "atMs": 23825.573875,
+        "event": "return-window-capture",
+        "i": 7,
+        "status": 1,
+        "stderr": "could not create image from window\n"
+      },
+      {
+        "atMs": 24102.477541,
+        "event": "return-window-capture",
+        "i": 8,
+        "status": 1,
+        "stderr": "could not create image from window\n"
+      },
+      {
+        "atMs": 24379.422791,
+        "event": "return-window-capture",
+        "i": 9,
+        "status": 1,
+        "stderr": "could not create image from window\n"
+      },
+      {
+        "atMs": 24659.043541,
+        "event": "return-window-capture",
+        "i": 10,
+        "status": 1,
+        "stderr": "could not create image from window\n"
+      },
+      {
+        "atMs": 24903.198541,
+        "event": "return-window-capture",
+        "i": 11,
+        "status": 1,
+        "stderr": "could not create image from window\n"
+      }
+    ],
+    "nativeReturnEvents": [
+      {
+        "atMs": 21879.651291,
+        "event": "return-request",
+        "requestedState": "apphide"
+      },
+      {
+        "atMs": 22342.152291,
+        "event": "shell-window-show",
+        "windowId": 1,
+        "rendererId": 1,
+        "isVisible": true,
+        "isMinimized": false,
+        "isFocused": true,
+        "ownerWindowId": 1,
+        "childViews": [
+          {
+            "id": 5,
+            "visible": true,
+            "bounds": {
+              "x": 601,
+              "y": 92,
+              "width": 399,
+              "height": 576
+            }
+          },
+          {
+            "id": 2,
+            "visible": true,
+            "bounds": {
+              "x": 601,
+              "y": 44,
+              "width": 399,
+              "height": 48
+            }
+          }
+        ]
+      },
+      {
+        "atMs": 22342.428875,
+        "event": "presentation",
+        "windowId": 1,
+        "mode": "live",
+        "ownerWindowId": 1,
+        "appImage": false,
+        "pageImage": false
+      },
+      {
+        "atMs": 22342.499958,
+        "tabId": "qa-A",
+        "windowId": 1,
+        "visibleRequested": true,
+        "freezeDepth": 0,
+        "appViewVisible": true,
+        "hostedPageVisible": true,
+        "sequence": 37,
+        "monotonicMs": 22342,
+        "event": "window-show-applied"
+      }
+    ]
+  },
+  {
+    "policy": "B",
+    "run": "space",
+    "allSampleChildCounts": [
+      0,
+      0,
+      2,
+      2,
+      2,
+      2,
+      2,
+      2,
+      2,
+      2,
+      2,
+      2
+    ],
+    "allSampleOwners": [
+      null,
+      null,
+      1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      1
+    ],
+    "onScreenSamples": 10,
+    "firstOnScreen": {
+      "atMs": 35187.177209,
+      "ownerWindowId": 1,
+      "childViews": [
+        {
+          "id": 5,
+          "visible": true
+        },
+        {
+          "id": 2,
+          "visible": true
+        }
+      ],
+      "presentation": {
+        "tabId": "qa-A",
+        "mode": "live",
+        "ownerWindowId": 1,
+        "appImage": false,
+        "pageImage": false
+      },
+      "shellDocument": {
+        "visibility": "visible",
+        "source": "renderer visibility event cache"
+      }
+    },
+    "captureAttempts": [
+      {
+        "atMs": 35387.730542,
+        "event": "return-window-capture",
+        "i": 2,
+        "status": 1,
+        "stderr": "could not create image from window\n"
+      },
+      {
+        "atMs": 35595.472,
+        "event": "return-window-capture",
+        "i": 3,
+        "status": 1,
+        "stderr": "could not create image from window\n"
+      },
+      {
+        "atMs": 35815.521834,
+        "event": "return-window-capture",
+        "i": 4,
+        "status": 1,
+        "stderr": "could not create image from window\n"
+      },
+      {
+        "atMs": 36034.946125,
+        "event": "return-window-capture",
+        "i": 5,
+        "status": 1,
+        "stderr": "could not create image from window\n"
+      },
+      {
+        "atMs": 36262.030875,
+        "event": "return-window-capture",
+        "i": 6,
+        "status": 1,
+        "stderr": "could not create image from window\n"
+      },
+      {
+        "atMs": 36481.584125,
+        "event": "return-window-capture",
+        "i": 7,
+        "status": 1,
+        "stderr": "could not create image from window\n"
+      },
+      {
+        "atMs": 36706.042292,
+        "event": "return-window-capture",
+        "i": 8,
+        "status": 1,
+        "stderr": "could not create image from window\n"
+      },
+      {
+        "atMs": 36923.748542,
+        "event": "return-window-capture",
+        "i": 9,
+        "status": 1,
+        "stderr": "could not create image from window\n"
+      },
+      {
+        "atMs": 37149.649,
+        "event": "return-window-capture",
+        "i": 10,
+        "status": 1,
+        "stderr": "could not create image from window\n"
+      },
+      {
+        "atMs": 37365.874292,
+        "event": "return-window-capture",
+        "i": 11,
+        "status": 1,
+        "stderr": "could not create image from window\n"
+      }
+    ],
+    "nativeReturnEvents": [
+      {
+        "atMs": 34667.294792,
+        "event": "return-request",
+        "requestedState": "space"
+      },
+      {
+        "atMs": 34981.149459,
+        "event": "shell-window-show",
+        "windowId": 1,
+        "rendererId": 1,
+        "isVisible": true,
+        "isMinimized": false,
+        "isFocused": false
+      },
+      {
+        "atMs": 35187.025875,
+        "event": "presentation",
+        "windowId": 1,
+        "mode": "live",
+        "ownerWindowId": 1,
+        "appImage": false,
+        "pageImage": false
+      },
+      {
+        "atMs": 35187.215917,
+        "event": "presentation",
+        "windowId": 1,
+        "mode": "live",
+        "ownerWindowId": 1,
+        "appImage": false,
+        "pageImage": false
+      },
+      {
+        "atMs": 35187.302292,
+        "tabId": "qa-A",
+        "windowId": 1,
+        "visibleRequested": true,
+        "freezeDepth": 0,
+        "appViewVisible": true,
+        "hostedPageVisible": true,
+        "sequence": 69,
+        "monotonicMs": 35187,
+        "event": "window-show-applied"
+      },
+      {
+        "atMs": 41775.28375,
+        "event": "presentation",
+        "windowId": 1,
+        "mode": "replica",
+        "ownerWindowId": 1,
+        "appImage": true,
+        "pageImage": true
+      },
+      {
+        "atMs": 42286.251209,
+        "event": "shell-window-show",
+        "windowId": 1,
+        "rendererId": 1,
+        "isVisible": true,
+        "isMinimized": false,
+        "isFocused": true
+      },
+      {
+        "atMs": 42402.067042,
+        "event": "presentation",
+        "windowId": 1,
+        "mode": "live",
+        "ownerWindowId": 1,
+        "appImage": false,
+        "pageImage": false
+      },
+      {
+        "atMs": 42402.337084,
+        "event": "presentation",
+        "windowId": 1,
+        "mode": "live",
+        "ownerWindowId": 1,
+        "appImage": false,
+        "pageImage": false
+      },
+      {
+        "atMs": 42402.502417,
+        "tabId": "qa-A",
+        "windowId": 1,
+        "visibleRequested": true,
+        "freezeDepth": 0,
+        "appViewVisible": true,
+        "hostedPageVisible": true,
+        "sequence": 83,
+        "monotonicMs": 42402,
+        "event": "window-show-applied"
+      }
+    ]
+  },
+  {
+    "policy": "B",
+    "run": "minimized",
+    "allSampleChildCounts": [
+      0,
+      2,
+      2,
+      2,
+      2,
+      2,
+      2,
+      2,
+      2,
+      2,
+      2,
+      2
+    ],
+    "allSampleOwners": [
+      null,
+      1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      1
+    ],
+    "onScreenSamples": 11,
+    "firstOnScreen": {
+      "atMs": 24500.584875,
+      "ownerWindowId": 1,
+      "childViews": [
+        {
+          "id": 5,
+          "visible": true
+        },
+        {
+          "id": 2,
+          "visible": true
+        }
+      ],
+      "presentation": {
+        "tabId": "qa-A",
+        "mode": "live",
+        "ownerWindowId": 1,
+        "appImage": false,
+        "pageImage": false
+      },
+      "shellDocument": {
+        "visibility": "hidden",
+        "source": "renderer visibility event cache"
+      }
+    },
+    "captureAttempts": [
+      {
+        "atMs": 24852.657041,
+        "event": "return-window-capture",
+        "i": 1,
+        "status": 1,
+        "stderr": "could not create image from window\n"
+      },
+      {
+        "atMs": 25252.629583,
+        "event": "return-window-capture",
+        "i": 2,
+        "status": 1,
+        "stderr": "could not create image from window\n"
+      },
+      {
+        "atMs": 25624.828166,
+        "event": "return-window-capture",
+        "i": 3,
+        "status": 1,
+        "stderr": "could not create image from window\n"
+      },
+      {
+        "atMs": 25999.957458,
+        "event": "return-window-capture",
+        "i": 4,
+        "status": 1,
+        "stderr": "could not create image from window\n"
+      },
+      {
+        "atMs": 26350.255458,
+        "event": "return-window-capture",
+        "i": 5,
+        "status": 1,
+        "stderr": "could not create image from window\n"
+      },
+      {
+        "atMs": 26698.837625,
+        "event": "return-window-capture",
+        "i": 6,
+        "status": 1,
+        "stderr": "could not create image from window\n"
+      },
+      {
+        "atMs": 27079.872625,
+        "event": "return-window-capture",
+        "i": 7,
+        "status": 1,
+        "stderr": "could not create image from window\n"
+      },
+      {
+        "atMs": 27433.557958,
+        "event": "return-window-capture",
+        "i": 8,
+        "status": 1,
+        "stderr": "could not create image from window\n"
+      },
+      {
+        "atMs": 27799.478,
+        "event": "return-window-capture",
+        "i": 9,
+        "status": 1,
+        "stderr": "could not create image from window\n"
+      },
+      {
+        "atMs": 28166.160625,
+        "event": "return-window-capture",
+        "i": 10,
+        "status": 1,
+        "stderr": "could not create image from window\n"
+      },
+      {
+        "atMs": 28531.234083,
+        "event": "return-window-capture",
+        "i": 11,
+        "status": 1,
+        "stderr": "could not create image from window\n"
+      }
+    ],
+    "nativeReturnEvents": [
+      {
+        "atMs": 23695.317458,
+        "event": "return-request",
+        "requestedState": "minimized"
+      },
+      {
+        "atMs": 24495.467541,
+        "event": "shell-window-restore",
+        "windowId": 1,
+        "rendererId": 1,
+        "isVisible": true,
+        "isMinimized": false,
+        "isFocused": false
+      },
+      {
+        "atMs": 24497.370375,
+        "event": "shell-window-show",
+        "windowId": 1,
+        "rendererId": 1,
+        "isVisible": true,
+        "isMinimized": false,
+        "isFocused": false
+      },
+      {
+        "atMs": 24499.374625,
+        "event": "presentation",
+        "windowId": 1,
+        "mode": "live",
+        "ownerWindowId": 1,
+        "appImage": false,
+        "pageImage": false
+      },
+      {
+        "atMs": 24500.157875,
+        "event": "presentation",
+        "windowId": 1,
+        "mode": "live",
+        "ownerWindowId": 1,
+        "appImage": false,
+        "pageImage": false
+      },
+      {
+        "atMs": 24500.35675,
+        "event": "presentation",
+        "windowId": 1,
+        "mode": "live",
+        "ownerWindowId": 1,
+        "appImage": false,
+        "pageImage": false
+      },
+      {
+        "atMs": 24500.447666,
+        "tabId": "qa-A",
+        "windowId": 1,
+        "visibleRequested": true,
+        "freezeDepth": 0,
+        "appViewVisible": true,
+        "hostedPageVisible": true,
+        "sequence": 50,
+        "monotonicMs": 24500,
+        "event": "window-show-applied"
+      },
+      {
+        "atMs": 24500.629833,
+        "event": "presentation",
+        "windowId": 1,
+        "mode": "live",
+        "ownerWindowId": 1,
+        "appImage": false,
+        "pageImage": false
+      },
+      {
+        "atMs": 24500.702875,
+        "tabId": "qa-A",
+        "windowId": 1,
+        "visibleRequested": true,
+        "freezeDepth": 0,
+        "appViewVisible": true,
+        "hostedPageVisible": true,
+        "sequence": 52,
+        "monotonicMs": 24501,
+        "event": "window-show-applied"
+      }
+    ]
+  },
+  {
+    "policy": "B",
+    "run": "apphide",
+    "allSampleChildCounts": [
+      2,
+      2,
+      2,
+      2,
+      2,
+      2,
+      2,
+      2,
+      2,
+      2,
+      2,
+      2
+    ],
+    "allSampleOwners": [
+      1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      1
+    ],
+    "onScreenSamples": 12,
+    "firstOnScreen": {
+      "atMs": 22363.955417,
+      "ownerWindowId": 1,
+      "childViews": [
+        {
+          "id": 5,
+          "visible": true
+        },
+        {
+          "id": 2,
+          "visible": true
+        }
+      ],
+      "presentation": {
+        "tabId": "qa-A",
+        "mode": "live",
+        "ownerWindowId": 1,
+        "appImage": false,
+        "pageImage": false
+      },
+      "shellDocument": {
+        "visibility": "visible",
+        "source": "renderer visibility event cache"
+      }
+    },
+    "captureAttempts": [
+      {
+        "atMs": 22705.584833,
+        "event": "return-window-capture",
+        "i": 0,
+        "status": 1,
+        "stderr": "could not create image from window\n"
+      },
+      {
+        "atMs": 22964.600417,
+        "event": "return-window-capture",
+        "i": 1,
+        "status": 1,
+        "stderr": "could not create image from window\n"
+      },
+      {
+        "atMs": 23184.328208,
+        "event": "return-window-capture",
+        "i": 2,
+        "status": 1,
+        "stderr": "could not create image from window\n"
+      },
+      {
+        "atMs": 23399.846125,
+        "event": "return-window-capture",
+        "i": 3,
+        "status": 1,
+        "stderr": "could not create image from window\n"
+      },
+      {
+        "atMs": 23617.936333,
+        "event": "return-window-capture",
+        "i": 4,
+        "status": 1,
+        "stderr": "could not create image from window\n"
+      },
+      {
+        "atMs": 23852.971042,
+        "event": "return-window-capture",
+        "i": 5,
+        "status": 1,
+        "stderr": "could not create image from window\n"
+      },
+      {
+        "atMs": 24067.838875,
+        "event": "return-window-capture",
+        "i": 6,
+        "status": 1,
+        "stderr": "could not create image from window\n"
+      },
+      {
+        "atMs": 24284.02325,
+        "event": "return-window-capture",
+        "i": 7,
+        "status": 1,
+        "stderr": "could not create image from window\n"
+      },
+      {
+        "atMs": 24499.636208,
+        "event": "return-window-capture",
+        "i": 8,
+        "status": 1,
+        "stderr": "could not create image from window\n"
+      },
+      {
+        "atMs": 24740.24575,
+        "event": "return-window-capture",
+        "i": 9,
+        "status": 1,
+        "stderr": "could not create image from window\n"
+      },
+      {
+        "atMs": 24979.7795,
+        "event": "return-window-capture",
+        "i": 10,
+        "status": 1,
+        "stderr": "could not create image from window\n"
+      },
+      {
+        "atMs": 25204.337375,
+        "event": "return-window-capture",
+        "i": 11,
+        "status": 1,
+        "stderr": "could not create image from window\n"
+      }
+    ],
+    "nativeReturnEvents": [
+      {
+        "atMs": 22341.054833,
+        "event": "return-request",
+        "requestedState": "apphide"
+      }
+    ]
+  },
+  {
+    "policy": "B",
+    "run": "covered",
+    "allSampleChildCounts": [
+      2,
+      2,
+      2,
+      2,
+      2,
+      2,
+      2,
+      2,
+      2,
+      2,
+      2,
+      2
+    ],
+    "allSampleOwners": [
+      1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      1
+    ],
+    "onScreenSamples": 12,
+    "firstOnScreen": {
+      "atMs": 22639.502541,
+      "ownerWindowId": 1,
+      "childViews": [
+        {
+          "id": 5,
+          "visible": true
+        },
+        {
+          "id": 2,
+          "visible": true
+        }
+      ],
+      "presentation": {
+        "tabId": "qa-A",
+        "mode": "live",
+        "ownerWindowId": 1,
+        "appImage": false,
+        "pageImage": false
+      },
+      "shellDocument": {
+        "visibility": "visible",
+        "source": "renderer visibility event cache"
+      }
+    },
+    "captureAttempts": [
+      {
+        "atMs": 22937.282458,
+        "event": "return-window-capture",
+        "i": 0,
+        "status": 1,
+        "stderr": "could not create image from window\n"
+      },
+      {
+        "atMs": 23169.446541,
+        "event": "return-window-capture",
+        "i": 1,
+        "status": 1,
+        "stderr": "could not create image from window\n"
+      },
+      {
+        "atMs": 23385.036416,
+        "event": "return-window-capture",
+        "i": 2,
+        "status": 1,
+        "stderr": "could not create image from window\n"
+      },
+      {
+        "atMs": 23610.55925,
+        "event": "return-window-capture",
+        "i": 3,
+        "status": 1,
+        "stderr": "could not create image from window\n"
+      },
+      {
+        "atMs": 23829.433333,
+        "event": "return-window-capture",
+        "i": 4,
+        "status": 1,
+        "stderr": "could not create image from window\n"
+      },
+      {
+        "atMs": 24046.463208,
+        "event": "return-window-capture",
+        "i": 5,
+        "status": 1,
+        "stderr": "could not create image from window\n"
+      },
+      {
+        "atMs": 24269.949875,
+        "event": "return-window-capture",
+        "i": 6,
+        "status": 1,
+        "stderr": "could not create image from window\n"
+      },
+      {
+        "atMs": 24506.478208,
+        "event": "return-window-capture",
+        "i": 7,
+        "status": 1,
+        "stderr": "could not create image from window\n"
+      },
+      {
+        "atMs": 24730.233875,
+        "event": "return-window-capture",
+        "i": 8,
+        "status": 1,
+        "stderr": "could not create image from window\n"
+      },
+      {
+        "atMs": 24952.881833,
+        "event": "return-window-capture",
+        "i": 9,
+        "status": 1,
+        "stderr": "could not create image from window\n"
+      },
+      {
+        "atMs": 25180.118875,
+        "event": "return-window-capture",
+        "i": 10,
+        "status": 1,
+        "stderr": "could not create image from window\n"
+      },
+      {
+        "atMs": 25396.210833,
+        "event": "return-window-capture",
+        "i": 11,
+        "status": 1,
+        "stderr": "could not create image from window\n"
+      }
+    ],
+    "nativeReturnEvents": [
+      {
+        "atMs": 22138.146375,
+        "event": "return-request",
+        "requestedState": "covered"
+      }
+    ]
+  },
+  {
+    "policy": "B",
+    "run": "windowhidden",
+    "allSampleChildCounts": [
+      0,
+      2,
+      2,
+      2,
+      2,
+      2,
+      2,
+      2,
+      2,
+      2,
+      2,
+      2
+    ],
+    "allSampleOwners": [
+      null,
+      1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      1
+    ],
+    "onScreenSamples": 11,
+    "firstOnScreen": {
+      "atMs": 21134.683292,
+      "ownerWindowId": 1,
+      "childViews": [
+        {
+          "id": 5,
+          "visible": true
+        },
+        {
+          "id": 2,
+          "visible": true
+        }
+      ],
+      "presentation": {
+        "tabId": "qa-A",
+        "mode": "live",
+        "ownerWindowId": 1,
+        "appImage": false,
+        "pageImage": false
+      },
+      "shellDocument": {
+        "visibility": "visible",
+        "source": "renderer visibility event cache"
+      }
+    },
+    "captureAttempts": [
+      {
+        "atMs": 21330.450625,
+        "event": "return-window-capture",
+        "i": 1,
+        "status": 1,
+        "stderr": "could not create image from window\n"
+      },
+      {
+        "atMs": 21585.437417,
+        "event": "return-window-capture",
+        "i": 2,
+        "status": 1,
+        "stderr": "could not create image from window\n"
+      },
+      {
+        "atMs": 21828.181542,
+        "event": "return-window-capture",
+        "i": 3,
+        "status": 1,
+        "stderr": "could not create image from window\n"
+      },
+      {
+        "atMs": 22043.033667,
+        "event": "return-window-capture",
+        "i": 4,
+        "status": 1,
+        "stderr": "could not create image from window\n"
+      },
+      {
+        "atMs": 22309.354917,
+        "event": "return-window-capture",
+        "i": 5,
+        "status": 1,
+        "stderr": "could not create image from window\n"
+      },
+      {
+        "atMs": 22525.073667,
+        "event": "return-window-capture",
+        "i": 6,
+        "status": 1,
+        "stderr": "could not create image from window\n"
+      },
+      {
+        "atMs": 22762.058709,
+        "event": "return-window-capture",
+        "i": 7,
+        "status": 1,
+        "stderr": "could not create image from window\n"
+      },
+      {
+        "atMs": 22989.997792,
+        "event": "return-window-capture",
+        "i": 8,
+        "status": 1,
+        "stderr": "could not create image from window\n"
+      },
+      {
+        "atMs": 23204.578709,
+        "event": "return-window-capture",
+        "i": 9,
+        "status": 1,
+        "stderr": "could not create image from window\n"
+      },
+      {
+        "atMs": 23503.051917,
+        "event": "return-window-capture",
+        "i": 10,
+        "status": 1,
+        "stderr": "could not create image from window\n"
+      },
+      {
+        "atMs": 23707.233542,
+        "event": "return-window-capture",
+        "i": 11,
+        "status": 1,
+        "stderr": "could not create image from window\n"
+      }
+    ],
+    "nativeReturnEvents": [
+      {
+        "atMs": 20807.002375,
+        "event": "return-request",
+        "requestedState": "windowhidden"
+      },
+      {
+        "atMs": 21022.686625,
+        "event": "shell-window-show",
+        "windowId": 1,
+        "rendererId": 1,
+        "isVisible": true,
+        "isMinimized": false,
+        "isFocused": true,
+        "ownerWindowId": null,
+        "childViews": []
+      },
+      {
+        "atMs": 21048.844292,
+        "event": "presentation",
+        "windowId": 1,
+        "mode": "live",
+        "ownerWindowId": 1,
+        "appImage": false,
+        "pageImage": false
+      },
+      {
+        "atMs": 21049.891042,
+        "event": "presentation",
+        "windowId": 1,
+        "mode": "live",
+        "ownerWindowId": 1,
+        "appImage": false,
+        "pageImage": false
+      },
+      {
+        "atMs": 21049.991584,
+        "event": "presentation",
+        "windowId": 1,
+        "mode": "live",
+        "ownerWindowId": 1,
+        "appImage": false,
+        "pageImage": false
+      },
+      {
+        "atMs": 21050.066375,
+        "tabId": "qa-A",
+        "windowId": 1,
+        "visibleRequested": true,
+        "freezeDepth": 0,
+        "appViewVisible": true,
+        "hostedPageVisible": true,
+        "sequence": 43,
+        "monotonicMs": 21050,
+        "event": "window-show-applied"
+      }
+    ]
+  }
+]
