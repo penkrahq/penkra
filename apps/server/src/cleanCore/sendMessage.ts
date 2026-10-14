@@ -100,7 +100,7 @@ export const sendMessage = (
         const position = queue.findIndex(
           (message) => message.messageId === input.message.messageId,
         );
-        if (position !== -1 && input.dispatchMode === "queue")
+        if (position !== -1)
           return {
             admission: {
               threadId: ThreadId.makeUnsafe(input.threadId),
@@ -122,33 +122,10 @@ export const sendMessage = (
               : thread.state,
           dispatchMode: input.dispatchMode,
           supportsSteer: input.supportsSteer,
-          // Explicit promotion bypasses waiting work, never an admitted start.
-          queueLength:
-            (position !== -1 && input.dispatchMode === "steer" ? 0 : queue.length) + pending.length,
+          queueLength: queue.length + pending.length,
         });
-        const request =
-          position === -1
-            ? input
-            : {
-                ...input,
-                message: queue[position]!,
-                skills: queue[position]!.skills,
-                mentions: queue[position]!.mentions,
-                draftUpdatedAt: undefined,
-              };
-        yield* driver.claimAttachments(request);
+        yield* driver.claimAttachments(input);
         if (plan === "queue") {
-          if (position !== -1)
-            return {
-              admission: {
-                threadId: ThreadId.makeUnsafe(input.threadId),
-                messageId: input.message.messageId,
-                plan,
-                position: position + 1,
-                queueLength: queue.length,
-              },
-              delivery: null,
-            };
           const queued = yield* enqueueMessage(
             input.threadId,
             {
@@ -170,12 +147,9 @@ export const sendMessage = (
             delivery: null,
           };
         }
-        const selected = yield* writeSendingMessage(request, plan);
-        if (
-          request.draftUpdatedAt !== undefined &&
-          thread.draftUpdatedAt === request.draftUpdatedAt
-        ) {
-          const draft = draftAfterSend(thread.draft, thread.provider, request);
+        const selected = yield* writeSendingMessage(input, plan);
+        if (input.draftUpdatedAt !== undefined && thread.draftUpdatedAt === input.draftUpdatedAt) {
+          const draft = draftAfterSend(thread.draft, thread.provider, input);
           const draftUpdatedAt = nextCommittedDraftTimestamp(
             thread.draftUpdatedAt,
             new Date().toISOString(),

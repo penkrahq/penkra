@@ -391,6 +391,47 @@ export const makeAgentGateway = Effect.gen(function* () {
       }).pipe(Effect.catch((error) => Effect.succeed(sendMessageErrorResult(error)))),
   };
 
+  const steerMessage: ToolEntry = {
+    requiredCapability: "thread:write",
+    requiresThreadAuthority: true,
+    requiresActiveTurn: true,
+    definition: {
+      name: "penkra_steer_message",
+      description:
+        "Deliver an already-queued message now in another Penkra thread. Supply its exact threadId and messageId from the send admission or thread read. You may steer only a message your own thread queued. This does not create a message or touch the composer. Penkra uses native steer where supported, otherwise interrupts and delivers next. The reply is the admission; read the thread for the provider outcome.",
+      inputSchema: {
+        type: "object",
+        properties: {
+          threadId: { type: "string", description: "Exact target Penkra thread id." },
+          messageId: { type: "string", description: "Exact id of your already-queued message." },
+        },
+        required: ["threadId", "messageId"],
+        additionalProperties: false,
+      },
+      annotations: { title: "Steer a queued Penkra message", ...WRITE_TOOL_ANNOTATIONS },
+    },
+    handler: (args, context) =>
+      Effect.gen(function* () {
+        const threadId = readStringArg(args, "threadId");
+        const messageId = readStringArg(args, "messageId");
+        if (!threadId || !messageId) throw new ToolInputError("Supply threadId and messageId.");
+        if (threadId === context.callerThreadId)
+          throw new ToolInputError("Cannot steer a message in the caller thread.");
+        const caller = yield* requireCanonicalThread(context.callerThreadId);
+        const target = yield* requireCanonicalThread(threadId);
+        yield* assertCallerMayDriveThread(caller, target);
+        return mcpToolResultJson(
+          yield* sender.steerQueued(
+            {
+              threadId: target.id,
+              messageId: MessageId.makeUnsafe(messageId),
+            },
+            ThreadId.makeUnsafe(context.callerThreadId),
+          ),
+        );
+      }).pipe(Effect.catch((error) => Effect.succeed(sendMessageErrorResult(error)))),
+  };
+
   const interruptThread: ToolEntry = {
     requiredCapability: "thread:write",
     requiresThreadAuthority: true,
@@ -503,6 +544,7 @@ export const makeAgentGateway = Effect.gen(function* () {
     ...readTools,
     createThread,
     sendMessage,
+    steerMessage,
     interruptThread,
     archiveThread,
     unarchiveThread,
@@ -611,6 +653,11 @@ export const makeAgentGateway = Effect.gen(function* () {
         command: `penkra threads send --input '{"threadId":"<thread-id>","message":"Continue the review.","connectionId":"<connection-id>","modelSelection":{"provider":"codex","model":"gpt-6-sol"}}'`,
       },
     ]),
+    command(
+      ["threads", "steer"],
+      steerMessage,
+      "penkra threads steer --thread-id <thread-id> --message-id <message-id>",
+    ),
     command(
       ["threads", "interrupt"],
       interruptThread,

@@ -207,6 +207,12 @@ Send returns `threadId`, `messageId`, and a committed admission:
 - `plan: deliver|steer|interrupt-deliver` includes the transcript `seq`.
 - `plan: queue` includes `position` (1 = next) and `queueLength`.
 
+To deliver a message you already queued now, use
+`penkra threads steer --thread-id <id> --message-id <message-id>`. You may steer
+only messages your own Thread queued. This uses the stored message, not the
+composer, and returns the same admission shape as send. To send new text now,
+use `penkra threads send --thread-id <id> --message '...' --now` instead.
+
 The reply confirms persistence. Read the thread for the outcome: the message becomes
 delivered, or remains failed in the transcript with the thread error. The composer is
 untouched. The next send includes failed messages in order with the new message;

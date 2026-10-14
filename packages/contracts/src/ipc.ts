@@ -1051,6 +1051,7 @@ export interface NativeApi {
     getFolders: (input: CleanCoreGetFoldersInput) => Promise<CleanCoreGetFoldersResult>;
     getThread: (input: CleanCoreGetThreadShellInput) => Promise<CleanCoreThreadSummary | null>;
     sendMessage: (input: CleanCoreSendMessageInput) => Promise<CleanCoreSendAdmission>;
+    steerQueued: (input: CleanCoreQueuedMessageInput) => Promise<CleanCoreSendAdmission>;
     cancelQueuedMessage: (
       input: CleanCoreQueuedMessageInput,
     ) => Promise<CleanCoreQueuedMessageResult>;

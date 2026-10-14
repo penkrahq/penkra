@@ -4715,10 +4715,9 @@ function ChatViewContent({
         const api = readNativeApi();
         if (!api) return;
         try {
-          await api.cleanCore.sendMessage({
+          await api.cleanCore.steerQueued({
             threadId,
-            message,
-            dispatchMode: "steer",
+            messageId: message.messageId,
           });
           setThreadError(threadId, null);
         } catch (error) {
