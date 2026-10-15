@@ -340,9 +340,13 @@ export function deriveEffectiveComposerModelState(input: {
     threadSelection?.model ?? projectSelection?.model ?? getDefaultModel(input.selectedProvider),
   );
   const providerDeclaredDefault = availableOptions?.find((option) => option.isDefault)?.slug;
+  // A composer pick belongs to the unsent draft. The thread records the last
+  // delivered selection and is a default only when the draft has no usable pick.
+  const selectedDraft =
+    available(draftSelection?.model) ?? (availableOptions?.length ? null : selectedDraftModel);
   const selectedModel =
+    selectedDraft ??
     available(threadSelection?.model) ??
-    available(draftSelection?.model) ??
     available(projectSelection?.model) ??
     available(selectedDraftModel) ??
     (authoritativeCodex

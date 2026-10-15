@@ -1461,7 +1461,7 @@ function ChatViewContent({
 
   const sessionProvider = activeThread?.session?.provider ?? null;
   const selectedProviderByThreadId =
-    serverThread?.modelSelection.provider ?? composerDraft.activeProvider ?? null;
+    composerDraft.activeProvider ?? serverThread?.modelSelection.provider ?? null;
   const threadProvider =
     activeThread?.modelSelection.provider ?? activeProject?.defaultModelSelection?.provider ?? null;
   const hasThreadStarted = Boolean(
@@ -1552,8 +1552,8 @@ function ChatViewContent({
     const draftSelections = composerDraft.modelSelectionByProvider;
 
     const resolveHint = (provider: ProviderKind): string | null =>
-      (threadModelSelection?.provider === provider ? threadModelSelection.model : null) ??
       draftSelections[provider]?.model ??
+      (threadModelSelection?.provider === provider ? threadModelSelection.model : null) ??
       (projectModelSelection?.provider === provider ? projectModelSelection.model : null);
 
     return {
