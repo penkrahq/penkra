@@ -11,6 +11,38 @@ import {
   resetComposerDraftStore,
 } from "./composerDraftStoreTestFixtures";
 
+describe("composer draft model authority", () => {
+  it.each([
+    ["codex", "gpt-5.6-sol", "gpt-5.6-terra"],
+    ["claudeAgent", "claude-opus-4-6", "claude-sonnet-4-6"],
+    ["opencode", "openai/gpt-5", "opencode/gpt-5-nano"],
+  ] as const)(
+    "uses the picked %s model with and without discovery",
+    (provider, previous, picked) => {
+      for (const available of [
+        undefined,
+        [
+          { slug: previous, name: previous },
+          { slug: picked, name: picked },
+        ],
+      ]) {
+        const state = deriveEffectiveComposerModelState({
+          draft: {
+            activeProvider: provider,
+            modelSelectionByProvider: { [provider]: modelSelection(provider, picked) },
+          },
+          selectedProvider: provider,
+          threadModelSelection: modelSelection(provider, previous),
+          projectModelSelection: modelSelection(provider, previous),
+          customModelsByProvider: { codex: [], claudeAgent: [], opencode: [] },
+          ...(available ? { availableModelOptionsByProvider: { [provider]: available } } : {}),
+        });
+        expect(state.selectedModel).toBe(picked);
+      }
+    },
+  );
+});
+
 describe("resolvePreferredComposerModelSelection", () => {
   it("prefers the active draft provider selection over thread and project defaults", () => {
     expect(
