@@ -150,6 +150,11 @@ layer("removed provider data migration", (it) => {
         [200, "FailedSendPayload"],
         [201, "DropLegacyPipeline"],
         [202, "FoldProviderState"],
+        [203, "CanonicalUserItemData"],
+        [204, "PendingDeliveryLimits"],
+        [205, "RestoreReasoningDisplay"],
+        [206, "HiddenRecoveryMessages"],
+        [207, "FinalTextSearchAndToolOutput"],
       ]);
 
       const threads = yield* sql<{ readonly threadId: string }>`
@@ -1060,6 +1065,11 @@ previousSpacesMigrationLayer("previous Spaces lineage", (it) => {
         [200, "FailedSendPayload"],
         [201, "DropLegacyPipeline"],
         [202, "FoldProviderState"],
+        [203, "CanonicalUserItemData"],
+        [204, "PendingDeliveryLimits"],
+        [205, "RestoreReasoningDisplay"],
+        [206, "HiddenRecoveryMessages"],
+        [207, "FinalTextSearchAndToolOutput"],
       ]);
 
       const tracker = yield* trackerRows(sql);
@@ -1383,6 +1393,11 @@ reservedProductionIdentitiesLayer("reserved Production migration identities", (i
           [200, "FailedSendPayload"],
           [201, "DropLegacyPipeline"],
           [202, "FoldProviderState"],
+          [203, "CanonicalUserItemData"],
+          [204, "PendingDeliveryLimits"],
+          [205, "RestoreReasoningDisplay"],
+          [206, "HiddenRecoveryMessages"],
+          [207, "FinalTextSearchAndToolOutput"],
         ],
       );
       // A database already at the reserved identities is not "too new": the

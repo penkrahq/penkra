@@ -58,14 +58,12 @@ describe("spacesUiStore", () => {
   it("keeps a selected Space while the committed navigation includes it", () => {
     const created = SpaceId.makeUnsafe("created");
     useSpacesUiStore.getState().setActiveSpaceId(created);
-    useSpacesUiStore
-      .getState()
-      .reconcile({
-        activeSpaceIds: new Set([created]),
-        projectSpaceById: new Map(),
-        threadProjectById: new Map(),
-        threadSpaceById: new Map(),
-      });
+    useSpacesUiStore.getState().reconcile({
+      activeSpaceIds: new Set([created]),
+      projectSpaceById: new Map(),
+      threadProjectById: new Map(),
+      threadSpaceById: new Map(),
+    });
     expect(useSpacesUiStore.getState().activeSpaceId).toBe(created);
   });
 

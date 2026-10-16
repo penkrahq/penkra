@@ -126,6 +126,12 @@ own disposable instance; it must not deliberately break Production.
 The protected workflow builds exact committed source and handles release assembly. Keep its
 live version/provenance tools; local installation is not publication.
 
+After all native builds and artifact checks succeed, the workflow creates the version tag,
+assembles a draft, then publishes that exact draft as the latest stable release without
+rebuilding. Public release jobs do not replace the running local Production app. Verify the
+release assets and `latest-mac.yml`, then confirm Penkra discovers the published version
+through its update check; publication alone does not prove the user-visible update path.
+
 ```sh
 node scripts/update-release-package-versions.ts '<approved-version>'
 git diff -- apps/server/package.json apps/desktop/package.json apps/web/package.json \

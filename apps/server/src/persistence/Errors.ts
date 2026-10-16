@@ -149,8 +149,6 @@ export type ProviderSessionRepositoryError =
   | ProviderSessionRepositoryValidationError
   | ProviderSessionRepositoryPersistenceError;
 
-
-
 export type ProjectionRepositoryError = PersistenceSqlError | PersistenceDecodeError;
 
 export type AuthPairingLinkRepositoryError = PersistenceSqlError | PersistenceDecodeError;

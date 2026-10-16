@@ -14,23 +14,23 @@ The Stop button's stopping state remains disabled while provider confirmation is
 
 The pre-edit audit is `/tmp/penkra-recovery-origin-consumers.txt`; the follow-up inventory is `/tmp/penkra-recovery-origin-final-consumers.txt`. Searches covered `MessageOrigin`, `SendingMessageOrigin`, `decodeUserItemData`, `.origin`, `origin._tag`, exhaustive branches and `Match.tag`, excluding build output and frozen migrations. There are no exhaustive origin switches or `Match.tag` consumers. Unrelated URL, voice and skills origins were excluded.
 
-| Consumers | Treatment |
-| --- | --- |
-| contracts/messageOrigin.ts, cleanCore.ts, orchestration.ts | Additive shared schema; canonical user and queued-message schemas inherit it. |
-| shared/userItemData.ts | Strict canonical decoding accepts the additive origin. |
-| cleanCore/userItemAdmission.ts, sendPayload.ts, threadQueue.ts | Keep recovery origin and payload for real delivery, cohorts and queues. |
-| cleanCore/ThreadSender.ts | Agent-owned steering remains agent-only; failed-removal rollups exclude recovery. |
-| cleanCore/threadStore.ts, threadList.ts, ThreadReads.ts | Exclude from visible rollups, searches, public transcript and message counts. |
-| provider/providerTurnInput.ts, reconstructedContinuation.ts | Pass text through and retain actual provider history. |
-| agentGateway/threadSummary.ts | Filter before packing, pagination and total message count. |
-| web/components/chat/threadItemMappers.ts, ChatView.tsx | Filter before transcript rendering, message projection, auto-follow counts and queue display. |
-| web/components/chat/userTurnMarker.ts | No recovery marker. |
-| shared/threadSummary.ts | Exclude from latest-user metadata. |
-| web/storeNormalization.ts | Generic origin carry/equality works unchanged; only agent attribution reads senderThreadId. |
-| web/components/chat/MessagesTimeline.tsx | Agent-specific sender rendering stays agent-only; canonical recovery rows never reach it. |
-| web/components/timelineHeight.ts, web/types.ts | Type consumers; canonical recovery rows never enter measurement/rendering. |
-| persistence/rehearsalConversationFidelity.ts | Operational fidelity keeps retained history; not a public transcript display. |
-| frozen migration schemas | Unchanged; new migration performs exact retagging. |
+| Consumers                                                      | Treatment                                                                                     |
+| -------------------------------------------------------------- | --------------------------------------------------------------------------------------------- |
+| contracts/messageOrigin.ts, cleanCore.ts, orchestration.ts     | Additive shared schema; canonical user and queued-message schemas inherit it.                 |
+| shared/userItemData.ts                                         | Strict canonical decoding accepts the additive origin.                                        |
+| cleanCore/userItemAdmission.ts, sendPayload.ts, threadQueue.ts | Keep recovery origin and payload for real delivery, cohorts and queues.                       |
+| cleanCore/ThreadSender.ts                                      | Agent-owned steering remains agent-only; failed-removal rollups exclude recovery.             |
+| cleanCore/threadStore.ts, threadList.ts, ThreadReads.ts        | Exclude from visible rollups, searches, public transcript and message counts.                 |
+| provider/providerTurnInput.ts, reconstructedContinuation.ts    | Pass text through and retain actual provider history.                                         |
+| agentGateway/threadSummary.ts                                  | Filter before packing, pagination and total message count.                                    |
+| web/components/chat/threadItemMappers.ts, ChatView.tsx         | Filter before transcript rendering, message projection, auto-follow counts and queue display. |
+| web/components/chat/userTurnMarker.ts                          | No recovery marker.                                                                           |
+| shared/threadSummary.ts                                        | Exclude from latest-user metadata.                                                            |
+| web/storeNormalization.ts                                      | Generic origin carry/equality works unchanged; only agent attribution reads senderThreadId.   |
+| web/components/chat/MessagesTimeline.tsx                       | Agent-specific sender rendering stays agent-only; canonical recovery rows never reach it.     |
+| web/components/timelineHeight.ts, web/types.ts                 | Type consumers; canonical recovery rows never enter measurement/rendering.                    |
+| persistence/rehearsalConversationFidelity.ts                   | Operational fidelity keeps retained history; not a public transcript display.                 |
+| frozen migration schemas                                       | Unchanged; new migration performs exact retagging.                                            |
 
 Boundary for review: task-completion notifications follow the actual newest settled turn item. They do not count the recovery message. This bundle removes the hidden prompt from user-message metadata, but does not suppress completion notifications for assistant work performed by the recovered turn. That would be a separate behavior decision.
 

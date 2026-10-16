@@ -20,58 +20,58 @@ The **actual Go route's** image count, per-image bytes/dimensions and total-body
 
 ### Official direct-provider limits (not promises for Go)
 
-| Ref | Exact models/family | Images/request | Image bytes/dimensions | Total body | Source and scope |
-| --- | --- | --- | --- | --- | --- |
-| D1 | GPT-5.6 Luna; GPT-6 Luna exact sizing unverified | Direct vision guide: 1,500 | GPT-5.6 Luna high: 2048px and 2,500 patches; original: 65,535px and 30,000-patch reject boundary. Separate per-image byte cap not established here. | 512 MB | [OpenAI vision](https://developers.openai.com/api/docs/guides/images-vision). Exact GPT-6 Luna details are not inferred from Astra. |
-| D2 | Claude Haiku 5.5 (catalog 1M context) | Direct API: 600 for non-200k models; 100 for 200k models | 10 MB encoded/direct; 8000×8000 absolute; many-image requests need ≤2000px for portability. 4.7+ native-resolution budget 2576px / 4784 visual tokens. | 32 MB standard; partner limits can differ | [Claude vision](https://platform.claude.com/docs/en/build-with-claude/vision). Go gateway behavior U. |
-| D3 | DeepSeek Flash vision route; legacy Vision Exp alias | Direct API: 600 | Inline 32 MiB; 8192px/side, reduced to 4096px at ≥15 images | 48 MiB | [DeepSeek vision](https://api-docs.deepseek.com/guides/vision/). **Observed Go errors instead cap routes at 20 or 64**, below. Text-only Pro/Flash Go metadata is not overridden by direct alias docs. |
-| D4 | Grok 4.6/4.7 family | Direct guide says no count limit | 20 MiB/image; hard dimension bound not established | U | [xAI image understanding](https://docs.x.ai/developers/model-capabilities/images/understanding). Context still bounds requests. |
-| D5 | Kimi K3/K2.7 Code family | Direct guide says no fixed image count | Recommends ≤4096×2160; hard per-image size/dimension cap not established | 100M (docs' units) | [Kimi vision](https://platform.kimi.com/docs/guide/use-kimi-vision-model). Recommendation is not a hard rejection threshold. |
-| D6 | MiMo V2.6 Flash/Pro and V2.5 | Context-bound; no fixed count stated | URL binary ≤50 MB; inline base64 string ≤50 MB; hard dimensions U | U | [Xiaomi MiMo image understanding](https://mimo.mi.com/docs/en-US/quick-start/usage-guide/multimodal-understanding/image-understanding). V2.5 Pro is not claimed covered by this vision list. |
-| D7 | MiniMax M3 | Fixed count U | ≤10 MB/image; hard dimensions U | 64 MB | [MiniMax Anthropic compatibility](https://platform.minimax.io/docs/api-reference/text-anthropic-api). MCode's own 20-image budget is **client policy**, not proof of an API count limit. |
-| D8 | Muse Spark contributor family | Direct API: 50, enforced | Inline image ≤50,000,000 bytes; hard dimensions U | U | [Meta image understanding](https://dev.meta.ai/docs/image-understanding). Exact contributor-route overrides through Go U. |
-| D9 | Qwen3.8 Max/Flash and Qwen3.7 Plus | Direct: 250 inline; 2,048 public-URL/local inputs | Original ≤20 MB; data URI ≤20 MB OpenAI-compatible / 32 MB Anthropic-compatible; recommend ≤7680×4320 (not asserted hard cap) | 64 MB workspace domain; 16 MiB DashScope domain | [Alibaba vision](https://help.aliyun.com/en/model-studio/vision). These are endpoint-specific. |
-| D0 | Other/free/stealth/text-only entries | U | U | U | [Go catalog](https://opencode.ai/v2/docs/console/go/) does not publish image bounds; no replacement model/family is guessed. |
+| Ref | Exact models/family                                  | Images/request                                           | Image bytes/dimensions                                                                                                                                 | Total body                                      | Source and scope                                                                                                                                                                                       |
+| --- | ---------------------------------------------------- | -------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------ | ----------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| D1  | GPT-5.6 Luna; GPT-6 Luna exact sizing unverified     | Direct vision guide: 1,500                               | GPT-5.6 Luna high: 2048px and 2,500 patches; original: 65,535px and 30,000-patch reject boundary. Separate per-image byte cap not established here.    | 512 MB                                          | [OpenAI vision](https://developers.openai.com/api/docs/guides/images-vision). Exact GPT-6 Luna details are not inferred from Astra.                                                                    |
+| D2  | Claude Haiku 5.5 (catalog 1M context)                | Direct API: 600 for non-200k models; 100 for 200k models | 10 MB encoded/direct; 8000×8000 absolute; many-image requests need ≤2000px for portability. 4.7+ native-resolution budget 2576px / 4784 visual tokens. | 32 MB standard; partner limits can differ       | [Claude vision](https://platform.claude.com/docs/en/build-with-claude/vision). Go gateway behavior U.                                                                                                  |
+| D3  | DeepSeek Flash vision route; legacy Vision Exp alias | Direct API: 600                                          | Inline 32 MiB; 8192px/side, reduced to 4096px at ≥15 images                                                                                            | 48 MiB                                          | [DeepSeek vision](https://api-docs.deepseek.com/guides/vision/). **Observed Go errors instead cap routes at 20 or 64**, below. Text-only Pro/Flash Go metadata is not overridden by direct alias docs. |
+| D4  | Grok 4.6/4.7 family                                  | Direct guide says no count limit                         | 20 MiB/image; hard dimension bound not established                                                                                                     | U                                               | [xAI image understanding](https://docs.x.ai/developers/model-capabilities/images/understanding). Context still bounds requests.                                                                        |
+| D5  | Kimi K3/K2.7 Code family                             | Direct guide says no fixed image count                   | Recommends ≤4096×2160; hard per-image size/dimension cap not established                                                                               | 100M (docs' units)                              | [Kimi vision](https://platform.kimi.com/docs/guide/use-kimi-vision-model). Recommendation is not a hard rejection threshold.                                                                           |
+| D6  | MiMo V2.6 Flash/Pro and V2.5                         | Context-bound; no fixed count stated                     | URL binary ≤50 MB; inline base64 string ≤50 MB; hard dimensions U                                                                                      | U                                               | [Xiaomi MiMo image understanding](https://mimo.mi.com/docs/en-US/quick-start/usage-guide/multimodal-understanding/image-understanding). V2.5 Pro is not claimed covered by this vision list.           |
+| D7  | MiniMax M3                                           | Fixed count U                                            | ≤10 MB/image; hard dimensions U                                                                                                                        | 64 MB                                           | [MiniMax Anthropic compatibility](https://platform.minimax.io/docs/api-reference/text-anthropic-api). MCode's own 20-image budget is **client policy**, not proof of an API count limit.               |
+| D8  | Muse Spark contributor family                        | Direct API: 50, enforced                                 | Inline image ≤50,000,000 bytes; hard dimensions U                                                                                                      | U                                               | [Meta image understanding](https://dev.meta.ai/docs/image-understanding). Exact contributor-route overrides through Go U.                                                                              |
+| D9  | Qwen3.8 Max/Flash and Qwen3.7 Plus                   | Direct: 250 inline; 2,048 public-URL/local inputs        | Original ≤20 MB; data URI ≤20 MB OpenAI-compatible / 32 MB Anthropic-compatible; recommend ≤7680×4320 (not asserted hard cap)                          | 64 MB workspace domain; 16 MiB DashScope domain | [Alibaba vision](https://help.aliyun.com/en/model-studio/vision). These are endpoint-specific.                                                                                                         |
+| D0  | Other/free/stealth/text-only entries                 | U                                                        | U                                                                                                                                                      | U                                               | [Go catalog](https://opencode.ai/v2/docs/console/go/) does not publish image bounds; no replacement model/family is guessed.                                                                           |
 
 ### Every configured model
 
 All ids below are prefixed `opencode-go/`. A/B indicate the catalog that returned them. The Go columns apply to that service, separately from the direct-provider references above.
 
-| Model id suffix | A/B | Advertised image input | Go images/request | Go image bytes/dimensions | Go total bytes | Direct-doc reference |
-| --- | --- | --- | --- | --- | --- | --- |
-| cat-jam-free | A | no | U | U / U | U | D0 |
-| claude-haiku-5-5 | A | yes | U | U / U | U | D2 |
-| deepseek-v4-flash | A / B | no | U | U / U | U | D0 |
-| deepseek-v4-flash-vision-exp | A / B | yes | U | U / U | U | D3 |
-| deepseek-v4-pro | A / B | no | U | U / U | U | D0 |
-| deepseek-v4.1-flash | A / B | yes | 20 / 64 observed routes; current guaranteed cap U | U / U | U | D3 |
-| glm-5.2 | A / B | no | U | U / U | U | D0 |
-| glm-5.3 | A / B | no | U | U / U | U | D0 |
-| glm-5.3-flash | A / B | yes | U | U / U | U | D0 |
-| gpt-5.6-luna | A / B | yes | U | U / U | U | D1 |
-| gpt-6-luna | A / B | yes | U | U / U | U | D1 |
-| grok-4.6 | A / B | yes | U | U / U | U | D4 |
-| grok-4.7 | A / B | yes | U | U / U | U | D4 |
-| hy3 | A / B | no | U | U / U | U | D0 |
-| hy4-preview | A / B | no | U | U / U | U | D0 |
-| kimi-k2.7-code | A / B | yes | U | U / U | U | D5 |
-| kimi-k3 | A / B | yes | U | U / U | U | D5 |
-| longcat-2.0 | A / B | no | U | U / U | U | D0 |
-| longcat-2.5-preview-free | A / B | yes | U | U / U | U | D0 |
-| mimo-v2.5 | A / B | yes | U | U / U | U | D6 |
-| mimo-v2.5-pro | A / B | no | U | U / U | U | D0 |
-| mimo-v2.6-flash | A / B | yes | U | U / U | U | D6 |
-| mimo-v2.6-pro | A / B | yes | U | U / U | U | D6 |
-| minimax-m2.7 | A / B | no | U | U / U | U | D0 |
-| minimax-m3 | A / B | yes | U | U / U | U | D7 |
-| muse-spark-1.2-contributor | A / B | yes | U | U / U | U | D8 |
-| muse-spark-1.3-contributor | A / B | yes | U | U / U | U | D8 |
-| qwen3.7-plus | A / B | yes | U | U / U | U | D9 |
-| qwen3.8-flash | A / B | yes | U | U / U | U | D9 |
-| qwen3.8-max | A / B | yes | U | U / U | U | D9 |
-| space-bunny | A | yes | U | U / U | U | D0 |
-| space-bunny-free | B | U | U | U / U | U | D0 |
-| step-5-preview-free | A | yes | U | U / U | U | D0 |
+| Model id suffix              | A/B   | Advertised image input | Go images/request                                 | Go image bytes/dimensions | Go total bytes | Direct-doc reference |
+| ---------------------------- | ----- | ---------------------- | ------------------------------------------------- | ------------------------- | -------------- | -------------------- |
+| cat-jam-free                 | A     | no                     | U                                                 | U / U                     | U              | D0                   |
+| claude-haiku-5-5             | A     | yes                    | U                                                 | U / U                     | U              | D2                   |
+| deepseek-v4-flash            | A / B | no                     | U                                                 | U / U                     | U              | D0                   |
+| deepseek-v4-flash-vision-exp | A / B | yes                    | U                                                 | U / U                     | U              | D3                   |
+| deepseek-v4-pro              | A / B | no                     | U                                                 | U / U                     | U              | D0                   |
+| deepseek-v4.1-flash          | A / B | yes                    | 20 / 64 observed routes; current guaranteed cap U | U / U                     | U              | D3                   |
+| glm-5.2                      | A / B | no                     | U                                                 | U / U                     | U              | D0                   |
+| glm-5.3                      | A / B | no                     | U                                                 | U / U                     | U              | D0                   |
+| glm-5.3-flash                | A / B | yes                    | U                                                 | U / U                     | U              | D0                   |
+| gpt-5.6-luna                 | A / B | yes                    | U                                                 | U / U                     | U              | D1                   |
+| gpt-6-luna                   | A / B | yes                    | U                                                 | U / U                     | U              | D1                   |
+| grok-4.6                     | A / B | yes                    | U                                                 | U / U                     | U              | D4                   |
+| grok-4.7                     | A / B | yes                    | U                                                 | U / U                     | U              | D4                   |
+| hy3                          | A / B | no                     | U                                                 | U / U                     | U              | D0                   |
+| hy4-preview                  | A / B | no                     | U                                                 | U / U                     | U              | D0                   |
+| kimi-k2.7-code               | A / B | yes                    | U                                                 | U / U                     | U              | D5                   |
+| kimi-k3                      | A / B | yes                    | U                                                 | U / U                     | U              | D5                   |
+| longcat-2.0                  | A / B | no                     | U                                                 | U / U                     | U              | D0                   |
+| longcat-2.5-preview-free     | A / B | yes                    | U                                                 | U / U                     | U              | D0                   |
+| mimo-v2.5                    | A / B | yes                    | U                                                 | U / U                     | U              | D6                   |
+| mimo-v2.5-pro                | A / B | no                     | U                                                 | U / U                     | U              | D0                   |
+| mimo-v2.6-flash              | A / B | yes                    | U                                                 | U / U                     | U              | D6                   |
+| mimo-v2.6-pro                | A / B | yes                    | U                                                 | U / U                     | U              | D6                   |
+| minimax-m2.7                 | A / B | no                     | U                                                 | U / U                     | U              | D0                   |
+| minimax-m3                   | A / B | yes                    | U                                                 | U / U                     | U              | D7                   |
+| muse-spark-1.2-contributor   | A / B | yes                    | U                                                 | U / U                     | U              | D8                   |
+| muse-spark-1.3-contributor   | A / B | yes                    | U                                                 | U / U                     | U              | D8                   |
+| qwen3.7-plus                 | A / B | yes                    | U                                                 | U / U                     | U              | D9                   |
+| qwen3.8-flash                | A / B | yes                    | U                                                 | U / U                     | U              | D9                   |
+| qwen3.8-max                  | A / B | yes                    | U                                                 | U / U                     | U              | D9                   |
+| space-bunny                  | A     | yes                    | U                                                 | U / U                     | U              | D0                   |
+| space-bunny-free             | B     | U                      | U                                                 | U / U                     | U              | D0                   |
+| step-5-preview-free          | A     | yes                    | U                                                 | U / U                     | U              | D0                   |
 
 ### Runtime metadata
 
@@ -83,11 +83,11 @@ Client processing is separate: [1.19.0 image normalization](https://github.com/a
 
 HerWebCraft Academy Canvas Flyer (`5e032cd0-260a-484d-b162-1883bbb81155`): retained lifecycle evidence at [thread-lifecycle-evidence-2026-09-07.md](thread-lifecycle-evidence-2026-09-07.md#two-flyer-failures) records **“Streaming response failed: [400] At most 4 image(s) may be provided in one prompt.”**, turn-failure event 2603712 and runtime-error event 2603714 at 2026-09-06 23:45:22.807Z. The harness is OpenCode; the upstream provider/model and assembled request were **not retained/established** there. No matching named/native-session title or exact error was found in this census. “Luna High v1.18.29” in the prior worker report was explicitly corrected as conflating its research model with runtime version. It is not evidence of HerWebCraft's failed model. That model remains unverified; no attribution is fabricated.
 
-| Native session | Date UTC | Native model | Exact stored error | Observed upstream route |
-| --- | --- | --- | --- | --- |
+| Native session                         | Date UTC                                 | Native model                    | Exact stored error                                                                       | Observed upstream route                              |
+| -------------------------------------- | ---------------------------------------- | ------------------------------- | ---------------------------------------------------------------------------------------- | ---------------------------------------------------- |
 | Chore `ses_f2297bda1ffe0QrBBnikfilOc5` | 2026-10-01 06:55:03.530 and 06:55:35.794 | opencode-go/deepseek-v4.1-flash | Upstream request failed: [invalid_request_error] a request may include at most 20 images | valarai-dsv4.1flash; deepseek-ai/DeepSeek-V4.1-Flash |
-| `ses_f2869b434ffeXLhcyUWZsF1orS` | 2026-09-25 08:17:05.443 | opencode-go/deepseek-v4.1-flash | Upstream request failed: [invalid_request_error] a request may include at most 20 images | valarai; deepseek-ai/DeepSeek-V4.1-Flash |
-| `ses_eeede3041ffejD0MIL7pIlOfzI` | 2026-10-06 12:50:15.178 | opencode-go/deepseek-v4.1-flash | Upstream request failed: [invalid_request_error] Too many images in request: 67 > 64 | frank/DeepSeek-V4.1-Flash |
+| `ses_f2869b434ffeXLhcyUWZsF1orS`       | 2026-09-25 08:17:05.443                  | opencode-go/deepseek-v4.1-flash | Upstream request failed: [invalid_request_error] a request may include at most 20 images | valarai; deepseek-ai/DeepSeek-V4.1-Flash             |
+| `ses_eeede3041ffejD0MIL7pIlOfzI`       | 2026-10-06 12:50:15.178                  | opencode-go/deepseek-v4.1-flash | Upstream request failed: [invalid_request_error] Too many images in request: 67 > 64     | frank/DeepSeek-V4.1-Flash                            |
 
 These are four stored errors across three sessions. Route identity comes from safe response metadata; no auth headers or keys are reported. No inference was replayed. The census found unrelated image/tool-access errors too, but they are not count-limit evidence. Chore's separate current `Q.startsWith` failure remains the known malformed tool-attachment transform bug, not one of these numeric image limits; its isolated reproduction is in [opencode-chore-image-investigation.md](opencode-chore-image-investigation.md).
 
@@ -95,56 +95,56 @@ These are four stored errors across three sessions. Route identity comes from sa
 
 Largest image-bearing sessions are below; full counts for every enumerated session are in the CSV. Run column uses the native-user-segment/tool-image definition above.
 
-| Native session | Images / unique URLs | Tool images | Maximum images in a native user segment | Longest same-segment tool-image run | Longest consecutive image-bearing tool calls |
-| --- | --- | --- | --- | --- | --- |
-| ses_f23e462d3ffeDiU5ILYvTh4y7o | 237 / 234 | 235 | 16 | 16 | 5 |
-| ses_eeede3041ffejD0MIL7pIlOfzI | 67 / 67 | 67 | 67 | 67 | 22 |
-| ses_05d8d866cffeMtN6IBOnC7uOsP | 57 / 41 | 51 | 11 | 11 | 3 |
-| ses_f28699d3effexRb3Ji3SdyB7NR | 45 / 44 | 45 | 45 | 45 | 6 |
-| ses_f2297bda1ffe0QrBBnikfilOc5 (Chore) | 35 / 32 | 32 | 9 | 9 | 2 |
-| ses_f2869b434ffeXLhcyUWZsF1orS | 34 / 34 | 34 | 34 | 34 | 9 |
-| ses_f223b06c7ffeNFQvpierrjQNXD | 33 / 31 | 33 | 11 | 11 | 6 |
-| ses_0e4c5f2c1ffeppEDWUviJ1Rhyb | 26 / 25 | 26 | 18 | 18 | 8 |
-| ses_f28698738ffeuqhoeBZI3cUIEc | 24 / 24 | 24 | 24 | 24 | 8 |
-| ses_f2869c9bbffesd68i30uE6S3Ij | 18 / 18 | 18 | 18 | 18 | 4 |
-| ses_ef5c1caa8ffeUcHunyfIYoWNal | 14 / 13 | 14 | 13 | 13 | 1 |
-| ses_05a17afafffepJ6c7OdcqvH1R8 | 12 / 10 | 9 | 2 | 2 | 2 |
-| ses_fa9d1cfaaffeIJ4CoDGa0HGhp6 | 9 / 6 | 2 | 3 | 2 | 2 |
-| ses_0e4ba4fcdffeFFgHQoJCzFxoI7 | 8 / 8 | 8 | 8 | 8 | 8 |
-| ses_f150be4f9ffeGV5k6McPnsS8lp | 4 / 4 | 0 | 4 | 0 | 0 |
-| ses_0572f63fdffeYZzvEAtuWZiH18 | 4 / 4 | 3 | 4 | 3 | 3 |
-| ses_fa9d1d004ffe6vKRqxGxZ65u1V | 3 / 3 | 0 | 3 | 0 | 0 |
-| ses_fcc156b8effePx3Att9GsCLPkd | 3 / 3 | 3 | 1 | 1 | 1 |
-| ses_05499b8eaffe4D3TZKCSld7sF1 | 3 / 3 | 3 | 2 | 2 | 2 |
-| ses_f6616380effeAl5SxhH10bKNLH | 2 / 2 | 2 | 2 | 2 | 1 |
-| ses_1703851f6ffeyXj1hurFKn0kHz | 2 / 2 | 0 | 1 | 0 | 0 |
-| ses_f86e96cd8fferr8EpaHD5t2zce | 1 / 1 | 0 | 1 | 0 | 0 |
-| ses_eef113414ffebodAB26AiUiCLI | 1 / 1 | 1 | 1 | 1 | 1 |
-| ses_fa9cb0fdaffeQmUN66n4m2lTLF | 1 / 1 | 0 | 1 | 0 | 0 |
-| ses_fa9cb1221ffeTvk7FtyhkMULqZ | 1 / 1 | 0 | 1 | 0 | 0 |
-| ses_f2873ad0cffe7IuJPhmbcYdYUV | 1 / 1 | 1 | 1 | 1 | 1 |
-| ses_01fe9e396fferlKPzzxT5255j3 | 1 / 1 | 1 | 1 | 1 | 1 |
-| ses_033b6863effeYw9PHcA2Bo7eYZ | 1 / 1 | 1 | 1 | 1 | 1 |
-| ses_04d2642d8ffeEI4IDjj5bADuhM | 1 / 1 | 1 | 1 | 1 | 1 |
-| ses_0572f649bffeTklflRmwnQX4ur | 1 / 1 | 0 | 1 | 0 | 0 |
-| ses_06dd98879ffeIeLdOl6UOMv5fy | 1 / 1 | 0 | 1 | 0 | 0 |
-| ses_2a9adab40ffesgg5utma11pJjO | 1 / 1 | 0 | 1 | 0 | 0 |
+| Native session                         | Images / unique URLs | Tool images | Maximum images in a native user segment | Longest same-segment tool-image run | Longest consecutive image-bearing tool calls |
+| -------------------------------------- | -------------------- | ----------- | --------------------------------------- | ----------------------------------- | -------------------------------------------- |
+| ses_f23e462d3ffeDiU5ILYvTh4y7o         | 237 / 234            | 235         | 16                                      | 16                                  | 5                                            |
+| ses_eeede3041ffejD0MIL7pIlOfzI         | 67 / 67              | 67          | 67                                      | 67                                  | 22                                           |
+| ses_05d8d866cffeMtN6IBOnC7uOsP         | 57 / 41              | 51          | 11                                      | 11                                  | 3                                            |
+| ses_f28699d3effexRb3Ji3SdyB7NR         | 45 / 44              | 45          | 45                                      | 45                                  | 6                                            |
+| ses_f2297bda1ffe0QrBBnikfilOc5 (Chore) | 35 / 32              | 32          | 9                                       | 9                                   | 2                                            |
+| ses_f2869b434ffeXLhcyUWZsF1orS         | 34 / 34              | 34          | 34                                      | 34                                  | 9                                            |
+| ses_f223b06c7ffeNFQvpierrjQNXD         | 33 / 31              | 33          | 11                                      | 11                                  | 6                                            |
+| ses_0e4c5f2c1ffeppEDWUviJ1Rhyb         | 26 / 25              | 26          | 18                                      | 18                                  | 8                                            |
+| ses_f28698738ffeuqhoeBZI3cUIEc         | 24 / 24              | 24          | 24                                      | 24                                  | 8                                            |
+| ses_f2869c9bbffesd68i30uE6S3Ij         | 18 / 18              | 18          | 18                                      | 18                                  | 4                                            |
+| ses_ef5c1caa8ffeUcHunyfIYoWNal         | 14 / 13              | 14          | 13                                      | 13                                  | 1                                            |
+| ses_05a17afafffepJ6c7OdcqvH1R8         | 12 / 10              | 9           | 2                                       | 2                                   | 2                                            |
+| ses_fa9d1cfaaffeIJ4CoDGa0HGhp6         | 9 / 6                | 2           | 3                                       | 2                                   | 2                                            |
+| ses_0e4ba4fcdffeFFgHQoJCzFxoI7         | 8 / 8                | 8           | 8                                       | 8                                   | 8                                            |
+| ses_f150be4f9ffeGV5k6McPnsS8lp         | 4 / 4                | 0           | 4                                       | 0                                   | 0                                            |
+| ses_0572f63fdffeYZzvEAtuWZiH18         | 4 / 4                | 3           | 4                                       | 3                                   | 3                                            |
+| ses_fa9d1d004ffe6vKRqxGxZ65u1V         | 3 / 3                | 0           | 3                                       | 0                                   | 0                                            |
+| ses_fcc156b8effePx3Att9GsCLPkd         | 3 / 3                | 3           | 1                                       | 1                                   | 1                                            |
+| ses_05499b8eaffe4D3TZKCSld7sF1         | 3 / 3                | 3           | 2                                       | 2                                   | 2                                            |
+| ses_f6616380effeAl5SxhH10bKNLH         | 2 / 2                | 2           | 2                                       | 2                                   | 1                                            |
+| ses_1703851f6ffeyXj1hurFKn0kHz         | 2 / 2                | 0           | 1                                       | 0                                   | 0                                            |
+| ses_f86e96cd8fferr8EpaHD5t2zce         | 1 / 1                | 0           | 1                                       | 0                                   | 0                                            |
+| ses_eef113414ffebodAB26AiUiCLI         | 1 / 1                | 1           | 1                                       | 1                                   | 1                                            |
+| ses_fa9cb0fdaffeQmUN66n4m2lTLF         | 1 / 1                | 0           | 1                                       | 0                                   | 0                                            |
+| ses_fa9cb1221ffeTvk7FtyhkMULqZ         | 1 / 1                | 0           | 1                                       | 0                                   | 0                                            |
+| ses_f2873ad0cffe7IuJPhmbcYdYUV         | 1 / 1                | 1           | 1                                       | 1                                   | 1                                            |
+| ses_01fe9e396fferlKPzzxT5255j3         | 1 / 1                | 1           | 1                                       | 1                                   | 1                                            |
+| ses_033b6863effeYw9PHcA2Bo7eYZ         | 1 / 1                | 1           | 1                                       | 1                                   | 1                                            |
+| ses_04d2642d8ffeEI4IDjj5bADuhM         | 1 / 1                | 1           | 1                                       | 1                                   | 1                                            |
+| ses_0572f649bffeTklflRmwnQX4ur         | 1 / 1                | 0           | 1                                       | 0                                   | 0                                            |
+| ses_06dd98879ffeIeLdOl6UOMv5fy         | 1 / 1                | 0           | 1                                       | 0                                   | 0                                            |
+| ses_2a9adab40ffesgg5utma11pJjO         | 1 / 1                | 0           | 1                                       | 0                                   | 0                                            |
 
 **References heuristic:** order image occurrences chronologically, call the newest k; inspect generated assistant text **and reasoning** until later image occurrences. Count explicit mentions of an older image's full read path (or its supplied filename), only when that label occurs once in the session. Repeated generic labels are excluded. Deduplicate to one `(current image k, backward distance)` pair; no claim is made about visual attention, implicit comparisons, synonyms or images reread under a new id. User text/tool arguments are not searched as the agent's own prose.
 
 | Back-reference | Distinct matched k/distance pairs |
-| --- | --- |
-| k−1 | 1 |
-| k−2 | 3 |
-| k−3 | 0 |
-| k−4 | 0 |
-| k−5 | 0 |
-| k−6 | 0 |
-| k−7 | 0 |
-| k−8 | 0 |
-| k−9 | 0 |
-| k−10 | 1 |
-| k−28 | 1 |
+| -------------- | --------------------------------- |
+| k−1            | 1                                 |
+| k−2            | 3                                 |
+| k−3            | 0                                 |
+| k−4            | 0                                 |
+| k−5            | 0                                 |
+| k−6            | 0                                 |
+| k−7            | 0                                 |
+| k−8            | 0                                 |
+| k−9            | 0                                 |
+| k−10           | 1                                 |
+| k−28           | 1                                 |
 
 Across 32 image-bearing sessions and 651 image positions, the conservative matcher found 6 pairs. There were 249 generated text/reasoning segments with ambiguous “previous/earlier/last … screenshot/image” cues among 6098 post-image segments. Those cues cannot reliably distinguish k from k−1 and are not assigned a distance. This heuristic **undercounts implicit references** and does not prove that older screenshots are unneeded. Chore has 1 unique-label k−1 match, 34 ambiguous cues and 893 post-image segments. No model budget is chosen from these counts.
 
@@ -153,11 +153,11 @@ Across 32 image-bearing sessions and 651 image positions, the conservative match
 No paid calls, provider token-counting endpoint or actual billing measurement. The local fixture evaluates two vendors' documented image-sizing/token rules against measured PNG dimensions: GPT-5.6 Luna at `detail=high` (32px patches, 1.2 multiplier, resize budget) and MiMo V2.6 (official round-to-32px pixel grid and merge). Fixture results are **estimates**, not measured Go billed tokens; request detail defaults/routing can change them. Sources: [OpenAI image cost rules](https://developers.openai.com/api/docs/guides/images-vision#calculating-costs) and [MiMo official calculation](https://mimo.mi.com/docs/en-US/quick-start/usage-guide/multimodal-understanding/image-understanding#explanation-of-image-token-usage-and-scaling-rules).
 
 | Observed tool PNG dimensions | Samples | Median binary bytes | Median data: URL bytes | Minimal image_url JSON block bytes | GPT-5.6 Luna high fixture tokens | MiMo V2.6 fixture tokens |
-| --- | --- | --- | --- | --- | --- | --- |
-| 920×2000 | 228 | 222810.0 | 297104.0 | 297147.0 | 2193 | 1798 |
-| 400×250 | 30 | 10875.0 | 14524.0 | 14567.0 | 125 | 96 |
-| 1200×1500 | 22 | 304933.5 | 406600.0 | 406643.0 | 2144 | 1786 |
-| 800×2000 | 20 | 2318160.0 | 3090904.0 | 3090947.0 | 1890 | 1550 |
+| ---------------------------- | ------- | ------------------- | ---------------------- | ---------------------------------- | -------------------------------- | ------------------------ |
+| 920×2000                     | 228     | 222810.0            | 297104.0               | 297147.0                           | 2193                             | 1798                     |
+| 400×250                      | 30      | 10875.0             | 14524.0                | 14567.0                            | 125                              | 96                       |
+| 1200×1500                    | 22      | 304933.5            | 406600.0               | 406643.0                           | 2144                             | 1786                     |
+| 800×2000                     | 20      | 2318160.0           | 3090904.0              | 3090947.0                          | 1890                             | 1550                     |
 
 Tool-image binary range in the readable corpus: 537–3,810,845 bytes, median 172,674.5; image format/dimensions missing from non-PNG headers are not invented. The 920×2000 group dominates this corpus, but tool-returned artwork is not separated from screenshots, so it is not a universal screenshot distribution.
 

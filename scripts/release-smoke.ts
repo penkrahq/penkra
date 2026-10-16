@@ -479,13 +479,13 @@ function verifyCiOwnedReleasePublication(): void {
   }
   assertContains(
     releaseGuide,
-    "tagged GitHub workflow is the sole source of production artifacts",
-    "Expected release authority to belong to the tagged protected workflow.",
+    "gh workflow run release.yml",
+    "Expected publication to use the protected release workflow.",
   );
   assertContains(
     releaseGuide,
-    "never replace `/Applications/Penkra.app`",
-    "Expected the release procedure to protect the running production app.",
+    "scripts/update-production.sh",
+    "Expected local replacement to use the canonical Production updater.",
   );
   assertContains(
     releaseGuide,
