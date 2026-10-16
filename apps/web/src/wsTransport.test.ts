@@ -429,16 +429,16 @@ describe("WsTransport", () => {
   it("does not let stale or duplicate thread restarts replace the active stream", async () => {
     const { internals } = makeBareTransport();
     const threadId = "thread-current-generation";
-    const key = `orchestration.thread:${threadId}`;
+    const key = `cleanCore.thread:${threadId}`;
     const currentInput = { threadId, generation: "current" };
     const staleInput = { threadId, generation: "stale" };
     const cleanup = vi.fn();
-    internals.threadSubscriptions.set(threadId, currentInput);
+    internals.cleanCoreThreadSubscriptions.set(threadId, currentInput);
     internals.streamCleanups.set(key, cleanup);
-    internals.activeThreadStreamInputs.set(key, currentInput);
+    internals.activeCleanCoreThreadInputs.set(key, currentInput);
 
-    await internals.startThreadStream({}, threadId, staleInput);
-    await internals.startThreadStream({}, threadId, currentInput);
+    await internals.startCleanCoreThreadStream({}, threadId, staleInput);
+    await internals.startCleanCoreThreadStream({}, threadId, currentInput);
 
     expect(cleanup).not.toHaveBeenCalled();
     expect(internals.streamCleanups.get(key)).toBe(cleanup);

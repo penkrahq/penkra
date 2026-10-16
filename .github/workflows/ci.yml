@@ -127,7 +127,7 @@ jobs:
         if: ${{ failure() }}
         uses: actions/upload-artifact@v6
         with:
-          name: browser-failure-${{ matrix.command }}
+          name: browser-failure-${{ matrix.name }}
           path: apps/web/src/**/__screenshots__/**
           if-no-files-found: warn
           retention-days: 14

@@ -38,14 +38,13 @@ describe("normal bundle QA exclusions", () => {
     }
   }, 30_000);
 
-  it("compiles the QA account guard false in the staged desktop bundle", () => {
+  it("omits the removed QA account shell from the staged desktop bundle", () => {
     const bundled = fs.readFileSync(
       path.join(repoRoot, "apps/desktop/dist-electron/main.js"),
       "utf8",
     );
-    expect(/function diagnosticsQaShellEnabled\(\)\s*\{\s*return false;\s*\}/u.test(bundled)).toBe(
-      true,
-    );
+    expect(bundled).not.toContain("diagnosticsQaShellEnabled");
+    expect(bundled).not.toContain("qaOpenWindow");
     const preload = fs.readFileSync(
       path.join(repoRoot, "apps/desktop/dist-electron/preload.js"),
       "utf8",

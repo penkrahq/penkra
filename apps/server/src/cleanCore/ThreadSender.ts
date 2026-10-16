@@ -268,7 +268,9 @@ export const makeThreadSender = Effect.gen(function* () {
   );
   yield* Stream.fromEffectRepeat(PubSub.take(providerEvents)).pipe(
     Stream.runForEach((event) =>
-      event.type === "turn.ended" ? Effect.forkIn(deliverHead(event.threadId), scope) : Effect.void,
+      event.type === "turn.ended"
+        ? Effect.forkIn(deliverHead(event.threadId, true), scope)
+        : Effect.void,
     ),
     Effect.forkIn(scope),
   );

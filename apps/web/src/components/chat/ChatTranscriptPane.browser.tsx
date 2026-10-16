@@ -12,6 +12,7 @@ import type { TranscriptVirtualListRef } from "./TranscriptVirtualList";
 import { useTranscriptAssistantSelectionAction } from "./useTranscriptAssistantSelectionAction";
 import {
   ChatPerformanceBoundary,
+  getChatPerformanceSamples,
   enableChatPerformanceDiagnostics,
   getChatPerformanceSummary,
   resetChatPerformanceDiagnostics,
@@ -160,13 +161,8 @@ describe("ChatTranscriptPane", () => {
         ).not.toBeNull();
       });
 
-      // Establish the performance baseline only after the virtualizer has
-      // finished its one-time initial placement. Any later transcript commit
-      // can then be attributed to the composer interaction under test.
-      await new Promise<void>((resolve) => window.setTimeout(resolve, 100));
       await settleLayout();
 
-      const baselineCommitCount = transcriptCommitCount;
       await page.getByTestId("composer-editor").click();
       await userEvent.keyboard("reply follow up");
 
@@ -175,7 +171,11 @@ describe("ChatTranscriptPane", () => {
         expect(getChatPerformanceSummary().sampleCount).toBeGreaterThan(0);
       });
 
-      expect(transcriptCommitCount).toBe(baselineCommitCount);
+      // A parent Profiler can commit while its memoized child bails out.
+      // Inspect the transcript's prop comparator and measured work instead.
+      expect(
+        getChatPerformanceSamples().flatMap((sample) => sample.transcriptChangedProps),
+      ).toEqual([]);
       expect(getChatPerformanceSummary().transcriptCommitCount).toBe(0);
     } finally {
       await screen.unmount();
