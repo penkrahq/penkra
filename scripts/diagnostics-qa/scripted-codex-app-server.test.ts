@@ -110,6 +110,7 @@ describe("scripted provider QA fixture", () => {
       await until(() => received.some((row) => row.id === 3));
       const turn = (received.find((row) => row.id === 3)!.result as { turn: { id: string } }).turn
         .id;
+      await until(() => received.some((row) => row.method === "turn/started"));
       expect(received).toContainEqual(
         expect.objectContaining({ method: "turn/started", params: expect.any(Object) }),
       );
@@ -121,6 +122,7 @@ describe("scripted provider QA fixture", () => {
             (row.params as { turn: { status: string } }).turn.status === "interrupted",
         ),
       );
+      await until(() => received.some((row) => row.id === 4));
       expect(received.find((row) => row.id === 4)?.result).toEqual({});
     } finally {
       child.kill();
