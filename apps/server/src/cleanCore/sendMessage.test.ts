@@ -24,6 +24,7 @@ import {
 import { seedThreadFolderFixture } from "./threadFixtures";
 import { listThreadItemsPage } from "./threadItemsPage.ts";
 import { findThread } from "./threadList.ts";
+import { findThreadPolicyError } from "./threadErrors.ts";
 import { readThreadQueue } from "./threadQueue.ts";
 import { createThread, makeThreadPublisher } from "./threadStore";
 
@@ -69,6 +70,38 @@ const setup = Effect.gen(function* () {
 const withDb = <A, E>(
   program: Effect.Effect<A, E, SqlClient.SqlClient | import("effect/Scope").Scope>,
 ) => program.pipe(Effect.provide(NodeSqliteClient.layerMemory()));
+
+for (const [name, text, attachmentCount, selectionSize, code] of [
+  ["text limit", "x".repeat(120_001), 0, 0, "message_too_large"],
+  ["attachment limit", "prompt", 9, 1, "message_too_large"],
+  ["selection schema limit", "prompt", 8, 9_000, "invalid_message_metadata"],
+  ["metadata limit", "prompt", 0, 0, "message_metadata_too_large"],
+] as const) {
+  it.effect(`rejects a message beyond the ${name} without accepting or queuing it`, () =>
+    withDb(
+      Effect.gen(function* () {
+        const publisher = yield* setup;
+        const sql = yield* SqlClient.SqlClient;
+        const attachments = Array.from({ length: attachmentCount }, (_, index) => ({
+          type: "assistant-selection" as const,
+          id: `selection-${index}`,
+          assistantMessageId: MessageId.makeUnsafe("assistant"),
+          text: "x".repeat(selectionSize),
+        }));
+        const failure = yield* sendMessage(publisher, driver, {
+          ...input,
+          message: { ...input.message, text, attachments },
+          ...(code === "message_metadata_too_large"
+            ? { skills: [{ name: "skill", path: "x".repeat(65_536) }] }
+            : {}),
+        }).pipe(Effect.flip);
+        assert.equal(findThreadPolicyError(failure)?.code, code);
+        assert.deepStrictEqual(yield* readThreadQueue("thread"), []);
+        assert.lengthOf(yield* sql`SELECT source_id FROM thread_items WHERE kind='user'`, 0);
+      }),
+    ),
+  );
+}
 for (const [state, dispatchMode, supportsSteer, plan] of [
   ["idle", "queue", true, "deliver"],
   ["running", "queue", true, "queue"],
@@ -364,13 +397,13 @@ it.effect("stale draft admission preserves a newer draft and failure cannot over
   ),
 );
 
-it.effect("a queued selection payload beyond the item-data cap stays at the head on failure", () =>
+it.effect("a queued selection payload within admission limits stays at the head on failure", () =>
   withDb(
     Effect.gen(function* () {
       const publisher = yield* setup;
       const sql = yield* SqlClient.SqlClient;
       yield* sql`UPDATE threads SET state='running',active_turn_id='current' WHERE id='thread'`;
-      const attachments = Array.from({ length: 17 }, (_, index) => ({
+      const attachments = Array.from({ length: 8 }, (_, index) => ({
         type: "assistant-selection" as const,
         id: `selection-${index}`,
         assistantMessageId: MessageId.makeUnsafe("assistant"),
@@ -545,12 +578,12 @@ for (const succeeds of [true, false]) {
   );
 }
 
-it.effect("retains an uncapped full payload privately while item reads show display only", () =>
+it.effect("retains a full admitted payload privately while item reads show display only", () =>
   withDb(
     Effect.gen(function* () {
       const publisher = yield* setup;
       const sql = yield* SqlClient.SqlClient;
-      const large = "original".repeat(20_000);
+      const large = "original".repeat(14_000);
       const request = { ...input, message: { ...input.message, text: large } };
       yield* sendMessage(publisher, driver, request);
       yield* settleMessage(

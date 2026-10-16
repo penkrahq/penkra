@@ -82,6 +82,7 @@ it.effect(
             status,
             text,
             admissionPlan: "deliver",
+            data: JSON.stringify({ origin: { _tag: "user" }, attachments: [] }),
             sendPayload: JSON.stringify({
               message: {
                 messageId: sourceId,

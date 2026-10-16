@@ -22,8 +22,8 @@ vi.mock("~/nativeApi", () => ({
         listArchivedNavigation: harness.navigation,
         listArchivedThreads: harness.chats,
         restoreThread: harness.restore,
+        updateNavigation: harness.command,
       },
-      orchestration: { dispatchCommand: harness.command },
     }) as unknown as NativeApi,
 }));
 import { toastManager } from "~/components/ui/toast";
@@ -113,7 +113,7 @@ describe("Settings Archive", () => {
       .element(page.getByText("Archived chat 0", { exact: true }))
       .not.toBeInTheDocument();
     await expect.element(page.getByText("Archived chat 1", { exact: true })).toBeVisible();
-    expect(harness.command.mock.calls.map(([command]) => command.type)).toEqual([
+    expect(harness.command.mock.calls.map(([command]) => command.update.action)).toEqual([
       "space.restore",
       "folder.update",
     ]);
@@ -136,7 +136,9 @@ describe("Settings Archive", () => {
       .parentElement?.parentElement;
     (row?.querySelector("button") as HTMLButtonElement).click();
     await vi.waitFor(() => expect(harness.navigation).toHaveBeenCalledTimes(2));
-    expect(harness.command.mock.calls.map(([command]) => command.type)).toEqual(["space.restore"]);
+    expect(harness.command.mock.calls.map(([command]) => command.update.action)).toEqual([
+      "space.restore",
+    ]);
     expect(harness.restore).not.toHaveBeenCalled();
     expect(toast).toHaveBeenCalledWith(
       expect.objectContaining({ type: "error", description: "A Space named Work already exists." }),

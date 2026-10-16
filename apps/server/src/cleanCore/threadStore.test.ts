@@ -62,6 +62,7 @@ it.effect("upsertThreadItem assigns seq once and updates in place", () =>
         kind: "user",
         status: "sent",
         text: "first",
+        data: JSON.stringify({ origin: { _tag: "user" }, attachments: [] }),
         createdAt: "2026-10-09T00:00:01.000Z",
         updatedAt: "2026-10-09T00:00:01.000Z",
       });
@@ -182,6 +183,7 @@ it.effect("stores last_message_preview unchanged (no fixed truncation)", () =>
         kind: "user",
         status: "sent",
         text: longText,
+        data: JSON.stringify({ origin: { _tag: "user" }, attachments: [] }),
         createdAt: "2026-10-09T00:00:01.000Z",
         updatedAt: "2026-10-09T00:00:01.000Z",
       });

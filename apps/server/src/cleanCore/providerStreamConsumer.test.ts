@@ -875,7 +875,8 @@ it.effect("a provider user echo preserves the admitted row until settlement", ()
         kind: "user" as const,
         status: "sending",
         text: "prompt",
-        data: JSON.stringify({ plan: "deliver" }),
+        data: JSON.stringify({ origin: { _tag: "user" }, attachments: [] }),
+        admissionPlan: "deliver" as const,
         createdAt: baseThread.createdAt,
         updatedAt: baseThread.createdAt,
       };
