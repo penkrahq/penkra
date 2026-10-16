@@ -2,11 +2,6 @@
   "jsonFilesParsed": 12,
   "jsonlEventsParsed": 1428,
   "gitObjectSourceHashesMatched": 16,
-  "controlledRevisionAssertionsPassed": [
-    "fix",
-    "parent",
-    "changed",
-    "head"
-  ],
+  "controlledRevisionAssertionsPassed": ["fix", "parent", "changed", "head"],
   "nativeJsonGzipFilesParsed": 5
 }

@@ -1300,9 +1300,7 @@
               "target": "probeUpload",
               "isTrusted": true,
               "value": "C:\\fakepath\\upload-fixture.txt",
-              "files": [
-                "upload-fixture.txt"
-              ]
+              "files": ["upload-fixture.txt"]
             },
             {
               "caseId": "f-visible-throttle-true-bypass-false-upload",
@@ -1314,16 +1312,12 @@
               "target": "probeUpload",
               "isTrusted": true,
               "value": "C:\\fakepath\\upload-fixture.txt",
-              "files": [
-                "upload-fixture.txt"
-              ]
+              "files": ["upload-fixture.txt"]
             }
           ],
           "clicks": 1,
           "text": "typed-f-visible-throttle-true-bypass-false",
-          "files": [
-            "upload-fixture.txt"
-          ],
+          "files": ["upload-fixture.txt"],
           "scrollY": 400,
           "visibility": "visible",
           "focus": true,
@@ -1533,9 +1527,7 @@
               "target": "probeUpload",
               "isTrusted": true,
               "value": "C:\\fakepath\\upload-fixture.txt",
-              "files": [
-                "upload-fixture.txt"
-              ]
+              "files": ["upload-fixture.txt"]
             },
             {
               "caseId": "f-visible-throttle-true-bypass-false-upload",
@@ -1547,16 +1539,12 @@
               "target": "probeUpload",
               "isTrusted": true,
               "value": "C:\\fakepath\\upload-fixture.txt",
-              "files": [
-                "upload-fixture.txt"
-              ]
+              "files": ["upload-fixture.txt"]
             }
           ],
           "clicks": 1,
           "text": "typed-f-visible-throttle-true-bypass-false",
-          "files": [
-            "upload-fixture.txt"
-          ],
+          "files": ["upload-fixture.txt"],
           "scrollY": 400,
           "visibility": "visible",
           "focus": true,
@@ -1768,9 +1756,7 @@
           "target": "probeUpload",
           "isTrusted": true,
           "value": "C:\\fakepath\\upload-fixture.txt",
-          "files": [
-            "upload-fixture.txt"
-          ]
+          "files": ["upload-fixture.txt"]
         },
         {
           "caseId": "f-visible-throttle-true-bypass-false-upload",
@@ -1782,16 +1768,12 @@
           "target": "probeUpload",
           "isTrusted": true,
           "value": "C:\\fakepath\\upload-fixture.txt",
-          "files": [
-            "upload-fixture.txt"
-          ]
+          "files": ["upload-fixture.txt"]
         }
       ],
       "clicks": 1,
       "text": "typed-f-visible-throttle-true-bypass-false",
-      "files": [
-        "upload-fixture.txt"
-      ],
+      "files": ["upload-fixture.txt"],
       "scrollY": 400,
       "visibility": "visible",
       "focus": true,
@@ -2005,9 +1987,7 @@
           "target": "probeUpload",
           "isTrusted": true,
           "value": "C:\\fakepath\\upload-fixture.txt",
-          "files": [
-            "upload-fixture.txt"
-          ]
+          "files": ["upload-fixture.txt"]
         },
         {
           "caseId": "f-visible-throttle-true-bypass-false-upload",
@@ -2019,9 +1999,7 @@
           "target": "probeUpload",
           "isTrusted": true,
           "value": "C:\\fakepath\\upload-fixture.txt",
-          "files": [
-            "upload-fixture.txt"
-          ]
+          "files": ["upload-fixture.txt"]
         },
         {
           "caseId": "f-visible-throttle-true-bypass-false-upload",
@@ -2034,9 +2012,7 @@
       ],
       "clicks": 1,
       "text": "typed-f-visible-throttle-true-bypass-false",
-      "files": [
-        "upload-fixture.txt"
-      ],
+      "files": ["upload-fixture.txt"],
       "scrollY": 400,
       "visibility": "hidden",
       "focus": true,
@@ -5592,9 +5568,7 @@
               "target": "probeUpload",
               "isTrusted": true,
               "value": "C:\\fakepath\\upload-fixture.txt",
-              "files": [
-                "upload-fixture.txt"
-              ]
+              "files": ["upload-fixture.txt"]
             },
             {
               "caseId": "f-hidden-throttle-true-bypass-true-upload",
@@ -5606,16 +5580,12 @@
               "target": "probeUpload",
               "isTrusted": true,
               "value": "C:\\fakepath\\upload-fixture.txt",
-              "files": [
-                "upload-fixture.txt"
-              ]
+              "files": ["upload-fixture.txt"]
             }
           ],
           "clicks": 1,
           "text": "typed-f-hidden-throttle-true-bypass-true",
-          "files": [
-            "upload-fixture.txt"
-          ],
+          "files": ["upload-fixture.txt"],
           "scrollY": 400,
           "visibility": "visible",
           "focus": true,
@@ -5820,9 +5790,7 @@
               "target": "probeUpload",
               "isTrusted": true,
               "value": "C:\\fakepath\\upload-fixture.txt",
-              "files": [
-                "upload-fixture.txt"
-              ]
+              "files": ["upload-fixture.txt"]
             },
             {
               "caseId": "f-hidden-throttle-true-bypass-true-upload",
@@ -5834,16 +5802,12 @@
               "target": "probeUpload",
               "isTrusted": true,
               "value": "C:\\fakepath\\upload-fixture.txt",
-              "files": [
-                "upload-fixture.txt"
-              ]
+              "files": ["upload-fixture.txt"]
             }
           ],
           "clicks": 1,
           "text": "typed-f-hidden-throttle-true-bypass-true",
-          "files": [
-            "upload-fixture.txt"
-          ],
+          "files": ["upload-fixture.txt"],
           "scrollY": 400,
           "visibility": "visible",
           "focus": true,
@@ -6050,9 +6014,7 @@
           "target": "probeUpload",
           "isTrusted": true,
           "value": "C:\\fakepath\\upload-fixture.txt",
-          "files": [
-            "upload-fixture.txt"
-          ]
+          "files": ["upload-fixture.txt"]
         },
         {
           "caseId": "f-hidden-throttle-true-bypass-true-upload",
@@ -6064,9 +6026,7 @@
           "target": "probeUpload",
           "isTrusted": true,
           "value": "C:\\fakepath\\upload-fixture.txt",
-          "files": [
-            "upload-fixture.txt"
-          ]
+          "files": ["upload-fixture.txt"]
         },
         {
           "caseId": "f-hidden-throttle-true-bypass-true-upload",
@@ -6079,9 +6039,7 @@
       ],
       "clicks": 1,
       "text": "typed-f-hidden-throttle-true-bypass-true",
-      "files": [
-        "upload-fixture.txt"
-      ],
+      "files": ["upload-fixture.txt"],
       "scrollY": 400,
       "visibility": "hidden",
       "focus": true,
@@ -6290,9 +6248,7 @@
           "target": "probeUpload",
           "isTrusted": true,
           "value": "C:\\fakepath\\upload-fixture.txt",
-          "files": [
-            "upload-fixture.txt"
-          ]
+          "files": ["upload-fixture.txt"]
         },
         {
           "caseId": "f-hidden-throttle-true-bypass-true-upload",
@@ -6304,9 +6260,7 @@
           "target": "probeUpload",
           "isTrusted": true,
           "value": "C:\\fakepath\\upload-fixture.txt",
-          "files": [
-            "upload-fixture.txt"
-          ]
+          "files": ["upload-fixture.txt"]
         },
         {
           "caseId": "f-hidden-throttle-true-bypass-true-upload",
@@ -6327,9 +6281,7 @@
       ],
       "clicks": 1,
       "text": "typed-f-hidden-throttle-true-bypass-true",
-      "files": [
-        "upload-fixture.txt"
-      ],
+      "files": ["upload-fixture.txt"],
       "scrollY": 400,
       "visibility": "visible",
       "focus": true,
@@ -7948,9 +7900,7 @@
               "target": "probeUpload",
               "isTrusted": true,
               "value": "C:\\fakepath\\upload-fixture.txt",
-              "files": [
-                "upload-fixture.txt"
-              ]
+              "files": ["upload-fixture.txt"]
             },
             {
               "caseId": "f-hidden-throttle-false-bypass-true-upload",
@@ -7962,16 +7912,12 @@
               "target": "probeUpload",
               "isTrusted": true,
               "value": "C:\\fakepath\\upload-fixture.txt",
-              "files": [
-                "upload-fixture.txt"
-              ]
+              "files": ["upload-fixture.txt"]
             }
           ],
           "clicks": 1,
           "text": "typed-f-hidden-throttle-false-bypass-true",
-          "files": [
-            "upload-fixture.txt"
-          ],
+          "files": ["upload-fixture.txt"],
           "scrollY": 400,
           "visibility": "visible",
           "focus": true,
@@ -8176,9 +8122,7 @@
               "target": "probeUpload",
               "isTrusted": true,
               "value": "C:\\fakepath\\upload-fixture.txt",
-              "files": [
-                "upload-fixture.txt"
-              ]
+              "files": ["upload-fixture.txt"]
             },
             {
               "caseId": "f-hidden-throttle-false-bypass-true-upload",
@@ -8190,16 +8134,12 @@
               "target": "probeUpload",
               "isTrusted": true,
               "value": "C:\\fakepath\\upload-fixture.txt",
-              "files": [
-                "upload-fixture.txt"
-              ]
+              "files": ["upload-fixture.txt"]
             }
           ],
           "clicks": 1,
           "text": "typed-f-hidden-throttle-false-bypass-true",
-          "files": [
-            "upload-fixture.txt"
-          ],
+          "files": ["upload-fixture.txt"],
           "scrollY": 400,
           "visibility": "visible",
           "focus": true,
@@ -8406,9 +8346,7 @@
           "target": "probeUpload",
           "isTrusted": true,
           "value": "C:\\fakepath\\upload-fixture.txt",
-          "files": [
-            "upload-fixture.txt"
-          ]
+          "files": ["upload-fixture.txt"]
         },
         {
           "caseId": "f-hidden-throttle-false-bypass-true-upload",
@@ -8420,16 +8358,12 @@
           "target": "probeUpload",
           "isTrusted": true,
           "value": "C:\\fakepath\\upload-fixture.txt",
-          "files": [
-            "upload-fixture.txt"
-          ]
+          "files": ["upload-fixture.txt"]
         }
       ],
       "clicks": 1,
       "text": "typed-f-hidden-throttle-false-bypass-true",
-      "files": [
-        "upload-fixture.txt"
-      ],
+      "files": ["upload-fixture.txt"],
       "scrollY": 400,
       "visibility": "visible",
       "focus": true,
@@ -8638,9 +8572,7 @@
           "target": "probeUpload",
           "isTrusted": true,
           "value": "C:\\fakepath\\upload-fixture.txt",
-          "files": [
-            "upload-fixture.txt"
-          ]
+          "files": ["upload-fixture.txt"]
         },
         {
           "caseId": "f-hidden-throttle-false-bypass-true-upload",
@@ -8652,16 +8584,12 @@
           "target": "probeUpload",
           "isTrusted": true,
           "value": "C:\\fakepath\\upload-fixture.txt",
-          "files": [
-            "upload-fixture.txt"
-          ]
+          "files": ["upload-fixture.txt"]
         }
       ],
       "clicks": 1,
       "text": "typed-f-hidden-throttle-false-bypass-true",
-      "files": [
-        "upload-fixture.txt"
-      ],
+      "files": ["upload-fixture.txt"],
       "scrollY": 400,
       "visibility": "visible",
       "focus": true,
@@ -10320,9 +10248,7 @@
               "target": "probeUpload",
               "isTrusted": true,
               "value": "C:\\fakepath\\upload-fixture.txt",
-              "files": [
-                "upload-fixture.txt"
-              ]
+              "files": ["upload-fixture.txt"]
             },
             {
               "caseId": "f-minimized-throttle-true-bypass-true-upload",
@@ -10334,16 +10260,12 @@
               "target": "probeUpload",
               "isTrusted": true,
               "value": "C:\\fakepath\\upload-fixture.txt",
-              "files": [
-                "upload-fixture.txt"
-              ]
+              "files": ["upload-fixture.txt"]
             }
           ],
           "clicks": 1,
           "text": "typed-f-minimized-throttle-true-bypass-true",
-          "files": [
-            "upload-fixture.txt"
-          ],
+          "files": ["upload-fixture.txt"],
           "scrollY": 400,
           "visibility": "visible",
           "focus": true,
@@ -10548,9 +10470,7 @@
               "target": "probeUpload",
               "isTrusted": true,
               "value": "C:\\fakepath\\upload-fixture.txt",
-              "files": [
-                "upload-fixture.txt"
-              ]
+              "files": ["upload-fixture.txt"]
             },
             {
               "caseId": "f-minimized-throttle-true-bypass-true-upload",
@@ -10562,16 +10482,12 @@
               "target": "probeUpload",
               "isTrusted": true,
               "value": "C:\\fakepath\\upload-fixture.txt",
-              "files": [
-                "upload-fixture.txt"
-              ]
+              "files": ["upload-fixture.txt"]
             }
           ],
           "clicks": 1,
           "text": "typed-f-minimized-throttle-true-bypass-true",
-          "files": [
-            "upload-fixture.txt"
-          ],
+          "files": ["upload-fixture.txt"],
           "scrollY": 400,
           "visibility": "visible",
           "focus": true,
@@ -10778,9 +10694,7 @@
           "target": "probeUpload",
           "isTrusted": true,
           "value": "C:\\fakepath\\upload-fixture.txt",
-          "files": [
-            "upload-fixture.txt"
-          ]
+          "files": ["upload-fixture.txt"]
         },
         {
           "caseId": "f-minimized-throttle-true-bypass-true-upload",
@@ -10792,16 +10706,12 @@
           "target": "probeUpload",
           "isTrusted": true,
           "value": "C:\\fakepath\\upload-fixture.txt",
-          "files": [
-            "upload-fixture.txt"
-          ]
+          "files": ["upload-fixture.txt"]
         }
       ],
       "clicks": 1,
       "text": "typed-f-minimized-throttle-true-bypass-true",
-      "files": [
-        "upload-fixture.txt"
-      ],
+      "files": ["upload-fixture.txt"],
       "scrollY": 400,
       "visibility": "visible",
       "focus": true,
@@ -11010,9 +10920,7 @@
           "target": "probeUpload",
           "isTrusted": true,
           "value": "C:\\fakepath\\upload-fixture.txt",
-          "files": [
-            "upload-fixture.txt"
-          ]
+          "files": ["upload-fixture.txt"]
         },
         {
           "caseId": "f-minimized-throttle-true-bypass-true-upload",
@@ -11024,9 +10932,7 @@
           "target": "probeUpload",
           "isTrusted": true,
           "value": "C:\\fakepath\\upload-fixture.txt",
-          "files": [
-            "upload-fixture.txt"
-          ]
+          "files": ["upload-fixture.txt"]
         },
         {
           "caseId": "f-minimized-throttle-true-bypass-true-upload",
@@ -11047,9 +10953,7 @@
       ],
       "clicks": 1,
       "text": "typed-f-minimized-throttle-true-bypass-true",
-      "files": [
-        "upload-fixture.txt"
-      ],
+      "files": ["upload-fixture.txt"],
       "scrollY": 400,
       "visibility": "visible",
       "focus": true,
@@ -12665,9 +12569,7 @@
               "target": "probeUpload",
               "isTrusted": true,
               "value": "C:\\fakepath\\upload-fixture.txt",
-              "files": [
-                "upload-fixture.txt"
-              ]
+              "files": ["upload-fixture.txt"]
             },
             {
               "caseId": "f-minimized-throttle-false-bypass-true-upload",
@@ -12679,16 +12581,12 @@
               "target": "probeUpload",
               "isTrusted": true,
               "value": "C:\\fakepath\\upload-fixture.txt",
-              "files": [
-                "upload-fixture.txt"
-              ]
+              "files": ["upload-fixture.txt"]
             }
           ],
           "clicks": 1,
           "text": "typed-f-minimized-throttle-false-bypass-true",
-          "files": [
-            "upload-fixture.txt"
-          ],
+          "files": ["upload-fixture.txt"],
           "scrollY": 400,
           "visibility": "visible",
           "focus": true,
@@ -12893,9 +12791,7 @@
               "target": "probeUpload",
               "isTrusted": true,
               "value": "C:\\fakepath\\upload-fixture.txt",
-              "files": [
-                "upload-fixture.txt"
-              ]
+              "files": ["upload-fixture.txt"]
             },
             {
               "caseId": "f-minimized-throttle-false-bypass-true-upload",
@@ -12907,16 +12803,12 @@
               "target": "probeUpload",
               "isTrusted": true,
               "value": "C:\\fakepath\\upload-fixture.txt",
-              "files": [
-                "upload-fixture.txt"
-              ]
+              "files": ["upload-fixture.txt"]
             }
           ],
           "clicks": 1,
           "text": "typed-f-minimized-throttle-false-bypass-true",
-          "files": [
-            "upload-fixture.txt"
-          ],
+          "files": ["upload-fixture.txt"],
           "scrollY": 400,
           "visibility": "visible",
           "focus": true,
@@ -13123,9 +13015,7 @@
           "target": "probeUpload",
           "isTrusted": true,
           "value": "C:\\fakepath\\upload-fixture.txt",
-          "files": [
-            "upload-fixture.txt"
-          ]
+          "files": ["upload-fixture.txt"]
         },
         {
           "caseId": "f-minimized-throttle-false-bypass-true-upload",
@@ -13137,16 +13027,12 @@
           "target": "probeUpload",
           "isTrusted": true,
           "value": "C:\\fakepath\\upload-fixture.txt",
-          "files": [
-            "upload-fixture.txt"
-          ]
+          "files": ["upload-fixture.txt"]
         }
       ],
       "clicks": 1,
       "text": "typed-f-minimized-throttle-false-bypass-true",
-      "files": [
-        "upload-fixture.txt"
-      ],
+      "files": ["upload-fixture.txt"],
       "scrollY": 400,
       "visibility": "visible",
       "focus": true,
@@ -13355,9 +13241,7 @@
           "target": "probeUpload",
           "isTrusted": true,
           "value": "C:\\fakepath\\upload-fixture.txt",
-          "files": [
-            "upload-fixture.txt"
-          ]
+          "files": ["upload-fixture.txt"]
         },
         {
           "caseId": "f-minimized-throttle-false-bypass-true-upload",
@@ -13369,16 +13253,12 @@
           "target": "probeUpload",
           "isTrusted": true,
           "value": "C:\\fakepath\\upload-fixture.txt",
-          "files": [
-            "upload-fixture.txt"
-          ]
+          "files": ["upload-fixture.txt"]
         }
       ],
       "clicks": 1,
       "text": "typed-f-minimized-throttle-false-bypass-true",
-      "files": [
-        "upload-fixture.txt"
-      ],
+      "files": ["upload-fixture.txt"],
       "scrollY": 400,
       "visibility": "visible",
       "focus": true,

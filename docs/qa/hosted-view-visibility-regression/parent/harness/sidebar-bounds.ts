@@ -1,5 +1,5 @@
-import {CHAT_SURFACE_HEADER_HEIGHT_PX} from "@penkra/shared/desktopChrome";
-const NATIVE_APP_SPLITTER_CLEARANCE_PX=1;
+import { CHAT_SURFACE_HEADER_HEIGHT_PX } from "@penkra/shared/desktopChrome";
+const NATIVE_APP_SPLITTER_CLEARANCE_PX = 1;
 export function appDockBoundsForWidth(dockWidth: number) {
   const x = Math.ceil(window.innerWidth - dockWidth + NATIVE_APP_SPLITTER_CLEARANCE_PX);
   const y = CHAT_SURFACE_HEADER_HEIGHT_PX;

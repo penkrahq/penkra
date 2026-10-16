@@ -279,7 +279,6 @@ The harness is not committed. External audit evidence remains in
 - `result-183-failure.json`, `run-5.log`: rollback counts, injected cause and hashes.
 - `MigrationRehearsal.183.local.test.ts`: audit copy of the deleted harness.
 
-
 ## Addendum (e): native-folder rehearsal stopped on migration failure (2026-10-11)
 
 This attempted rehearsal used the same valid, immutable `state-copy.sqlite`
@@ -336,7 +335,6 @@ Audit evidence is outside the repository in
   hashing was changed to an equivalent streaming SHA-256 implementation after
   this run started, for a future run only.
 
-
 ## Addendum (f): native-folder rehearsal and disk cleanup (2026-10-11)
 
 This successful rerun supersedes addendum (e)'s stopped native-folder attempt.
@@ -346,14 +344,14 @@ The immutable `state-copy.sqlite` (8,331,603,968 bytes) was opened read-only for
 8,289,067,008 bytes, with integrity `ok`. The real migration runner executed
 176 through 187 inside the native-folder backfill transaction.
 
-| Check | Before | After |
-|---|---:|---:|
-| Source projection threads / canonical threads | 581 | 581 |
-| Source user+assistant messages / user+text items | 86,052 | 86,052 |
-| Open pending interactions / open question items | 0 | 0 |
-| Total canonical items | absent | 634,498 |
-| Parent links removed (migration 182 log) | 75 | 75 removed |
-| Claude native folders moved | 9 staged copies | 9 canonical folders |
+| Check                                            |          Before |               After |
+| ------------------------------------------------ | --------------: | ------------------: |
+| Source projection threads / canonical threads    |             581 |                 581 |
+| Source user+assistant messages / user+text items |          86,052 |              86,052 |
+| Open pending interactions / open question items  |               0 |                   0 |
+| Total canonical items                            |          absent |             634,498 |
+| Parent links removed (migration 182 log)         |              75 |          75 removed |
+| Claude native folders moved                      | 9 staged copies | 9 canonical folders |
 
 All per-thread message counts matched; mismatch list was empty. All nine native
 folder file hashes matched after moving; five folders used account-scoped project
@@ -386,13 +384,13 @@ sampled guarantee of the absolute peak. The copy row means the disposable
 rehearsal copy in addition to the retained source; this harness created no
 Production pre-upgrade backup (that startup work is assigned to step 11).
 
-| Extra data | Bytes | Multiple of starting database |
-|---|---:|---:|
-| Fresh rehearsal database copy | 8,289,067,008 | 1.000000× |
-| WAL | 0 | 0.000000× |
-| SQLite TEMP (`etilqs`), highest observed aggregate | 10,652,899,305 | 1.285175× |
-| Disposable native-folder copies (regular-file bytes) | 8,173,811,173 | 0.986095× |
-| Sum of the four observed category maxima | 27,115,777,486 | 3.271270× |
+| Extra data                                           |          Bytes | Multiple of starting database |
+| ---------------------------------------------------- | -------------: | ----------------------------: |
+| Fresh rehearsal database copy                        |  8,289,067,008 |                     1.000000× |
+| WAL                                                  |              0 |                     0.000000× |
+| SQLite TEMP (`etilqs`), highest observed aggregate   | 10,652,899,305 |                     1.285175× |
+| Disposable native-folder copies (regular-file bytes) |  8,173,811,173 |                     0.986095× |
+| Sum of the four observed category maxima             | 27,115,777,486 |                     3.271270× |
 
 SQLite used a rollback journal rather than WAL in this harness; its highest
 observed journal size was 22,016 bytes (0.000003×), outside the WAL row.
@@ -480,21 +478,20 @@ or newly skipped. The earlier full run which had already recorded the
 pre-repair watcher failure was interrupted when the operator fixed the host;
 its partial results are not presented as a passing run.
 
-
 ## Final rehearsal after pipeline and provider fold (2026-10-13)
 
 The detached copy job's first run made a consistent 8,958,799,872-byte copy while Penkra was quit. Its integrity check returned `ok`; subsequent accidental relaunches of that job were stopped by the reviewer. G used only fresh `VACUUM INTO` copies of that retained copy, never Production.
 
 The first run exposed 45 historical failed messages in 24 threads being removed by migration 200. de6159be9 corrected this: all historical failed/starting/steering/queued messages remain Failed with no private send payload and never join a retry cohort. The fresh final run passed.
 
-| Evidence | Source | Final |
-|---|---:|---:|
-| Threads | 586 | 586 |
-| User + assistant/text messages | 92,555 | 92,555 |
-| Former child thread rows retained through flattening | 79 | 79 |
-| Open questions | 0 | 0 |
-| Folder rows | 25 | 25 |
-| Composer/native-owner discrepancies corrected | 121 | 0 |
+| Evidence                                             | Source |  Final |
+| ---------------------------------------------------- | -----: | -----: |
+| Threads                                              |    586 |    586 |
+| User + assistant/text messages                       | 92,555 | 92,555 |
+| Former child thread rows retained through flattening |     79 |     79 |
+| Open questions                                       |      0 |      0 |
+| Folder rows                                          |     25 |     25 |
+| Composer/native-owner discrepancies corrected        |    121 |      0 |
 
 Per-thread message mismatches: 0. Native-state/session/owner mismatches: 0. `foreign_key_check`: empty; no FK targets a dropped table. All nine Claude folders moved; no live thread folder remained at the old path. Every file's tree hash was preserved and all nine exact session-ID JSONL files were present at the canonical path. This proves file/identity preservation, without launching an additional provider turn.
 
@@ -504,22 +501,21 @@ Final migration duration: **396,762.52 ms (6.61 min)**. Before VACUUM: 12,115,42
 
 Evidence is under `~/penkra-rehearsal/run-8/final/result.json` and `run.log`; the initial failed run's report is retained alongside them. At the operator's instruction, closed rehearsal databases, disposable native copies and the retained rehearsal source were deleted after recording the results. Free space afterward: **47,176,974,336 bytes**. No Production database, userdata backup directory or `.corrupt` file was touched.
 
-
 ### Operator-approved post-upgrade cleanup and fixes (2026-10-13)
 
 The local Production upgrade succeeded. The operator subsequently authorized removing the old
 backup snapshots and preserved 0.14.3 bundle. The live state.sqlite, WAL/SHM and
 state.sqlite.corrupt-20260808T0848Z.sqlite were excluded. Deleted paths and logical sizes:
 
-| Path | Bytes |
-| --- | ---: |
-| /Users/emmanuelgyekyeatta-penkra/Penkra/.penkra/userdata/state.pre-0.14.4.sqlite | 8879104000 |
-| /Users/emmanuelgyekyeatta-penkra/Penkra/.penkra/userdata/state.sqlite.backups/.state.sqlite.pre-migration-v161-to-v162-20260910T105155259Z-8d872562-a62b-4c1c-93c4-e2a5be151842.sqlite.partial-journal | 1024 |
-| /Users/emmanuelgyekyeatta-penkra/Penkra/.penkra/userdata/state.sqlite.backups/state.sqlite.pre-migration-v175-to-v202-20261013T103828607Z-1b4f0efa-a622-4118-b05a-124aad82ccb5.sqlite | 8879104000 |
-| /Users/emmanuelgyekyeatta-penkra/Penkra/.penkra/userdata/state.sqlite.backups/state.sqlite.pre-stall-investigation-20260928.sqlite | 5635252224 |
-| /Users/emmanuelgyekyeatta-penkra/Penkra/.penkra/userdata/state.sqlite.backups/state.sqlite.pre-stall-investigation-20260928.sqlite-shm | 32768 |
-| /Users/emmanuelgyekyeatta-penkra/Penkra/.penkra/userdata/state.sqlite.backups/state.sqlite.pre-stall-investigation-20260928.sqlite-wal | 0 |
-| /Users/emmanuelgyekyeatta-penkra/Penkra/.penkra/updates/20261013-043233-825486/Penkra.app | 445269890 |
+| Path                                                                                                                                                                                                   |      Bytes |
+| ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ---------: |
+| /Users/emmanuelgyekyeatta-penkra/Penkra/.penkra/userdata/state.pre-0.14.4.sqlite                                                                                                                       | 8879104000 |
+| /Users/emmanuelgyekyeatta-penkra/Penkra/.penkra/userdata/state.sqlite.backups/.state.sqlite.pre-migration-v161-to-v162-20260910T105155259Z-8d872562-a62b-4c1c-93c4-e2a5be151842.sqlite.partial-journal |       1024 |
+| /Users/emmanuelgyekyeatta-penkra/Penkra/.penkra/userdata/state.sqlite.backups/state.sqlite.pre-migration-v175-to-v202-20261013T103828607Z-1b4f0efa-a622-4118-b05a-124aad82ccb5.sqlite                  | 8879104000 |
+| /Users/emmanuelgyekyeatta-penkra/Penkra/.penkra/userdata/state.sqlite.backups/state.sqlite.pre-stall-investigation-20260928.sqlite                                                                     | 5635252224 |
+| /Users/emmanuelgyekyeatta-penkra/Penkra/.penkra/userdata/state.sqlite.backups/state.sqlite.pre-stall-investigation-20260928.sqlite-shm                                                                 |      32768 |
+| /Users/emmanuelgyekyeatta-penkra/Penkra/.penkra/userdata/state.sqlite.backups/state.sqlite.pre-stall-investigation-20260928.sqlite-wal                                                                 |          0 |
+| /Users/emmanuelgyekyeatta-penkra/Penkra/.penkra/updates/20261013-043233-825486/Penkra.app                                                                                                              |  445269890 |
 
 The fixed pre-upgrade snapshot and its dated backup were hard links; distinct-inode logical
 bytes removed total 14959659906. Free space after removal: 71,556,935,680 bytes.

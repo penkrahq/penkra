@@ -18,7 +18,7 @@ it.effect("backfills threads and thread_items from the replaced projection table
       const now = "2026-10-09T00:00:00.000Z";
       const t1 = "2026-10-09T00:00:01.000Z";
       const t2 = "2026-10-09T00:00:02.000Z";
-      const t3 = "2026-10-09T00:00:03.000Z";
+      const operationAt = "2026-10-09T00:00:03.000Z";
       const t4 = "2026-10-09T00:00:04.000Z";
       const t5 = "2026-10-09T00:00:05.000Z";
       yield* sql`
@@ -50,7 +50,7 @@ it.effect("backfills threads and thread_items from the replaced projection table
         ) VALUES (
           'op-1', 'provider-op-1', 'thread-1', 'codex', 'command_execution',
           'Ran command', 'completed', '{"summary":"Ran command","payload":{"command":"ls"}}',
-          ${t3}, 'evt-1', ${t3}, 3
+          ${operationAt}, 'evt-1', ${operationAt}, 3
         )
       `;
       yield* sql`

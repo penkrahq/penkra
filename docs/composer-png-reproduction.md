@@ -18,13 +18,13 @@ Raw observations: `/tmp/penkra-composer-report.json`. Driver: `/tmp/penkra-compo
 
 ## Observed matrix
 
-| Input | Component | Type / MIME / preview | Warning | Click |
-|---|---|---|---|---|
-| Screenshot paste | ComposerImageAttachmentChip | image / image/png / blob: | Present | Opens image dialog |
-| PNG drop control | ComposerImageAttachmentChip | image / image/png / blob: | Present | Opens image dialog |
-| PNG picker | ComposerImageAttachmentChip | image / image/png / blob: | Present | Opens image dialog |
-| Picker, switch away and back | ComposerImageAttachmentChip | image / image/png / blob: | Present | Opens image dialog |
-| Full reload after server commit | No image chip | images empty; retained reference has size 0 | No chip | No preview button |
+| Input                           | Component                   | Type / MIME / preview                       | Warning | Click              |
+| ------------------------------- | --------------------------- | ------------------------------------------- | ------- | ------------------ |
+| Screenshot paste                | ComposerImageAttachmentChip | image / image/png / blob:                   | Present | Opens image dialog |
+| PNG drop control                | ComposerImageAttachmentChip | image / image/png / blob:                   | Present | Opens image dialog |
+| PNG picker                      | ComposerImageAttachmentChip | image / image/png / blob:                   | Present | Opens image dialog |
+| Picker, switch away and back    | ComposerImageAttachmentChip | image / image/png / blob:                   | Present | Opens image dialog |
+| Full reload after server commit | No image chip               | images empty; retained reference has size 0 | No chip | No preview button  |
 
 No case rendered FileAttachmentChip, an empty-preview IMG fallback, or the reported green PNG FileEntryIcon. All four click cases returned a usable expanded preview; `buildExpandedImagePreview` did not return null. Thus the historical unclickable green-icon composer occurrence remains unreproduced, and its introducing commit is unknown.
 

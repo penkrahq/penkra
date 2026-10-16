@@ -9,7 +9,9 @@ Chore is Penkra thread `919c1fb3-9437-4431-ba0e-e90f3c836dd5`, native session `s
 The installed binary contains this exact compiled function:
 
 ```js
-function N5(Q){return Q.startsWith("image/")||o9(Q)}
+function N5(Q) {
+  return Q.startsWith("image/") || o9(Q);
+}
 ```
 
 It also contains the tool-attachment filters `T.filter((c)=>N5(c.mime))` and `T.filter((c)=>!N5(c.mime)||H(c))`. This matches [v1.19.0 isMedia, lines 7–8](https://github.com/anomalyco/opencode/blob/v1.19.0/packages/opencode/src/util/media.ts#L7) and [toModelMessagesEffect, lines 288–305](https://github.com/anomalyco/opencode/blob/v1.19.0/packages/opencode/src/session/message-v2.ts#L288): the converter filters completed tool attachments by MIME, then prepares their output. The observed error is specifically the MIME check, not the later URL check.
@@ -28,10 +30,10 @@ Scratch root: `~/penkra-rehearsal/opencode-image-repro`. Each native server got 
 
 This is a native provider-session control, not a full Penkra UI run: it isolates the plugin and OpenCode converter while removing composer/gateway/network-service variation. The first prompt invokes the actual native `read` tool on a real PNG. Then a second message is sent. One run was performed per case; process readiness and request/child completion drove it, with no sleeps, retries or mutation of Chore.
 
-| Case | First prompt after image tool result | Second prompt | Model requests |
-|---|---|---|---|
-| Exact current plugin enabled | HTTP 500, exact Q.startsWith/N5 failure | HTTP 500, same failure | 1 for first tool invocation; 0 on second send |
-| Plugin absent | HTTP 200, tool result processed and reply completed | HTTP 200, reply completed | 2 for first turn; 1 for second |
+| Case                         | First prompt after image tool result                | Second prompt             | Model requests                                |
+| ---------------------------- | --------------------------------------------------- | ------------------------- | --------------------------------------------- |
+| Exact current plugin enabled | HTTP 500, exact Q.startsWith/N5 failure             | HTTP 500, same failure    | 1 for first tool invocation; 0 on second send |
+| Plugin absent                | HTTP 200, tool result processed and reply completed | HTTP 200, reply completed | 2 for first turn; 1 for second                |
 
 Both native histories retain the completed read attachment as a valid PNG file. Plugin-on fails on the first turn's next loop after the image result, not only after an additional user message. It remains able to accept HTTP requests; this is a prompt failure, not proof that the server process exited.
 

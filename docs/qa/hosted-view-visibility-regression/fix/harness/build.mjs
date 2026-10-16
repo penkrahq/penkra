@@ -1,3 +1,47 @@
-import path from 'node:path';
-const root=process.cwd();const plugin={name:'qa-alias',setup(build){build.onResolve({filter:/^@penkra\/contracts$/},()=>({path:path.join(root,'packages/contracts/src/index.ts')}));build.onResolve({filter:/^@penkra\/shared\//},args=>({path:path.join(root,'packages/shared/src',args.path.slice('@penkra/shared/'.length)+'.ts')}));build.onResolve({filter:/^~\//},args=>({path:path.join(root,'apps/web/src',args.path.slice(2))+(/\.[a-z]+$/.test(args.path)?'':'.ts')}));build.onResolve({filter:/^\.\.\/ui\/sidebar$/},()=>({path:path.join(root,'qa/sidebar-bounds.ts')}));}};
-for(const [entry,target] of [['qa/main.ts','node'],['qa/renderer.tsx','browser']]){const result=await Bun.build({entrypoints:[entry],outdir:'qa/bundle',target,format:target==='node'?'cjs':'esm',external:target==='node'?['electron']:[],plugins:[plugin]});if(!result.success){for(const l of result.logs)console.error(l);process.exit(1)}if(target==='node')await Bun.write('qa/bundle/main.cjs',await result.outputs[0].text());}await Bun.write('qa/bundle/package.json',JSON.stringify({name:'qa-visibility-history',main:'main.cjs'}));
+import path from "node:path";
+const root = process.cwd();
+const plugin = {
+  name: "qa-alias",
+  setup(build) {
+    build.onResolve({ filter: /^@penkra\/contracts$/ }, () => ({
+      path: path.join(root, "packages/contracts/src/index.ts"),
+    }));
+    build.onResolve({ filter: /^@penkra\/shared\// }, (args) => ({
+      path: path.join(
+        root,
+        "packages/shared/src",
+        args.path.slice("@penkra/shared/".length) + ".ts",
+      ),
+    }));
+    build.onResolve({ filter: /^~\// }, (args) => ({
+      path:
+        path.join(root, "apps/web/src", args.path.slice(2)) +
+        (/\.[a-z]+$/.test(args.path) ? "" : ".ts"),
+    }));
+    build.onResolve({ filter: /^\.\.\/ui\/sidebar$/ }, () => ({
+      path: path.join(root, "qa/sidebar-bounds.ts"),
+    }));
+  },
+};
+for (const [entry, target] of [
+  ["qa/main.ts", "node"],
+  ["qa/renderer.tsx", "browser"],
+]) {
+  const result = await Bun.build({
+    entrypoints: [entry],
+    outdir: "qa/bundle",
+    target,
+    format: target === "node" ? "cjs" : "esm",
+    external: target === "node" ? ["electron"] : [],
+    plugins: [plugin],
+  });
+  if (!result.success) {
+    for (const l of result.logs) console.error(l);
+    process.exit(1);
+  }
+  if (target === "node") await Bun.write("qa/bundle/main.cjs", await result.outputs[0].text());
+}
+await Bun.write(
+  "qa/bundle/package.json",
+  JSON.stringify({ name: "qa-visibility-history", main: "main.cjs" }),
+);
