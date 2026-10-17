@@ -29,7 +29,7 @@ const TIMING_FIXTURE_TURNS = {
     seq: 1,
     sourceId: "turn:fixture-duration",
     turnId: TurnId.makeUnsafe("fixture-duration"),
-    kind: "turn",
+    kind: "turn" as const,
     status: "done",
     text: null,
     data: JSON.stringify({
@@ -74,13 +74,39 @@ function makeTimelineBaseProps() {
     activeTurnInProgress: false,
     activeTurnStartedAt: null,
     nowIso: "2026-03-17T19:12:30.000Z",
-    expandedWorkGroups: {},
-    onToggleWorkGroup: () => {},
     onImageExpand: () => {},
     markdownCwd: undefined,
     resolvedTheme: "dark" as const,
     timestampFormat: "locale" as const,
     workspaceRoot: undefined,
+  };
+}
+
+function settledFixture(items: ReadonlyArray<{ kind: "tool" | "text" | "notice"; text: string }>) {
+  const turn = TIMING_FIXTURE_TURNS["fixture-duration"];
+  const rows = items.map((item, index) => ({
+    ...turn,
+    ...item,
+    seq: index + 2,
+    sourceId: "step-" + index,
+    data:
+      item.kind === "tool"
+        ? '{"kind":"tool.completed","summary":"Ran command","payload":{}}'
+        : null,
+  }));
+  const answer = {
+    ...turn,
+    seq: rows.length + 2,
+    sourceId: "final-answer",
+    kind: "text" as const,
+    text: "done",
+    data: null,
+  };
+  return {
+    turns: TIMING_FIXTURE_TURNS,
+    finals: { "fixture-duration": answer },
+    hasSteps: { "fixture-duration": rows.length > 0 },
+    timelineEntries: threadItemsToTimelineEntries([...rows, answer]),
   };
 }
 
@@ -244,8 +270,6 @@ describe("MessagesTimeline", () => {
               },
             ]}
             nowIso={createdAt}
-            expandedWorkGroups={{}}
-            onToggleWorkGroup={() => {}}
             onImageExpand={() => {}}
             markdownCwd={undefined}
             resolvedTheme="light"
@@ -324,8 +348,6 @@ describe("MessagesTimeline", () => {
           },
         ]}
         nowIso="2026-03-17T19:12:30.000Z"
-        expandedWorkGroups={{}}
-        onToggleWorkGroup={() => {}}
         onImageExpand={() => {}}
         markdownCwd={undefined}
         resolvedTheme="light"
@@ -362,8 +384,6 @@ describe("MessagesTimeline", () => {
           },
         ]}
         nowIso="2026-03-17T19:12:30.000Z"
-        expandedWorkGroups={{}}
-        onToggleWorkGroup={() => {}}
         onImageExpand={() => {}}
         markdownCwd={undefined}
         resolvedTheme="light"
@@ -398,8 +418,6 @@ describe("MessagesTimeline", () => {
           },
         ]}
         nowIso="2026-03-17T19:12:30.000Z"
-        expandedWorkGroups={{}}
-        onToggleWorkGroup={() => {}}
         onImageExpand={() => {}}
         markdownCwd={undefined}
         resolvedTheme="light"
@@ -457,8 +475,6 @@ describe("MessagesTimeline", () => {
           },
         ]}
         nowIso="2026-03-17T19:14:30.000Z"
-        expandedWorkGroups={{}}
-        onToggleWorkGroup={() => {}}
         onOpenThread={() => {}}
         onImageExpand={() => {}}
         markdownCwd={undefined}
@@ -506,8 +522,6 @@ describe("MessagesTimeline", () => {
           },
         ]}
         nowIso="2026-03-17T19:14:30.000Z"
-        expandedWorkGroups={{}}
-        onToggleWorkGroup={() => {}}
         onOpenThread={() => {}}
         onImageExpand={() => {}}
         markdownCwd={undefined}
@@ -617,8 +631,6 @@ describe("MessagesTimeline", () => {
           },
         ]}
         nowIso="2026-03-17T19:12:30.000Z"
-        expandedWorkGroups={{}}
-        onToggleWorkGroup={() => {}}
         onImageExpand={() => {}}
         markdownCwd={undefined}
         resolvedTheme="light"
@@ -676,8 +688,6 @@ describe("MessagesTimeline", () => {
           },
         ]}
         nowIso="2026-03-17T19:12:30.000Z"
-        expandedWorkGroups={{}}
-        onToggleWorkGroup={() => {}}
         onImageExpand={() => {}}
         markdownCwd={undefined}
         resolvedTheme="light"
@@ -740,8 +750,6 @@ describe("MessagesTimeline", () => {
             },
           ]}
           nowIso="2026-03-17T19:12:30.000Z"
-          expandedWorkGroups={{}}
-          onToggleWorkGroup={() => {}}
           onImageExpand={() => {}}
           markdownCwd={undefined}
           resolvedTheme="light"
@@ -799,8 +807,6 @@ describe("MessagesTimeline", () => {
           },
         ]}
         nowIso="2026-03-17T19:12:30.000Z"
-        expandedWorkGroups={{}}
-        onToggleWorkGroup={() => {}}
         onImageExpand={() => {}}
         markdownCwd={undefined}
         resolvedTheme="light"
@@ -851,8 +857,6 @@ describe("MessagesTimeline", () => {
           },
         ]}
         nowIso="2026-03-17T19:12:30.000Z"
-        expandedWorkGroups={{}}
-        onToggleWorkGroup={() => {}}
         onImageExpand={() => {}}
         markdownCwd={undefined}
         resolvedTheme="light"
@@ -887,8 +891,6 @@ describe("MessagesTimeline", () => {
           },
         ]}
         nowIso="2026-03-17T19:12:30.000Z"
-        expandedWorkGroups={{}}
-        onToggleWorkGroup={() => {}}
         onImageExpand={() => {}}
         markdownCwd={undefined}
         resolvedTheme="light"
@@ -927,8 +929,6 @@ describe("MessagesTimeline", () => {
           },
         ]}
         nowIso="2026-03-17T19:12:30.000Z"
-        expandedWorkGroups={{}}
-        onToggleWorkGroup={() => {}}
         onImageExpand={() => {}}
         markdownCwd={undefined}
         resolvedTheme="light"
@@ -978,8 +978,6 @@ describe("MessagesTimeline", () => {
           },
         ]}
         nowIso="2026-03-17T19:12:30.000Z"
-        expandedWorkGroups={{}}
-        onToggleWorkGroup={() => {}}
         onImageExpand={() => {}}
         markdownCwd={undefined}
         resolvedTheme="light"
@@ -1023,8 +1021,6 @@ describe("MessagesTimeline", () => {
           },
         ]}
         nowIso="2026-03-17T19:12:30.000Z"
-        expandedWorkGroups={{}}
-        onToggleWorkGroup={() => {}}
         onImageExpand={() => {}}
         markdownCwd={undefined}
         resolvedTheme="light"
@@ -1060,8 +1056,6 @@ describe("MessagesTimeline", () => {
           },
         ]}
         nowIso="2026-03-17T19:12:30.000Z"
-        expandedWorkGroups={{}}
-        onToggleWorkGroup={() => {}}
         onImageExpand={() => {}}
         markdownCwd={undefined}
         resolvedTheme="light"
@@ -1097,8 +1091,6 @@ describe("MessagesTimeline", () => {
           },
         ]}
         nowIso="2026-03-17T19:12:30.000Z"
-        expandedWorkGroups={{}}
-        onToggleWorkGroup={() => {}}
         onImageExpand={() => {}}
         markdownCwd={undefined}
         resolvedTheme="light"
@@ -1131,8 +1123,6 @@ describe("MessagesTimeline", () => {
           },
         ]}
         nowIso="2026-03-17T19:12:30.000Z"
-        expandedWorkGroups={{}}
-        onToggleWorkGroup={() => {}}
         onImageExpand={() => {}}
         markdownCwd={undefined}
         resolvedTheme="light"
@@ -1148,6 +1138,10 @@ describe("MessagesTimeline", () => {
   it("keeps the generic working copy alongside the active compaction entry", async () => {
     const markup = renderToStaticMarkup(
       <MessagesTimeline
+        activeTurnId={TurnId.makeUnsafe("fixture-duration")}
+        turns={{
+          "fixture-duration": { ...TIMING_FIXTURE_TURNS["fixture-duration"], status: "running" },
+        }}
         hasMessages
         isWorking
         activeTurnInProgress
@@ -1166,8 +1160,6 @@ describe("MessagesTimeline", () => {
           },
         ]}
         nowIso="2026-03-17T19:12:30.000Z"
-        expandedWorkGroups={{}}
-        onToggleWorkGroup={() => {}}
         onImageExpand={() => {}}
         markdownCwd={undefined}
         resolvedTheme="light"
@@ -1181,316 +1173,81 @@ describe("MessagesTimeline", () => {
     expect(markup).not.toContain("h-px flex-1 bg-border");
   });
 
-  it("folds work log summaries above the next assistant message footer", async () => {
+  it("renders the server-selected final footer after the separate Worked-for header", async () => {
+    const fixture = settledFixture([{ kind: "tool", text: "Inspect source" }]);
     const markup = renderToStaticMarkup(
-      <MessagesTimeline
-        turns={TIMING_FIXTURE_TURNS}
-        hasMessages
-        isWorking={false}
-        activeTurnInProgress={false}
-        activeTurnStartedAt={null}
-        timelineEntries={[
-          {
-            id: "entry-work-inline",
-            kind: "work",
-            createdAt: "2026-03-17T19:12:28.000Z",
-            entry: {
-              id: "work-inline-1",
-              createdAt: "2026-03-17T19:12:28.000Z",
-              label: "turn",
-              tone: "info",
-            },
-          },
-          {
-            id: "entry-assistant-inline",
-            kind: "message",
-            createdAt: "2026-03-17T19:12:29.000Z",
-            message: {
-              turnId: TurnId.makeUnsafe("fixture-duration"),
-              id: MessageId.makeUnsafe("message-assistant-inline"),
-              role: "assistant",
-              text: "done",
-              createdAt: "2026-03-17T19:12:29.000Z",
-              completedAt: "2026-03-17T19:12:30.000Z",
-              streaming: false,
-            },
-          },
-        ]}
-        nowIso="2026-03-17T19:12:30.000Z"
-        expandedWorkGroups={{}}
-        onToggleWorkGroup={() => {}}
-        onImageExpand={() => {}}
-        markdownCwd={undefined}
-        resolvedTheme="light"
-        timestampFormat="locale"
-        workspaceRoot={undefined}
-      />,
+      <MessagesTimeline {...makeTimelineBaseProps()} {...fixture} />,
     );
-
-    expect(markup).toContain(formatShortTimestamp("2026-03-17T19:12:29.000Z", "locale"));
     expect(markup).toContain("Worked for 1.0s");
-    expect(markup).not.toContain("data-scroll-anchor-ignore");
-    expect(markup).not.toContain(
-      `${formatShortTimestamp("2026-03-17T19:12:29.000Z", "locale")} • 1.0s`,
+    expect(markup).toContain(
+      formatShortTimestamp(fixture.finals["fixture-duration"].createdAt, "locale"),
     );
-    expect(markup).not.toContain("Work log");
-  });
-
-  it("attaches trailing work log summaries to the last assistant reply after completion", async () => {
-    const markup = renderToStaticMarkup(
-      <MessagesTimeline
-        hasMessages
-        isWorking={false}
-        activeTurnInProgress={false}
-        activeTurnStartedAt={null}
-        timelineEntries={[
-          {
-            id: "entry-assistant-trailing",
-            kind: "message",
-            createdAt: "2026-03-17T19:12:29.000Z",
-            message: {
-              id: MessageId.makeUnsafe("message-assistant-trailing"),
-              role: "assistant",
-              text: "done",
-              createdAt: "2026-03-17T19:12:29.000Z",
-              completedAt: "2026-03-17T19:12:30.000Z",
-              streaming: false,
-            },
-          },
-          {
-            id: "entry-work-trailing",
-            kind: "work",
-            createdAt: "2026-03-17T19:12:31.000Z",
-            entry: {
-              id: "work-trailing-1",
-              createdAt: "2026-03-17T19:12:31.000Z",
-              label: "turn",
-              tone: "info",
-            },
-          },
-        ]}
-        nowIso="2026-03-17T19:12:31.000Z"
-        expandedWorkGroups={{}}
-        onToggleWorkGroup={() => {}}
-        onImageExpand={() => {}}
-        markdownCwd={undefined}
-        resolvedTheme="light"
-        timestampFormat="locale"
-        workspaceRoot={undefined}
-      />,
-    );
-
+    expect(markup).toContain('data-timeline-row-kind="turn-header"');
     expect(markup).toContain(">done</p>");
-    expect(markup).not.toContain("Work log");
-    expect(markup).not.toContain('data-timeline-row-kind="work"');
+    expect(markup).not.toContain("Inspect source");
   });
-
-  it("collapses every completed-turn tool call behind a single Worked-for toggle", async () => {
+  it("keeps turnless work as an independent row instead of attaching it to an answer", async () => {
     const markup = renderToStaticMarkup(
       <MessagesTimeline
-        turns={TIMING_FIXTURE_TURNS}
-        hasMessages
-        isWorking={false}
-        activeTurnInProgress={false}
-        activeTurnStartedAt={null}
+        {...makeTimelineBaseProps()}
         timelineEntries={[
           {
-            id: "entry-inline-tools",
-            kind: "work",
-            createdAt: "2026-03-17T19:12:28.000Z",
-            entry: {
-              id: "work-inline-tool-1",
-              createdAt: "2026-03-17T19:12:28.000Z",
-              label: "tool 1",
-              tone: "tool",
-            },
-          },
-          {
-            id: "entry-inline-tools-2",
-            kind: "work",
-            createdAt: "2026-03-17T19:12:28.100Z",
-            entry: {
-              id: "work-inline-tool-2",
-              createdAt: "2026-03-17T19:12:28.100Z",
-              label: "tool 2",
-              tone: "tool",
-            },
-          },
-          {
-            id: "entry-inline-tools-3",
-            kind: "work",
-            createdAt: "2026-03-17T19:12:28.200Z",
-            entry: {
-              id: "work-inline-tool-3",
-              createdAt: "2026-03-17T19:12:28.200Z",
-              label: "tool 3",
-              tone: "tool",
-            },
-          },
-          {
-            id: "entry-inline-tools-4",
-            kind: "work",
-            createdAt: "2026-03-17T19:12:28.300Z",
-            entry: {
-              id: "work-inline-tool-4",
-              createdAt: "2026-03-17T19:12:28.300Z",
-              label: "tool 4",
-              tone: "tool",
-            },
-          },
-          {
-            id: "entry-inline-tools-5",
-            kind: "work",
-            createdAt: "2026-03-17T19:12:28.400Z",
-            entry: {
-              id: "work-inline-tool-5",
-              createdAt: "2026-03-17T19:12:28.400Z",
-              label: "tool 5",
-              tone: "tool",
-            },
-          },
-          {
-            id: "entry-inline-tools-6",
-            kind: "work",
-            createdAt: "2026-03-17T19:12:28.500Z",
-            entry: {
-              id: "work-inline-tool-6",
-              createdAt: "2026-03-17T19:12:28.500Z",
-              label: "tool 6",
-              tone: "tool",
-            },
-          },
-          {
-            id: "entry-assistant-inline-tools",
+            id: "answer",
             kind: "message",
             createdAt: "2026-03-17T19:12:29.000Z",
             message: {
-              turnId: TurnId.makeUnsafe("fixture-duration"),
-              id: MessageId.makeUnsafe("message-assistant-inline-tools"),
+              id: MessageId.makeUnsafe("answer"),
               role: "assistant",
               text: "done",
               createdAt: "2026-03-17T19:12:29.000Z",
-              completedAt: "2026-03-17T19:12:30.000Z",
               streaming: false,
+              sequence: 1,
+            },
+          },
+          {
+            id: "work",
+            kind: "work",
+            createdAt: "2026-03-17T19:12:30.000Z",
+            entry: {
+              id: "work",
+              sequence: 2,
+              label: "Trailing notice",
+              tone: "info",
+              createdAt: "2026-03-17T19:12:30.000Z",
             },
           },
         ]}
-        nowIso="2026-03-17T19:12:30.000Z"
-        expandedWorkGroups={{}}
-        onToggleWorkGroup={() => {}}
-        onImageExpand={() => {}}
-        markdownCwd={undefined}
-        resolvedTheme="light"
-        timestampFormat="locale"
-        workspaceRoot={undefined}
       />,
     );
-
+    expect(markup).toContain(">done</p>");
+    expect(markup).toContain('data-timeline-row-kind="work"');
+    expect(markup.indexOf(">done</p>")).toBeLessThan(markup.indexOf("Trailing notice"));
+  });
+  it("keeps settled tools behind the separate Worked-for header", async () => {
+    const fixture = settledFixture(
+      Array.from({ length: 6 }, (_, index) => ({ kind: "tool" as const, text: "Tool " + index })),
+    );
+    const markup = renderToStaticMarkup(
+      <MessagesTimeline {...makeTimelineBaseProps()} {...fixture} />,
+    );
     expect(markup).toContain("Worked for");
     expect(markup).toContain(">done</p>");
-    // Completed turns fold all tool work behind the single collapsed disclosure,
-    // which stays unmounted until expanded, so no inline tool rows leak out.
-    expect(markup).not.toContain("+2 more tool calls");
-    expect(markup).not.toContain("Tool 1");
-    expect(markup).not.toContain("Tool 5");
+    expect(markup).not.toContain('data-timeline-row-kind="work"');
+    expect(markup).not.toContain('data-timeline-row-kind="summary"');
   });
-
-  it("renders the completed-turn disclosure before an interleaved presented image", async () => {
+  it("does not render settled detail content until its separate Worked-for header is expanded", async () => {
+    const fixture = settledFixture([
+      { kind: "text", text: "Preparing the image." },
+      { kind: "tool", text: "Generated image" },
+    ]);
     const markup = renderToStaticMarkup(
-      <MessagesTimeline
-        turns={TIMING_FIXTURE_TURNS}
-        hasMessages
-        isWorking={false}
-        activeTurnInProgress={false}
-        activeTurnStartedAt={null}
-        timelineEntries={[
-          {
-            id: "entry-user-media-turn",
-            kind: "message",
-            createdAt: "2026-03-17T19:12:28.000Z",
-            message: {
-              id: MessageId.makeUnsafe("user-media-turn"),
-              role: "user",
-              text: "Make an image",
-              createdAt: "2026-03-17T19:12:28.000Z",
-              streaming: false,
-            },
-          },
-          {
-            id: "entry-assistant-preamble-media-turn",
-            kind: "message",
-            createdAt: "2026-03-17T19:12:29.000Z",
-            message: {
-              turnId: TurnId.makeUnsafe("fixture-duration"),
-              id: MessageId.makeUnsafe("assistant-preamble-media-turn"),
-              role: "assistant",
-              text: "Preparing the image.",
-              createdAt: "2026-03-17T19:12:29.000Z",
-              completedAt: "2026-03-17T19:12:29.100Z",
-              streaming: false,
-            },
-          },
-          {
-            id: "entry-presented-image-media-turn",
-            kind: "work",
-            createdAt: "2026-03-17T19:12:29.200Z",
-            entry: {
-              id: "presented-image-media-turn",
-              createdAt: "2026-03-17T19:12:29.200Z",
-              label: "Showed concept.png",
-              tone: "info",
-              activityKind: "media.presented",
-              presentedMedia: {
-                attachmentId: "att_v2_media-turn",
-                name: "concept.png",
-                mimeType: "image/png",
-                sizeBytes: 200,
-                type: "image",
-              },
-            },
-          },
-          {
-            id: "entry-image-tool-media-turn",
-            kind: "work",
-            createdAt: "2026-03-17T19:12:29.500Z",
-            entry: {
-              id: "image-tool-media-turn",
-              createdAt: "2026-03-17T19:12:29.500Z",
-              label: "Generated image",
-              tone: "tool",
-            },
-          },
-          {
-            id: "entry-assistant-final-media-turn",
-            kind: "message",
-            createdAt: "2026-03-17T19:12:30.000Z",
-            message: {
-              turnId: TurnId.makeUnsafe("fixture-duration"),
-              id: MessageId.makeUnsafe("assistant-final-media-turn"),
-              role: "assistant",
-              text: "Here it is.",
-              createdAt: "2026-03-17T19:12:30.000Z",
-              completedAt: "2026-03-17T19:12:30.500Z",
-              streaming: false,
-            },
-          },
-        ]}
-        nowIso="2026-03-17T19:12:31.000Z"
-        expandedWorkGroups={{}}
-        onToggleWorkGroup={() => {}}
-        onImageExpand={() => {}}
-        markdownCwd={undefined}
-        resolvedTheme="light"
-        timestampFormat="locale"
-        workspaceRoot={undefined}
-      />,
+      <MessagesTimeline {...makeTimelineBaseProps()} {...fixture} />,
     );
-
-    expect(markup.indexOf("Worked for")).toBeLessThan(markup.indexOf("concept.png"));
-    expect(markup.indexOf("concept.png")).toBeLessThan(markup.indexOf("Here it is."));
+    expect(markup).toContain("Worked for");
+    expect(markup).toContain(">done</p>");
     expect(markup).not.toContain("Preparing the image.");
+    expect(markup).not.toContain("Generated image");
   });
-
   it("renders Cursor-style inline tool rows with a uniform label", async () => {
     const markup = renderToStaticMarkup(
       <MessagesTimeline
@@ -1528,8 +1285,6 @@ describe("MessagesTimeline", () => {
           },
         ]}
         nowIso="2026-05-09T16:31:25.000Z"
-        expandedWorkGroups={{}}
-        onToggleWorkGroup={() => {}}
         onImageExpand={() => {}}
         markdownCwd={undefined}
         resolvedTheme="light"
@@ -1574,8 +1329,6 @@ describe("MessagesTimeline", () => {
           },
         ]}
         nowIso="2026-05-09T16:31:25.000Z"
-        expandedWorkGroups={{}}
-        onToggleWorkGroup={() => {}}
         onImageExpand={() => {}}
         markdownCwd={undefined}
         resolvedTheme="light"
@@ -1678,8 +1431,6 @@ describe("MessagesTimeline", () => {
           },
         ]}
         nowIso="2026-03-17T19:12:30.000Z"
-        expandedWorkGroups={{}}
-        onToggleWorkGroup={() => {}}
         onImageExpand={() => {}}
         markdownCwd={undefined}
         resolvedTheme="light"
@@ -1700,6 +1451,13 @@ describe("MessagesTimeline", () => {
     const activeTurnId = TurnId.makeUnsafe("turn-reasoning-live");
     const markup = renderToStaticMarkup(
       <MessagesTimeline
+        turns={{
+          [activeTurnId]: {
+            ...TIMING_FIXTURE_TURNS["fixture-duration"],
+            turnId: activeTurnId,
+            status: "running",
+          },
+        }}
         hasMessages
         isWorking
         activeTurnInProgress
@@ -1765,8 +1523,6 @@ describe("MessagesTimeline", () => {
             },
           },
         ]}
-        expandedWorkGroups={{}}
-        onToggleWorkGroup={() => {}}
         onImageExpand={() => {}}
         markdownCwd={undefined}
         resolvedTheme="light"
@@ -1847,8 +1603,6 @@ describe("MessagesTimeline", () => {
             },
           },
         ]}
-        expandedWorkGroups={{}}
-        onToggleWorkGroup={() => {}}
         onImageExpand={() => {}}
         markdownCwd={undefined}
         resolvedTheme="light"
@@ -1860,73 +1614,20 @@ describe("MessagesTimeline", () => {
     expect(markup).toContain(">Thinking<");
   });
 
-  it("attaches trailing tool rows to the last assistant reply after completion", async () => {
+  it("places the settled block at the server-selected final answer", async () => {
+    const fixture = settledFixture([
+      { kind: "tool", text: "Tool 1" },
+      { kind: "tool", text: "Tool 2" },
+    ]);
     const markup = renderToStaticMarkup(
-      <MessagesTimeline
-        turns={TIMING_FIXTURE_TURNS}
-        hasMessages
-        isWorking={false}
-        activeTurnInProgress={false}
-        activeTurnStartedAt={null}
-        timelineEntries={[
-          {
-            id: "entry-assistant-final",
-            kind: "message",
-            createdAt: "2026-03-17T19:12:29.000Z",
-            message: {
-              turnId: TurnId.makeUnsafe("fixture-duration"),
-              id: MessageId.makeUnsafe("message-assistant-final"),
-              role: "assistant",
-              text: "done",
-              createdAt: "2026-03-17T19:12:29.000Z",
-              completedAt: "2026-03-17T19:12:30.000Z",
-              streaming: false,
-            },
-          },
-          {
-            id: "entry-trailing-tool-1",
-            kind: "work",
-            createdAt: "2026-03-17T19:12:30.100Z",
-            entry: {
-              id: "work-trailing-tool-1",
-              createdAt: "2026-03-17T19:12:30.100Z",
-              label: "tool 1",
-              tone: "tool",
-            },
-          },
-          {
-            id: "entry-trailing-tool-2",
-            kind: "work",
-            createdAt: "2026-03-17T19:12:30.200Z",
-            entry: {
-              id: "work-trailing-tool-2",
-              createdAt: "2026-03-17T19:12:30.200Z",
-              label: "tool 2",
-              tone: "tool",
-            },
-          },
-        ]}
-        nowIso="2026-03-17T19:12:31.000Z"
-        expandedWorkGroups={{}}
-        onToggleWorkGroup={() => {}}
-        onImageExpand={() => {}}
-        markdownCwd={undefined}
-        resolvedTheme="light"
-        timestampFormat="locale"
-        workspaceRoot={undefined}
-      />,
+      <MessagesTimeline {...makeTimelineBaseProps()} {...fixture} />,
     );
-
     expect(markup).toContain("Worked for");
     expect(markup).toContain(">done</p>");
-    // Trailing work folds into the terminal reply's collapsed disclosure rather
-    // than leaving a detached work row at the end of the transcript.
-    expect(markup).not.toContain("Tool 1");
-    expect(markup).not.toContain("Tool 2");
+    expect(markup.indexOf("Worked for")).toBeLessThan(markup.indexOf(">done</p>"));
     expect(markup).not.toContain('data-timeline-row-kind="work"');
   });
-
-  it("expands live inline tool calls past the cap when the group is toggled open", async () => {
+  it("renders live tail tools as independent rows without an inner-row cap", async () => {
     const markup = renderToStaticMarkup(
       <MessagesTimeline
         hasMessages
@@ -2005,8 +1706,6 @@ describe("MessagesTimeline", () => {
           },
         ]}
         nowIso="2026-03-17T19:12:30.000Z"
-        expandedWorkGroups={{ "entry-inline-tools-expanded": true }}
-        onToggleWorkGroup={() => {}}
         onImageExpand={() => {}}
         markdownCwd={undefined}
         resolvedTheme="light"
@@ -2016,7 +1715,7 @@ describe("MessagesTimeline", () => {
     );
 
     expect(markup).toContain("Tool 5");
-    expect(markup).toContain("Show less");
+    expect(markup).not.toContain("Show less");
   });
 
   it("marks visible file-change rows with captured details as clickable", async () => {
@@ -2048,8 +1747,6 @@ describe("MessagesTimeline", () => {
           },
         ]}
         nowIso="2026-03-17T19:12:30.000Z"
-        expandedWorkGroups={{}}
-        onToggleWorkGroup={() => {}}
         onImageExpand={() => {}}
         markdownCwd={undefined}
         resolvedTheme="dark"
@@ -2090,8 +1787,6 @@ describe("MessagesTimeline", () => {
           },
         ]}
         nowIso="2026-03-17T19:12:30.000Z"
-        expandedWorkGroups={{}}
-        onToggleWorkGroup={() => {}}
         onImageExpand={() => {}}
         markdownCwd={undefined}
         resolvedTheme="dark"
@@ -2150,8 +1845,6 @@ describe("MessagesTimeline", () => {
           },
         ]}
         nowIso="2026-03-17T19:12:30.000Z"
-        expandedWorkGroups={{}}
-        onToggleWorkGroup={() => {}}
         onImageExpand={() => {}}
         markdownCwd={undefined}
         resolvedTheme="dark"
@@ -2196,8 +1889,6 @@ describe("MessagesTimeline", () => {
           },
         ]}
         nowIso="2026-03-17T19:12:30.000Z"
-        expandedWorkGroups={{}}
-        onToggleWorkGroup={() => {}}
         onImageExpand={() => {}}
         markdownCwd={undefined}
         resolvedTheme="dark"
@@ -2243,8 +1934,6 @@ describe("MessagesTimeline", () => {
           },
         ]}
         nowIso="2026-05-09T10:07:00.000Z"
-        expandedWorkGroups={{}}
-        onToggleWorkGroup={() => {}}
         onImageExpand={() => {}}
         markdownCwd={undefined}
         resolvedTheme="dark"
@@ -2284,8 +1973,6 @@ describe("MessagesTimeline", () => {
           },
         ]}
         nowIso="2026-03-17T19:12:30.000Z"
-        expandedWorkGroups={{}}
-        onToggleWorkGroup={() => {}}
         onImageExpand={() => {}}
         markdownCwd={undefined}
         resolvedTheme="dark"
@@ -2323,8 +2010,6 @@ describe("MessagesTimeline", () => {
           },
         ]}
         nowIso="2026-03-17T19:12:30.000Z"
-        expandedWorkGroups={{}}
-        onToggleWorkGroup={() => {}}
         onImageExpand={() => {}}
         markdownCwd={undefined}
         resolvedTheme="dark"
@@ -2362,8 +2047,6 @@ describe("MessagesTimeline", () => {
           },
         ]}
         nowIso="2026-03-17T19:12:30.000Z"
-        expandedWorkGroups={{}}
-        onToggleWorkGroup={() => {}}
         onImageExpand={() => {}}
         markdownCwd={undefined}
         resolvedTheme="dark"
@@ -2402,8 +2085,6 @@ describe("MessagesTimeline", () => {
           },
         ]}
         nowIso="2026-03-17T19:12:30.000Z"
-        expandedWorkGroups={{}}
-        onToggleWorkGroup={() => {}}
         onImageExpand={() => {}}
         markdownCwd={undefined}
         resolvedTheme="dark"
@@ -2440,8 +2121,6 @@ describe("MessagesTimeline", () => {
           },
         ]}
         nowIso="2026-03-17T19:12:30.000Z"
-        expandedWorkGroups={{}}
-        onToggleWorkGroup={() => {}}
         onImageExpand={() => {}}
         markdownCwd={undefined}
         resolvedTheme="dark"
@@ -2675,7 +2354,7 @@ describe("MessagesTimeline", () => {
     expect(failedArgsMarkup).toContain("Invalid params");
   });
 
-  it("keeps Penkra tool calls and adds a thread creation recap at the end of the turn", async () => {
+  it("renders the thread creation recap as an independent settled step", async () => {
     const assistantMessageId = MessageId.makeUnsafe("message-penkra-recap");
     const workEntries = [
       {
@@ -2774,7 +2453,7 @@ describe("MessagesTimeline", () => {
 
     // The original MCP tool call is preserved inside the settled turn's
     // "Worked for..." disclosure; the recap is an additional final artifact.
-    expect(markup).toContain("Worked for");
+    expect(markup).toContain('data-timeline-row-kind="work"');
     expect(markup).toContain('data-penkra-thread-creation-card="true"');
     expect(markup).toContain("2 threads created");
     expect(markup).toContain("2/2 requested threads created");
@@ -2782,9 +2461,6 @@ describe("MessagesTimeline", () => {
     expect(markup).toContain("Explain the repository with Claude");
     expect(markup).toContain("GPT-5.6 Terra");
     expect(markup).toContain("Claude Sonnet 5");
-    expect(markup.indexOf("Both threads are running.")).toBeLessThan(
-      markup.indexOf('data-penkra-thread-creation-card="true"'),
-    );
   });
 });
 
@@ -2808,10 +2484,19 @@ it("shows persisted turn duration for settled canonical transcript items", () =>
       activeTurnInProgress={false}
       activeTurnStartedAt={null}
       turns={TIMING_FIXTURE_TURNS}
+      hasSteps={{ "fixture-duration": true }}
+      finals={{
+        "fixture-duration": {
+          ...turn,
+          seq: 3,
+          sourceId: "answer",
+          kind: "text",
+          text: "Done.",
+          data: null,
+        },
+      }}
       timelineEntries={timelineEntries}
       nowIso={turn.updatedAt}
-      expandedWorkGroups={{}}
-      onToggleWorkGroup={() => {}}
       onImageExpand={() => {}}
       markdownCwd={undefined}
       resolvedTheme="dark"

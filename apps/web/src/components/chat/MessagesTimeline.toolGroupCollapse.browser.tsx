@@ -1,402 +1,232 @@
 // FILE: MessagesTimeline.toolGroupCollapse.browser.tsx
-// Purpose: Browser regressions for collapsing settled tool-call runs into
-//          summary rows ("Ran 4 commands") once a newer narration block starts.
-// Layer: Vitest browser tests
-
+// Purpose: Real transcript rows preserve summary identity and independent member layout.
 import "../../index.css";
-
-import { MessageId, ThreadId, TurnId } from "@penkra/contracts";
+import { ThreadId, TurnId, type CleanCoreThreadItem } from "@penkra/contracts";
+import { useCallback, useEffect, useRef, useState } from "react";
+import {
+  createThreadItemsController,
+  type ThreadItemsController,
+  type ThreadItemsApi,
+} from "../../useThreadItems";
+import { EMPTY_THREAD_ITEMS_STATE } from "../../threadItemsStore";
 import { afterEach, describe, expect, it } from "vitest";
 import { render } from "vitest-browser-react";
-
+import { page } from "vitest/browser";
 import { MessagesTimeline } from "./MessagesTimeline";
-import type { TimelineEntry } from "../../session-logic";
+import { threadItemsToTimelineEntries } from "./threadItemMappers";
+import type { TranscriptVirtualListRef } from "./TranscriptVirtualList";
 
-const TIMING_FIXTURE_TURNS = {
-  "fixture-duration": {
-    threadId: ThreadId.makeUnsafe("fixture"),
-    seq: 1,
-    sourceId: "turn:fixture-duration",
-    turnId: TurnId.makeUnsafe("fixture-duration"),
-    kind: "turn",
-    status: "done",
-    text: null,
-    data: JSON.stringify({
-      startedAt: "2026-03-17T19:12:20.000Z",
-      endedAt: "2026-03-17T19:12:30.000Z",
-    }),
-    createdAt: "2026-03-17T19:12:20.000Z",
-    updatedAt: "2026-03-17T19:12:30.000Z",
-  },
+const turnId = TurnId.makeUnsafe("turn");
+const marker: CleanCoreThreadItem = {
+  threadId: ThreadId.makeUnsafe("thread"),
+  seq: 1,
+  sourceId: "turn:turn",
+  turnId,
+  kind: "turn",
+  status: "done",
+  text: null,
+  data: '{"startedAt":"2026-10-17T00:00:00.000Z","endedAt":"2026-10-17T00:05:00.000Z"}',
+  createdAt: "2026-10-17T00:00:00.000Z",
+  updatedAt: "2026-10-17T00:05:00.000Z",
 };
-function assistantEntry(
-  id: string,
-  text: string,
-  streaming: boolean,
-  completedAt?: string,
-): TimelineEntry {
-  return {
-    id: `entry-${id}`,
-    kind: "message",
-    createdAt: "2026-03-17T19:12:28.000Z",
-    message: {
-      turnId: TurnId.makeUnsafe("fixture-duration"),
-      id: MessageId.makeUnsafe(id),
-      role: "assistant",
-      text,
-      createdAt: "2026-03-17T19:12:28.000Z",
-      ...(completedAt ? { completedAt } : {}),
-      streaming,
-    },
-  };
-}
-
-function commandEntry(id: string, command: string): TimelineEntry {
-  return {
-    id: `entry-${id}`,
-    kind: "work",
-    createdAt: "2026-03-17T19:12:28.000Z",
-    entry: {
-      id,
-      createdAt: "2026-03-17T19:12:28.000Z",
-      label: "Ran command",
-      tone: "tool",
+const final: CleanCoreThreadItem = {
+  ...marker,
+  seq: 203,
+  sourceId: "answer",
+  kind: "text",
+  text: "Finished.",
+  data: null,
+};
+const step = (seq: number): CleanCoreThreadItem => ({
+  ...marker,
+  seq,
+  sourceId: "step-" + seq,
+  kind: "tool",
+  text: "git status",
+  data: JSON.stringify({
+    kind: "tool.completed",
+    summary: "Ran command",
+    payload: {
       itemType: "command_execution",
-      toolStatus: "completed",
-      command,
+      title: "Ran command",
+      data: { command: "git status" },
     },
-  };
-}
-
-function thinkingEntry(id: string, label: string): TimelineEntry {
-  return {
-    id: `entry-${id}`,
-    kind: "work",
-    createdAt: "2026-03-17T19:12:28.000Z",
-    entry: {
-      id,
-      createdAt: "2026-03-17T19:12:28.000Z",
-      label,
-      tone: "thinking",
-    },
-  };
-}
-
-const SETTLED_COMMANDS = [
-  "bun run lint",
-  "bun run typecheck",
-  "bun run build",
-  "node scripts/check.mjs",
-];
-// Commands whose display text passes through verbatim (no humanized rewrite).
-const LIVE_COMMANDS = ["git status", "node scripts/tail.mjs"];
-
-function ToolGroupCollapseTimeline(props: { timelineEntries: TimelineEntry[] }) {
+  }),
+});
+function PagedTurn() {
+  const [state, setState] = useState(EMPTY_THREAD_ITEMS_STATE);
+  const [reads, setReads] = useState(0);
+  const [anchorSample, setAnchorSample] = useState<{ key: string; top: number } | null>(null);
+  const ref = useRef<TranscriptVirtualListRef | null>(null);
+  const controller = useRef<ThreadItemsController | null>(null);
+  useEffect(() => {
+    const api: ThreadItemsApi = {
+      listThreadItemsPage: async () => ({
+        items: [marker],
+        turns: { turn: marker },
+        finals: { turn: final },
+        hasSteps: { turn: true },
+        nextCursor: null,
+      }),
+      listTurnItems: async ({ beforeSeq }) => {
+        setReads((n) => n + 1);
+        const ceiling = beforeSeq ?? 202;
+        const items = Array.from({ length: Math.min(50, ceiling - 2) }, (_, index) =>
+          step(ceiling - index - 1),
+        );
+        return { items, nextCursor: items.length === 50 ? items.at(-1)!.seq : null };
+      },
+      subscribeThread: async () => {},
+      unsubscribeThread: async () => {},
+      onThreadChange: (listener) => {
+        queueMicrotask(() => listener({ threadId: "thread" }));
+        return () => {};
+      },
+    };
+    const instance = createThreadItemsController(
+      api,
+      "thread",
+      setState,
+      (error) => {
+        throw error;
+      },
+      () => {
+        const scroll = ref.current?.getScrollableNode();
+        const key = controller.current?.getState().details.turn?.items[0]?.sourceId;
+        const row = key ? scroll?.querySelector<HTMLElement>('[data-row-key="' + key + '"]') : null;
+        if (scroll && row && key)
+          setAnchorSample({
+            key,
+            top: row.getBoundingClientRect().top - scroll.getBoundingClientRect().top,
+          });
+        ref.current?.preserveAnchorBelowBoundary("turn-boundary:turn");
+      },
+    );
+    controller.current = instance;
+    return () => {
+      controller.current = null;
+      instance.dispose();
+    };
+  }, []);
+  const onExpanded = useCallback(
+    (ids: ReadonlyArray<string>) => controller.current?.setExpandedTurns(ids),
+    [],
+  );
+  const onOlder = useCallback(() => {
+    void controller.current?.loadOlderTurn("turn");
+  }, []);
+  const steps = state.details.turn?.items ?? [];
+  const loaded = steps.length;
   return (
-    <MessagesTimeline
-      turns={TIMING_FIXTURE_TURNS}
-      hasMessages
-      isWorking={false}
-      activeTurnInProgress
-      activeTurnStartedAt="2026-03-17T19:12:20.000Z"
-      timelineEntries={props.timelineEntries}
-      nowIso="2026-03-17T19:12:30.000Z"
-      expandedWorkGroups={{}}
-      onToggleWorkGroup={() => {}}
-      onImageExpand={() => {}}
-      markdownCwd={undefined}
-      resolvedTheme="dark"
-      timestampFormat="locale"
-      workspaceRoot={undefined}
-    />
+    <div style={{ display: "flex", flexDirection: "column", width: 700, height: 600 }}>
+      <output data-testid="page-reads">{reads}</output>
+      <output data-testid="loaded-steps">{loaded}</output>
+      <output data-testid="anchor-sample">{JSON.stringify(anchorSample)}</output>
+      <MessagesTimeline
+        hasMessages
+        isWorking={false}
+        activeTurnInProgress={false}
+        activeTurnStartedAt={null}
+        turns={{ turn: marker }}
+        finals={{ turn: final }}
+        hasSteps={{ turn: true }}
+        details={{
+          turn: {
+            items: steps,
+            nextCursor: state.details.turn?.nextCursor ?? null,
+            loaded: loaded > 0,
+          },
+        }}
+        timelineEntries={threadItemsToTimelineEntries([...steps, final])}
+        onExpandedTurnsChange={onExpanded}
+        onLoadOlderTurn={onOlder}
+        listRef={ref}
+        onImageExpand={() => {}}
+        markdownCwd={undefined}
+        resolvedTheme="dark"
+        timestampFormat="locale"
+        workspaceRoot={undefined}
+      />
+    </div>
   );
 }
-
-function createTimelineHost(): HTMLDivElement {
-  const host = document.createElement("div");
-  host.style.cssText = "display:flex;width:600px;height:520px;overflow:hidden;";
-  document.body.append(host);
-  return host;
-}
-
-function findSummaryTrigger(label: string): HTMLButtonElement | null {
-  return (
-    [...document.querySelectorAll<HTMLButtonElement>("button[aria-expanded]")].find((button) =>
-      (button.textContent ?? "").includes(label),
-    ) ?? null
+function button(container: HTMLElement, text: string) {
+  return Array.from(container.querySelectorAll<HTMLButtonElement>("button")).find((node) =>
+    (node.textContent ?? "").includes(text),
   );
 }
-
-function isVisibleOutsideClosedDisclosure(text: string): boolean {
-  // The innermost element containing the text (command labels may span nested
-  // spans, so a leaf-only check would miss them).
-  const match = [...document.querySelectorAll<HTMLElement>("*")].findLast((element) =>
-    (element.textContent ?? "").includes(text),
-  );
-  return match !== undefined && match.closest("[aria-hidden='true']") === null;
-}
-
-describe("MessagesTimeline tool group collapse", () => {
+describe("independent transcript summary rows", () => {
   afterEach(() => {
     document.body.innerHTML = "";
   });
-
-  it("collapses the settled run behind a summary and keeps the live run expanded", async () => {
-    const host = createTimelineHost();
-    const screen = await render(
-      <ToolGroupCollapseTimeline
-        timelineEntries={[
-          assistantEntry("narration-1", "Looking at the failing checks first.", false),
-          ...SETTLED_COMMANDS.map((command, index) => commandEntry(`settled-${index}`, command)),
-          assistantEntry("narration-2", "Now inspecting the working tree.", true),
-          ...LIVE_COMMANDS.map((command, index) => commandEntry(`live-${index}`, command)),
-        ]}
-      />,
-      { container: host },
-    );
-
+  it("loads one details page on expansion and mounts summary members as sibling list rows", async () => {
+    const screen = await render(<PagedTurn />);
     try {
-      await expect.poll(() => findSummaryTrigger("Ran 4 commands") !== null).toBe(true);
-      const trigger = findSummaryTrigger("Ran 4 commands")!;
-      expect(trigger.getAttribute("aria-expanded")).toBe("false");
-
-      // Closed groups do not mount every tool row; this keeps large settled
-      // transcripts cheap until the user asks to inspect the details.
-      for (const command of SETTLED_COMMANDS) {
-        expect(document.body.textContent ?? "").not.toContain(command);
-      }
-
-      // The live (newest) run renders individual rows with no summary trigger.
-      expect(findSummaryTrigger("Ran 2 commands")).toBeNull();
-      for (const command of LIVE_COMMANDS) {
-        expect(isVisibleOutsideClosedDisclosure(command)).toBe(true);
-      }
-
-      trigger.click();
-
-      await expect.poll(() => trigger.getAttribute("aria-expanded")).toBe("true");
-      for (const command of SETTLED_COMMANDS) {
-        await expect.poll(() => isVisibleOutsideClosedDisclosure(command)).toBe(true);
-      }
-
-      trigger.click();
-
-      await expect.poll(() => trigger.getAttribute("aria-expanded")).toBe("false");
-      // Rows remain mounted and inert until the shared disclosure reports that
-      // its height transition completed, then the retained content is released.
-      const closingRegion = trigger.parentElement?.querySelector<HTMLElement>(
-        "[data-slot='disclosure-region']",
-      );
-      expect(closingRegion).not.toBeNull();
-      expect(closingRegion!.getAttribute("aria-hidden")).toBe("true");
-      expect(document.body.textContent ?? "").toContain(SETTLED_COMMANDS[0]!);
-      closingRegion!.dispatchEvent(
-        new TransitionEvent("transitionend", { bubbles: true, propertyName: "height" }),
-      );
+      await expect.poll(() => button(screen.container, "Worked for") !== undefined).toBe(true);
+      button(screen.container, "Worked for")!.click();
       await expect
-        .poll(() => (document.body.textContent ?? "").includes(SETTLED_COMMANDS[0]!))
-        .toBe(false);
-    } finally {
-      await screen.unmount();
-      host.remove();
-    }
-  });
-
-  it("places Worked for above an image presented inside a settled assistant turn", async () => {
-    const host = createTimelineHost();
-    const screen = await render(
-      <MessagesTimeline
-        turns={TIMING_FIXTURE_TURNS}
-        hasMessages
-        isWorking={false}
-        activeTurnInProgress={false}
-        activeTurnStartedAt={null}
-        timelineEntries={[
-          {
-            id: "entry-media-user",
-            kind: "message",
-            createdAt: "2026-03-17T19:12:27.000Z",
-            message: {
-              id: MessageId.makeUnsafe("media-user"),
-              role: "user",
-              text: "Make an image",
-              createdAt: "2026-03-17T19:12:27.000Z",
-              streaming: false,
-            },
-          },
-          assistantEntry(
-            "media-preamble",
-            "Preparing the image.",
-            false,
-            "2026-03-17T19:12:28.500Z",
-          ),
-          {
-            id: "entry-presented-media",
-            kind: "work",
-            createdAt: "2026-03-17T19:12:29.000Z",
-            entry: {
-              id: "presented-media",
-              createdAt: "2026-03-17T19:12:29.000Z",
-              label: "Showed concept.png",
-              tone: "info",
-              activityKind: "media.presented",
-              presentedMedia: {
-                attachmentId: "att_v2_media-browser-test",
-                name: "concept.png",
-                mimeType: "image/png",
-                sizeBytes: 200,
-                type: "image",
-              },
-            },
-          },
-          commandEntry("image-generation", "generate-image"),
-          assistantEntry("media-final", "Here it is.", false, "2026-03-17T19:12:30.500Z"),
-        ]}
-        nowIso="2026-03-17T19:12:31.000Z"
-        expandedWorkGroups={{}}
-        onToggleWorkGroup={() => {}}
-        onImageExpand={() => {}}
-        markdownCwd={undefined}
-        resolvedTheme="dark"
-        timestampFormat="locale"
-        workspaceRoot={undefined}
-      />,
-      { container: host },
-    );
-
-    try {
-      const summary = document.querySelector<HTMLElement>(
-        '[data-timeline-row-kind="message"]:has(button[aria-expanded])',
+        .poll(() => screen.container.querySelector('[data-testid="page-reads"]')?.textContent)
+        .toBe("1");
+      await expect.poll(() => button(screen.container, "Ran 50 commands") !== undefined).toBe(true);
+      const summary = button(screen.container, "Ran 50 commands")!;
+      expect(summary.getAttribute("aria-expanded")).toBe("false");
+      expect(screen.container.querySelectorAll('[data-timeline-row-kind="work"]')).toHaveLength(0);
+      summary.click();
+      await expect
+        .poll(() => screen.container.querySelectorAll('[data-timeline-row-kind="work"]').length)
+        .toBeGreaterThan(0);
+      const member = screen.container.querySelector('[data-timeline-row-kind="work"]')!;
+      expect(member.closest('[data-timeline-row-kind="summary"]')).toBeNull();
+      await expect
+        .poll(
+          () =>
+            button(screen.container, "Ran 100 commands") !== undefined ||
+            button(screen.container, "Ran 50 commands") !== undefined,
+        )
+        .toBe(true);
+      const scroll = screen.container.querySelector<HTMLElement>(
+        '[data-chat-scroll-container="true"]',
       );
-      const media = document.querySelector<HTMLElement>(
-        '[data-presented-media-id="att_v2_media-browser-test"]',
-      );
-      const finalAnswer = document.querySelector<HTMLElement>(
-        '[data-assistant-message-id="media-final"]',
-      );
-      expect(summary?.textContent).toContain("Worked for");
-      expect(media).not.toBeNull();
-      expect(finalAnswer).not.toBeNull();
-      expect(summary!.getBoundingClientRect().top).toBeLessThan(media!.getBoundingClientRect().top);
-      expect(media!.getBoundingClientRect().top).toBeLessThan(
-        finalAnswer!.getBoundingClientRect().top,
-      );
-      expect(document.body.textContent).not.toContain("Preparing the image.");
-    } finally {
-      await screen.unmount();
-      host.remove();
-    }
-  });
-
-  it("renders Worked for above media without an empty final assistant row", async () => {
-    const host = createTimelineHost();
-    const screen = await render(
-      <MessagesTimeline
-        turns={TIMING_FIXTURE_TURNS}
-        hasMessages
-        isWorking={false}
-        activeTurnInProgress={false}
-        activeTurnStartedAt={null}
-        timelineEntries={[
-          {
-            id: "entry-media-first-user",
-            kind: "message",
-            createdAt: "2026-03-17T19:12:27.000Z",
-            message: {
-              id: MessageId.makeUnsafe("media-first-user"),
-              role: "user",
-              text: "Make an image",
-              createdAt: "2026-03-17T19:12:27.000Z",
-              streaming: false,
-            },
-          },
-          {
-            id: "entry-media-first-output",
-            kind: "work",
-            createdAt: "2026-03-17T19:12:29.000Z",
-            entry: {
-              id: "media-first-output",
-              createdAt: "2026-03-17T19:12:29.000Z",
-              label: "Showed concept.png",
-              tone: "info",
-              activityKind: "media.presented",
-              presentedMedia: {
-                attachmentId: "att_v2_media-first-browser-test",
-                name: "concept.png",
-                mimeType: "image/png",
-                sizeBytes: 200,
-                type: "image",
-              },
-            },
-          },
-          commandEntry("media-first-work", "generate-image"),
-          assistantEntry("media-first-final", "", false, "2026-03-17T19:12:30.500Z"),
-        ]}
-        nowIso="2026-03-17T19:12:31.000Z"
-        expandedWorkGroups={{}}
-        onToggleWorkGroup={() => {}}
-        onImageExpand={() => {}}
-        markdownCwd={undefined}
-        resolvedTheme="dark"
-        timestampFormat="locale"
-        workspaceRoot={undefined}
-      />,
-      { container: host },
-    );
-
-    try {
-      const mediaRow = document.querySelector<HTMLElement>('[data-timeline-row-kind="media"]');
-      const summary = mediaRow?.querySelector<HTMLElement>("button[aria-expanded]");
-      const image = mediaRow?.querySelector<HTMLElement>(
-        '[data-presented-media-id="att_v2_media-first-browser-test"]',
-      );
-      const finalAnswer = document.querySelector<HTMLElement>(
-        '[data-assistant-message-id="media-first-final"]',
-      );
-      expect(summary?.textContent).toContain("Worked for");
-      expect(image).not.toBeNull();
-      expect(finalAnswer).toBeNull();
-      expect(document.body.textContent).not.toContain("(empty response)");
-      expect(summary!.getBoundingClientRect().top).toBeLessThan(image!.getBoundingClientRect().top);
-    } finally {
-      await screen.unmount();
-      host.remove();
-    }
-  });
-
-  it("collapses mid-turn as soon as a thinking block splits the live group", async () => {
-    const host = createTimelineHost();
-    // One live inline group: settled commands, then a thinking boundary, then
-    // the live tail. The run before the boundary must collapse while the turn
-    // is still in progress — not only once it finishes.
-    const screen = await render(
-      <ToolGroupCollapseTimeline
-        timelineEntries={[
-          assistantEntry("narration-1", "Looking at the failing checks first.", true),
-          ...SETTLED_COMMANDS.map((command, index) => commandEntry(`settled-${index}`, command)),
-          thinkingEntry("think-1", "Weighing the next verification step"),
-          ...LIVE_COMMANDS.map((command, index) => commandEntry(`live-${index}`, command)),
-        ]}
-      />,
-      { container: host },
-    );
-
-    try {
-      await expect.poll(() => findSummaryTrigger("Ran 4 commands") !== null).toBe(true);
-      expect(findSummaryTrigger("Ran 4 commands")!.getAttribute("aria-expanded")).toBe("false");
-      for (const command of SETTLED_COMMANDS) {
-        expect(document.body.textContent ?? "").not.toContain(command);
+      expect(scroll).not.toBeNull();
+      for (const expected of [100, 150, 200]) {
+        const loaded = Number(
+          screen.container.querySelector('[data-testid="loaded-steps"]')?.textContent,
+        );
+        if (loaded < expected) {
+          scroll!.scrollTop = 0;
+          scroll!.dispatchEvent(new Event("scroll"));
+        }
+        await expect
+          .poll(() =>
+            Number(screen.container.querySelector('[data-testid="loaded-steps"]')?.textContent),
+          )
+          .toBe(expected);
+        await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
+        expect(
+          Number(screen.container.querySelector('[data-testid="page-reads"]')?.textContent),
+        ).toBe(expected / 50);
+        const sample = JSON.parse(
+          screen.container.querySelector('[data-testid="anchor-sample"]')!.textContent!,
+        ) as { key: string; top: number };
+        await expect
+          .poll(() => {
+            const row = scroll!.querySelector<HTMLElement>('[data-row-key="' + sample.key + '"]');
+            return row
+              ? row.getBoundingClientRect().top - scroll!.getBoundingClientRect().top
+              : null;
+          })
+          .toBeCloseTo(sample.top, 0);
       }
-
-      // The run after the thinking boundary is the live tail: expanded rows,
-      // no summary trigger.
-      expect(findSummaryTrigger("Ran 2 commands")).toBeNull();
-      for (const command of LIVE_COMMANDS) {
-        expect(isVisibleOutsideClosedDisclosure(command)).toBe(true);
-      }
+      await page.screenshot({
+        element: screen.container,
+        path: "../../../../../.penkra/scratch/p4-render-boundary/flat-summary.png",
+      });
     } finally {
+      await page.screenshot({
+        element: screen.container,
+        path: "../../../../../.penkra/scratch/p4-render-boundary/flat-summary.png",
+      });
       await screen.unmount();
-      host.remove();
     }
   });
 });

@@ -9,6 +9,7 @@ import {
   threadItemToUserContent,
   threadItemToWorkLogEntry,
   threadItemsToTimelineEntries,
+  threadItemsToPendingUserInputs,
 } from "./threadItemMappers";
 
 const item = (
@@ -249,12 +250,40 @@ describe("threadItemsToTimelineEntries", () => {
     }
   });
 
-  it("keeps a question item as a work row so it is not lost", () => {
+  it("keeps open questions in the composer rather than a finished work row", () => {
     const entries = threadItemsToTimelineEntries([
       item("question", { sourceId: "question:req-1", seq: 1, status: "open", text: "Which db?" }),
     ]);
-    expect(entries).toHaveLength(1);
-    expect(entries[0]?.kind).toBe("work");
+    expect(entries).toEqual([]);
+  });
+  it("reads current open questions oldest first with the answer generation", () => {
+    const rows = [
+      item("question", {
+        sourceId: "q2",
+        seq: 2,
+        status: "open",
+        data: JSON.stringify({ lifecycleGeneration: "gen", questions: [] }),
+      }),
+      item("question", { sourceId: "q1", seq: 1, status: "open" }),
+      item("question", { seq: 3, status: "answered" }),
+    ];
+    const pending = threadItemsToPendingUserInputs(rows);
+    expect(pending.map((row) => row.requestId)).toEqual(["q1", "q2"]);
+    expect(pending[1]?.lifecycleGeneration).toBe("gen");
+  });
+  it("renders the answered question and its answer, or an explicit cancelled outcome", () => {
+    const answered = threadItemToWorkLogEntry(
+      item("question", {
+        status: "answered",
+        text: "Which db?",
+        data: JSON.stringify({ answers: { q1: "SQLite" } }),
+      }),
+    );
+    expect(JSON.stringify(answered)).toContain("SQLite");
+    const cancelled = threadItemToWorkLogEntry(
+      item("question", { status: "cancelled", text: "Which db?" }),
+    );
+    expect(JSON.stringify(cancelled)).toContain("No answer (turn ended)");
   });
 });
 

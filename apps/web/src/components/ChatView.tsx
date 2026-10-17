@@ -162,7 +162,6 @@ import {
   providerSupportsTextNativeReviewCommand,
 } from "../composerSlashCommands";
 import {
-  derivePendingUserInputs,
   derivePhase,
   deriveActiveWorkStartedAt,
   deriveVisibleWorkLogSequenceFloor,
@@ -217,11 +216,13 @@ import { toAttachmentPreviewUrl } from "../lib/wsHttpUrl";
 import {} from "../lib/editableEventTarget";
 import { useComposerDraftSync } from "../composerDraftSync";
 import { useThreadItems } from "../useThreadItems";
+import { mergeBySeq } from "../threadItemsStore";
 import {
   threadItemsToTimelineEntries,
   threadItemToChatMessage,
   isVisibleThreadMessageItem,
   threadItemToActivity,
+  threadItemsToPendingUserInputs,
 } from "./chat/threadItemMappers";
 import {
   type ComposerFileAttachment,
@@ -780,13 +781,31 @@ function ChatViewContent({
   const markWorkflowRunPaused = useWorkflowRunUiStore((store) => store.markPaused);
   const markWorkflowRunDismissed = useWorkflowRunUiStore((store) => store.markDismissed);
   const serverThreadShell = useStore(useMemo(() => createThreadSelector(threadId), [threadId]));
+  const transcriptListRef = useRef<TranscriptVirtualListRef | null>(null);
+  const preservePageAnchor = useCallback((turnId: string | null) => {
+    transcriptListRef.current?.preserveAnchorBelowBoundary(
+      turnId === null ? "outline-boundary" : `turn-boundary:${turnId}`,
+    );
+  }, []);
   const {
     state: threadItemsState,
     loadOlder: loadOlderItems,
+    loadOlderTurn,
+    setExpandedTurns,
     reload: retryThreadDetailHydration,
     error: threadItemsError,
-  } = useThreadItems(canonicalRows.some((row) => row.id === threadId) ? threadId : null);
-  const threadItems = threadItemsState.items;
+  } = useThreadItems(
+    canonicalRows.some((row) => row.id === threadId) ? threadId : null,
+    preservePageAnchor,
+  );
+  const threadItems = useMemo(
+    () =>
+      mergeBySeq(threadItemsState.items, [
+        ...Object.values(threadItemsState.finals),
+        ...Object.values(threadItemsState.details).flatMap((detail) => detail.items),
+      ]),
+    [threadItemsState],
+  );
   const serverThread = useMemo(
     () =>
       serverThreadShell === undefined
@@ -964,7 +983,6 @@ function ChatViewContent({
     setIsModelPickerOpen(false);
     setIsTraitsPickerOpen(false);
   }
-  const transcriptListRef = useRef<TranscriptVirtualListRef | null>(null);
   const transcriptControllerDiagnosticInstanceIdRef = useRef<number | null>(null);
   if (transcriptControllerDiagnosticInstanceIdRef.current === null) {
     transcriptControllerDiagnosticInstanceIdRef.current = nextChatScrollDiagnosticInstanceId();
@@ -1903,9 +1921,9 @@ function ChatViewContent({
   const pendingUserInputs = useMemo(
     () =>
       measureChatPerformanceWork("transcript-pending-interactions", () =>
-        derivePendingUserInputs(threadActivities, activeThread?.pendingInteractions),
+        threadItemsToPendingUserInputs(threadItems),
       ),
-    [activeThread?.pendingInteractions, threadActivities],
+    [threadItems],
   );
   const activePendingUserInput = pendingUserInputs[0] ?? null;
   const activePendingUserInputKey = activePendingUserInput
@@ -2652,9 +2670,7 @@ function ChatViewContent({
     connecting: isConnecting,
     hasSendableContent: composerSendState.hasSendableContent,
   });
-  const unresolvedContinueInteractionCount =
-    activeThread?.pendingInteractions?.filter((interaction) => interaction.resolvedAt === null)
-      .length ?? 0;
+  const unresolvedContinueInteractionCount = pendingUserInputs.length;
   const continueHiddenForTurn =
     activeLatestTurnId !== null && activeLatestTurnId === hiddenContinueTurnId;
   useEffect(() => {
@@ -6121,6 +6137,14 @@ function ChatViewContent({
                         crossTaskOrigin={crossTaskOrigin}
                         timelineEntries={visibleTimelineEntries}
                         turns={threadItemsState.turns}
+                        transcriptPages={{
+                          finals: threadItemsState.finals,
+                          hasSteps: threadItemsState.hasSteps,
+                          details: threadItemsState.details,
+                          outlineCursor: threadItemsState.nextCursor,
+                          onExpandedTurnsChange: setExpandedTurns,
+                          onLoadOlderTurn: loadOlderTurn,
+                        }}
                         onLoadOlder={loadOlderItems}
                         onOpenThread={onNavigateToThread}
                         onRemoveFailedMessage={removeFailedMessage}

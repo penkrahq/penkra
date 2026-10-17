@@ -107,7 +107,7 @@ describe("createThreadActivityAccumulator", () => {
     expectEquivalent(previous, [makeActivity({ id: "activity-new", sequence: 3 })]);
   });
 
-  it("matches the fold across the activity cap, including pending-request retention", () => {
+  it("matches the fold across the activity cap without the deleted pending-request retention", () => {
     const pendingQuestion = makeActivity({
       id: "activity-question",
       kind: "user-input.requested",
@@ -144,8 +144,8 @@ describe("createThreadActivityAccumulator", () => {
     expectEquivalent(previous, batch);
 
     const accumulated = foldWithAccumulator(previous, batch).result;
-    // The still-pending question survives the cap; the resolved one is dropped with the rest.
-    expect(accumulated.some((activity) => activity.id === pendingQuestion.id)).toBe(true);
+    // Activity replay no longer owns questions; canonical question items do.
+    expect(accumulated.some((activity) => activity.id === pendingQuestion.id)).toBe(false);
     expect(accumulated.some((activity) => activity.id === resolvedQuestion.id)).toBe(false);
   });
 

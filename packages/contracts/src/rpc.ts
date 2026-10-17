@@ -90,6 +90,8 @@ import {
   CleanCoreGetThreadDraftInput,
   CleanCoreListThreadItemsPageInput,
   CleanCoreListThreadItemsPageResult,
+  CleanCoreListTurnItemsInput,
+  CleanCoreListTurnItemsResult,
   CleanCoreCreateThreadInput,
   CleanCoreGetFolderAppTabsInput,
   CleanCoreUpdateFolderAppTabsInput,
@@ -534,6 +536,11 @@ export const WsCleanCoreListThreadItemsPageRpc = Rpc.make(WS_METHODS.cleanCoreLi
   success: CleanCoreListThreadItemsPageResult,
   error: WsRpcError,
 });
+export const WsCleanCoreListTurnItemsRpc = Rpc.make(WS_METHODS.cleanCoreListTurnItems, {
+  payload: CleanCoreListTurnItemsInput,
+  success: CleanCoreListTurnItemsResult,
+  error: WsRpcError,
+});
 
 export const WsCleanCoreGetThreadDraftRpc = Rpc.make(WS_METHODS.cleanCoreGetThreadDraft, {
   payload: CleanCoreGetThreadDraftInput,
@@ -590,6 +597,7 @@ export const WsFeatureRpcGroup = RpcGroup.make(
   WsCleanCoreUpdateThreadRpc,
   WsCleanCoreSubscribeSidebarRpc,
   WsCleanCoreListThreadItemsPageRpc,
+  WsCleanCoreListTurnItemsRpc,
   WsCleanCoreGetThreadDraftRpc,
   WsCleanCoreSetThreadDraftRpc,
   WsCleanCoreSubscribeThreadRpc,

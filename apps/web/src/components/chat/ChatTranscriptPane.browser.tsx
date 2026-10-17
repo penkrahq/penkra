@@ -18,7 +18,6 @@ import {
   resetChatPerformanceDiagnostics,
 } from "../../chatPerformanceDiagnostics";
 
-const EMPTY_WORK_GROUPS: Record<string, boolean> = {};
 const NOOP = () => {};
 const TIMELINE_ENTRIES = Array.from({ length: 300 }, (_, index) => ({
   id: `assistant-message-entry-${index}`,
@@ -104,7 +103,6 @@ function TranscriptPerfHarness(props: { onTranscriptRender: () => void }) {
             activeTurnStartedAt={null}
             chatFontSizePx={15}
             emptyStateProjectName={undefined}
-            expandedWorkGroups={EMPTY_WORK_GROUPS}
             hasMessages
             isWorking={false}
             listRef={listRef}
@@ -123,7 +121,6 @@ function TranscriptPerfHarness(props: { onTranscriptRender: () => void }) {
             onIsAtEndChange={NOOP}
             onOpenThread={NOOP}
             onScrollToBottom={NOOP}
-            onToggleWorkGroup={NOOP}
             resolvedTheme="dark"
             scrollButtonVisible={false}
             timelineEntries={TIMELINE_ENTRIES}

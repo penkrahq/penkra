@@ -245,6 +245,7 @@ export function toCleanCoreProviderEvents(
       ];
     }
     case "runtime.warning":
+      return [];
     case "runtime.error": {
       return [
         {

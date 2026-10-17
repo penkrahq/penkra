@@ -27,7 +27,7 @@ import {
   decodeThreadSummary,
   type RawThreadSummaryRecord,
 } from "./threadList.ts";
-import { listThreadItemsPage, type ThreadItemRecord } from "./threadItemsPage.ts";
+import { listThreadItemRecords, type ThreadItemRecord } from "./threadItemsPage.ts";
 import {} from "./navigation.ts";
 import type {
   ProjectionFolderPageCursor,
@@ -124,7 +124,7 @@ export const makeThreadReads = Effect.gen(function* () {
         const items: ThreadItemRecord[] = [];
         let beforeSeq: number | undefined;
         do {
-          const page = yield* listThreadItemsPage({ threadId, beforeSeq });
+          const page = yield* listThreadItemRecords({ threadId, beforeSeq });
           items.unshift(...page.items);
           if (!complete || page.nextCursor === null) break;
           beforeSeq = page.nextCursor;
@@ -144,7 +144,7 @@ export const makeThreadReads = Effect.gen(function* () {
   const getThreadTurnsPage = (input: OrchestrationGetThreadTurnsPageInput) =>
     run(
       Effect.gen(function* () {
-        const page = yield* listThreadItemsPage({
+        const page = yield* listThreadItemRecords({
           threadId: input.threadId,
           ...(input.before === undefined ? {} : { beforeSeq: Number(input.before) }),
         });

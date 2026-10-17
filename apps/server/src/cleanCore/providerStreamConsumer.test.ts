@@ -34,6 +34,64 @@ const baseThread = {
   createdAt: "2026-10-09T00:00:00.000Z",
 };
 
+it.effect(
+  "anchors the first item or delta before a delayed turn start, retaining row identity",
+  () =>
+    withDb(
+      Effect.gen(function* () {
+        const sql = yield* SqlClient.SqlClient;
+        yield* runMigrations();
+        yield* seedThreadFolderFixture("core-test-folder", "space-1");
+        yield* createThread(baseThread);
+        const publisher = makeThreadPublisher();
+        for (const kind of ["text", "tool"] as const) {
+          yield* applyProviderEvent(publisher, {
+            type: "delta",
+            threadId: baseThread.id,
+            turnId: kind,
+            sourceId: `delta-${kind}`,
+            kind,
+            delta: "first",
+            at: baseThread.createdAt,
+          });
+        }
+        yield* upsertThreadItem({
+          threadId: baseThread.id,
+          turnId: "item",
+          sourceId: "first-item",
+          kind: "question",
+          status: "open",
+          data: "{}",
+          createdAt: baseThread.createdAt,
+          updatedAt: baseThread.createdAt,
+        });
+        for (const turn of ["text", "tool", "item"]) {
+          const rows = yield* sql<{
+            rowid: number;
+            kind: string;
+            seq: number;
+          }>`SELECT rowid,kind,seq FROM thread_items WHERE thread_id=${baseThread.id} AND turn_id=${turn} ORDER BY seq`;
+          assert.equal(rows.length, 2);
+          assert.equal(rows[0]!.kind, "turn");
+          yield* applyProviderEvent(publisher, {
+            type: "turn.started",
+            threadId: baseThread.id,
+            turnId: turn,
+            at: "2026-10-09T00:00:02.000Z",
+          });
+          const [anchor] = yield* sql<{
+            rowid: number;
+            seq: number;
+            data: string;
+          }>`SELECT rowid,seq,data FROM thread_items WHERE thread_id=${baseThread.id} AND source_id=${`turn:${turn}`}`;
+          assert.equal(anchor!.rowid, rows[0]!.rowid);
+          assert.equal(anchor!.seq, rows[0]!.seq);
+          assert.equal(JSON.parse(anchor!.data).startedAt, "2026-10-09T00:00:02.000Z");
+        }
+      }),
+    ),
+);
+
 it.effect("turn start/end drive threads.state; items go through the upsert", () =>
   withDb(
     Effect.gen(function* () {
@@ -316,7 +374,9 @@ it.effect("turn end settles that turn's running items to a terminal status", () 
         SELECT source_id AS "sourceId", status FROM thread_items WHERE thread_id = 'thread-1' ORDER BY seq
       `;
       assert.deepStrictEqual(rows, [
+        { sourceId: "turn:turn-1", status: "interrupted" },
         { sourceId: "tool-turn-1", status: "interrupted" },
+        { sourceId: "turn:turn-2", status: "running" },
         { sourceId: "tool-turn-2", status: "running" },
       ]);
     }),
@@ -362,6 +422,7 @@ it.effect("turn end interrupts unfinished tools for completed and error outcomes
         SELECT source_id AS "sourceId", status FROM thread_items WHERE thread_id = 'thread-1' ORDER BY seq
       `;
       assert.deepStrictEqual(rows, [
+        { sourceId: "turn:turn-1", status: "error" },
         { sourceId: "tool-done", status: "interrupted" },
         { sourceId: "tool-error", status: "interrupted" },
       ]);
@@ -624,10 +685,12 @@ it.effect(
         assert.deepStrictEqual(
           yield* sql`SELECT source_id, status FROM thread_items WHERE thread_id=${baseThread.id} ORDER BY seq`,
           [
+            { source_id: "turn:turn", status: "interrupted" },
             { source_id: "text", status: "interrupted" },
             { source_id: "reasoning", status: "interrupted" },
             { source_id: "tool", status: "interrupted" },
             { source_id: "delta-without-turn", status: "interrupted" },
+            { source_id: "turn:other-turn", status: "running" },
             { source_id: "other-turn", status: "running" },
           ],
         );
@@ -708,6 +771,7 @@ for (const state of ["completed", "error"] as const) {
         assert.deepStrictEqual(
           yield* sql`SELECT source_id, status FROM thread_items ORDER BY seq`,
           [
+            { source_id: "turn:turn", status: state === "completed" ? "done" : "error" },
             { source_id: "text", status: "interrupted" },
             { source_id: "reasoning", status: "interrupted" },
             { source_id: "tool", status: "interrupted" },

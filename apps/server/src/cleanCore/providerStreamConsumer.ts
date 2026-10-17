@@ -211,6 +211,24 @@ export const applyProviderRuntimeEvent = (
   Effect.gen(function* () {
     const sql = yield* SqlClient.SqlClient;
     const events = toCleanCoreProviderEvents(event);
+    if (event.type === "runtime.warning")
+      yield* Effect.logWarning("provider runtime warning", {
+        threadId: event.threadId,
+        provider: event.provider,
+        message: event.payload.message,
+      });
+    for (const item of events) {
+      if (
+        (item.type === "item" && item.item.kind !== "user" && item.item.turnId == null) ||
+        (item.type === "delta" && item.turnId == null)
+      )
+        yield* Effect.logWarning("provider item missing turn identity", {
+          threadId: event.threadId,
+          provider: event.provider,
+          eventId: event.eventId,
+          type: event.type,
+        });
+    }
     const changes = yield* sql.withTransaction(
       Effect.gen(function* () {
         yield* writeProviderConnectionFacts(event);
@@ -247,6 +265,15 @@ export const applyProviderDeltaRun = (
       }
     }
     if (runs.length === 0) return;
+    for (const { event, parts } of runs) {
+      if (event.turnId == null)
+        yield* Effect.logWarning("provider delta run missing turn identity", {
+          threadId: event.threadId,
+          sourceId: event.sourceId,
+          kind: event.kind,
+          deltaCount: parts.length,
+        });
+    }
     const changed = new Set<string>();
     yield* sql.withTransaction(
       Effect.gen(function* () {

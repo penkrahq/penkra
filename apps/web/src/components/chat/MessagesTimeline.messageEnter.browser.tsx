@@ -51,8 +51,6 @@ function MessageEnterTimeline() {
           activeTurnStartedAt={null}
           timelineEntries={entries}
           nowIso="2026-03-17T19:12:30.000Z"
-          expandedWorkGroups={{}}
-          onToggleWorkGroup={() => {}}
           onImageExpand={() => {}}
           markdownCwd={undefined}
           resolvedTheme="dark"
@@ -85,8 +83,6 @@ function HydratingTimeline() {
           activeTurnStartedAt={null}
           timelineEntries={entries}
           nowIso="2026-03-17T19:12:30.000Z"
-          expandedWorkGroups={{}}
-          onToggleWorkGroup={() => {}}
           onImageExpand={() => {}}
           markdownCwd={undefined}
           resolvedTheme="dark"

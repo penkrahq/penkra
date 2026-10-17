@@ -69,7 +69,7 @@ import { isLoopbackHost } from "./startupAccess";
 import { WorkspaceEntries } from "./workspace/Services/WorkspaceEntries";
 import { WorkspaceFileSystem } from "./workspace/Services/WorkspaceFileSystem";
 import { makeWsStreamAdmission } from "./wsStreamAdmission";
-import { listThreadItemsPage } from "./cleanCore/threadItemsPage.ts";
+import { listThreadItemsPage, listTurnItems } from "./cleanCore/threadItemsPage.ts";
 import {
   findThread,
   listThreads,
@@ -507,6 +507,8 @@ const makeWsRpcHandlersLayer = () =>
           ),
         [WS_METHODS.cleanCoreListThreadItemsPage]: (input) =>
           rpcEffect(listThreadItemsPage(input), "Failed to load a thread items page"),
+        [WS_METHODS.cleanCoreListTurnItems]: (input) =>
+          rpcEffect(listTurnItems(input), "Failed to load turn details"),
         [WS_METHODS.cleanCoreGetThreadDraft]: (input) =>
           rpcEffect(getThreadDraft(input.threadId), "Failed to load the thread draft"),
         [WS_METHODS.cleanCoreSetThreadDraft]: (input) =>

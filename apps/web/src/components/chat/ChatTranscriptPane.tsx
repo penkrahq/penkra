@@ -44,7 +44,6 @@ interface ChatTranscriptPaneProps {
   chatFontSizePx: number;
   emptyStateContent?: ReactNode;
   emptyStateProjectName: string | undefined;
-  expandedWorkGroups?: Record<string, boolean>;
   hasMessages: boolean;
   isWorking: boolean;
   listRef: RefObject<TranscriptVirtualListRef | null>;
@@ -67,10 +66,18 @@ interface ChatTranscriptPaneProps {
   onOpenThread: (threadId: ThreadId) => void;
   onRemoveFailedMessage?: ComponentProps<typeof MessagesTimeline>["onRemoveFailedMessage"];
   onScrollToBottom: () => void;
-  onToggleWorkGroup?: (groupId: string) => void;
   resolvedTheme: "light" | "dark";
   scrollButtonVisible: boolean;
   turns?: Readonly<Record<string, CleanCoreThreadItem>>;
+  transcriptPages?: Pick<
+    ComponentProps<typeof MessagesTimeline>,
+    | "finals"
+    | "hasSteps"
+    | "details"
+    | "outlineCursor"
+    | "onExpandedTurnsChange"
+    | "onLoadOlderTurn"
+  >;
   timelineEntries: ComponentProps<typeof MessagesTimeline>["timelineEntries"];
   timestampFormat: TimestampFormat;
   workspaceRoot: string | undefined;
@@ -87,7 +94,6 @@ function ChatTranscriptPaneImpl({
   chatFontSizePx,
   emptyStateContent,
   emptyStateProjectName,
-  expandedWorkGroups,
   hasMessages,
   isWorking,
   listRef,
@@ -110,11 +116,11 @@ function ChatTranscriptPaneImpl({
   onOpenThread,
   onRemoveFailedMessage,
   onScrollToBottom,
-  onToggleWorkGroup,
   resolvedTheme,
   scrollButtonVisible,
   timelineEntries,
   turns,
+  transcriptPages,
   timestampFormat,
   workspaceRoot,
 }: ChatTranscriptPaneProps) {
@@ -153,6 +159,7 @@ function ChatTranscriptPaneImpl({
             {...(crossTaskOrigin ? { crossTaskOrigin } : {})}
             timelineEntries={timelineEntries}
             turns={turns}
+            {...transcriptPages}
             onOpenThread={onOpenThread}
             onRemoveFailedMessage={onRemoveFailedMessage}
             onImageExpand={onExpandTimelineImage}
@@ -161,7 +168,7 @@ function ChatTranscriptPaneImpl({
             onMessagesClickCapture={onMessagesClickCapture}
             onMessagesMouseUp={onMessagesMouseUp}
             onMessagesWheel={onMessagesWheel}
-            {...(loadOlderTurns === undefined ? {} : { onNearStart: loadOlderTurns })}
+            {...(loadOlderTurns === undefined ? {} : { onLoadOlder: loadOlderTurns })}
             onMessagesPointerDown={onMessagesPointerDown}
             onMessagesPointerUp={onMessagesPointerUp}
             onMessagesPointerCancel={onMessagesPointerCancel}
@@ -182,8 +189,6 @@ function ChatTranscriptPaneImpl({
                 emptyStateContent
               )
             }
-            {...(expandedWorkGroups ? { expandedWorkGroups } : {})}
-            {...(onToggleWorkGroup ? { onToggleWorkGroup } : {})}
           />
         )}
 

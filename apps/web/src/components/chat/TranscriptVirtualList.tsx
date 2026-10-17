@@ -13,6 +13,7 @@ import {
   useCallback,
   useImperativeHandle,
   useLayoutEffect,
+  useEffect,
   useRef,
   type CSSProperties,
   type HTMLAttributes,
@@ -37,6 +38,7 @@ export interface TranscriptVirtualListRef {
   scrollToIndex: (options: { index: number; animated?: boolean; viewPosition?: number }) => void;
   getScrollableNode: () => HTMLDivElement | null;
   getState: () => { isAtEnd: boolean };
+  preserveAnchorBelowBoundary: (boundaryKey: string) => void;
 }
 
 interface TranscriptVirtualListProps<TItem> extends Omit<
@@ -49,8 +51,9 @@ interface TranscriptVirtualListProps<TItem> extends Omit<
   keyExtractor: (item: TItem) => string;
   renderItem: (item: TItem) => ReactNode;
   paddingEnd: number;
-  /** Requests the next history page when the reader approaches the transcript start. */
-  onNearStart?: () => void;
+  /** Reports the actual rendered range, including overscan, for sequence boundaries. */
+  onRenderedItems?: (items: ReadonlyArray<TItem>) => void;
+  isLoadBoundary?: (item: TItem) => boolean;
   /** In-memory identity used to restore a detached viewport after switching transcripts. */
   viewportMemoryKey?: string;
   /** Row key whose measured size should be observed (the live tail). */
@@ -60,7 +63,6 @@ interface TranscriptVirtualListProps<TItem> extends Omit<
 }
 
 const END_THRESHOLD_PX = 80;
-const START_PAGINATION_THRESHOLD_PX = 320;
 const OVERSCAN_ROWS = 6;
 const GEOMETRY_EPSILON_PX = 0.5;
 
@@ -96,7 +98,8 @@ function TranscriptVirtualListInner<TItem>(
     keyExtractor,
     renderItem,
     paddingEnd,
-    onNearStart,
+    onRenderedItems,
+    isLoadBoundary,
     viewportMemoryKey,
     observedTailKey,
     onObservedTailResize,
@@ -112,6 +115,10 @@ function TranscriptVirtualListInner<TItem>(
 ) {
   const scrollElementRef = useRef<HTMLDivElement | null>(null);
   const initialPlacementResolvedRef = useRef(false);
+  // Other renders must not consume the reader anchor before this page commits.
+  const pendingPrependBoundaryKeyRef = useRef<string | null>(null);
+  const reportRenderedItemsRef = useRef(() => {});
+  const previousContentKeysRef = useRef<readonly string[]>([]);
   const initialViewportSnapshotRef = useRef<TranscriptViewportSnapshot | null>(
     viewportMemoryKey ? (readTranscriptViewportSnapshot(viewportMemoryKey) ?? null) : null,
   );
@@ -145,11 +152,12 @@ function TranscriptVirtualListInner<TItem>(
     })(),
   );
   const shouldEndAnchor = hasSemanticAppend && wasAtEndRef.current;
-  const previousFirstKey = previousDataKeysRef.current.at(0);
+  const previousFirstKey = previousContentKeysRef.current.at(0);
+  const previousFirstIndex =
+    previousFirstKey === undefined ? -1 : previousDataKeysRef.current.indexOf(previousFirstKey);
   const hasLeadingPrepend =
     previousFirstKey !== undefined &&
-    data.findIndex((item) => keyExtractor(item) === previousFirstKey) > 0;
-  const virtualizerAnchorTo = hasLeadingPrepend ? "end" : "start";
+    data.findIndex((item) => keyExtractor(item) === previousFirstKey) > previousFirstIndex;
   const initialEndFollowEligibleRef = useRef(initialViewportSnapshotRef.current?.isAtEnd !== false);
   const initialEndFollowRef = useRef(false);
   const initialEndFollowOwnedKeysRef = useRef<ReadonlySet<string>>(new Set());
@@ -162,6 +170,8 @@ function TranscriptVirtualListInner<TItem>(
   const initialAnchorRestoreActiveRef = useRef(
     initialViewportSnapshotRef.current?.isAtEnd === false,
   );
+  const virtualizerAnchorTo =
+    hasLeadingPrepend && !initialAnchorRestoreActiveRef.current ? "end" : "start";
   const scheduleInitialAnchorRestoreRef = useRef<(() => void) | null>(null);
   const placementGenerationRef = useRef(0);
   const placementPendingRef = useRef(false);
@@ -184,7 +194,7 @@ function TranscriptVirtualListInner<TItem>(
     },
     count: data.length,
     getScrollElement: () => scrollElementRef.current,
-    estimateSize: () => estimatedItemSize,
+    estimateSize: (index) => (isLoadBoundary?.(data[index]!) ? 0 : estimatedItemSize),
     getItemKey,
     // While following, keep the causal tail mounted even if a large
     // above-viewport measurement temporarily makes the calculated range point
@@ -413,10 +423,11 @@ function TranscriptVirtualListInner<TItem>(
   // writer preserves the old top anchor while another preserves the tail,
   // producing the recorded up/down oscillation. This callback is an instance
   // policy (not a hook option), so assign it synchronously on every render.
+  // A page prepend also establishes an explicit reader anchor, even when
+  // automatic short-history filling began at the tail. Keep it through later
+  // row measurements; acquiring the tail for new content clears it below.
   virtualizer.shouldAdjustScrollPositionOnItemSizeChange = (item) =>
-    scrollOwnerRef.current === "reader" &&
-    readerAnchorIndexRef.current !== null &&
-    item.index < readerAnchorIndexRef.current;
+    readerAnchorIndexRef.current !== null && item.index < readerAnchorIndexRef.current;
   // Observe the live tail row's measured size. Attaching from the row element
   // means mount/unmount (or the tail key changing) drives the observer, so a
   // tail row that is not yet rendered is still observed once it appears.
@@ -493,15 +504,13 @@ function TranscriptVirtualListInner<TItem>(
       }
       scrollElement?.removeAttribute("aria-busy");
       scrollElement?.setAttribute("data-initial-placement", "resolved");
-      if (scrollElement && scrollElement.scrollTop <= START_PAGINATION_THRESHOLD_PX) {
-        onNearStart?.();
-      }
+      reportRenderedItemsRef.current();
       recordDiagnostic("initial-placement:revealed", {
         source,
         memoryKey: viewportMemoryKey ?? null,
       });
     },
-    [onNearStart, recordDiagnostic, viewportMemoryKey],
+    [recordDiagnostic, viewportMemoryKey],
   );
   const scheduleFrameDiagnosticCheckpoint = useCallback(
     (source: string) => {
@@ -638,12 +647,47 @@ function TranscriptVirtualListInner<TItem>(
   useImperativeHandle(
     ref,
     () => ({
+      preserveAnchorBelowBoundary: (boundaryKey) => {
+        if (initialAnchorRestoreActiveRef.current) return;
+        const element = scrollElementRef.current;
+        const boundaryIndex = data.findIndex(
+          (item) =>
+            keyExtractor(item) === boundaryKey || keyExtractor(item).startsWith(boundaryKey + ":"),
+        );
+        if (!element || boundaryIndex < 0) return;
+        const index = data.findIndex(
+          (item, index) => index > boundaryIndex && !isLoadBoundary?.(item),
+        );
+        if (index < 0) return;
+        const key = keyExtractor(data[index]!);
+        const row = element.querySelector<HTMLElement>(`[data-index="${index}"]`);
+        const measurement = virtualizer.getVirtualItems().find((item) => item.index === index);
+        if (!row && !measurement) return;
+        initialViewportSnapshotRef.current = {
+          anchorKey: key,
+          anchorOffset: row
+            ? row.getBoundingClientRect().top - element.getBoundingClientRect().top
+            : measurement!.start - element.scrollTop,
+          isAtEnd: scrollOwnerRef.current === "tail",
+        };
+        readerAnchorIndexRef.current = index;
+        pendingPrependBoundaryKeyRef.current = keyExtractor(data[boundaryIndex]!);
+        recordDiagnostic("prepend:anchor-captured", {
+          boundaryKey: pendingPrependBoundaryKeyRef.current,
+          anchorKey: key,
+          anchorOffset: initialViewportSnapshotRef.current.anchorOffset,
+        });
+        initialEndFollowRef.current = false;
+        initialAnchorRestoreActiveRef.current = true;
+      },
       scrollToEnd: (options) => {
         // Acquire tail ownership before starting the DOM motion. Cleanup may
         // run before a smooth scroll reaches its target, and must preserve the
         // requested destination rather than its transient pixel offset.
         scrollOwnerRef.current = "tail";
         wasAtEndRef.current = true;
+        readerAnchorIndexRef.current = null;
+        pendingPrependBoundaryKeyRef.current = null;
         if (initialAnchorRestoreActiveRef.current) {
           initialAnchorRestoreActiveRef.current = false;
           initialEndFollowEligibleRef.current = true;
@@ -719,6 +763,7 @@ function TranscriptVirtualListInner<TItem>(
     [
       data,
       keyExtractor,
+      isLoadBoundary,
       paddingEnd,
       recordDiagnostic,
       scheduleFrameDiagnosticCheckpoint,
@@ -736,6 +781,7 @@ function TranscriptVirtualListInner<TItem>(
       initialEndFollowEligibleRef.current = false;
       initialEndFollowRef.current = false;
       initialAnchorRestoreActiveRef.current = false;
+      pendingPrependBoundaryKeyRef.current = null;
       recordDiagnostic("initial-placement:cancelled", { source });
       resolveInitialPlacement(`cancelled:${source}`);
     },
@@ -744,6 +790,7 @@ function TranscriptVirtualListInner<TItem>(
   const correctInitialEnd = useCallback(
     (source: string) => {
       if (!initialEndFollowRef.current) return;
+      readerAnchorIndexRef.current = null;
       const element = scrollElementRef.current;
       if (!element) {
         cancelInitialPlacement("scroll-element-missing");
@@ -851,6 +898,11 @@ function TranscriptVirtualListInner<TItem>(
 
   const correctInitialAnchor = useCallback(() => {
     if (!initialAnchorRestoreActiveRef.current) return;
+    const pendingBoundary = pendingPrependBoundaryKeyRef.current;
+    if (pendingBoundary !== null) {
+      if (data.some((item) => keyExtractor(item) === pendingBoundary)) return;
+      pendingPrependBoundaryKeyRef.current = null;
+    }
     const snapshot = initialViewportSnapshotRef.current;
     const element = scrollElementRef.current;
     if (!snapshot || !element) {
@@ -858,6 +910,7 @@ function TranscriptVirtualListInner<TItem>(
       return;
     }
     const targetIndex = data.findIndex((item) => keyExtractor(item) === snapshot.anchorKey);
+    readerAnchorIndexRef.current = targetIndex >= 0 ? targetIndex : null;
     if (targetIndex < 0) {
       // Preserve the existing deleted-anchor behaviour: open at the tail.
       initialAnchorRestoreActiveRef.current = false;
@@ -925,6 +978,7 @@ function TranscriptVirtualListInner<TItem>(
     initialAnchorRestoreActiveRef.current = false;
     recordDiagnostic("viewport-memory:restored", { anchorKey: snapshot.anchorKey, targetIndex });
     resolveInitialPlacement("viewport-memory-restored");
+    reportRenderedItemsRef.current();
   }, [
     cancelInitialPlacement,
     data,
@@ -971,15 +1025,27 @@ function TranscriptVirtualListInner<TItem>(
       prependedRowCount: preservedFirstIndex > 0 ? preservedFirstIndex : 0,
     });
     previousDataKeysRef.current = currentKeys;
-  }, [data, hasLeadingPrepend, keyExtractor, recordDiagnostic, shouldEndAnchor, viewportMemoryKey]);
+    previousContentKeysRef.current = data
+      .filter((item) => !isLoadBoundary?.(item))
+      .map(keyExtractor);
+  }, [
+    data,
+    hasLeadingPrepend,
+    keyExtractor,
+    isLoadBoundary,
+    recordDiagnostic,
+    shouldEndAnchor,
+    viewportMemoryKey,
+  ]);
 
   useLayoutEffect(() => {
     if (!initialAnchorRestoreActiveRef.current || data.length === 0) return;
     recordDiagnostic("viewport-memory:restore-started", {
       anchorKey: initialViewportSnapshotRef.current?.anchorKey ?? null,
     });
-    scheduleInitialAnchorRestore();
-  }, [data.length, recordDiagnostic, scheduleInitialAnchorRestore]);
+    if (initialPlacementResolvedRef.current) correctInitialAnchor();
+    else scheduleInitialAnchorRestore();
+  }, [data, recordDiagnostic, correctInitialAnchor, scheduleInitialAnchorRestore]);
 
   const hasData = data.length > 0;
   useLayoutEffect(() => {
@@ -1009,6 +1075,18 @@ function TranscriptVirtualListInner<TItem>(
   });
 
   const virtualItems = virtualizer.getVirtualItems();
+  reportRenderedItemsRef.current = () => {
+    if (initialPlacementResolvedRef.current && !initialAnchorRestoreActiveRef.current)
+      onRenderedItems?.(
+        virtualizer
+          .getVirtualItems()
+          .map((item) => data[item.index]!)
+          .filter((item) => item !== undefined),
+      );
+  };
+  useEffect(() => {
+    reportRenderedItemsRef.current();
+  }, [data, virtualItems, onRenderedItems]);
 
   const containerStyle: CSSProperties = {
     position: "relative",
@@ -1070,21 +1148,10 @@ function TranscriptVirtualListInner<TItem>(
         lastWriter: readChatScrollWriteAttribution(element)?.owner ?? "unattributed",
         readerAnchorIndex: readerAnchorIndexRef.current,
       });
-      if (element.scrollTop <= START_PAGINATION_THRESHOLD_PX) {
-        onNearStart?.();
-      }
       onScroll?.(event);
     },
-    [onNearStart, onScroll, recordDiagnostic, virtualizer],
+    [onScroll, recordDiagnostic, virtualizer],
   );
-
-  useLayoutEffect(() => {
-    if (!initialPlacementResolvedRef.current) return;
-    const element = scrollElementRef.current;
-    if (element && element.scrollTop <= START_PAGINATION_THRESHOLD_PX) {
-      onNearStart?.();
-    }
-  }, [data.length, onNearStart]);
 
   return (
     <div

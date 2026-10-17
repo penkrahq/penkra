@@ -60,6 +60,8 @@ import type {
   CleanCoreGetThreadDraftInput,
   CleanCoreListThreadItemsPageInput,
   CleanCoreListThreadItemsPageResult,
+  CleanCoreListTurnItemsInput,
+  CleanCoreListTurnItemsResult,
   CleanCoreCreateThreadInput,
   CleanCoreGetFolderAppTabsInput,
   CleanCoreUpdateFolderAppTabsInput,
@@ -1075,6 +1077,7 @@ export interface NativeApi {
     listThreadItemsPage: (
       input: CleanCoreListThreadItemsPageInput,
     ) => Promise<CleanCoreListThreadItemsPageResult>;
+    listTurnItems: (input: CleanCoreListTurnItemsInput) => Promise<CleanCoreListTurnItemsResult>;
     getThreadDraft: (input: CleanCoreGetThreadDraftInput) => Promise<CleanCoreThreadDraft>;
     setThreadDraft: (input: CleanCoreSetThreadDraftInput) => Promise<CleanCoreThreadDraft>;
     subscribeThread: (input: CleanCoreSubscribeThreadInput) => Promise<void>;

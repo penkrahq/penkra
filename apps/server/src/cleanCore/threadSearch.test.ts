@@ -34,6 +34,26 @@ const addMessage = (threadId: string, seq: number, text: string) =>
       '2026-10-10T00:00:00.000Z', '2026-10-10T00:00:00.000Z')`;
   });
 
+it.effect("derives each search result's question count through the candidates query", () =>
+  withDb(
+    Effect.gen(function* () {
+      yield* runMigrations();
+      yield* seedThreadFolderFixture(folderId, spaceId);
+      yield* addThread("one", "Needle one");
+      yield* addThread("two", "Needle two");
+      const sql = yield* SqlClient.SqlClient;
+      yield* sql`INSERT INTO thread_items(thread_id,seq,source_id,kind,status,text,data,created_at,updated_at)
+      VALUES ('one',1,'open-question','question','open','Choose one','{}','2026-10-10T00:00:00.000Z','2026-10-10T00:00:00.000Z'),
+      ('one',2,'answered-question','question','answered','Already answered','{}','2026-10-10T00:00:00.000Z','2026-10-10T00:00:00.000Z')`;
+      const rows = (yield* searchThreads({ spaceId, query: "needle", cursor: null })).threads;
+      assert.equal(rows.find((row) => row.id === "one")?.openQuestionCount, 1);
+      assert.equal(rows.find((row) => row.id === "one")?.latestOpenQuestion?.id, "open-question");
+      assert.equal(rows.find((row) => row.id === "two")?.openQuestionCount, 0);
+      assert.isNull(rows.find((row) => row.id === "two")?.latestOpenQuestion);
+    }),
+  ),
+);
+
 it.effect("finds a title on an unloaded sidebar page case-insensitively", () =>
   withDb(
     Effect.gen(function* () {

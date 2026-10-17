@@ -14,6 +14,13 @@ const base = {
 const bridge = (event: Record<string, unknown>) =>
   toCleanCoreProviderEvents(event as unknown as ProviderRuntimeEvent);
 
+it("does not store runtime warnings as transcript notices", () => {
+  assert.deepStrictEqual(
+    bridge({ ...base, type: "runtime.warning", payload: { message: "diagnostic only" } }),
+    [],
+  );
+});
+
 it("maps turn.started / completed / aborted / session.exited", () => {
   assert.deepStrictEqual(bridge({ ...base, type: "turn.started", payload: {} }), [
     { type: "turn.started", threadId: "thread-1", turnId: "turn-1", at: base.createdAt },

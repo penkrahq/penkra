@@ -173,3 +173,10 @@ export function derivePendingUserInputProgress(
     canAdvance: Boolean(resolvedAnswer),
   };
 }
+
+export interface PendingUserInput {
+  requestId: string;
+  lifecycleGeneration?: string;
+  createdAt: string;
+  questions: ReadonlyArray<UserInputQuestion>;
+}

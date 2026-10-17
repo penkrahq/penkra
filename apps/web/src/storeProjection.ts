@@ -58,9 +58,6 @@ function toThreadShell(thread: Thread): ThreadShell {
       ? { hasPendingUserInput: thread.hasPendingUserInput }
       : {}),
     ...(thread.workStatus !== undefined ? { workStatus: thread.workStatus } : {}),
-    ...(thread.pendingInteractions !== undefined
-      ? { pendingInteractions: thread.pendingInteractions }
-      : {}),
   };
 }
 
