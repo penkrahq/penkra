@@ -175,7 +175,6 @@ export function RightDock(props: RightDockProps) {
         }
         publishNativeAppBoundsForWidth(wrapper, nextWidth);
         wrapper.style.setProperty("--sidebar-width", `${nextWidth}px`);
-        shell.style.setProperty("--right-dock-overlay-inset", `${nextWidth}px`);
       }
     };
     const scheduleAvailableWidth = () => {
@@ -187,6 +186,17 @@ export function RightDock(props: RightDockProps) {
     };
 
     applyAvailableWidth();
+    // The overlay follows rendered geometry, not the width persisted on release.
+    // This also follows opening motion and any other layout-driven dock resize.
+    const syncOverlayInset = () => {
+      shell.style.setProperty(
+        "--right-dock-overlay-inset",
+        `${wrapper.getBoundingClientRect().width}px`,
+      );
+    };
+    syncOverlayInset();
+    const dockResizeObserver = new ResizeObserver(syncOverlayInset);
+    dockResizeObserver.observe(wrapper);
     // The dock's available width can change without a BrowserWindow resize:
     // switching shell layouts, changing the left rail, and leaving fullscreen
     // all resize this parent. Observe that element so the CSS dock and the
@@ -200,6 +210,7 @@ export function RightDock(props: RightDockProps) {
     return () => {
       releaseOpeningListeners?.();
       resizeObserver.disconnect();
+      dockResizeObserver.disconnect();
       window.removeEventListener("resize", scheduleAvailableWidth);
       removeWindowStateListener?.();
       if (resizeFrameId !== null) {
