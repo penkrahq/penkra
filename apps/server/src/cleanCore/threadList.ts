@@ -95,7 +95,7 @@ export const THREAD_SUMMARY_COLUMNS = `
         last_message_preview AS "lastMessagePreview",
         last_user_message_at AS "lastUserMessageAt",
         last_visited_at AS "lastVisitedAt",
-        open_question_count AS "openQuestionCount",
+        (SELECT COUNT(*) FROM thread_items q WHERE q.thread_id=threads.id AND q.kind='question' AND q.status='open') AS "openQuestionCount",
         (SELECT json_object('id', question.source_id, 'summary', question.text, 'createdAt', question.created_at)
           FROM thread_items question WHERE question.thread_id=id AND question.kind='question' AND question.status='open'
           ORDER BY question.seq DESC LIMIT 1) AS "latestOpenQuestionJson",

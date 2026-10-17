@@ -103,12 +103,10 @@ it.effect("upsertThreadItem assigns seq once and updates in place", () =>
         readonly lastActivityAt: string;
         readonly lastMessagePreview: string;
         readonly lastUserMessageAt: string;
-        readonly openQuestionCount: number;
       }>`
         SELECT last_activity_at AS "lastActivityAt",
                last_message_preview AS "lastMessagePreview",
-               last_user_message_at AS "lastUserMessageAt",
-               open_question_count AS "openQuestionCount"
+               last_user_message_at AS "lastUserMessageAt"
         FROM threads WHERE id = 'thread-1'
       `;
       assert.deepStrictEqual(rollups, [
@@ -116,14 +114,13 @@ it.effect("upsertThreadItem assigns seq once and updates in place", () =>
           lastActivityAt: "2026-10-09T00:00:03.000Z",
           lastMessagePreview: "complete",
           lastUserMessageAt: "2026-10-09T00:00:01.000Z",
-          openQuestionCount: 0,
         },
       ]);
     }),
   ),
 );
 
-it.effect("upsertThreadItem maintains open_question_count from question items", () =>
+it.effect("question item updates preserve the derived open-question state", () =>
   withDb(
     Effect.gen(function* () {
       const sql = yield* SqlClient.SqlClient;
@@ -149,7 +146,7 @@ it.effect("upsertThreadItem maintains open_question_count from question items", 
         updatedAt: "2026-10-09T00:00:02.000Z",
       });
       const open = yield* sql<{ readonly count: number }>`
-        SELECT open_question_count AS count FROM threads WHERE id = 'thread-1'
+        SELECT COUNT(*) AS count FROM thread_items WHERE thread_id = 'thread-1' AND kind='question' AND status='open'
       `;
       assert.deepStrictEqual(open, [{ count: 2 }]);
       yield* upsertThreadItem({
@@ -162,7 +159,7 @@ it.effect("upsertThreadItem maintains open_question_count from question items", 
         updatedAt: "2026-10-09T00:00:03.000Z",
       });
       const afterAnswer = yield* sql<{ readonly count: number }>`
-        SELECT open_question_count AS count FROM threads WHERE id = 'thread-1'
+        SELECT COUNT(*) AS count FROM thread_items WHERE thread_id = 'thread-1' AND kind='question' AND status='open'
       `;
       assert.deepStrictEqual(afterAnswer, [{ count: 1 }]);
     }),

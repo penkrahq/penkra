@@ -128,7 +128,7 @@ it.effect("skips running, starting, active-turn and open-question chats and rece
       yield* sql`UPDATE threads SET state='running' WHERE id='running'`;
       yield* sql`UPDATE threads SET state='starting' WHERE id='starting'`;
       yield* sql`UPDATE threads SET active_turn_id='turn-id' WHERE id='turn'`;
-      yield* sql`UPDATE threads SET open_question_count=1 WHERE id='question'`;
+      yield* sql`INSERT INTO thread_items (thread_id,seq,source_id,kind,status,created_at,updated_at) VALUES ('question',1,'open-question','question','open',${origin},${origin})`;
       yield* sql`UPDATE threads SET last_user_message_at=${at} WHERE id='user-message'`;
       yield* sql`UPDATE threads SET last_visited_at=${at} WHERE id='visit'`;
       yield* sql`UPDATE threads SET updated_at=${at} WHERE id='updated'`;
