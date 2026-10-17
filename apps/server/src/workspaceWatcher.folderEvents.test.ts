@@ -97,10 +97,9 @@ it("watches newly created folders, moves a changed root, and retains an unchange
     expect(closers[1]).toHaveBeenCalledTimes(1);
     expect(observed.watch).toHaveBeenCalledTimes(3);
     expect(observed.watch.mock.calls[2]?.[0]).toBe("/changed-folder");
-    let reads = 0;
     const unchanged = new Promise<void>((resolve) => {
       observed.readComplete = () => {
-        if (++reads === 2) resolve();
+        resolve();
       };
     });
     publisher.publishSidebar({ kind: "navigation" });

@@ -10,6 +10,7 @@ import { ManagedAttachmentRepositoryLive } from "../persistence/Layers/ManagedAt
 import { assert, it } from "@effect/vitest";
 import {
   FolderId,
+  MessageId,
   ThreadId,
   TurnId,
   ProviderConnectionId,
@@ -196,7 +197,11 @@ it.effect(
       }>`SELECT id, connection_id AS "connectionId" FROM threads WHERE id != ${callerId}`;
       assert.equal(retained.length, 1);
       assert.equal(retained[0]!.connectionId, accountA);
-      assert.equal((yield* sql`SELECT source_id FROM thread_items WHERE kind='user'`).length, 0);
+      assert.equal(
+        (yield* sql`SELECT source_id FROM thread_items WHERE kind='user' AND status='failed' AND send_payload IS NOT NULL`)
+          .length,
+        1,
+      );
       defaultConnection = ProviderConnectionId.makeUnsafe("account-b");
       failLaunch = false;
       const retry = yield* handler(input, context);
@@ -208,12 +213,24 @@ it.effect(
         sender: yield* newSender(),
       });
       assert.deepStrictEqual(yield* restartedHandler(input, context), retry);
+      assert.equal(dispatches, 1);
+      yield* sender.send({
+        threadId: retained[0]!.id,
+        dispatchMode: "queue",
+        message: {
+          messageId: MessageId.makeUnsafe("explicit-next-send"),
+          text: "Continue the task",
+          attachments: [],
+          origin: { _tag: "agent", senderThreadId: callerId },
+          queuedAt: at,
+        },
+      });
       yield* Deferred.await(successSettled);
       assert.equal(dispatches, 2);
       assert.equal((yield* sql`SELECT id FROM threads WHERE id != ${callerId}`).length, 1);
       assert.equal(
         (yield* sql`SELECT source_id FROM thread_items WHERE kind='user' AND status='sent'`).length,
-        1,
+        2,
       );
       assert.equal((yield* findThread(retained[0]!.id))!.connectionId, accountA);
     }).pipe(Effect.scoped, Effect.provide(NodeSqliteClient.layerMemory())),

@@ -26,9 +26,9 @@ const installationRepository = {
   reactivate: () => Effect.die("not expected"),
 };
 
-function withSession<A, E>(
-  status: string,
-  activeTurnId: string | null,
+function withThreadState<A, E>(
+  state: string,
+  pendingSend: boolean,
   effect: Effect.Effect<A, E, ThreadReads | SqlClient.SqlClient>,
 ) {
   return Effect.runPromise(
@@ -46,8 +46,10 @@ function withSession<A, E>(
         createdBy: "user",
         createdAt: "2026-10-10T00:00:00.000Z",
       });
-      yield* sql`INSERT INTO projection_thread_sessions(thread_id, status, provider_name, active_turn_id, updated_at)
-      VALUES ('active-thread', ${status}, 'codex', ${activeTurnId}, '2026-10-10T00:00:00.000Z')`;
+      yield* sql`UPDATE threads SET state=${state} WHERE id='active-thread'`;
+      if (pendingSend)
+        yield* sql`INSERT INTO thread_items(thread_id, seq, source_id, kind, status, data, created_at, updated_at)
+        VALUES ('active-thread', 1, 'pending-send', 'user', 'sending', '{"origin":{"_tag":"user"},"attachments":[]}', '2026-10-10T00:00:00.000Z', '2026-10-10T00:00:00.000Z')`;
       return yield* effect;
     }).pipe(Effect.provide(ThreadReadsLive.pipe(Layer.provideMerge(SqlitePersistenceMemory)))),
   );
@@ -89,9 +91,9 @@ function outdatedOpenCode(): ServerProviderStatus {
 
 describe("provider update coordinator", () => {
   it("blocks only the active provider", async () => {
-    await withSession(
+    await withThreadState(
       "running",
-      "turn-1",
+      false,
       Effect.gen(function* () {
         const query = yield* ThreadReads;
         expect(yield* query.hasActiveProviderThread("codex")).toBe(true);
@@ -100,10 +102,10 @@ describe("provider update coordinator", () => {
     );
   });
 
-  it("does not treat a ready session without a turn as active", async () => {
-    await withSession(
-      "ready",
-      null,
+  it("does not treat an idle thread without a pending send as active", async () => {
+    await withThreadState(
+      "idle",
+      false,
       Effect.gen(function* () {
         const query = yield* ThreadReads;
         expect(yield* query.hasActiveProviderThread("codex")).toBe(false);
@@ -112,13 +114,13 @@ describe("provider update coordinator", () => {
   });
 
   it.each([
-    ["starting", null],
-    ["running", null],
-    ["ready", "turn-1"],
-  ])("blocks a %s session with active turn %s", async (status, activeTurnId) => {
-    await withSession(
-      status,
-      activeTurnId,
+    ["idle", true],
+    ["running", false],
+    ["error", true],
+  ])("blocks a %s thread with pending send %s", async (state, pendingSend) => {
+    await withThreadState(
+      state,
+      pendingSend,
       Effect.gen(function* () {
         const query = yield* ThreadReads;
         expect(yield* query.hasActiveProviderThread("codex")).toBe(true);
@@ -126,17 +128,16 @@ describe("provider update coordinator", () => {
     );
   });
 
-  it("uses the provider index and ignores deleted threads while retaining archived session admission", async () => {
-    await withSession(
+  it("uses the provider index and ignores deleted threads while retaining archived thread admission", async () => {
+    await withThreadState(
       "running",
-      "turn-1",
+      false,
       Effect.gen(function* () {
         const query = yield* ThreadReads;
         const sql = yield* SqlClient.SqlClient;
         const plan = yield* sql<{ detail: string }>`EXPLAIN QUERY PLAN SELECT EXISTS(
-        SELECT 1 FROM threads t JOIN projection_thread_sessions s ON s.thread_id = t.id
-        WHERE t.provider = 'codex' AND t.deleted_at IS NULL
-          AND (s.active_turn_id IS NOT NULL OR s.status IN ('starting', 'running')) LIMIT 1
+        SELECT 1 FROM threads t WHERE t.provider = 'codex' AND t.deleted_at IS NULL
+          AND (t.state='running' OR EXISTS (SELECT 1 FROM thread_items WHERE thread_id=t.id AND kind='user' AND status='sending')) LIMIT 1
       )`;
         expect(plan.some((row) => row.detail.includes("idx_threads_provider_live"))).toBe(true);
         yield* sql`UPDATE threads SET archived_at = '2026-10-10T00:00:01.000Z' WHERE id = 'active-thread'`;

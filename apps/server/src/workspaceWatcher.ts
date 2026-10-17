@@ -260,7 +260,7 @@ export const WorkspaceWatcherLive = Layer.effect(
           ),
         ),
       ),
-      Effect.forkScoped,
+      Effect.forkScoped({ startImmediately: true }),
     );
 
     const close = yield* Effect.cached(
