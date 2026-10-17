@@ -363,7 +363,7 @@ export const makeThreadReads = Effect.gen(function* () {
         AND (${input.model} IS NULL OR model=${input.model}) AND (${input.createdBy} IS NULL OR created_by=${input.createdBy === "human" ? "user" : input.createdBy === "penkra-mcp" ? "agent" : input.createdBy})
         AND (${input.updatedAfter} IS NULL OR updated_at>=${input.updatedAfter}) AND (${input.updatedBefore} IS NULL OR updated_at<=${input.updatedBefore})
         AND (${input.titleContains} IS NULL OR instr(lower(title),lower(${input.titleContains}))>0)
-        AND (${input.status} IS NULL OR CASE WHEN state='running' THEN 'working' WHEN state='error' THEN 'error' WHEN open_question_count>0 THEN 'waiting-for-user-input' ELSE 'idle' END=${input.status})
+        AND (${input.status} IS NULL OR CASE WHEN state='running' THEN 'working' WHEN state='error' THEN 'error' WHEN (SELECT COUNT(*) FROM thread_items q WHERE q.thread_id=threads.id AND q.kind='question' AND q.status='open')>0 THEN 'waiting-for-user-input' ELSE 'idle' END=${input.status})
         AND (${input.after === null ? 1 : 0}=1 OR updated_at<${input.after?.updatedAt ?? null} OR (updated_at=${input.after?.updatedAt ?? null} AND id>${input.after?.threadId ?? null}))
         ORDER BY updated_at DESC,id LIMIT 51`;
           const tail = rows[49];

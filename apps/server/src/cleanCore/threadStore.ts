@@ -165,13 +165,7 @@ export const upsertThreadItem = (input: ThreadItemInput) =>
               ELSE last_message_preview END,
             last_user_message_at = CASE
               WHEN ${Number(!recovery)}=1 AND ${input.kind} = 'user' THEN ${input.updatedAt}
-              ELSE last_user_message_at END,
-            open_question_count = CASE
-              WHEN ${input.kind} = 'question' THEN (
-                SELECT COUNT(*) FROM thread_items
-                WHERE thread_id = ${input.threadId} AND kind = 'question' AND status = 'open'
-              )
-              ELSE open_question_count END
+              ELSE last_user_message_at END
           WHERE id = ${input.threadId}
         `;
       }),
@@ -262,7 +256,7 @@ export const setThreadArchived = (
       Effect.gen(function* () {
         if (expected !== null) {
           const changed =
-            yield* sql`UPDATE threads SET archived_at=${archivedAt}, updated_at=${updatedAt} WHERE id=${id} AND archived_at IS NULL AND deleted_at IS NULL AND updated_at=${expected.updatedAt} AND last_visited_at IS ${expected.lastVisitedAt} AND state NOT IN ('starting','running') AND active_turn_id IS NULL AND open_question_count=0 RETURNING id`;
+            yield* sql`UPDATE threads SET archived_at=${archivedAt}, updated_at=${updatedAt} WHERE id=${id} AND archived_at IS NULL AND deleted_at IS NULL AND updated_at=${expected.updatedAt} AND last_visited_at IS ${expected.lastVisitedAt} AND state NOT IN ('starting','running') AND active_turn_id IS NULL AND NOT EXISTS (SELECT 1 FROM thread_items q WHERE q.thread_id=threads.id AND q.kind='question' AND q.status='open') RETURNING id`;
           return changed.length !== 0;
         }
         const rows = yield* sql<{
@@ -524,16 +518,16 @@ export const settleRunningItems = (threadId: string, at: string, turnId?: string
     if (turnId === undefined || turnId === null) {
       yield* sql`
         UPDATE thread_items
-        SET status = 'interrupted', updated_at = ${at},
+        SET status = CASE WHEN kind = 'question' THEN 'cancelled' ELSE 'interrupted' END, updated_at = ${at},
             data = CASE WHEN kind = 'turn' THEN json_set(data, '$.endedAt', ${at}) ELSE data END
-        WHERE thread_id = ${threadId} AND status IN ('running', 'streaming')
+        WHERE thread_id = ${threadId} AND (status IN ('running', 'streaming') OR (kind='question' AND status='open'))
       `;
     } else {
       yield* sql`
         UPDATE thread_items
-        SET status = 'interrupted', updated_at = ${at},
+        SET status = CASE WHEN kind = 'question' THEN 'cancelled' ELSE 'interrupted' END, updated_at = ${at},
             data = CASE WHEN kind = 'turn' THEN json_set(data, '$.endedAt', ${at}) ELSE data END
-        WHERE thread_id = ${threadId} AND status IN ('running', 'streaming')
+        WHERE thread_id = ${threadId} AND (status IN ('running', 'streaming') OR (kind='question' AND status='open'))
           AND (turn_id = ${turnId} OR turn_id IS NULL)
       `;
     }

@@ -39,7 +39,7 @@ export const runThreadRetentionSweep = (at: string) =>
       while (true) {
         const predicate =
           phase === "archive"
-            ? `t.archived_at IS NULL AND t.state NOT IN ('starting','running') AND t.active_turn_id IS NULL AND t.open_question_count=0 AND ${activeDaysAfterSql(lastActivitySql)} >= ${THREAD_RETENTION_UNUSED_ACTIVE_DAYS}`
+            ? `t.archived_at IS NULL AND t.state NOT IN ('starting','running') AND t.active_turn_id IS NULL AND NOT EXISTS (SELECT 1 FROM thread_items q WHERE q.thread_id=t.id AND q.kind='question' AND q.status='open') AND ${activeDaysAfterSql(lastActivitySql)} >= ${THREAD_RETENTION_UNUSED_ACTIVE_DAYS}`
             : `t.archived_at IS NOT NULL AND ${archivedDaysRemainingSql("t.archived_at")} = 0`;
         const rows: ReadonlyArray<{
           id: ThreadId;
