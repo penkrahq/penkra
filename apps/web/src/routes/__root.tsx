@@ -18,7 +18,7 @@ import { QueryClient, useQuery, useQueryClient } from "@tanstack/react-query";
 
 import { APP_DISPLAY_NAME, APP_VERSION } from "../branding";
 import { DesktopWindowControls } from "../components/DesktopWindowControls";
-import { DesktopActiveWorkPowerSync } from "../components/DesktopActiveWorkPowerSync";
+import { DesktopVoicePowerSync } from "../components/DesktopVoicePowerSync";
 import { DesktopThreadApiBridge } from "../components/DesktopThreadApiBridge";
 import { DesktopOnboardingGate } from "../components/onboarding/DesktopOnboardingGate";
 import { FeedbackDialog } from "../components/FeedbackDialog";
@@ -171,7 +171,7 @@ function RootRouteView() {
         <ToastProvider position="top-center">
           <VoiceSessionCoordinatorProvider>
             <AnchoredToastProvider>
-              <DesktopActiveWorkPowerSync />
+              <DesktopVoicePowerSync />
               <DesktopThreadApiBridge />
               <ServerConfigUpdateNotifications />
               <EventRouter />

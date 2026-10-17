@@ -67,6 +67,7 @@ import {
 } from "./serverShutdown";
 import { resolveFavicon, tryParseHost } from "./siteFaviconCache";
 import { desktopFolderAppTabsRouteLayer } from "./desktopFolderAppTabsRoute";
+import { desktopRunningWorkRouteLayer } from "./desktopRunningWorkRoute";
 import { desktopThreadRouteLayer } from "./desktopThreadRoute";
 import {
   isTrustedAppOrigin,
@@ -199,6 +200,7 @@ export function makeEffectHttpRouteLayer(
     makeDesktopShutdownEffectRouteLayer(shutdownController),
     desktopThreadRouteLayer,
     desktopFolderAppTabsRouteLayer,
+    desktopRunningWorkRouteLayer,
     authEffectRouteLayer,
     projectFaviconEffectRouteLayer,
     threadExportEffectRouteLayer,

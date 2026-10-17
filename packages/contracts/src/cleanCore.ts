@@ -101,6 +101,10 @@ export type CleanCoreThreadChange = typeof CleanCoreThreadChange.Type;
 export const CleanCoreSubscribeThreadInput = Schema.Struct({ threadId: ThreadId });
 export type CleanCoreSubscribeThreadInput = typeof CleanCoreSubscribeThreadInput.Type;
 
+/** Private desktop stream: the server owns the complete working-thread set. */
+export const DesktopRunningWorkState = Schema.Struct({ working: Schema.Array(ThreadId) });
+export type DesktopRunningWorkState = typeof DesktopRunningWorkState.Type;
+
 export const UserItemData = Schema.Struct({
   origin: MessageOrigin,
   attachments: Schema.Array(ChatAttachment),
