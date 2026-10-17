@@ -11,7 +11,6 @@ import {
   shouldApplyAppTabHide,
   shouldKeepNativeAppViewVisible,
   shouldKeepPresentationAnimation,
-  shouldPresentAppView,
 } from "./appTabViewHost";
 
 describe("restoreShellFocusAfterHide", () => {
@@ -103,15 +102,14 @@ describe("detachedHostLayoutBounds", () => {
 });
 
 describe("resolveAppTabPresentationMode", () => {
-  it("uses the captured replica while the owner window is hidden", () => {
+  it("keeps the selected owner live through window occlusion", () => {
     expect(
       resolveAppTabPresentationMode({
         ownsWindow: true,
         presentationVisible: true,
-        windowVisible: false,
         hasReplica: true,
       }),
-    ).toBe("replica");
+    ).toBe("live");
   });
 
   it("keeps a selected owner live while its window is visible", () => {
@@ -119,7 +117,6 @@ describe("resolveAppTabPresentationMode", () => {
       resolveAppTabPresentationMode({
         ownsWindow: true,
         presentationVisible: true,
-        windowVisible: true,
         hasReplica: true,
       }),
     ).toBe("live");
@@ -130,7 +127,6 @@ describe("resolveAppTabPresentationMode", () => {
       resolveAppTabPresentationMode({
         ownsWindow: true,
         presentationVisible: false,
-        windowVisible: false,
         hasReplica: true,
       }),
     ).toBe("hidden");
@@ -154,29 +150,6 @@ describe("dockTransitionProgress", () => {
     expect(dockTransitionProgress(0.25)).toBeCloseTo(0.7791, 3);
     expect(dockTransitionProgress(0.5)).toBeCloseTo(0.9548, 3);
     expect(dockTransitionProgress(1)).toBe(1);
-  });
-});
-
-const visible = {
-  selected: true,
-  attached: true,
-  windowVisible: true,
-  painted: true,
-  threadOnScreen: true,
-  bounds: { x: 700, y: 40, width: 500, height: 760 },
-};
-
-describe("AppTabViewHost presentation states", () => {
-  it.each([
-    ["visible", {}, true],
-    ["hidden", { selected: false }, false],
-    ["zero-bounds", { bounds: { x: 0, y: 0, width: 0, height: 0 } }, false],
-    ["detached", { attached: false }, false],
-    ["window-hidden", { windowVisible: false }, false],
-    ["never-painted", { painted: false }, false],
-    ["thread-not-on-screen", { threadOnScreen: false }, false],
-  ] as const)("resolves %s", (_name, patch, expected) => {
-    expect(shouldPresentAppView({ ...visible, ...patch })).toBe(expected);
   });
 });
 

@@ -34,6 +34,30 @@ export class AppTabWindowFocusOrder {
   }
 }
 
+export function appTabWindowShowsFolder(
+  window: AppTabRoutingWindow,
+  descriptor: Pick<DesktopAppTabOpened, "spaceId" | "folderId">,
+): boolean {
+  return (
+    window.visible &&
+    !window.minimized &&
+    window.spaceId === descriptor.spaceId &&
+    window.folderId === descriptor.folderId
+  );
+}
+
+export function canUseAppTabWindow(
+  window: AppTabRoutingWindow,
+  descriptor: Pick<DesktopAppTabOpened, "spaceId" | "folderId" | "initiator">,
+  panelFocus: PanelFocusState,
+): boolean {
+  return (
+    appTabWindowShowsFolder(window, descriptor) &&
+    (descriptor.initiator !== "agent" ||
+      !panelFocus.shouldPreserveAgentOpen(window.id, window.focused))
+  );
+}
+
 /** Windows arrive in focus order; the home window has priority when eligible. */
 export function announceAppTabOpened(input: {
   descriptor: Pick<DesktopAppTabOpened, "threadId" | "folderId" | "spaceId" | "initiator">;
@@ -42,18 +66,8 @@ export function announceAppTabOpened(input: {
   panelFocus: PanelFocusState;
 }): { targetWindowId: number | null; backgroundWindowId: number | null; folderShown: boolean } {
   const { descriptor, home, panelFocus } = input;
-  const showing = input.windows.filter(
-    (window) =>
-      window.visible &&
-      !window.minimized &&
-      window.spaceId === descriptor.spaceId &&
-      window.folderId === descriptor.folderId,
-  );
-  const eligible = showing.filter(
-    (window) =>
-      descriptor.initiator !== "agent" ||
-      !panelFocus.shouldPreserveAgentOpen(window.id, window.focused),
-  );
+  const showing = input.windows.filter((window) => appTabWindowShowsFolder(window, descriptor));
+  const eligible = showing.filter((window) => canUseAppTabWindow(window, descriptor, panelFocus));
   const targetWindowId =
     eligible.length === 0
       ? null

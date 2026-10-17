@@ -189,6 +189,7 @@ import {
   announceAppTabOpened as routeAppTabOpened,
   AppTabWindowFocusOrder,
   appTabFolderUnavailable,
+  canUseAppTabWindow,
 } from "./appTabOpenedRouting";
 import {
   preventBeforeInputShortcut,
@@ -497,29 +498,33 @@ const threadHomeWindow = new ThreadHomeWindow();
 const appTabActivation = new AppTabActivation();
 const appTabPresentationEvents = new EventEmitter();
 
+function appTabRoutingWindows() {
+  return appTabWindowFocusOrder.order(
+    shellWindows()
+      .filter((window) => !window.isDestroyed() && !window.webContents.isLoadingMainFrame())
+      .map((window) => {
+        const snapshot = threadHomeWindow.snapshot(window.id);
+        return {
+          id: window.id,
+          focused: window.isFocused(),
+          visible: window.isVisible(),
+          minimized: window.isMinimized(),
+          spaceId:
+            spacesMenuStateByShellRendererId.get(window.webContents.id)?.activeSpaceId ?? null,
+          folderId:
+            snapshot?.views.find((view) => view.threadId === snapshot.activeThreadId)?.folderId ??
+            null,
+        };
+      }),
+  );
+}
+
 function routeAppTab(
   descriptor: Pick<DesktopAppTabOpened, "threadId" | "folderId" | "spaceId" | "initiator">,
 ) {
   return routeAppTabOpened({
     descriptor,
-    windows: appTabWindowFocusOrder.order(
-      shellWindows()
-        .filter((window) => !window.isDestroyed() && !window.webContents.isLoadingMainFrame())
-        .map((window) => {
-          const snapshot = threadHomeWindow.snapshot(window.id);
-          return {
-            id: window.id,
-            focused: window.isFocused(),
-            visible: window.isVisible(),
-            minimized: window.isMinimized(),
-            spaceId:
-              spacesMenuStateByShellRendererId.get(window.webContents.id)?.activeSpaceId ?? null,
-            folderId:
-              snapshot?.views.find((view) => view.threadId === snapshot.activeThreadId)?.folderId ??
-              null,
-          };
-        }),
-    ),
+    windows: appTabRoutingWindows(),
     home: threadHomeWindow,
     panelFocus: panelFocusState,
   });
@@ -527,14 +532,16 @@ function routeAppTab(
 function appTabAgentPresentation(
   tab: DesktopAppTabDescriptor,
   _threadId: string,
-): { state: "active" | "background" | "window-hidden" } {
+): { state: "active" | "background" } {
   const tabs = desktopAppRuntime!.appTabs;
   const ownerId = tabs.ownerWindowId(tab.id);
   const window = shellWindows().find((candidate) => candidate.webContents.id === ownerId);
-  if (!window || !window.isVisible() || window.isMinimized()) return { state: "window-hidden" };
+  const candidate = appTabRoutingWindows().find((entry) => entry.id === window?.id);
   return {
     state:
-      tabs.ownerWindowId(tab.id) === window.webContents.id && tabs.isVisible(tab.id)
+      candidate &&
+      canUseAppTabWindow(candidate, { ...tab, initiator: "agent" }, panelFocusState) &&
+      tabs.isVisible(tab.id)
         ? "active"
         : "background",
   };
@@ -1646,10 +1653,6 @@ async function hideAppTabInWindow(
   animate: boolean,
 ): Promise<void> {
   await desktopAppRuntime?.appTabs.hideInWindow(tabId, windowId, animate);
-}
-
-async function setAppTabWindowVisibility(windowId: number, visible: boolean): Promise<void> {
-  await desktopAppRuntime?.appTabs.setWindowVisibility(windowId, visible);
 }
 
 async function focusAppTabWindow(windowId: number): Promise<void> {
@@ -7514,19 +7517,15 @@ function createWindow(options: { cloneFrom?: BrowserWindow | null } = {}): Brows
   });
   window.on("hide", () => {
     traceAppTabWindow(window, "shell-window-hide");
-    void setAppTabWindowVisibility(rendererOwnerId, false);
   });
   window.on("show", () => {
     traceAppTabWindow(window, "shell-window-show");
-    void setAppTabWindowVisibility(rendererOwnerId, true);
   });
   window.on("minimize", () => {
     traceAppTabWindow(window, "shell-window-minimize");
-    void setAppTabWindowVisibility(rendererOwnerId, false);
   });
   window.on("restore", () => {
     traceAppTabWindow(window, "shell-window-restore");
-    void setAppTabWindowVisibility(rendererOwnerId, true);
   });
   window.on("maximize", () => {
     emitDesktopWindowState(window);
@@ -8246,27 +8245,54 @@ async function bootstrap(): Promise<void> {
         throw Object.assign(new Error(`App tab ${tabId} is gone.`), { code: "TAB_GONE" });
       }
       try {
+        const initialRoute = routeAppTab({ ...descriptor, initiator: "agent" });
+        const unavailableFolder =
+          initialRoute.targetWindowId === null
+            ? await readDesktopFolderAppTabs(
+                { url: backendHttpUrl!, token: DESKTOP_BACKEND_SHUTDOWN_TOKEN },
+                descriptor.folderId,
+              )
+            : null;
         return {
           descriptor,
           document,
           webContents: desktopAppRuntime!.appTabs.target(tabId, document),
           isPresented: () => {
+            const route = routeAppTab({ ...descriptor, initiator: "agent" });
+            if (route.targetWindowId === null && unavailableFolder)
+              throw appTabFolderUnavailable(unavailableFolder.folderTitle, route.folderShown);
             if (surfaceId === undefined)
               return appTabAgentPresentation(descriptor, descriptor.threadId).state === "active";
             if (surfaceId === null) return false;
             const window = shellWindowRegistry.windowForWebContentsId(surfaceId);
+            const candidate = appTabRoutingWindows().find((entry) => entry.id === window?.id);
             return (
               !!window &&
               !window.isDestroyed() &&
-              window.isVisible() &&
-              !window.isMinimized() &&
+              !!candidate &&
+              canUseAppTabWindow(
+                candidate,
+                { ...descriptor, initiator: "agent" },
+                panelFocusState,
+              ) &&
               desktopAppRuntime!.appTabs.ownerWindowId(tabId) === surfaceId &&
               desktopAppRuntime!.appTabs.isVisible(tabId)
             );
           },
           onPresentationChange: (listener: () => void) => {
             appTabPresentationEvents.on(tabId, listener);
-            return () => appTabPresentationEvents.off(tabId, listener);
+            const windows = shellWindows();
+            for (const window of windows) {
+              window.on("hide", listener);
+              window.on("minimize", listener);
+            }
+            return () => {
+              appTabPresentationEvents.off(tabId, listener);
+              for (const window of windows) {
+                window.off("hide", listener);
+                window.off("minimize", listener);
+              }
+            };
           },
           canDeliverPointerInput: () => desktopAppRuntime!.appTabs.canDeliverPointerInput(tabId),
         };

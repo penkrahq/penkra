@@ -134,9 +134,12 @@ systems that happen to share vocabulary.
 an exact `--tab-id` plus `--document d1|d2`, and can address a retained tab even when its Thread is
 not on screen for text observation. `d1` is the App document; `d2` is its hosted page. Before
 pointer, keyboard, upload, or other UI interaction, run `penkra tabs activate --tab-id <id>` and
-then take a fresh snapshot. Activation selects the existing tab in this Thread's Penkra window
-without stealing Mac application focus. `presentation.state` in the tab list distinguishes active,
-background, and window-hidden. Hidden/minimized windows need the user to restore them.
+then take a fresh snapshot. Activation selects the existing tab in this folder without stealing
+Mac application focus. The tab list's `visible` means selected and available for interaction.
+`FOLDER_NOT_OPEN` means the folder isn't open right now; continue without its tabs, or tell the
+user you need the folder open. `USER_IN_FOLDER_TABS` means the user is working in its tabs; try
+again later. Text snapshots remain available for retained tabs. A screenshot requires current
+on-screen pixels; if unavailable, use the page snapshot instead, or try again later.
 `penkra tabs act --input` performs element interaction; an inactive action returns `TAB_NOT_ACTIVE`
 before dispatch instead of queuing a future click. On sequence failure, inspect completed steps and
 whether the failing step was dispatched before retrying. A timeout leaves the outcome unknown.

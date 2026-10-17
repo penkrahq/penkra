@@ -1468,53 +1468,60 @@ describe("AppTabObserver", () => {
     expect(sendCommand).not.toHaveBeenCalled();
   });
 
-  it("cancels a pending geometry read and never resumes the click after reactivation", async () => {
-    const { contents, sendCommand } = makeContents();
-    let active = true;
-    let changed!: () => void;
-    let resolveGeometry!: (value: unknown) => void;
-    let geometryStarted!: () => void;
-    const started = new Promise<void>((resolve) => {
-      geometryStarted = resolve;
-    });
-    const observer = new AppTabObserver({
-      resolve: () => ({
-        descriptor,
-        webContents: contents,
-        isPresented: () => active,
-        onPresentationChange: (listener) => {
-          changed = listener;
-          return () => undefined;
-        },
-      }),
-    });
-    await observer.snapshot("tab-1");
-    const original = sendCommand.getMockImplementation()!;
-    sendCommand.mockImplementation(async (method, params) => {
-      if (method === "DOM.getBoxModel") {
-        geometryStarted();
-        return new Promise((resolve) => {
-          resolveGeometry = resolve;
-        });
-      }
-      return original(method, params);
-    });
-    const action = observer.act("tab-1", [{ action: "click", ref: "d1:e1" }]);
-    const rejected = expect(action).rejects.toMatchObject({
-      code: "TAB_NOT_ACTIVE",
-      dispatched: false,
-    });
-    await started;
-    active = false;
-    changed();
-    await rejected;
-    active = true;
-    resolveGeometry({ model: { content: [0, 0, 20, 0, 20, 20, 0, 20] } });
-    await Promise.resolve();
-    expect(sendCommand.mock.calls.some(([method]) => method === "Input.dispatchMouseEvent")).toBe(
-      false,
-    );
-  });
+  it.each(["TAB_NOT_ACTIVE", "FOLDER_NOT_OPEN"])(
+    "cancels a pending geometry read on %s and never resumes after reactivation",
+    async (code) => {
+      const { contents, sendCommand } = makeContents();
+      let active = true;
+      let changed!: () => void;
+      let resolveGeometry!: (value: unknown) => void;
+      let geometryStarted!: () => void;
+      const started = new Promise<void>((resolve) => {
+        geometryStarted = resolve;
+      });
+      const observer = new AppTabObserver({
+        resolve: () => ({
+          descriptor,
+          webContents: contents,
+          isPresented: () => {
+            if (!active && code === "FOLDER_NOT_OPEN")
+              throw Object.assign(new Error("Folder isn't open"), { code });
+            return active;
+          },
+          onPresentationChange: (listener) => {
+            changed = listener;
+            return () => undefined;
+          },
+        }),
+      });
+      await observer.snapshot("tab-1");
+      const original = sendCommand.getMockImplementation()!;
+      sendCommand.mockImplementation(async (method, params) => {
+        if (method === "DOM.getBoxModel") {
+          geometryStarted();
+          return new Promise((resolve) => {
+            resolveGeometry = resolve;
+          });
+        }
+        return original(method, params);
+      });
+      const action = observer.act("tab-1", [{ action: "click", ref: "d1:e1" }]);
+      const rejected = expect(action).rejects.toMatchObject({
+        code,
+        dispatched: false,
+      });
+      await started;
+      active = false;
+      changed();
+      await rejected;
+      active = true;
+      resolveGeometry({ model: { content: [0, 0, 20, 0, 20, 20, 0, 20] } });
+      await Promise.resolve();
+      expect(sendCommand.mock.calls.some(([method]) => method === "Input.dispatchMouseEvent")).toBe(
+        false,
+      );
+    },
+  );
 
   it("validates upload files before assigning a file input", async () => {
     const { contents, sendCommand } = makeContents();

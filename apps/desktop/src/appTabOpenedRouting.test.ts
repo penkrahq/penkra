@@ -3,6 +3,7 @@ import {
   announceAppTabOpened,
   AppTabWindowFocusOrder,
   appTabFolderUnavailable,
+  canUseAppTabWindow,
   type AppTabRoutingWindow,
 } from "./appTabOpenedRouting";
 import { PanelFocusState } from "./panelFocus";
@@ -33,6 +34,21 @@ const setup = () => {
   return { home, panelFocus, route };
 };
 describe("folder App-tab routing", () => {
+  it("uses the same candidate permission for actions without requiring the home window", () => {
+    const { panelFocus } = setup();
+    expect(canUseAppTabWindow(window(2), descriptor, panelFocus)).toBe(true);
+    for (const patch of [
+      { visible: false },
+      { minimized: true },
+      { folderId: "other" },
+      { spaceId: "other" },
+    ]) {
+      expect(canUseAppTabWindow(window(2, patch), descriptor, panelFocus)).toBe(false);
+    }
+    panelFocus.recordInteraction(2, true);
+    expect(canUseAppTabWindow(window(2, { focused: true }), descriptor, panelFocus)).toBe(false);
+    expect(canUseAppTabWindow(window(2), descriptor, panelFocus)).toBe(true);
+  });
   it("chooses the idle home window ahead of focus order", () => {
     const { route } = setup();
     expect(route([window(2), window(1)]).targetWindowId).toBe(1);
