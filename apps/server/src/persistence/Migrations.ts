@@ -1,3 +1,4 @@
+import Migration0209 from "./Migrations/209_TranscriptOutline.ts";
 import Migration0208 from "./Migrations/208_DeriveOpenQuestions.ts";
 import Migration0207 from "./Migrations/207_FinalTextSearchAndToolOutput.ts";
 import Migration0206 from "./Migrations/206_HiddenRecoveryMessages.ts";
@@ -431,6 +432,7 @@ export const migrationEntries = [
   [206, "HiddenRecoveryMessages", Migration0206],
   [207, "FinalTextSearchAndToolOutput", Migration0207],
   [208, "DeriveOpenQuestions", Migration0208],
+  [209, "TranscriptOutline", Migration0209],
 ] as const;
 
 export const makeMigrationLoader = (throughId?: number) =>
