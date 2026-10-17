@@ -1082,6 +1082,21 @@ describe("AppTabObserver", () => {
     expect(contents.capturePage).toHaveBeenCalledWith(captureBounds);
   });
 
+  it("refuses stale pixels on an eligible undrawn page and recommends a snapshot", async () => {
+    const { contents, setPageVisible } = makeContents();
+    setPageVisible(false);
+    const observer = new AppTabObserver({
+      resolve: () => ({ descriptor, webContents: contents, isPresented: () => true }),
+    });
+
+    await expect(observer.screenshot("tab-1")).rejects.toMatchObject({
+      code: "SCREENSHOT_NEVER_PAINTED",
+      message:
+        "The tab isn't on screen right now, so a current screenshot isn't possible. Use the page snapshot instead, or try again later.",
+    });
+    expect(contents.capturePage).not.toHaveBeenCalled();
+  });
+
   it("reports an exact never-painted screenshot error", async () => {
     const { contents } = makeContents();
     vi.mocked(contents.capturePage).mockResolvedValueOnce({

@@ -847,8 +847,14 @@ export class AppTabObserver {
   }
 
   async #requireVisualPresentation(target: AppTabObservationTarget): Promise<void> {
-    if (target.isPresented?.() === false || !(await this.#isPageDrawn(target))) {
+    if (target.isPresented?.() === false) {
       throw visualUnavailable(target.document, "The tab is not displayed in a visible window.");
+    }
+    if (!(await this.#isPageDrawn(target))) {
+      throw observerError(
+        "SCREENSHOT_NEVER_PAINTED",
+        "The tab isn't on screen right now, so a current screenshot isn't possible. Use the page snapshot instead, or try again later.",
+      );
     }
   }
 
