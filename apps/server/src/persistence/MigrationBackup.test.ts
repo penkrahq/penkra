@@ -140,21 +140,23 @@ describe("migration backups", () => {
     expect(sizing.requiredBytes).toBe(sizing.logicalBytes * 2);
   });
 
-  it("continues a canonical forward migration when its safety backup cannot fit", async () => {
+  it("refuses a canonical forward migration when its safety backup cannot fit", async () => {
     const dbPath = await makeDbPath();
     await runWithDatabase(dbPath, runMigrations({ toMigrationInclusive: 162 }));
-    await runWithDatabase(
-      dbPath,
-      runWithPreMigrationBackup(dbPath, runMigrations(), {
-        availableBytesForDirectory: async () => 0,
-      }),
-    );
+    await expect(
+      runWithDatabase(
+        dbPath,
+        runWithPreMigrationBackup(dbPath, runMigrations(), {
+          availableBytesForDirectory: async () => 0,
+        }),
+      ),
+    ).rejects.toBeInstanceOf(InsufficientMigrationBackupSpaceError);
 
     const database = new DatabaseSync(dbPath, { readOnly: true });
     try {
       expect(
         database.prepare("SELECT name FROM effect_sql_migrations WHERE migration_id = 163").get(),
-      ).toMatchObject({ name: "MessageDeliveryFailureEvidence" });
+      ).toBeUndefined();
     } finally {
       database.close();
     }
@@ -272,6 +274,12 @@ describe("migration backups", () => {
     await Effect.runPromise(restoreMarkedMigrationBackup(dbPath));
     await expect(fs.stat(orphanFailedWal)).rejects.toMatchObject({ code: "ENOENT" });
     await expect(fs.stat(orphanFailedShm)).rejects.toMatchObject({ code: "ENOENT" });
+
+    // Explicit operator resolution preserves the old fixed snapshot before retrying.
+    await fs.rename(
+      path.join(path.dirname(dbPath), "state.pre-0.14.4.sqlite"),
+      path.join(path.dirname(dbPath), "operator-retained-pre-0.14.4.sqlite"),
+    );
 
     const restoredValue = await Effect.runPromise(
       Effect.gen(function* () {

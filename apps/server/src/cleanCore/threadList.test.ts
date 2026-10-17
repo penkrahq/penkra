@@ -13,6 +13,51 @@ import * as NodeSqliteClient from "../persistence/NodeSqliteClient.ts";
 const withDb = <A, E>(effect: Effect.Effect<A, E, SqlClient.SqlClient>) =>
   effect.pipe(Effect.provide(NodeSqliteClient.layerMemory()));
 
+it.effect("sidebar pages exclude archived history before applying the limit and cursor", () =>
+  withDb(
+    Effect.gen(function* () {
+      yield* runMigrations();
+      const sql = yield* SqlClient.SqlClient;
+      const spaceId = SpaceId.makeUnsafe("archive-heavy-space");
+      const folderId = FolderId.makeUnsafe("archive-heavy-folder");
+      yield* seedThreadFolderFixture(folderId, spaceId);
+      for (let i = 0; i < 103; i++) {
+        yield* createThread({
+          id: "archive-heavy-" + i.toString().padStart(3, "0"),
+          spaceId,
+          folderId,
+          title: "Member",
+          provider: "codex",
+          model: "model",
+          runtimeMode: "full-access",
+          createdBy: "user",
+          sidebarSortOrder: i,
+          createdAt: "2026-10-13T00:00:00.000Z",
+        });
+      }
+      yield* sql`UPDATE threads SET archived_at = '2026-10-13T00:00:01.000Z' WHERE sidebar_sort_order < 51`;
+      yield* sql`UPDATE threads SET deleted_at = '2026-10-13T00:00:01.000Z' WHERE id = 'archive-heavy-102'`;
+      const first = yield* listThreads({ spaceId, folderId });
+      assert.lengthOf(first.threads, 50);
+      assert.equal(first.threads[0]!.id, "archive-heavy-051");
+      assert.equal(first.threads.at(-1)!.id, "archive-heavy-100");
+      assert.isTrue(first.threads.every((thread) => thread.archivedAt === null));
+      assert.isNotNull(first.nextCursor);
+      const second = yield* listThreads({ spaceId, folderId, after: first.nextCursor });
+      assert.deepStrictEqual(
+        second.threads.map((thread) => thread.id),
+        ["archive-heavy-101"],
+      );
+      assert.isNull(second.nextCursor);
+      yield* sql`UPDATE threads SET archived_at = '2026-10-13T00:00:02.000Z' WHERE archived_at IS NULL`;
+      const empty = yield* listThreads({ spaceId, folderId });
+      assert.deepStrictEqual(empty.threads, []);
+      assert.isNull(empty.nextCursor);
+      assert.isNotNull(yield* findThread(ThreadId.makeUnsafe("archive-heavy-051")));
+    }),
+  ),
+);
+
 it.effect("lists every thread with the columns the web reads", () =>
   withDb(
     Effect.gen(function* () {

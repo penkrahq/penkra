@@ -208,12 +208,14 @@ describe("makeProviderLifecycleCoordinator", () => {
     );
   });
 
-  it("does not hold an urgent control-plane operation behind a busy lifecycle mutation", async () => {
+  it("orders urgent control-plane work after the current lifecycle owner releases", async () => {
     await Effect.runPromise(
       Effect.gen(function* () {
         const coordinator = makeProviderLifecycleCoordinator();
         const release = yield* Deferred.make<void>();
         const entered = yield* Deferred.make<void>();
+        const urgentAttempted = yield* Deferred.make<void>();
+        const order: string[] = [];
         const holder = yield* coordinator
           .run(threadId, () =>
             Deferred.succeed(entered, undefined).pipe(Effect.andThen(Deferred.await(release))),
@@ -221,12 +223,20 @@ describe("makeProviderLifecycleCoordinator", () => {
           .pipe(Effect.forkChild);
 
         yield* Deferred.await(entered);
-        const startedAt = Date.now();
-        yield* coordinator.runCurrentUrgent(threadId, () => Effect.void);
-        expect(Date.now() - startedAt).toBeLessThan(500);
+        order.push("mutation");
+        const urgent = yield* Deferred.succeed(urgentAttempted, undefined).pipe(
+          Effect.andThen(
+            coordinator.runCurrentUrgent(threadId, () => Effect.sync(() => order.push("urgent"))),
+          ),
+          Effect.forkChild,
+        );
+        yield* Deferred.await(urgentAttempted);
+        expect(order).toEqual(["mutation"]);
 
         yield* Deferred.succeed(release, undefined);
         yield* Fiber.join(holder);
+        yield* Fiber.join(urgent);
+        expect(order).toEqual(["mutation", "urgent"]);
       }),
     );
   });
