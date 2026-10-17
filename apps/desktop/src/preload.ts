@@ -189,7 +189,7 @@ contextBridge.exposeInMainWorld("desktopBridge", {
     requestMicrophoneAccess: () => ipcRenderer.invoke(IPC.mediaRequestMicrophoneAccess),
   },
   power: {
-    setActiveWork: (input) => ipcRenderer.invoke(IPC.powerSetActiveWork, input),
+    setVoiceActive: (active) => ipcRenderer.invoke(IPC.powerSetVoiceActive, active),
   },
   threadApi: {
     publishState: (input) => ipcRenderer.send(IPC.threadApiState, input),

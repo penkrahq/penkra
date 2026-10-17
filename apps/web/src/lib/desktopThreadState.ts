@@ -1,6 +1,15 @@
 import type { DesktopThreadLiveState } from "../desktopThreadApiBroker";
 import type { SidebarThreadSummary } from "../types";
-import { hasActiveThreadLifecycle } from "./activeWorkPower";
+
+// Existing background-Thread view derivation, not native power policy.
+function hasActiveThreadLifecycle(thread: SidebarThreadSummary): boolean {
+  const session = thread.session;
+  const status = session?.orchestrationStatus;
+  if (status === "starting" || status === "running") return true;
+  if (thread.latestTurn?.state !== "running") return false;
+  const turnUpdatedAt = thread.latestTurn.startedAt ?? thread.latestTurn.requestedAt;
+  return session === null || session === undefined || session.updatedAt < turnUpdatedAt;
+}
 
 export function deriveUnmountedThreadLiveState(
   threadId: string,

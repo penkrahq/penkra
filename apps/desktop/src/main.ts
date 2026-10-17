@@ -102,6 +102,7 @@ import {
 } from "./appTabResourceStores";
 import { resolveBackendNodeArgs } from "./backendNodeOptions";
 import { ActiveWorkPowerBlocker } from "./activeWorkPowerBlocker";
+import { DesktopRunningWorkClient } from "./desktopRunningWorkClient";
 import { stripPackagedDiagnosticsQaEnvironment } from "./diagnosticsQaEnvironment";
 import {
   retainLiveBackendAfterShutdownFailure,
@@ -1230,17 +1231,15 @@ const activeWorkPowerBlocker = new ActiveWorkPowerBlocker({
   blocker: powerSaveBlocker,
   onError: (message, error) =>
     safeConsoleError(`[desktop-power] ${message} ${formatErrorMessage(error)}`),
-  onStateChange: ({ ownerId, state, ownerCount, latestSnapshotSequence, blocksDisplaySleep }) =>
-    console.info("[desktop-power] Renderer activity changed.", {
-      rendererOwnerId: ownerId,
-      threadExecution: state?.threadExecution ?? false,
-      voice: state?.voice ?? false,
-      activeThreadIds: state?.activeThreadIds ?? [],
-      snapshotSequence: state?.snapshotSequence ?? null,
-      ownerCount,
-      latestSnapshotSequence,
-      blocksDisplaySleep,
-    }),
+  onStateChange: (state) => console.info("[desktop-power] Activity changed.", state),
+});
+const desktopRunningWork = new DesktopRunningWorkClient({
+  onWorking: (working) => {
+    activeWorkPowerBlocker.setWorkingThreads(working);
+    appTabObserver?.setActiveTurnThreadIds(working);
+  },
+  onError: (error) =>
+    safeConsoleError(`[desktop-power] Running-work stream failed: ${formatErrorMessage(error)}`),
 });
 let spacesMenuState: DesktopSpacesMenuInput = {
   activeSpaceId: null,
@@ -1571,7 +1570,6 @@ let restoreStdIoCapture: (() => void) | null = null;
 let unreadBackgroundNotificationCount = 0;
 let appTabObserver: AppTabObserver | null = null;
 let appHostedBrowserObserver: AppTabObserver | null = null;
-let latestAgentCursorActivitySequence: number | null = null;
 const handleHostedBeforeInput = (event: Electron.Event, input: Electron.Input): boolean => {
   if (
     isKeyboardShortcutsHelpChord(
@@ -4791,6 +4789,10 @@ function startBackend(trigger: BackendStartTrigger = "lifecycle"): void {
     () => {
       if (backendListeningDetector === listeningDetector) {
         backendSupervision.recordReadiness();
+        void desktopRunningWork.start({
+          url: backendHttpUrl,
+          token: DESKTOP_BACKEND_SHUTDOWN_TOKEN,
+        });
       }
     },
     () => undefined,
@@ -4802,6 +4804,7 @@ function startBackend(trigger: BackendStartTrigger = "lifecycle"): void {
       backendListeningDetector = null;
     }
     if (backendProcess === child) {
+      desktopRunningWork.stop();
       backendProcess = null;
     }
     closeBackendSession(`pid=${child.pid ?? "unknown"} error=${error.message}`);
@@ -4819,6 +4822,7 @@ function startBackend(trigger: BackendStartTrigger = "lifecycle"): void {
       backendListeningDetector = null;
     }
     if (backendProcess === child) {
+      desktopRunningWork.stop();
       backendProcess = null;
     }
     void backendOutputCapture.drained.then(() => {
@@ -7228,54 +7232,13 @@ function registerIpcHandlers(): void {
     );
     return allowed;
   });
-  ipcMain.removeHandler(IPC.powerSetActiveWork);
-  ipcMain.handle(IPC.powerSetActiveWork, (event, input: unknown) => {
+  ipcMain.removeHandler(IPC.powerSetVoiceActive);
+  ipcMain.handle(IPC.powerSetVoiceActive, (event, input: unknown) => {
     if (event.sender.isDestroyed() || !shellWindowRegistry.hasWebContents(event.sender)) {
       return;
     }
-    const activeWorkInput = input as Record<string, unknown> | null;
-    if (
-      !input ||
-      typeof input !== "object" ||
-      Array.isArray(input) ||
-      typeof activeWorkInput?.threadExecution !== "boolean" ||
-      typeof activeWorkInput.voice !== "boolean" ||
-      ("activeThreadIds" in input &&
-        (!Array.isArray(activeWorkInput.activeThreadIds) ||
-          !activeWorkInput.activeThreadIds.every(
-            (threadId: unknown) => typeof threadId === "string",
-          ))) ||
-      ("snapshotSequence" in input &&
-        (typeof activeWorkInput.snapshotSequence !== "number" ||
-          !Number.isSafeInteger(activeWorkInput.snapshotSequence) ||
-          activeWorkInput.snapshotSequence < 0))
-    ) {
-      throw new Error("Invalid active-work power state.");
-    }
-    const activeWorkState = input as {
-      threadExecution: boolean;
-      voice: boolean;
-      activeThreadIds?: ReadonlyArray<string>;
-      snapshotSequence?: number;
-    };
-    const snapshotState =
-      activeWorkState.snapshotSequence === undefined
-        ? {}
-        : { snapshotSequence: activeWorkState.snapshotSequence };
-    activeWorkPowerBlocker.setOwnerState(event.sender.id, {
-      threadExecution: activeWorkState.threadExecution,
-      voice: activeWorkState.voice,
-      activeThreadIds: activeWorkState.activeThreadIds ?? [],
-      ...snapshotState,
-    });
-    if (
-      activeWorkState.snapshotSequence === undefined ||
-      latestAgentCursorActivitySequence === null ||
-      activeWorkState.snapshotSequence >= latestAgentCursorActivitySequence
-    ) {
-      latestAgentCursorActivitySequence = activeWorkState.snapshotSequence ?? null;
-      appTabObserver?.setActiveTurnThreadIds(activeWorkState.activeThreadIds ?? []);
-    }
+    if (typeof input !== "boolean") throw new Error("Invalid voice power state.");
+    activeWorkPowerBlocker.setVoice(event.sender.id, input);
   });
   registerDesktopVoiceTranscriptionHandler({
     getBackendWsUrl: () =>
@@ -8462,6 +8425,7 @@ app.on("before-quit", (event) => {
 });
 
 app.on("will-quit", () => {
+  desktopRunningWork.stop();
   activeWorkPowerBlocker.shutdown();
 });
 

@@ -37,7 +37,7 @@ export const DESKTOP_IPC_CHANNELS = {
   notificationsIsSupported: "desktop:notifications-is-supported",
   notificationsShow: "desktop:notifications-show",
   mediaRequestMicrophoneAccess: "desktop:media-request-microphone-access",
-  powerSetActiveWork: "desktop:power-set-active-work",
+  powerSetVoiceActive: "desktop:power-set-voice-active",
   threadApiState: "desktop:thread-api-state",
   threadHomeView: "desktop:thread-home-view",
   threadHomeLeave: "desktop:thread-home-leave",

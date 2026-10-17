@@ -798,13 +798,8 @@ export interface DesktopBridge {
     requestMicrophoneAccess: () => Promise<boolean>;
   };
   power?: {
-    /** Keep the display awake while this renderer observes active Penkra work. */
-    setActiveWork: (input: {
-      threadExecution: boolean;
-      voice: boolean;
-      activeThreadIds?: ReadonlyArray<string>;
-      snapshotSequence?: number;
-    }) => Promise<void>;
+    /** Report only this renderer's voice activity; server state owns thread work. */
+    setVoiceActive: (active: boolean) => Promise<void>;
   };
   threadApi?: {
     publishState(input: {
