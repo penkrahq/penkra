@@ -180,7 +180,7 @@ export class AppCommandPipeServer {
   readonly #presentation: (
     tab: DesktopAppTabDescriptor,
     threadId: string,
-  ) => { state: "active" | "background" | "window-hidden" };
+  ) => { state: "active" | "background" };
   readonly #runOnThread: (<T>(threadId: string, operation: () => Promise<T>) => Promise<T>) | null;
   readonly #inheritThreadHome: ((creatorThreadId: string, childThreadId: string) => void) | null;
   readonly #observer: AppTabObserverBridge;
@@ -245,7 +245,7 @@ export class AppCommandPipeServer {
     presentation: (
       tab: DesktopAppTabDescriptor,
       threadId: string,
-    ) => { state: "active" | "background" | "window-hidden" };
+    ) => { state: "active" | "background" };
     runOnThread?: <T>(threadId: string, operation: () => Promise<T>) => Promise<T>;
     inheritThreadHome?: (creatorThreadId: string, childThreadId: string) => void;
     observer: AppTabObserverBridge;

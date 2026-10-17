@@ -193,12 +193,7 @@ describe("AppCommandPipeServer", () => {
       },
       activate,
       presentation: (tab) => ({
-        state:
-          tab.id === current.id
-            ? "active"
-            : tab.id === soleCanvasTab.id
-              ? "window-hidden"
-              : "background",
+        state: tab.id === current.id ? "active" : "background",
       }),
       runOnThread: async (threadId, operation) => {
         presentationThreads.push(threadId);
@@ -590,8 +585,8 @@ describe("AppCommandPipeServer", () => {
     expect(activate).toHaveBeenCalledTimes(2);
     activate.mockRejectedValueOnce(
       Object.assign(
-        new Error('You are working in the right panel of every window showing folder "Work".'),
-        { code: "TAB_FOLDER_NOT_AVAILABLE", dispatched: false },
+        new Error('The user is working in folder "Work"\'s tabs right now. Try again later.'),
+        { code: "USER_IN_FOLDER_TABS", dispatched: false },
       ),
     );
     await expect(
@@ -601,7 +596,7 @@ describe("AppCommandPipeServer", () => {
         method: "tabs.screenshot",
         params: { spaceId: "personal", folderId: "folder-1", threadId: "thread-1", tabId: "tab-1" },
       }),
-    ).resolves.toMatchObject({ ok: false, error: { code: "TAB_FOLDER_NOT_AVAILABLE" } });
+    ).resolves.toMatchObject({ ok: false, error: { code: "USER_IN_FOLDER_TABS" } });
     expect(screenshot).toHaveBeenCalledOnce();
 
     await expect(

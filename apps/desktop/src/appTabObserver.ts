@@ -1278,7 +1278,11 @@ export class AppTabObserver {
     if (context && target.onPresentationChange) {
       context.dispose?.();
       context.dispose = target.onPresentationChange(() => {
-        if (target.isPresented?.() === false) context.controller.abort(error());
+        try {
+          if (target.isPresented?.() === false) context.controller.abort(error());
+        } catch (failure) {
+          context.controller.abort(failure);
+        }
       });
     }
   }

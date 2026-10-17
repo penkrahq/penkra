@@ -608,6 +608,8 @@ describe("penkra_exec_command discovery", () => {
     );
 
     expect(help).toContain("# Penkra tabs");
+    expect(help).toContain("Screenshots require current on-screen pixels");
+    expect(help).not.toContain("window surface");
     expect(help).toContain("`penkra tabs list`");
     const listHelp = await executePenkraExecCommand(
       command("penkra", "tabs", "list", "--help"),
@@ -617,6 +619,16 @@ describe("penkra_exec_command discovery", () => {
     );
     expect(listHelp).toContain("tabId, appId, appName, title, status and visible");
     expect(listHelp).not.toContain("presentation.state");
+    const screenshotHelp = await executePenkraExecCommand(
+      command("penkra", "tabs", "screenshot", "--help"),
+      context,
+      {},
+      async () => [],
+    );
+    expect(screenshotHelp).toContain("FOLDER_NOT_OPEN");
+    expect(screenshotHelp).toContain("USER_IN_FOLDER_TABS");
+    expect(screenshotHelp).toContain("use the page snapshot instead");
+    expect(screenshotHelp).not.toContain("TAB_FOLDER_NOT_AVAILABLE");
     expect(help).toContain("`penkra tabs snapshot`");
     expect(help).toContain("`penkra tabs screenshot`");
     expect(help).toContain("`penkra tabs act`");
