@@ -11,7 +11,7 @@ import {
   reconstructedMessageChars,
   selectReconstructedContinuation,
 } from "../provider/reconstructedContinuation.ts";
-import { listThreadItemsPage, type ThreadItemRecord } from "./threadItemsPage.ts";
+import { listThreadItemRecords, type ThreadItemRecord } from "./threadItemsPage.ts";
 
 export const buildReconstructedTurnInput = Effect.fnUntraced(function* (input: {
   readonly threadId: ThreadId;
@@ -32,7 +32,7 @@ export const buildReconstructedTurnInput = Effect.fnUntraced(function* (input: {
   let chars = 0;
   let hasOlder = false;
   while (true) {
-    const page = yield* listThreadItemsPage({ threadId: input.threadId, beforeSeq });
+    const page = yield* listThreadItemRecords({ threadId: input.threadId, beforeSeq });
     const retained = page.items.filter(
       (item) =>
         (item.kind === "text" || (item.kind === "user" && item.status === "sent")) &&

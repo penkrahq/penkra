@@ -114,6 +114,17 @@ export const makeThreadPublisher = (): ThreadPublisher => {
  * source id is first seen and never moves; later updates apply in place.
  * Repeating the same source id is idempotent.
  */
+const ensureTurnAnchor = (threadId: string, turnId: string | null | undefined, at: string) =>
+  Effect.gen(function* () {
+    if (turnId == null) return;
+    const sql = yield* SqlClient.SqlClient;
+    yield* sql`INSERT INTO thread_items(thread_id,seq,source_id,turn_id,kind,status,data,created_at,updated_at)
+      SELECT ${threadId},COALESCE(MAX(seq),0)+1,${`turn:${turnId}`},${turnId},'turn','running',
+        '{"startedAt":null,"endedAt":null}',${at},${at}
+      FROM thread_items WHERE thread_id=${threadId}
+      ON CONFLICT(thread_id,source_id) DO NOTHING`;
+  });
+
 export const upsertThreadItem = (input: ThreadItemInput) =>
   Effect.gen(function* () {
     const sql = yield* SqlClient.SqlClient;
@@ -129,6 +140,8 @@ export const upsertThreadItem = (input: ThreadItemInput) =>
       decodeUserItemData(JSON.parse(input.data ?? "{}")).origin._tag === "recovery";
     yield* sql.withTransaction(
       Effect.gen(function* () {
+        if (input.kind !== "user" && input.kind !== "turn")
+          yield* ensureTurnAnchor(input.threadId, input.turnId, input.createdAt);
         yield* sql`
           INSERT INTO thread_items (
             thread_id, seq, source_id, turn_id, kind, status, text, data, send_payload, admission_plan, created_at, updated_at
@@ -547,7 +560,10 @@ export const appendThreadItemText = (
 ) =>
   Effect.gen(function* () {
     const sql = yield* SqlClient.SqlClient;
-    yield* sql`
+    yield* sql.withTransaction(
+      Effect.gen(function* () {
+        yield* ensureTurnAnchor(threadId, turnId, at);
+        yield* sql`
       INSERT INTO thread_items (
         thread_id, seq, source_id, turn_id, kind, status, text, data, created_at, updated_at
       ) VALUES (
@@ -561,6 +577,8 @@ export const appendThreadItemText = (
         status = 'streaming',
         updated_at = excluded.updated_at
     `;
+      }),
+    );
   });
 
 /** Command output never rewrites searchable text or changes tool lifecycle state. */
@@ -573,15 +591,18 @@ export const appendToolOutput = (
 ) =>
   Effect.gen(function* () {
     const sql = yield* SqlClient.SqlClient;
-    const [row] = yield* sql<{ output: string | null }>`
+    yield* sql.withTransaction(
+      Effect.gen(function* () {
+        yield* ensureTurnAnchor(threadId, turnId, at);
+        const [row] = yield* sql<{ output: string | null }>`
       SELECT json_extract(data, '$.payload.data.rawOutput') AS output
       FROM thread_items WHERE thread_id=${threadId} AND source_id=${sourceId}
     `;
-    const window = appendToolOutputWindow(
-      row?.output ? (JSON.parse(row.output) as RawOutputWindow) : null,
-      delta,
-    );
-    yield* sql`
+        const window = appendToolOutputWindow(
+          row?.output ? (JSON.parse(row.output) as RawOutputWindow) : null,
+          delta,
+        );
+        yield* sql`
       INSERT INTO thread_items (
         thread_id, seq, source_id, turn_id, kind, status, text, data, created_at, updated_at
       ) VALUES (
@@ -595,6 +616,8 @@ export const appendToolOutput = (
           json(${JSON.stringify(window)})),
         updated_at = excluded.updated_at
     `;
+      }),
+    );
   });
 
 /** Move a folder into a space and renumber the destination in one transaction. */

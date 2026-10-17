@@ -7,7 +7,6 @@ import type {
   MessageOrigin,
   MessageDelivery,
   OrchestrationMessageSource,
-  OrchestrationPendingInteraction,
   OrchestrationLatestTurn,
   OrchestrationSessionStatus,
   OrchestrationThreadActivity,
@@ -134,7 +133,6 @@ export interface Thread {
   subagentRole?: string | null;
   hasPendingUserInput?: boolean;
   workStatus?: "idle" | "running" | "done" | "attention";
-  pendingInteractions?: OrchestrationPendingInteraction[];
   activities: OrchestrationThreadActivity[];
 }
 
@@ -159,7 +157,6 @@ export interface ThreadShell {
   subagentRole?: string | null;
   hasPendingUserInput?: boolean;
   workStatus?: "idle" | "running" | "done" | "attention";
-  pendingInteractions?: OrchestrationPendingInteraction[];
 }
 
 export interface ThreadTurnState {

@@ -168,6 +168,8 @@ it.effect(
           updatedAt: at,
         });
         const before = yield* sql`SELECT * FROM threads WHERE id=${threadId}`;
+        const beforeItems =
+          yield* sql`SELECT * FROM thread_items WHERE thread_id=${threadId} ORDER BY seq`;
         yield* sql`CREATE TEMP TRIGGER fail_settlement BEFORE UPDATE OF status ON thread_items BEGIN SELECT RAISE(ABORT, 'settlement failed'); END`;
         const publisher = makeThreadPublisher();
         const broadcasts: string[] = [];
@@ -186,8 +188,8 @@ it.effect(
         if (Exit.isFailure(result)) assert.include(Cause.pretty(result.cause), "settlement failed");
         assert.deepStrictEqual(yield* sql`SELECT * FROM threads WHERE id=${threadId}`, before);
         assert.deepStrictEqual(
-          yield* sql`SELECT status FROM thread_items WHERE thread_id=${threadId}`,
-          [{ status: "streaming" }],
+          yield* sql`SELECT * FROM thread_items WHERE thread_id=${threadId} ORDER BY seq`,
+          beforeItems,
         );
         assert.deepStrictEqual(yield* sql`SELECT * FROM connection_usage_daily`, []);
         assert.deepStrictEqual(yield* sql`SELECT * FROM connection_usage_turn_events`, []);

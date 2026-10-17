@@ -3,6 +3,7 @@ import "../../index.css";
 import { StrictMode, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { render } from "vitest-browser-react";
+import { page } from "vitest/browser";
 
 import {
   disableChatScrollDiagnostics,
@@ -20,6 +21,73 @@ import {
 interface TestRow {
   id: string;
   height: number;
+}
+
+function BoundaryPagesHarness({
+  total,
+  prefix = false,
+  pageSize = 2,
+}: {
+  total: number;
+  prefix?: boolean;
+  pageSize?: number;
+}) {
+  const listRef = useRef<TranscriptVirtualListRef | null>(null);
+  const [loaded, setLoaded] = useState(pageSize);
+  const rows = [
+    ...(prefix
+      ? [
+          { id: "user-row", height: 40 },
+          { id: "turn-header", height: 40 },
+        ]
+      : []),
+    ...(loaded < total ? [{ id: "page-boundary:" + loaded, height: 0 }] : []),
+    ...Array.from({ length: loaded }, (_, index) => ({
+      id: `page-row-${total - loaded + index}`,
+      height: 40,
+    })),
+  ];
+  return (
+    <>
+      <output data-testid="loaded-rows">{loaded}</output>
+      <TranscriptVirtualList
+        ref={listRef}
+        data={rows}
+        anchorRevision="fixed-tail"
+        estimatedItemSize={40}
+        paddingEnd={0}
+        keyExtractor={(row) => row.id}
+        renderItem={(row) => <div style={{ height: row.height }}>{row.id}</div>}
+        onRenderedItems={(items) => {
+          if (items.some((row) => row.id.startsWith("page-boundary:"))) {
+            listRef.current?.preserveAnchorBelowBoundary("page-boundary");
+            setLoaded((current) => Math.min(total, current + pageSize));
+          }
+        }}
+        isLoadBoundary={(row) => row.id.startsWith("page-boundary:")}
+        data-testid="boundary-scroll"
+        style={{ height: 300, overflowY: "auto" }}
+      />
+    </>
+  );
+}
+
+function PendingMeasurementRow({ row }: { row: TestRow }) {
+  const ref = useRef<HTMLDivElement | null>(null);
+  useLayoutEffect(() => {
+    if (row.id !== "pending-48" || !ref.current) return;
+    // Change geometry after Core's commit ref measured the old height, then
+    // capture the reader before ResizeObserver delivers the new measurement.
+    ref.current.style.height = row.height + "px";
+    ref.current
+      .closest('[data-testid="pending-scroll"]')
+      ?.dispatchEvent(new Event("scroll", { bubbles: true }));
+  }, [row.id, row.height]);
+  return (
+    <div ref={ref} style={{ height: row.id === "pending-48" ? 48 : row.height }}>
+      {row.id}
+    </div>
+  );
 }
 
 function VirtualListHarness() {
@@ -89,7 +157,9 @@ function PrependingListHarness({ onNearStart }: { onNearStart?: () => void }) {
           </div>
         )}
         paddingEnd={16}
-        {...(onNearStart === undefined ? {} : { onNearStart })}
+        onRenderedItems={(items) => {
+          if (items.some((item) => item.id === rows[0]?.id)) onNearStart?.();
+        }}
         data-testid="prepend-virtual-scroll"
         style={{ height: 300, overflowY: "auto" }}
       />
@@ -681,6 +751,79 @@ async function sampleAnimationFrameTailBottomOffsets(
 }
 
 describe("TranscriptVirtualList", () => {
+  it("reads a 200-step turn in 50-step pages without moving the previous oldest step", async () => {
+    const screen = await render(<BoundaryPagesHarness total={200} prefix pageSize={50} />);
+    try {
+      const scroll = screen.container.querySelector<HTMLElement>(
+        '[data-testid="boundary-scroll"]',
+      )!;
+      const loaded = () =>
+        Number(screen.container.querySelector('[data-testid="loaded-rows"]')?.textContent);
+      await settleLayout();
+      expect(loaded()).toBe(50);
+      for (const expected of [100, 150, 200]) {
+        scroll.dispatchEvent(new WheelEvent("wheel", { bubbles: true, deltaY: -800 }));
+        scroll.scrollTop = 0;
+        scroll.dispatchEvent(new Event("scroll"));
+        await vi.waitFor(() => expect(loaded()).toBe(expected));
+        await settleLayout();
+        expect(loaded()).toBe(expected);
+        expect(scroll.scrollTop).toBeGreaterThan(0);
+        const anchor = Array.from(scroll.querySelectorAll<HTMLElement>("[data-row-key]")).find(
+          (row) => row.getAttribute("data-row-key") === `page-row-${250 - expected}`,
+        );
+        expect(anchor).toBeDefined();
+        expect(
+          anchor!.getBoundingClientRect().top - scroll.getBoundingClientRect().top,
+        ).toBeCloseTo(80, 0);
+      }
+    } finally {
+      await screen.unmount();
+    }
+  });
+  it("fills short history from rendered boundaries and stops at exhaustion", async () => {
+    const screen = await render(<BoundaryPagesHarness total={6} />);
+    try {
+      await vi.waitFor(() =>
+        expect(screen.container.querySelector('[data-testid="loaded-rows"]')?.textContent).toBe(
+          "6",
+        ),
+      );
+    } finally {
+      await screen.unmount();
+    }
+  });
+  it("stops paging when its boundary leaves the rendered range", async () => {
+    const screen = await render(<BoundaryPagesHarness total={200} />);
+    try {
+      await settleLayout();
+      const loaded = Number(
+        screen.container.querySelector('[data-testid="loaded-rows"]')?.textContent,
+      );
+      expect(loaded).toBeGreaterThan(2);
+      expect(loaded).toBeLessThan(200);
+    } finally {
+      await screen.unmount();
+    }
+  });
+  it("does not drain an expanded turn while its header stays visible", async () => {
+    const screen = await render(<BoundaryPagesHarness total={200} prefix />);
+    try {
+      await settleLayout();
+      const loaded = Number(
+        screen.container.querySelector('[data-testid="loaded-rows"]')?.textContent,
+      );
+      if (loaded === 200)
+        await page.screenshot({
+          element: screen.container,
+          path: "../../../../../.penkra/scratch/p4-render-boundary/expanded.png",
+        });
+      expect(loaded).toBeGreaterThan(2);
+      expect(loaded).toBeLessThan(200);
+    } finally {
+      await screen.unmount();
+    }
+  });
   afterEach(() => {
     vi.restoreAllMocks();
     disableChatScrollDiagnostics();
@@ -823,7 +966,7 @@ describe("TranscriptVirtualList", () => {
         anchorRevision="pending"
         estimatedItemSize={48}
         keyExtractor={(row) => row.id}
-        renderItem={(row) => <div style={{ height: row.height }}>{row.id}</div>}
+        renderItem={(row) => <PendingMeasurementRow row={row} />}
         paddingEnd={16}
         data-testid="pending-scroll"
         style={{ height: 300, overflowY: "auto" }}

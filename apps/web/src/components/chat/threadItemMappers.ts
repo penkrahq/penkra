@@ -21,7 +21,7 @@ import { EventId, TurnId } from "@penkra/contracts";
 import { decodeUserItemData } from "@penkra/shared/userItemData";
 import type { CleanCoreThreadItem } from "@penkra/contracts";
 
-import type { PendingUserInput } from "../../pendingInteractionDerivation";
+import type { PendingUserInput } from "../../pendingUserInput";
 import type { PenkraMcpToolStatus } from "../../lib/toolCallLabel";
 import { toAttachmentPreviewUrl } from "../../lib/wsHttpUrl";
 import type { ChatMessage } from "../../types";
@@ -50,13 +50,31 @@ function normalizeTone(value: unknown, itemKind: string): ActivityTone {
   return "info";
 }
 
-function normalizeKind(value: unknown, itemKind: string, status: string): string {
+function normalizeKind(
+  value: unknown,
+  itemKind: CleanCoreThreadItem["kind"],
+  status: string,
+): string {
   // A tool item's lifecycle is its item status, so a settled item derives
   // tool.completed even if its original data still says tool.started.
-  if (itemKind === "tool") return status === "running" ? "tool.updated" : "tool.completed";
-  if (typeof value === "string" && value.length > 0) return value;
-  if (itemKind === "notice") return "runtime.warning";
-  return "tool.completed";
+  switch (itemKind) {
+    case "tool":
+      return status === "running" ? "tool.updated" : "tool.completed";
+    case "question":
+      return `question.${status}`;
+    case "notice":
+      return typeof value === "string" && value.length > 0 ? value : "runtime.warning";
+    case "reasoning":
+      return "task.progress";
+    case "user":
+    case "text":
+    case "turn":
+      return itemKind;
+    default: {
+      const unhandled: never = itemKind;
+      throw new Error(`Unhandled transcript kind: ${unhandled}`);
+    }
+  }
 }
 
 function normalizeSummary(value: unknown, text: string | null): string {
@@ -114,6 +132,26 @@ export function threadItemToActivity(item: CleanCoreThreadItem): OrchestrationTh
 export function threadItemToWorkLogEntry(item: CleanCoreThreadItem): WorkLogEntry | null {
   // Turn records supply timing, not an extra work-log row.
   if (item.kind === "turn") return null;
+  if (item.kind === "question") {
+    if (item.status === "open") return null;
+    const data = parseThreadItemData(item.data);
+    const answers =
+      data?.answers && typeof data.answers === "object"
+        ? Object.values(data.answers)
+            .flatMap((value) => (Array.isArray(value) ? value : [value]))
+            .map(String)
+            .join(", ")
+        : "";
+    return {
+      id: item.sourceId,
+      createdAt: item.createdAt,
+      sequence: item.seq,
+      turnId: item.turnId,
+      tone: "info",
+      activityKind: `question.${item.status}`,
+      label: `${item.text ?? "Question"} — ${item.status === "cancelled" ? "No answer (turn ended)" : answers}`,
+    };
+  }
   const entry = deriveWorkLogEntries([threadItemToActivity(item)], undefined)[0] ?? null;
   if (entry === null || item.kind !== "tool") return entry;
   const toolStatus = TOOL_STATUS_BY_ITEM_STATUS[item.status];
@@ -135,8 +173,19 @@ export function threadItemToPendingUserInput(item: CleanCoreThreadItem): Pending
     requestId: requestId,
     createdAt: item.createdAt,
     questions,
+    ...(typeof data?.lifecycleGeneration === "string"
+      ? { lifecycleGeneration: data.lifecycleGeneration }
+      : {}),
   };
 }
+
+export const threadItemsToPendingUserInputs = (
+  items: ReadonlyArray<CleanCoreThreadItem>,
+): PendingUserInput[] =>
+  items
+    .filter((item) => item.kind === "question" && item.status === "open")
+    .toSorted((a, b) => a.seq - b.seq)
+    .map(threadItemToPendingUserInput);
 
 export interface ThreadItemUserContent {
   readonly text: string;

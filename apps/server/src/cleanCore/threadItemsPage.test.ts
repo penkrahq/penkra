@@ -4,7 +4,7 @@ import { ThreadId } from "@penkra/contracts";
 import { Effect } from "effect";
 import * as SqlClient from "effect/unstable/sql/SqlClient";
 
-import { listThreadItemsPage } from "./threadItemsPage.ts";
+import { listThreadItemsPage, listTurnItems, listThreadItemRecords } from "./threadItemsPage.ts";
 import { createThread, upsertThreadItem } from "./threadStore.ts";
 import { runMigrations } from "../persistence/Migrations.ts";
 import * as NodeSqliteClient from "../persistence/NodeSqliteClient.ts";
@@ -96,8 +96,30 @@ it.effect(
             updatedAt: endedAt,
           });
         const page = yield* listThreadItemsPage({ threadId: ThreadId.makeUnsafe("thread-1") });
-        assert.equal(page.items.length, 50);
-        assert.isFalse(page.items.some((item) => item.kind === "turn"));
+        assert.equal(page.items.length, 1);
+        assert.equal(page.items[0]?.kind, "turn");
+        assert.equal(page.finals.long!.text, "part 59");
+        assert.isTrue(page.hasSteps.long);
+        const details = yield* listTurnItems({
+          threadId: ThreadId.makeUnsafe("thread-1"),
+          turnId: "long",
+        });
+        assert.equal(details.items.length, 50);
+        assert.equal(details.items[0]?.text, "part 58");
+        assert.isFalse(
+          details.items.some(
+            (item) => item.kind === "turn" || item.sourceId === page.finals.long!.sourceId,
+          ),
+        );
+        const older = yield* listTurnItems({
+          threadId: ThreadId.makeUnsafe("thread-1"),
+          turnId: "long",
+          beforeSeq: details.nextCursor!,
+        });
+        assert.equal(older.items.length, 9);
+        assert.isNull(older.nextCursor);
+        const raw = yield* listThreadItemRecords({ threadId: ThreadId.makeUnsafe("thread-1") });
+        assert.equal(raw.items.length, 50);
         assert.deepStrictEqual(JSON.parse(page.turns.long!.data!), { startedAt, endedAt });
         assert.equal(Object.keys(page.turns).length, 1);
       }),

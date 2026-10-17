@@ -59,7 +59,7 @@ export const CleanCoreThreadItem = Schema.Struct({
   seq: NonNegativeInt,
   sourceId: Schema.String,
   turnId: Schema.NullOr(TurnId),
-  kind: Schema.String,
+  kind: Schema.Literals(["user", "text", "reasoning", "tool", "question", "notice", "turn"]),
   status: Schema.String,
   text: Schema.NullOr(Schema.String),
   data: Schema.NullOr(Schema.String),
@@ -69,11 +69,25 @@ export const CleanCoreThreadItem = Schema.Struct({
 export type CleanCoreThreadItem = typeof CleanCoreThreadItem.Type;
 
 export const CleanCoreListThreadItemsPageResult = Schema.Struct({
+  finals: Schema.Record(Schema.String, CleanCoreThreadItem),
+  hasSteps: Schema.Record(Schema.String, Schema.Boolean),
   turns: Schema.Record(Schema.String, CleanCoreThreadItem),
   items: Schema.Array(CleanCoreThreadItem),
   nextCursor: Schema.NullOr(NonNegativeInt),
 });
 export type CleanCoreListThreadItemsPageResult = typeof CleanCoreListThreadItemsPageResult.Type;
+
+export const CleanCoreListTurnItemsInput = Schema.Struct({
+  threadId: ThreadId,
+  turnId: TurnId,
+  beforeSeq: Schema.optional(NonNegativeInt),
+});
+export type CleanCoreListTurnItemsInput = typeof CleanCoreListTurnItemsInput.Type;
+export const CleanCoreListTurnItemsResult = Schema.Struct({
+  items: Schema.Array(CleanCoreThreadItem),
+  nextCursor: Schema.NullOr(NonNegativeInt),
+});
+export type CleanCoreListTurnItemsResult = typeof CleanCoreListTurnItemsResult.Type;
 
 /** One composer draft per thread (0.14.4 design 2.6). */
 export const CleanCoreThreadDraft = Schema.Struct({

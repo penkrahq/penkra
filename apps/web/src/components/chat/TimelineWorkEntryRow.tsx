@@ -251,6 +251,7 @@ function workEntryIcon(workEntry: TimelineWorkEntry): LucideIcon {
   // User-input rows read as a question (awaiting an answer) and an upload
   // (answer submitted) rather than the generic "info" checkmark.
   if (workEntry.activityKind === "user-input.requested") return CircleQuestionIcon;
+  if (workEntry.activityKind?.startsWith("question.")) return CircleQuestionIcon;
   if (workEntry.activityKind === "user-input.resolved") return ArrowUpCircleIcon;
   // "Moved to background" notices read as a tray drop, not a warning check.
   if (workEntry.nativeEventType === "background_tasks_changed") return BackgroundTrayIcon;

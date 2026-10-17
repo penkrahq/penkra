@@ -175,6 +175,8 @@ interface OpenCodeSessionContext {
   readonly messageRoleById: Map<string, "user" | "assistant">;
   readonly messageSnapshotKeyById: Map<string, string>;
   readonly partById: Map<string, Part>;
+  readonly toolTurnById: Map<string, TurnId>;
+  readonly childTurnBySessionId: Map<string, TurnId>;
   readonly partSnapshotKeyById: Map<string, string>;
   readonly emittedTextByPartId: Map<string, string>;
   readonly completedAssistantPartIds: Set<string>;
@@ -893,6 +895,7 @@ function openCodeRecord(value: unknown): Record<string, unknown> | undefined {
 function rememberRelatedOpenCodeSession(
   context: OpenCodeSessionContext,
   part: Extract<Part, { type: "tool" }>,
+  turnId?: TurnId,
 ): void {
   const state = openCodeRecord(part.state);
   const metadata = openCodeRecord(state?.metadata) ?? openCodeRecord(part.metadata);
@@ -902,6 +905,8 @@ function rememberRelatedOpenCodeSession(
     return;
   }
   context.relatedSessionIds.add(childSessionId);
+  if (turnId && !context.childTurnBySessionId.has(childSessionId))
+    context.childTurnBySessionId.set(childSessionId, turnId);
 }
 
 function subscribedEventSessionId(event: OpenCodeSubscribedEvent): string | undefined {
@@ -2341,7 +2346,15 @@ export function makeOpenCodeAdapterLive(options?: OpenCodeAdapterLiveOptions) {
             }
 
             if (part.type === "tool") {
-              rememberRelatedOpenCodeSession(context, part);
+              const startTurnId =
+                context.childTurnBySessionId.get(event.properties.sessionID) ??
+                (part.state.status === "pending" || part.state.status === "running"
+                  ? turnId
+                  : undefined);
+              if (!context.toolTurnById.has(part.callID) && startTurnId)
+                context.toolTurnById.set(part.callID, startTurnId);
+              const toolTurnId = context.toolTurnById.get(part.callID);
+              rememberRelatedOpenCodeSession(context, part, toolTurnId);
               const itemType = toToolLifecycleItemType(part.tool);
               const title =
                 part.state.status === "running" ? (part.state.title ?? part.tool) : part.tool;
@@ -2368,7 +2381,7 @@ export function makeOpenCodeAdapterLive(options?: OpenCodeAdapterLiveOptions) {
               const runtimeEvent: ProviderRuntimeEvent = {
                 ...buildEventBase({
                   threadId: context.session.threadId,
-                  turnId,
+                  turnId: toolTurnId,
                   itemId: part.callID,
                   createdAt: toolStateCreatedAt(part),
                   raw: event,
@@ -2381,7 +2394,7 @@ export function makeOpenCodeAdapterLive(options?: OpenCodeAdapterLiveOptions) {
                       : "item.updated",
                 payload,
               };
-              appendTurnItem(context, turnId, part);
+              appendTurnItem(context, toolTurnId, part);
               yield* emit(context, runtimeEvent);
             }
 
@@ -2760,6 +2773,7 @@ export function makeOpenCodeAdapterLive(options?: OpenCodeAdapterLiveOptions) {
             if (!turnId) {
               break;
             }
+            context.toolTurnById.set(event.properties.callID, turnId);
             yield* emit(context, {
               ...buildEventBase({
                 threadId: context.session.threadId,
@@ -2788,9 +2802,7 @@ export function makeOpenCodeAdapterLive(options?: OpenCodeAdapterLiveOptions) {
           }
 
           case "session.next.shell.ended": {
-            if (!turnId) {
-              break;
-            }
+            const turnId = context.toolTurnById.get(event.properties.callID);
             yield* emit(context, {
               ...buildEventBase({
                 threadId: context.session.threadId,
@@ -2822,6 +2834,7 @@ export function makeOpenCodeAdapterLive(options?: OpenCodeAdapterLiveOptions) {
             if (!turnId) {
               break;
             }
+            context.toolTurnById.set(event.properties.callID, turnId);
             yield* emit(context, {
               ...buildEventBase({
                 threadId: context.session.threadId,
@@ -2850,9 +2863,7 @@ export function makeOpenCodeAdapterLive(options?: OpenCodeAdapterLiveOptions) {
 
           case "session.next.tool.progress":
           case "session.next.tool.success": {
-            if (!turnId) {
-              break;
-            }
+            const turnId = context.toolTurnById.get(event.properties.callID);
             const detail = openCodeToolContentText(event.properties.content);
             yield* emit(context, {
               ...buildEventBase({
@@ -2882,9 +2893,7 @@ export function makeOpenCodeAdapterLive(options?: OpenCodeAdapterLiveOptions) {
           }
 
           case "session.next.tool.failed": {
-            if (!turnId) {
-              break;
-            }
+            const turnId = context.toolTurnById.get(event.properties.callID);
             yield* emit(context, {
               ...buildEventBase({
                 threadId: context.session.threadId,
@@ -3457,6 +3466,8 @@ export function makeOpenCodeAdapterLive(options?: OpenCodeAdapterLiveOptions) {
                   pendingQuestions: new Map(),
                   pendingTextDeltasByPartId: new Map(),
                   partById: new Map(),
+                  toolTurnById: new Map(),
+                  childTurnBySessionId: new Map(),
                   partSnapshotKeyById: new Map(),
                   emittedTextByPartId: new Map(),
                   messageRoleById: new Map(),

@@ -3,12 +3,9 @@
 //          ("Ran 2 commands, Edited 2 files"); expands to the individual rows.
 // Layer: Web chat presentation component
 // Exports: ToolCallGroupSummaryRow
-// Depends on: DisclosureRegion/DisclosureChevron (shared disclosure motion)
-
-import type { ReactNode } from "react";
+// Depends on: DisclosureChevron (members are sibling virtual-list rows)
 
 import { DisclosureChevron } from "../ui/DisclosureChevron";
-import { DisclosureRegion } from "../ui/DisclosureRegion";
 import { extractWebFetchUrl } from "../../lib/toolCallLabel";
 import { LinkChipIcon } from "../LinkChipIcon";
 import type { ToolCallGroupSummary } from "./toolCallGroup.logic";
@@ -19,9 +16,8 @@ export function ToolCallGroupSummaryRow(props: {
   open: boolean;
   onToggle: (open: boolean) => void;
   fontSizePx: number;
-  renderChildren: () => ReactNode;
 }) {
-  const { summary, open, onToggle, fontSizePx, renderChildren } = props;
+  const { summary, open, onToggle, fontSizePx } = props;
 
   // The collapsed row wears its first entry's icon (favicon for web fetches),
   // so folding a run of tool calls keeps the leading glyph of the row it hides.
@@ -46,7 +42,6 @@ export function ToolCallGroupSummaryRow(props: {
         <span>{summary.label}</span>
         <DisclosureChevron open={open} className="text-muted-foreground/55" />
       </button>
-      <DisclosureRegion open={open}>{open ? renderChildren() : null}</DisclosureRegion>
     </div>
   );
 }

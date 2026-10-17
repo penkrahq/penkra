@@ -16,10 +16,7 @@ import {
   type TurnId,
 } from "@penkra/contracts";
 import { normalizeModelSlug } from "@penkra/shared/model";
-import {
-  deriveThreadSummaryMetadata,
-  isPendingInteractionNotFoundFailure,
-} from "@penkra/shared/threadSummary";
+import { deriveThreadSummaryMetadata } from "@penkra/shared/threadSummary";
 import { toAttachmentPreviewUrl } from "./lib/wsHttpUrl";
 import { latestTurnMatchesTurnId } from "./session-logic";
 import { getRememberedProjectUiState } from "./storePersistence";
@@ -57,7 +54,6 @@ export type ProjectNormalizationInput = Pick<
 export const MAX_THREAD_MESSAGES = ORCHESTRATION_THREAD_HYDRATION_LIMITS.messages;
 const MAX_THREAD_ACTIVITIES = ORCHESTRATION_THREAD_HYDRATION_LIMITS.detailActivities;
 const LOCAL_USER_MESSAGE_RETENTION_MS = 10_000;
-const PENDING_INTERACTION_REQUEST_KINDS = new Set(["user-input.requested"]);
 
 /**
  * Transcript order follows durable causality, not wall-clock admission alone.
@@ -170,8 +166,7 @@ export function threadShellsEqual(left: ThreadShell | undefined, right: ThreadSh
     (left.subagentNickname ?? null) === (right.subagentNickname ?? null) &&
     (left.subagentRole ?? null) === (right.subagentRole ?? null) &&
     left.hasPendingUserInput === right.hasPendingUserInput &&
-    left.workStatus === right.workStatus &&
-    left.pendingInteractions === right.pendingInteractions
+    left.workStatus === right.workStatus
   );
 }
 
@@ -1168,51 +1163,7 @@ export function capThreadActivities<TActivity extends Thread["activities"][numbe
       .filter((activity) => splitBoundaryTurnId === null || activity.turnId !== splitBoundaryTurnId)
       .map((activity) => activity.id),
   );
-  const pendingRequestIds = pendingInteractionRequestIds(activities);
-  for (const activity of activities) {
-    const requestId = activityRequestId(activity);
-    if (
-      requestId !== null &&
-      pendingRequestIds.has(requestId) &&
-      PENDING_INTERACTION_REQUEST_KINDS.has(activity.kind)
-    ) {
-      retainedIds.add(activity.id);
-    }
-  }
   return activities.filter((activity) => retainedIds.has(activity.id));
-}
-
-function activityRequestId(activity: Thread["activities"][number]): string | null {
-  const payload = asActivityRecord(activity.payload);
-  const requestId = payload?.requestId;
-  return typeof requestId === "string" && requestId.trim().length > 0 ? requestId : null;
-}
-
-function pendingInteractionRequestIds(
-  activities: readonly Thread["activities"][number][],
-): Set<string> {
-  const pendingRequestIds = new Set<string>();
-  for (const activity of activities) {
-    const requestId = activityRequestId(activity);
-    if (requestId === null) {
-      continue;
-    }
-    if (activity.kind === "user-input.requested") {
-      pendingRequestIds.add(requestId);
-      continue;
-    }
-    if (activity.kind === "user-input.resolved") {
-      pendingRequestIds.delete(requestId);
-      continue;
-    }
-    if (
-      activity.kind === "provider.user-input.respond.failed" &&
-      isPendingInteractionNotFoundFailure(activity.payload)
-    ) {
-      pendingRequestIds.delete(requestId);
-    }
-  }
-  return pendingRequestIds;
 }
 
 export function dedupeActivitiesById<TActivity extends Thread["activities"][number]>(
@@ -1502,16 +1453,6 @@ export function normalizeThreadFromReadModel(
     previous?.activities,
     options.capActivities === undefined ? {} : { cap: options.capActivities },
   );
-  const incomingPendingInteractions = Object.hasOwn(incoming, "pendingInteractions")
-    ? (incoming.pendingInteractions ?? [])
-    : previous?.pendingInteractions;
-  const pendingInteractions =
-    previous?.pendingInteractions &&
-    deepEqualJson(previous.pendingInteractions, incomingPendingInteractions ?? [])
-      ? previous.pendingInteractions
-      : incomingPendingInteractions === undefined
-        ? undefined
-        : [...incomingPendingInteractions];
   const sessionError = normalizeThreadErrorMessage(incoming.session?.lastError);
   const deliveryError = latestDeliveryFailureReason(messages);
   const error = sessionError ?? deliveryError;
@@ -1544,8 +1485,7 @@ export function normalizeThreadFromReadModel(
     (previous.subagentRole ?? null) === (incoming.subagentRole ?? null) &&
     previous.hasPendingUserInput === resolvedHasPendingUserInput &&
     previous.workStatus === sidebarRollups.workStatus &&
-    previous.activities === activities &&
-    previous.pendingInteractions === pendingInteractions
+    previous.activities === activities
   ) {
     return previous;
   }
@@ -1578,7 +1518,6 @@ export function normalizeThreadFromReadModel(
       : {}),
     ...sidebarRollups,
     activities,
-    ...(pendingInteractions !== undefined ? { pendingInteractions } : {}),
   };
 }
 

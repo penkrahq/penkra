@@ -1,130 +1,191 @@
-// FILE: useThreadItems.ts
-// Purpose: Clean-core transcript state: subscribe before the initial read,
-// serialize newest-page reads, load older pages on demand and apply them through
-// threadItemsStore. The controller is pure/testable; the hook wraps it.
-// Layer: Web state
-// Exports: ThreadItemsApi, createThreadItemsController, useThreadItems
-
 import type { CleanCoreThreadItem } from "@penkra/contracts";
 import { useCallback, useEffect, useRef, useState } from "react";
-
 import { readNativeApi } from "./nativeApi";
 import {
   EMPTY_THREAD_ITEMS_STATE,
   loadFirstPage,
   mergeItems,
+  mergeBySeq,
   prependOlderPage,
   type ThreadItemsPage,
   type ThreadItemsState,
+  type ItemSequence,
 } from "./threadItemsStore";
 
+type RecordsPage = Pick<ItemSequence, "items" | "nextCursor">;
 export interface ThreadItemsApi {
   listThreadItemsPage(input: {
     readonly threadId: string;
     readonly beforeSeq?: number;
   }): Promise<ThreadItemsPage>;
+  listTurnItems(input: {
+    readonly threadId: string;
+    readonly turnId: string;
+    readonly beforeSeq?: number;
+  }): Promise<RecordsPage>;
   subscribeThread(input: { readonly threadId: string }): Promise<void>;
   unsubscribeThread(input: { readonly threadId: string }): Promise<void>;
   onThreadChange(callback: (change: { readonly threadId: string }) => void): () => void;
 }
-
 export interface ThreadItemsController {
   readonly reload: () => Promise<void>;
   readonly loadOlder: () => Promise<void>;
+  readonly setExpandedTurns: (ids: ReadonlyArray<string>) => void;
+  readonly loadOlderTurn: (turnId: string) => Promise<void>;
   readonly dispose: () => void;
   readonly getState: () => ThreadItemsState;
 }
 
-/**
- * Owns one thread's transcript state. A push only signals "this thread changed",
- * so it re-reads the newest page and merges by seq/source id.
- */
+/** Each sequence owns one latest-wins newest read and one older-page read. */
+function createPageReader<P extends RecordsPage>(input: {
+  read: (before?: number) => Promise<P>;
+  apply: (page: P, older: boolean) => void;
+  cursor: () => number | null;
+  disposed: () => boolean;
+}) {
+  let newest: Promise<void> | null = null;
+  let older: Promise<void> | null = null;
+  let dirty = false;
+  const reload = (): Promise<void> => {
+    if (input.disposed()) return Promise.resolve();
+    dirty = true;
+    if (newest) return newest;
+    newest = (async () => {
+      while (dirty && !input.disposed()) {
+        dirty = false;
+        const page = await input.read();
+        if (!input.disposed()) input.apply(page, false);
+      }
+    })().then(
+      () => {
+        newest = null;
+        if (dirty && !input.disposed()) return reload();
+      },
+      (error) => {
+        newest = null;
+        throw error;
+      },
+    );
+    return newest;
+  };
+  const loadOlder = (): Promise<void> => {
+    if (older) return older;
+    const cursor = input.cursor();
+    if (input.disposed() || cursor === null) return Promise.resolve();
+    older = input
+      .read(cursor)
+      .then((page) => {
+        if (!input.disposed()) input.apply(page, true);
+      })
+      .finally(() => {
+        older = null;
+      });
+    return older;
+  };
+  return { reload, loadOlder };
+}
+
 export function createThreadItemsController(
   api: ThreadItemsApi,
   threadId: string,
   onChange: (state: ThreadItemsState) => void,
   onError: (error: unknown) => void,
+  onBeforePrepend?: (turnId: string | null) => void,
 ): ThreadItemsController {
   let state = EMPTY_THREAD_ITEMS_STATE;
   let disposed = false;
+  let expanded = new Set<string>();
+  const readers = new Map<string, ReturnType<typeof createPageReader<RecordsPage>>>();
   const update = (next: ThreadItemsState) => {
     state = next;
-    onChange(state);
+    onChange(next);
   };
-  let newestRead: Promise<void> | null = null;
-  let dirty = false;
-  const reload = (): Promise<void> => {
-    if (disposed) return Promise.resolve();
-    dirty = true;
-    if (newestRead !== null) return newestRead;
-    newestRead = (async () => {
-      while (dirty && !disposed) {
-        dirty = false;
-        const page = await api.listThreadItemsPage({ threadId });
-        if (!disposed)
-          update(state.loaded ? mergeItems(state, page.items, page.turns) : loadFirstPage(page));
-      }
-    })().then(
-      () => {
-        newestRead = null;
-        // A signal can arrive between the loop finishing and this promise settling.
-        if (dirty && !disposed) return reload();
-      },
-      (error) => {
-        newestRead = null;
-        throw error;
-      },
-    );
-    return newestRead;
+  const report = (error: unknown) => {
+    if (!disposed) onError(error);
   };
-  let olderRead: Promise<void> | null = null;
-  const loadOlder = () => {
-    if (olderRead !== null) return olderRead;
-    if (disposed || state.nextCursor === null) return Promise.resolve();
-    olderRead = api
-      .listThreadItemsPage({ threadId, beforeSeq: state.nextCursor })
-      .then((page) => {
-        if (!disposed) update(prependOlderPage(state, page));
-      })
-      .finally(() => {
-        olderRead = null;
-      });
-    return olderRead;
+  const outline = createPageReader({
+    read: (beforeSeq?: number) =>
+      api.listThreadItemsPage({ threadId, ...(beforeSeq === undefined ? {} : { beforeSeq }) }),
+    cursor: () => state.nextCursor,
+    disposed: () => disposed,
+    apply: (page, older) => {
+      if (older && page.items.some((item) => item.seq < (state.items[0]?.seq ?? -Infinity)))
+        onBeforePrepend?.(null);
+      update(
+        older
+          ? prependOlderPage(state, page)
+          : state.loaded
+            ? mergeItems(state, page.items, page.turns, page.finals, page.hasSteps)
+            : { ...loadFirstPage(page), details: state.details },
+      );
+    },
+  });
+  const reader = (turnId: string) => {
+    let existing = readers.get(turnId);
+    if (existing) return existing;
+    existing = createPageReader({
+      read: (beforeSeq?: number) =>
+        api.listTurnItems({ threadId, turnId, ...(beforeSeq === undefined ? {} : { beforeSeq }) }),
+      cursor: () => state.details[turnId]?.nextCursor ?? null,
+      disposed: () => disposed,
+      apply: (page, older) => {
+        const previous = state.details[turnId];
+        const first = previous?.items[0]?.seq ?? Infinity;
+        if (older && page.items.some((item) => item.seq < first)) onBeforePrepend?.(turnId);
+        const min = page.items.length === 0 ? 0 : Math.min(...page.items.map((item) => item.seq));
+        const items = older
+          ? mergeBySeq(
+              previous?.items ?? [],
+              page.items.filter((item) => item.seq < first),
+            )
+          : mergeBySeq(previous?.items.filter((item) => item.seq < min) ?? [], page.items);
+        const detail: ItemSequence = {
+          items,
+          nextCursor: older || !previous?.loaded ? page.nextCursor : previous.nextCursor,
+          loaded: true,
+        };
+        update({ ...state, details: { ...state.details, [turnId]: detail } });
+      },
+    });
+    readers.set(turnId, existing);
+    return existing;
+  };
+  const reload = async () => {
+    await Promise.all([outline.reload(), ...[...expanded].map((id) => reader(id).reload())]);
   };
   const unsubscribe = api.onThreadChange((change) => {
-    if (change.threadId !== threadId) return;
-    void reload().catch((error) => {
-      if (!disposed) onError(error);
-    });
+    if (change.threadId === threadId) void reload().catch(report);
   });
-  void api.subscribeThread({ threadId }).catch((error) => {
-    if (!disposed) onError(error);
-  });
+  void api.subscribeThread({ threadId }).catch(report);
   return {
     reload,
-    loadOlder,
+    loadOlder: outline.loadOlder,
+    setExpandedTurns: (ids) => {
+      const previous = expanded;
+      expanded = new Set(ids);
+      for (const id of expanded) if (!previous.has(id)) void reader(id).reload().catch(report);
+    },
+    loadOlderTurn: (id) => (expanded.has(id) ? reader(id).loadOlder() : Promise.resolve()),
+    getState: () => state,
     dispose: () => {
       disposed = true;
       unsubscribe();
-      void api.unsubscribeThread({ threadId }).catch(() => undefined);
+      void api.unsubscribeThread({ threadId }).catch(onError);
     },
-    getState: () => state,
   };
 }
 
-export interface UseThreadItemsResult {
-  readonly state: ThreadItemsState;
-  readonly loadOlder: () => void;
-  readonly reload: () => void;
-  readonly error: unknown;
-}
-
-export function useThreadItems(threadId: string | null): UseThreadItemsResult {
+export function useThreadItems(
+  threadId: string | null,
+  onBeforePrepend?: (turnId: string | null) => void,
+) {
+  const beforePrependRef = useRef(onBeforePrepend);
+  beforePrependRef.current = onBeforePrepend;
   const [error, setError] = useState<unknown>(null);
   const [state, setState] = useState<ThreadItemsState>(EMPTY_THREAD_ITEMS_STATE);
-  const controllerRef = useRef<ThreadItemsController | null>(null);
+  const ref = useRef<ThreadItemsController | null>(null);
   useEffect(() => {
-    controllerRef.current = null;
+    ref.current = null;
     setState(EMPTY_THREAD_ITEMS_STATE);
     setError(null);
     if (threadId === null) return;
@@ -138,18 +199,26 @@ export function useThreadItems(threadId: string | null): UseThreadItemsResult {
         setState(next);
       },
       setError,
+      (turnId) => beforePrependRef.current?.(turnId),
     );
-    controllerRef.current = controller;
+    ref.current = controller;
     return () => controller.dispose();
   }, [threadId]);
   const loadOlder = useCallback(() => {
-    void controllerRef.current?.loadOlder().catch(setError);
+    void ref.current?.loadOlder().catch(setError);
   }, []);
+  const loadOlderTurn = useCallback((id: string) => {
+    void ref.current?.loadOlderTurn(id).catch(setError);
+  }, []);
+  const setExpandedTurns = useCallback(
+    (ids: ReadonlyArray<string>) => ref.current?.setExpandedTurns(ids),
+    [],
+  );
   const reload = useCallback(() => {
     setError(null);
-    void controllerRef.current?.reload().catch(setError);
+    void ref.current?.reload().catch(setError);
   }, []);
-  return { state, loadOlder, reload, error };
+  return { state, loadOlder, loadOlderTurn, setExpandedTurns, reload, error };
 }
-
+export type UseThreadItemsResult = ReturnType<typeof useThreadItems>;
 export type { CleanCoreThreadItem };
