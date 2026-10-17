@@ -2,7 +2,7 @@
 import { Effect, PubSub, Stream } from "effect";
 
 export interface InvalidationHub<A> {
-  readonly stream: (onlyKey?: string) => Stream.Stream<A>;
+  readonly stream: (onlyKey?: string, initial?: A) => Stream.Stream<A>;
   readonly publish: (value: A) => void;
   readonly close: Effect.Effect<void>;
 }
@@ -17,7 +17,7 @@ export function makeInvalidationHub<A>(
   }>();
   let closed = false;
   return {
-    stream: (onlyKey) =>
+    stream: (onlyKey, initial) =>
       Stream.unwrap(
         Effect.gen(function* () {
           // One wake-up is sufficient: all dirty keys live in the map, once per key.
@@ -34,13 +34,15 @@ export function makeInvalidationHub<A>(
               ),
           );
           if (closed) yield* PubSub.shutdown(wake);
-          return Stream.fromEffectRepeat(PubSub.take(subscription)).pipe(
+          const changes = Stream.fromEffectRepeat(PubSub.take(subscription)).pipe(
             Stream.flatMap(() => {
               const pending = Array.from(subscriber.pending.values());
               subscriber.pending.clear();
               return Stream.fromIterable(pending);
             }),
           );
+          // The marker is emitted only after the scoped listener is registered.
+          return initial === undefined ? changes : Stream.concat(Stream.succeed(initial), changes);
         }),
       ),
     publish: (value) => {
