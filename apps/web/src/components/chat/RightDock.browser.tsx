@@ -103,6 +103,11 @@ describe("RightDock Thread width", () => {
       await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
       expect(wrapper.style.getPropertyValue("--sidebar-width")).toBe("660px");
       expect(Math.round(wrapper.getBoundingClientRect().width)).toBe(660);
+      // The preview must follow the live width, before pointerup persists it.
+      await expect
+        .poll(() => wrapper.parentElement!.style.getPropertyValue("--right-dock-overlay-inset"))
+        .toBe("660px");
+      expect(onResize).not.toHaveBeenCalled();
       rail.dispatchEvent(
         new PointerEvent("pointerup", {
           bubbles: true,

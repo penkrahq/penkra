@@ -11,6 +11,117 @@ describe("ExpandedImageOverlay", () => {
     document.body.innerHTML = "";
   });
 
+  it("zooms and resets without closing, and dismisses empty viewport space", async () => {
+    const onClose = vi.fn();
+    const src = `data:image/svg+xml,${encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" width="2400" height="1600"/>')}`;
+    const screen = await render(
+      <ExpandedImageOverlay
+        expandedImage={{ images: [{ src, name: "Zoom image" }], index: 0 }}
+        onClose={onClose}
+        onNavigate={vi.fn()}
+      />,
+    );
+    try {
+      await expect.element(page.getByRole("img", { name: "Zoom image" })).toBeVisible();
+      await page.getByRole("button", { name: "Zoom in" }).click();
+      const image = page.getByRole("img", { name: "Zoom image" }).element() as HTMLImageElement;
+      expect(image.style.transform).toContain("scale(2)");
+      expect(onClose).not.toHaveBeenCalled();
+      await page.getByRole("button", { name: "Fit image" }).click();
+      expect(image.style.transform).toContain("scale(1)");
+      await page.getByRole("img", { name: "Zoom image" }).dblClick();
+      expect(image.style.transform).toContain("scale(2)");
+      await page.getByRole("img", { name: "Zoom image" }).dblClick();
+      expect(image.style.transform).toContain("scale(1)");
+      const viewport = document.querySelector<HTMLElement>("[data-image-viewport]")!;
+      viewport.click();
+      expect(onClose).toHaveBeenCalledOnce();
+      await page
+        .getByRole("dialog", { name: "Expanded image preview" })
+        .click({ position: { x: 5, y: 5 } });
+      expect(onClose).toHaveBeenCalledTimes(2);
+    } finally {
+      await screen.unmount();
+    }
+  });
+
+  it("owns wheel and pointer gestures, clamps pan and resets on image navigation", async () => {
+    const onClose = vi.fn();
+    const src = `data:image/svg+xml,${encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" width="2400" height="1600"/>')}`;
+    const preview = {
+      images: [
+        { src, name: "First" },
+        { src: src + "#second", name: "Second" },
+      ],
+      index: 0,
+    };
+    const screen = await render(
+      <ExpandedImageOverlay expandedImage={preview} onClose={onClose} onNavigate={vi.fn()} />,
+    );
+    try {
+      const img = page.getByRole("img", { name: "First" }).element() as HTMLImageElement;
+      await expect.element(page.getByRole("img", { name: "First" })).toBeVisible();
+      const viewport = document.querySelector<HTMLElement>("[data-image-viewport]")!;
+      const rect = viewport.getBoundingClientRect();
+      const wheel = new WheelEvent("wheel", {
+        bubbles: true,
+        cancelable: true,
+        deltaY: -rect.height,
+        clientX: rect.left + rect.width / 2,
+        clientY: rect.top + rect.height / 2,
+      });
+      viewport.dispatchEvent(wheel);
+      expect(wheel.defaultPrevented).toBe(true);
+      await expect.poll(() => img.style.transform).toContain("scale(8)");
+      await page.getByRole("button", { name: "Fit image" }).click();
+      await page.getByRole("button", { name: "Zoom in" }).click();
+      img.setPointerCapture = vi.fn();
+      const pointer = (type: string, x: number, id = 1, pointerType = "mouse") =>
+        img.dispatchEvent(
+          new PointerEvent(type, {
+            bubbles: true,
+            button: 0,
+            pointerId: id,
+            pointerType,
+            clientX: x,
+            clientY: 200,
+          }),
+        );
+      pointer("pointerdown", 200);
+      pointer("pointermove", 250);
+      pointer("pointerup", 250);
+      await expect.poll(() => img.style.transform).toContain("translate(50px");
+      img.click(); // A generated click after a pan must not close the viewer.
+      expect(onClose).not.toHaveBeenCalled();
+      pointer("pointerdown", 200, 1, "touch");
+      pointer("pointerdown", 300, 2, "touch");
+      pointer("pointermove", 400, 2, "touch");
+      pointer("pointerup", 200, 1, "touch");
+      pointer("pointerup", 400, 2, "touch");
+      await expect.poll(() => img.style.transform).toContain("scale(4)");
+      pointer("pointerdown", 200);
+      pointer("pointermove", 10000);
+      pointer("pointerup", 10000);
+      viewport.style.width = "120px";
+      await expect
+        .poll(() => parseFloat(img.style.transform.slice("translate(".length)))
+        .toBeCloseTo(180);
+      await screen.rerender(
+        <ExpandedImageOverlay
+          expandedImage={{ ...preview, index: 1 }}
+          onClose={onClose}
+          onNavigate={vi.fn()}
+        />,
+      );
+      await expect.element(page.getByRole("img", { name: "Second" })).toBeVisible();
+      expect(
+        (page.getByRole("img", { name: "Second" }).element() as HTMLImageElement).style.transform,
+      ).toContain("scale(1)");
+    } finally {
+      await screen.unmount();
+    }
+  });
+
   it("renders nothing without an expanded image", async () => {
     const screen = await render(
       <ExpandedImageOverlay expandedImage={null} onClose={vi.fn()} onNavigate={vi.fn()} />,

@@ -6,6 +6,7 @@
 import { Button } from "~/components/ui/button";
 import { ChevronLeftIcon, ChevronRightIcon, XIcon } from "~/lib/icons";
 import type { ExpandedImagePreview } from "./ExpandedImagePreview";
+import { ImageViewport } from "./ImageViewport";
 
 interface ExpandedImageOverlayProps {
   readonly expandedImage: ExpandedImagePreview | null;
@@ -25,11 +26,14 @@ export function ExpandedImageOverlay({
 
   return (
     <div
-      className="fixed inset-y-0 left-0 right-[var(--right-dock-overlay-inset,0px)] z-50 flex items-center justify-center overflow-hidden bg-black/75 px-4 py-6 [-webkit-app-region:no-drag]"
+      className="fixed inset-y-0 left-0 right-[var(--right-dock-overlay-inset,0px)] z-50 flex flex-col items-center justify-center overflow-hidden bg-black/75 px-4 py-6 [-webkit-app-region:no-drag]"
       data-expanded-image-overlay
       role="dialog"
       aria-modal="true"
       aria-label="Expanded image preview"
+      onClick={(event) => {
+        if (event.target === event.currentTarget) onClose();
+      }}
     >
       <button
         type="button"
@@ -49,23 +53,18 @@ export function ExpandedImageOverlay({
           <ChevronLeftIcon className="size-5" />
         </Button>
       ) : null}
-      <div className="relative isolate z-10 flex min-h-0 min-w-0 max-h-full max-w-full flex-col items-center">
+      <div className="relative isolate z-10 flex h-full w-full min-h-0 min-w-0 flex-col items-center pointer-events-none [&>*]:pointer-events-auto">
         <Button
           type="button"
           size="icon-xs"
           variant="ghost"
-          className="absolute right-2 top-2"
+          className="absolute right-2 top-2 z-30 text-white/90 hover:bg-white/10 hover:text-white"
           onClick={onClose}
           aria-label="Close image preview"
         >
           <XIcon />
         </Button>
-        <img
-          src={expandedImageItem.src}
-          alt={expandedImageItem.name}
-          className="min-h-0 min-w-0 max-h-full max-w-full select-none rounded-lg border border-[color:var(--color-border)] bg-[var(--color-background-elevated-primary-opaque)] object-contain shadow-2xl"
-          draggable={false}
-        />
+        <ImageViewport key={expandedImageItem.src} image={expandedImageItem} onClose={onClose} />
         <p className="mt-2 max-w-full shrink-0 truncate text-center text-[length:var(--app-font-size-ui,12px)] text-muted-foreground/80">
           {expandedImageItem.name}
           {expandedImage.images.length > 1
