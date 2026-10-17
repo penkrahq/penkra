@@ -40,8 +40,14 @@ function makeContents(contentsId = 12) {
   let pageClickBehavior: "stop-immediate" | "synthetic" | null = null;
   let pageActivationCount = 0;
   let hitFrameId = `frame-${contentsId}`;
+  let pageVisible = true;
   const sendCommand = vi.fn(
     async (method: string, _params?: Record<string, unknown>): Promise<unknown> => {
+      if (
+        method === "Runtime.evaluate" &&
+        _params?.expression === 'document.visibilityState === "visible"'
+      )
+        return { result: { value: pageVisible } };
       if (method === "Page.getFrameTree") {
         return { frameTree: { frame: { id: `frame-${contentsId}`, loaderId } } };
       }
@@ -174,6 +180,9 @@ function makeContents(contentsId = 12) {
   } as unknown as WebContents;
   return {
     contents,
+    setPageVisible: (value: boolean) => {
+      pageVisible = value;
+    },
     setClickWillDeliver: (value: boolean) => {
       clickWillDeliver = value;
     },
@@ -494,6 +503,11 @@ describe("AppTabObserver", () => {
     const { contents, sendCommand, emitDebugger } = makeContents();
     let clickBinding: string | null = null;
     sendCommand.mockImplementation(async (method: string, params?: Record<string, unknown>) => {
+      if (
+        method === "Runtime.evaluate" &&
+        params?.expression === 'document.visibilityState === "visible"'
+      )
+        return { result: { value: true } };
       if (method === "Page.getFrameTree")
         return { frameTree: { frame: { id: "frame-12", loaderId: "loader-1" } } };
       if (method === "Page.addScriptToEvaluateOnNewDocument")
@@ -556,6 +570,67 @@ describe("AppTabObserver", () => {
     expect(updates).toEqual(inputs);
     expect(updates.some((input) => input.type === "mousePressed")).toBe(true);
     expect(updates.some((input) => input.type === "mouseReleased")).toBe(true);
+  });
+
+  it("types on an eligible undrawn page without dispatching animated mouse moves", async () => {
+    const { contents, sendCommand, setPageVisible } = makeContents();
+    setPageVisible(false);
+    const observer = new AppTabObserver({
+      resolve: () => ({ descriptor, webContents: contents, isPresented: () => true }),
+    });
+    await observer.snapshot("tab-1");
+    await observer.type("tab-1", "d1:e2", "hello");
+    expect(
+      sendCommand.mock.calls.filter(
+        ([method, params]) =>
+          method === "Input.dispatchMouseEvent" && params?.type === "mouseMoved",
+      ),
+    ).toHaveLength(0);
+    expect(
+      sendCommand.mock.calls.some(
+        ([method, params]) =>
+          method === "Runtime.callFunctionOn" &&
+          String(params?.functionDeclaration).includes("InputEvent"),
+      ),
+    ).toBe(true);
+  });
+
+  it("hidden-page hover dispatches only its destination, not an animation", async () => {
+    const { contents, sendCommand, setPageVisible } = makeContents();
+    setPageVisible(false);
+    const observer = new AppTabObserver({
+      resolve: () => ({ descriptor, webContents: contents, isPresented: () => true }),
+    });
+    await observer.snapshot("tab-1");
+    await observer.hover("tab-1", "d1:e1");
+    expect(
+      sendCommand.mock.calls.filter(
+        ([method, params]) =>
+          method === "Input.dispatchMouseEvent" && params?.type === "mouseMoved",
+      ),
+    ).toHaveLength(1);
+  });
+
+  it("stops remaining animation steps when a page becomes undrawn", async () => {
+    const { contents, sendCommand, setPageVisible } = makeContents();
+    const original = sendCommand.getMockImplementation()!;
+    sendCommand.mockImplementation(async (method, params) => {
+      const result = await original(method, params);
+      if (method === "Input.dispatchMouseEvent" && params?.type === "mouseMoved")
+        setPageVisible(false);
+      return result;
+    });
+    const observer = new AppTabObserver({
+      resolve: () => ({ descriptor, webContents: contents, isPresented: () => true }),
+    });
+    await observer.snapshot("tab-1");
+    await observer.type("tab-1", "d1:e2", "hello");
+    expect(
+      sendCommand.mock.calls.filter(
+        ([method, params]) =>
+          method === "Input.dispatchMouseEvent" && params?.type === "mouseMoved",
+      ),
+    ).toHaveLength(1);
   });
 
   it("keeps only the active document cursor visible until the owning turn completes", async () => {
@@ -1024,7 +1099,7 @@ describe("AppTabObserver", () => {
       screenshotCalls: 1,
       capturePageCalls: 1,
       capturePageBytes: 3,
-      cdpCalls: 4,
+      cdpCalls: 5,
       snapshotStateCount: 1,
       dialogListenerCount: 1,
       protocolSessionCount: 0,

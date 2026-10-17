@@ -59,7 +59,7 @@ describe("folder App-tab routing", () => {
       folderShown: true,
     });
     expect(appTabFolderUnavailable("Work", true)).toMatchObject({
-      code: "TAB_FOLDER_NOT_AVAILABLE",
+      code: "USER_IN_FOLDER_TABS",
     });
   });
   it("opens in the background when no visible window shows the folder", () => {
@@ -77,7 +77,7 @@ describe("folder App-tab routing", () => {
         folderShown: false,
       });
     expect(appTabFolderUnavailable("Work", false)).toMatchObject({
-      code: "TAB_FOLDER_NOT_AVAILABLE",
+      code: "FOLDER_NOT_OPEN",
     });
   });
   it("does not treat an unfocused panel as busy", () => {
@@ -104,7 +104,7 @@ describe("folder App-tab routing", () => {
       folderShown: true,
     });
     expect(appTabFolderUnavailable("Work", true).message).toBe(
-      'You are working in the right panel of every window showing folder "Work".',
+      'The user is working in folder "Work"\'s tabs right now. Try again later.',
     );
   });
   it("keeps explicit user opening available in a busy home window", () => {
@@ -119,7 +119,7 @@ describe("folder App-tab routing", () => {
       }).targetWindowId,
     ).toBe(1);
     expect(appTabFolderUnavailable("Work", false).message).toBe(
-      'Folder "Work" is not open in any window.',
+      'Folder "Work" isn\'t open right now, so its tabs can\'t be used. Continue without the tab, or tell the user you need folder "Work" open.',
     );
   });
   it("chooses a never-focused window when it alone shows the folder", () => {

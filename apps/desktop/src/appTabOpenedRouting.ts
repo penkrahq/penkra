@@ -76,9 +76,9 @@ export function appTabFolderUnavailable(
   return Object.assign(
     new Error(
       folderShown
-        ? `You are working in the right panel of every window showing folder "${folderTitle}".`
-        : `Folder "${folderTitle}" is not open in any window.`,
+        ? `The user is working in folder "${folderTitle}"'s tabs right now. Try again later.`
+        : `Folder "${folderTitle}" isn't open right now, so its tabs can't be used. Continue without the tab, or tell the user you need folder "${folderTitle}" open.`,
     ),
-    { code: "TAB_FOLDER_NOT_AVAILABLE", dispatched: false },
+    { code: folderShown ? "USER_IN_FOLDER_TABS" : "FOLDER_NOT_OPEN", dispatched: false },
   );
 }
