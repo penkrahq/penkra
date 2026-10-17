@@ -854,13 +854,7 @@ export class AppTabObserver {
 
   async click(tabId: string, reference: string, observe = false, human = false): Promise<unknown> {
     const { target, node } = await this.#referencedTarget(tabId, reference);
-    await this.#cdp(
-      target.webContents,
-      "DOM.scrollIntoViewIfNeeded",
-      { backendNodeId: node.backendNodeId },
-      target.cdpSessionId,
-    );
-    const point = await this.#nodeCenter(target, node.backendNodeId);
+    const point = await this.#actionPoint(target, node.backendNodeId);
     const contents = target.webContents;
     const world = await this.#clickWorld(
       target,
@@ -932,10 +926,13 @@ export class AppTabObserver {
           target.cdpSessionId,
         ),
       );
-      if (asRecord(hitTest.result).value !== true) {
+      const hit = asRecord(hitTest.result).value;
+      if (hit !== true) {
+        if (typeof hit !== "string")
+          throw observerError("LOAD_FAILED", "The click hit test returned an invalid result.");
         throw observerError(
           "TAB_NOT_HIT_TESTABLE",
-          `${reference} is outside the viewport or covered. Give the retained tab a usable layout or present it, then retry.`,
+          `${reference} is covered by ${hit}. Close or move it, then retry.`,
         );
       }
       if (target.canDeliverPointerInput?.() === false) {
@@ -987,7 +984,7 @@ export class AppTabObserver {
 
   async hover(tabId: string, reference: string, observe = false, human = false): Promise<unknown> {
     const { target, node } = await this.#referencedTarget(tabId, reference);
-    const point = await this.#nodeCenter(target, node.backendNodeId);
+    const point = await this.#actionPoint(target, node.backendNodeId);
     if (!(await this.#moveCursor(target, point, human))) {
       await this.#dispatchMouseEvent(target, { type: "mouseMoved", ...point });
     }
@@ -1007,7 +1004,7 @@ export class AppTabObserver {
     human = false,
   ): Promise<unknown> {
     const { target, node } = await this.#referencedTarget(tabId, reference);
-    const point = await this.#nodeCenter(target, node.backendNodeId);
+    const point = await this.#actionPoint(target, node.backendNodeId);
     await this.#moveCursor(target, point, human);
     await this.#dispatchMouseEvent(target, {
       type: "mousePressed",
@@ -1677,6 +1674,19 @@ export class AppTabObserver {
     }
   }
 
+  async #actionPoint(
+    target: AppTabObservationTarget,
+    backendNodeId: number,
+  ): Promise<{ x: number; y: number }> {
+    await this.#cdp(
+      target.webContents,
+      "DOM.scrollIntoViewIfNeeded",
+      { backendNodeId },
+      target.cdpSessionId,
+    );
+    return this.#nodeCenter(target, backendNodeId);
+  }
+
   async #nodeCenter(
     target: AppTabObservationTarget,
     backendNodeId: number,
@@ -1757,11 +1767,25 @@ export class AppTabObserver {
     if (typeof node.frameId === "string" && node.frameId) return node.frameId;
     // DOM.Node.frameId is only populated for frame-owner and document nodes. For
     // ordinary nodes, hit testing reports the frame that actually contains the node.
+    const metrics = asRecord(
+      await this.#cdp(target.webContents, "Page.getLayoutMetrics", undefined, target.cdpSessionId),
+    );
+    const viewport = asRecord(metrics.cssVisualViewport);
+    if (!isFiniteNumber(viewport.pageX) || !isFiniteNumber(viewport.pageY))
+      throw observerError("LOAD_FAILED", "The page has no visual viewport geometry.");
+    // InspectorDOMAgent::getNodeForLocation transforms a document point via
+    // DocumentToFrame. Only this call needs document coordinates; input and the
+    // in-page hit test keep the original viewport point.
+    // https://chromium.googlesource.com/chromium/src/+/HEAD/third_party/blink/renderer/core/inspector/inspector_dom_agent.cc
     const location = asRecord(
       await this.#cdp(
         target.webContents,
         "DOM.getNodeForLocation",
-        { x: Math.round(point.x), y: Math.round(point.y), includeUserAgentShadowDOM: true },
+        {
+          x: Math.round(point.x + viewport.pageX),
+          y: Math.round(point.y + viewport.pageY),
+          includeUserAgentShadowDOM: true,
+        },
         target.cdpSessionId,
       ),
     );
@@ -2075,11 +2099,15 @@ export function appTabComposedContains(container: Node, candidate: Node | null):
 // Runs inside the host-owned isolated world. The click listener there is the only
 // caller of the per-click binding, so page script cannot forge delivery or isTrusted.
 export const APP_TAB_CLICK_HIT_TEST_DECLARATION = `function(x, y, bindingName, cleanupName) {
-  if (x < 0 || y < 0 || x >= innerWidth || y >= innerHeight) return false;
   const elementAtPoint = ${appTabElementAtPoint.toString()};
   const composedContains = ${appTabComposedContains.toString()};
   const hit = elementAtPoint(document, x, y);
-  if (!hit || !composedContains(this, hit)) return false;
+  if (!hit) return "the page";
+  if (!composedContains(this, hit)) {
+    const role = hit.getAttribute("role");
+    const name = hit.getAttribute("aria-label");
+    return [role || hit.tagName.toLowerCase(), name].filter(Boolean).join(" ");
+  }
   const target = this;
   const listener = (event) => {
     const composedPath = typeof event.composedPath === "function" ? event.composedPath() : [];

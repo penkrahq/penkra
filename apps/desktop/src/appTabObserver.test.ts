@@ -79,6 +79,7 @@ function makeContents(contentsId = 12) {
       if (method === "DOM.getBoxModel") {
         return { model: { content: [0, 0, 100, 0, 100, 40, 0, 40] } };
       }
+      if (method === "Page.getLayoutMetrics") return { cssVisualViewport: { pageX: 0, pageY: 0 } };
       if (method === "Runtime.addBinding") clickBinding = String(_params?.name);
       if (method === "Runtime.resolveNode" || method === "DOM.resolveNode")
         return { object: { objectId: "button-object" } };
@@ -253,7 +254,7 @@ function runHitTestDeclaration(
   declaration: string,
   target: FakeElement,
   doc: { elementFromPoint: (x: number, y: number) => FakeElement | null },
-): boolean {
+): boolean | string {
   const globals = globalThis as unknown as Record<string, unknown>;
   const savedDocument = globals.document;
   const savedWindow = globals.window;
@@ -279,7 +280,7 @@ function runHitTestDeclaration(
       y: number,
       binding: string,
       cleanup: string,
-    ) => boolean;
+    ) => boolean | string;
     const installed = probe.call(target, 5, 5, "__penkra_test_binding", "__penkra_test_cleanup");
     (globals as Record<string, unknown>).__penkra_test_dispatch = (event: unknown) => {
       for (const listener of windowListeners) listener(event);
@@ -503,6 +504,7 @@ describe("AppTabObserver", () => {
     const { contents, sendCommand, emitDebugger } = makeContents();
     let clickBinding: string | null = null;
     sendCommand.mockImplementation(async (method: string, params?: Record<string, unknown>) => {
+      if (method === "Page.getLayoutMetrics") return { cssVisualViewport: { pageX: 0, pageY: 0 } };
       if (
         method === "Runtime.evaluate" &&
         params?.expression === 'document.visibilityState === "visible"'
@@ -571,6 +573,50 @@ describe("AppTabObserver", () => {
     expect(updates.some((input) => input.type === "mousePressed")).toBe(true);
     expect(updates.some((input) => input.type === "mouseReleased")).toBe(true);
   });
+
+  it("converts only the frame hit test to document coordinates using the visual viewport", async () => {
+    const { contents, sendCommand } = makeContents();
+    const original = sendCommand.getMockImplementation()!;
+    sendCommand.mockImplementation((method, params) =>
+      method === "Page.getLayoutMetrics"
+        ? Promise.resolve({
+            cssLayoutViewport: { pageX: 0, pageY: 0 },
+            cssVisualViewport: { pageX: 40, pageY: 200 },
+          })
+        : original(method, params),
+    );
+    const observer = new AppTabObserver({ resolve: () => ({ descriptor, webContents: contents }) });
+    await observer.snapshot("tab-1");
+    await observer.click("tab-1", "d1:e1");
+    expect(sendCommand).toHaveBeenCalledWith("DOM.getNodeForLocation", {
+      x: 90,
+      y: 220,
+      includeUserAgentShadowDOM: true,
+    });
+    expect(sendCommand).toHaveBeenCalledWith(
+      "Input.dispatchMouseEvent",
+      expect.objectContaining({ type: "mousePressed", x: 50, y: 20 }),
+    );
+  });
+
+  it.each(["hover", "type"] as const)(
+    "%s scrolls the target into view before reading its point",
+    async (action) => {
+      const { contents, sendCommand } = makeContents();
+      const observer = new AppTabObserver({
+        resolve: () => ({ descriptor, webContents: contents }),
+      });
+      await observer.snapshot("tab-1");
+      sendCommand.mockClear();
+      if (action === "type") await observer.type("tab-1", "d1:e2", "hello");
+      else await observer.hover("tab-1", "d1:e1");
+      const calls = sendCommand.mock.calls.map(([method]) => method);
+      expect(calls.indexOf("DOM.scrollIntoViewIfNeeded")).toBeGreaterThanOrEqual(0);
+      expect(calls.indexOf("DOM.scrollIntoViewIfNeeded")).toBeLessThan(
+        calls.indexOf("DOM.getBoxModel"),
+      );
+    },
+  );
 
   it("types on an eligible undrawn page without dispatching animated mouse moves", async () => {
     const { contents, sendCommand, setPageVisible } = makeContents();
@@ -893,6 +939,7 @@ describe("AppTabObserver", () => {
     const { contents, sendCommand, emitDebugger } = makeContents();
     let scrolled = false;
     sendCommand.mockImplementation(async (method: string, rawParams?: unknown) => {
+      if (method === "Page.getLayoutMetrics") return { cssVisualViewport: { pageX: 0, pageY: 0 } };
       if (method === "Page.getFrameTree")
         return { frameTree: { frame: { id: "frame-1", loaderId: "loader-1" } } };
       if (method === "Page.addScriptToEvaluateOnNewDocument")
@@ -1315,10 +1362,16 @@ describe("AppTabObserver", () => {
 
   it("rejects a point covered by an unrelated element", () => {
     const target = fakeElement();
-    const cover = fakeElement();
+    const cover = Object.assign(fakeElement(), {
+      tagName: "DIV",
+      getAttribute: (name: string) =>
+        name === "aria-label" ? "Blocking dialog" : name === "role" ? "dialog" : null,
+    });
     const doc = { elementFromPoint: () => cover };
 
-    expect(runHitTestDeclaration(APP_TAB_CLICK_HIT_TEST_DECLARATION, target, doc)).toBe(false);
+    expect(runHitTestDeclaration(APP_TAB_CLICK_HIT_TEST_DECLARATION, target, doc)).toBe(
+      "dialog Blocking dialog",
+    );
   });
 
   it("directs visual commands to present an undisplayed tab", async () => {
