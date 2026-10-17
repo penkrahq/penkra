@@ -43,15 +43,18 @@ export const loadFirstPage = (page: ThreadItemsPage): ThreadItemsState => ({
 });
 
 /**
- * Older page: merge it in and advance the cursor. Items already present are
- * replaced by seq; the sort keeps the transcript in order.
+ * Older pages may only add rows below the loaded range. They must not overwrite
+ * a newer refresh that completed while the older read was in flight.
  */
 export const prependOlderPage = (
   state: ThreadItemsState,
   page: ThreadItemsPage,
 ): ThreadItemsState => ({
-  items: mergeBySeq(state.items, page.items),
-  turns: { ...state.turns, ...page.turns },
+  items: mergeBySeq(
+    state.items,
+    page.items.filter((item) => item.seq < (state.items[0]?.seq ?? Infinity)),
+  ),
+  turns: { ...page.turns, ...state.turns },
   nextCursor: page.nextCursor,
   loaded: true,
 });

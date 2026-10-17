@@ -1,12 +1,41 @@
 import { seedThreadFolderFixture } from "./threadFixtures.ts";
 import { assert, it } from "@effect/vitest";
-import { Effect, Fiber, Stream } from "effect";
+import { Deferred, Effect, Fiber, Stream } from "effect";
 
 import { applyProviderEvent } from "./providerStreamConsumer.ts";
 import { threadChangeStream } from "./threadChangeStream.ts";
 import { createThread, makeThreadPublisher } from "./threadStore.ts";
 import { runMigrations } from "../persistence/Migrations.ts";
 import * as NodeSqliteClient from "../persistence/NodeSqliteClient.ts";
+
+it.live("starts with a marker after listening, including on reconnect", () =>
+  Effect.scoped(
+    Effect.gen(function* () {
+      const publisher = makeThreadPublisher();
+      for (const _connection of [1, 2]) {
+        const changes: string[] = [];
+        const changed = yield* Deferred.make<void>();
+        const fiber = yield* Effect.forkScoped(
+          threadChangeStream(publisher, "thread-1").pipe(
+            Stream.runForEach((change) =>
+              Effect.gen(function* () {
+                changes.push(change.threadId);
+                // A write triggered by the initial read must already have a listener.
+                if (changes.length === 1) publisher.publish({ threadId: "thread-1" });
+                else yield* Deferred.succeed(changed, undefined);
+              }),
+            ),
+          ),
+          { startImmediately: true },
+        );
+        assert.isAtLeast(changes.length, 1);
+        yield* Deferred.await(changed);
+        assert.deepStrictEqual(changes, ["thread-1", "thread-1"]);
+        yield* Fiber.interrupt(fiber);
+      }
+    }),
+  ),
+);
 
 it.live("emits a change for the subscribed thread only", () =>
   Effect.gen(function* () {
@@ -15,7 +44,7 @@ it.live("emits a change for the subscribed thread only", () =>
     const collected = yield* Effect.scoped(
       Effect.gen(function* () {
         const fiber = yield* Effect.forkScoped(
-          Stream.runCollect(Stream.take(threadChangeStream(publisher, "thread-1"), 1)),
+          Stream.runCollect(Stream.take(threadChangeStream(publisher, "thread-1"), 2)),
           { startImmediately: true },
         );
         publisher.publish({ threadId: "thread-2" });
@@ -25,7 +54,7 @@ it.live("emits a change for the subscribed thread only", () =>
     );
     assert.deepStrictEqual(
       [...collected].map((change) => change.threadId),
-      ["thread-1"],
+      ["thread-1", "thread-1"],
     );
   }),
 );
@@ -50,7 +79,7 @@ it.live("an event applied by the consumer reaches the subscribeThread stream", (
     const collected = yield* Effect.scoped(
       Effect.gen(function* () {
         const fiber = yield* Effect.forkScoped(
-          Stream.runCollect(Stream.take(threadChangeStream(publisher, "thread-1"), 1)),
+          Stream.runCollect(Stream.take(threadChangeStream(publisher, "thread-1"), 2)),
           { startImmediately: true },
         );
         yield* applyProviderEvent(publisher, {
@@ -64,7 +93,7 @@ it.live("an event applied by the consumer reaches the subscribeThread stream", (
     );
     assert.deepStrictEqual(
       [...collected].map((change) => change.threadId),
-      ["thread-1"],
+      ["thread-1", "thread-1"],
     );
   }).pipe(Effect.provide(NodeSqliteClient.layerMemory())),
 );

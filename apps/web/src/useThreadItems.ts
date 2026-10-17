@@ -1,6 +1,6 @@
 // FILE: useThreadItems.ts
-// Purpose: Clean-core transcript state (0.14.4 design 2.1): load the first page,
-// load older pages on demand, subscribe to thread pushes and apply them through
+// Purpose: Clean-core transcript state: subscribe before the initial read,
+// serialize newest-page reads, load older pages on demand and apply them through
 // threadItemsStore. The controller is pure/testable; the hook wraps it.
 // Layer: Web state
 // Exports: ThreadItemsApi, createThreadItemsController, useThreadItems
@@ -29,7 +29,7 @@ export interface ThreadItemsApi {
 }
 
 export interface ThreadItemsController {
-  readonly loadFirst: () => Promise<void>;
+  readonly reload: () => Promise<void>;
   readonly loadOlder: () => Promise<void>;
   readonly dispose: () => void;
   readonly getState: () => ThreadItemsState;
@@ -51,14 +51,36 @@ export function createThreadItemsController(
     state = next;
     onChange(state);
   };
-  const loadFirst = async () => {
-    const page = await api.listThreadItemsPage({ threadId });
-    if (!disposed) update(loadFirstPage(page));
+  let newestRead: Promise<void> | null = null;
+  let dirty = false;
+  const reload = (): Promise<void> => {
+    if (disposed) return Promise.resolve();
+    dirty = true;
+    if (newestRead !== null) return newestRead;
+    newestRead = (async () => {
+      while (dirty && !disposed) {
+        dirty = false;
+        const page = await api.listThreadItemsPage({ threadId });
+        if (!disposed)
+          update(state.loaded ? mergeItems(state, page.items, page.turns) : loadFirstPage(page));
+      }
+    })().then(
+      () => {
+        newestRead = null;
+        // A signal can arrive between the loop finishing and this promise settling.
+        if (dirty && !disposed) return reload();
+      },
+      (error) => {
+        newestRead = null;
+        throw error;
+      },
+    );
+    return newestRead;
   };
   let olderRead: Promise<void> | null = null;
   const loadOlder = () => {
     if (olderRead !== null) return olderRead;
-    if (state.nextCursor === null) return Promise.resolve();
+    if (disposed || state.nextCursor === null) return Promise.resolve();
     olderRead = api
       .listThreadItemsPage({ threadId, beforeSeq: state.nextCursor })
       .then((page) => {
@@ -71,16 +93,15 @@ export function createThreadItemsController(
   };
   const unsubscribe = api.onThreadChange((change) => {
     if (change.threadId !== threadId) return;
-    void api
-      .listThreadItemsPage({ threadId })
-      .then((page) => {
-        if (!disposed) update(mergeItems(state, page.items, page.turns));
-      })
-      .catch(onError);
+    void reload().catch((error) => {
+      if (!disposed) onError(error);
+    });
   });
-  void api.subscribeThread({ threadId }).catch(() => undefined);
+  void api.subscribeThread({ threadId }).catch((error) => {
+    if (!disposed) onError(error);
+  });
   return {
-    loadFirst,
+    reload,
     loadOlder,
     dispose: () => {
       disposed = true;
@@ -119,7 +140,6 @@ export function useThreadItems(threadId: string | null): UseThreadItemsResult {
       setError,
     );
     controllerRef.current = controller;
-    void controller.loadFirst().catch(setError);
     return () => controller.dispose();
   }, [threadId]);
   const loadOlder = useCallback(() => {
@@ -127,7 +147,7 @@ export function useThreadItems(threadId: string | null): UseThreadItemsResult {
   }, []);
   const reload = useCallback(() => {
     setError(null);
-    void controllerRef.current?.loadFirst().catch(setError);
+    void controllerRef.current?.reload().catch(setError);
   }, []);
   return { state, loadOlder, reload, error };
 }

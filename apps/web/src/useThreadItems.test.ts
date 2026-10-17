@@ -48,6 +48,53 @@ function makeApi(
   return { api, emitPush: (threadId: string) => pushListener?.({ threadId }), unsubscribe };
 }
 
+it("coalesces changes during the first read and catches up on a reconnect marker", async () => {
+  const { api, emitPush } = makeApi({});
+  let finishFirst!: (page: { items: CleanCoreThreadItem[]; turns: {}; nextCursor: null }) => void;
+  const first = new Promise<{ items: CleanCoreThreadItem[]; turns: {}; nextCursor: null }>(
+    (resolve) => {
+      finishFirst = resolve;
+    },
+  );
+  let changed!: () => void;
+  let updated = new Promise<void>((resolve) => {
+    changed = resolve;
+  });
+  api.listThreadItemsPage = vi
+    .fn()
+    .mockImplementationOnce(() => first)
+    .mockResolvedValue({ items: [item(1, "newest")], turns: {}, nextCursor: null });
+  const controller = createThreadItemsController(
+    api,
+    "thread-1",
+    (state) => {
+      if (state.items[0]?.text === "newest") changed();
+    },
+    (error) => {
+      throw error;
+    },
+  );
+  try {
+    expect(api.listThreadItemsPage).not.toHaveBeenCalled();
+    emitPush("thread-1"); // The server's initial marker.
+    emitPush("thread-1");
+    emitPush("thread-1");
+    expect(api.listThreadItemsPage).toHaveBeenCalledTimes(1);
+    finishFirst({ items: [item(1, "old")], turns: {}, nextCursor: null });
+    await updated;
+    expect(api.listThreadItemsPage).toHaveBeenCalledTimes(2);
+    updated = new Promise<void>((resolve) => {
+      changed = resolve;
+    });
+    emitPush("thread-1"); // A new stream's marker after reconnect.
+    await updated;
+    expect(controller.getState().items[0]?.text).toBe("newest");
+  } finally {
+    controller.dispose();
+    finishFirst({ items: [], turns: {}, nextCursor: null });
+  }
+});
+
 it("loads the first page, loads older on demand, and applies a push", async () => {
   const { api, emitPush, unsubscribe } = makeApi({
     first: { turns: {}, items: [item(3), item(2)], nextCursor: 2 },
@@ -63,7 +110,8 @@ it("loads the first page, loads older on demand, and applies a push", async () =
     },
   );
 
-  await controller.loadFirst();
+  emitPush("thread-1");
+  await controller.reload();
   expect(controller.getState().items.map((i) => i.seq)).toEqual([2, 3]);
   expect(controller.getState().nextCursor).toBe(2);
   expect(api.subscribeThread).toHaveBeenCalledWith({ threadId: "thread-1" });
@@ -88,7 +136,7 @@ it("loads the first page, loads older on demand, and applies a push", async () =
   expect(unsubscribe).toHaveBeenCalledOnce();
   const countAfterDispose = states.length;
   emitPush("thread-1");
-  await new Promise((resolve) => setTimeout(resolve, 0));
+  await Promise.resolve();
   expect(states.length).toBe(countAfterDispose);
 });
 
@@ -104,10 +152,11 @@ it("ignores a push for another thread", async () => {
       throw error;
     },
   );
-  await controller.loadFirst();
+  emitPush("thread-1");
+  await controller.reload();
   api.listThreadItemsPage = vi.fn(async () => ({ turns: {}, items: [item(2)], nextCursor: null }));
   emitPush("thread-2");
-  await new Promise((resolve) => setTimeout(resolve, 0));
+  await Promise.resolve();
   expect(controller.getState().items.map((i) => i.seq)).toEqual([1]);
   controller.dispose();
 });
@@ -125,7 +174,8 @@ it("a failure push removes the sending item on the authoritative re-read", async
       throw error;
     },
   );
-  await controller.loadFirst();
+  emitPush("thread-1");
+  await controller.reload();
   expect(controller.getState().items.some((row) => row.status === "sending")).toBe(true);
   let resolveReread!: () => void;
   const reread = new Promise<void>((resolve) => {

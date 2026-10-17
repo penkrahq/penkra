@@ -115,3 +115,21 @@ it("retains exact companion timing across older pages and refreshes its settleme
   expect(next.turns.native).toEqual(settled);
   expect(next.items.map((row) => row.seq)).toEqual([50, 100]);
 });
+
+it("an older response cannot overwrite a refreshed row or its turn timing", () => {
+  const turnId = "native" as NonNullable<CleanCoreThreadItem["turnId"]>;
+  const settled = item(1, { turnId, kind: "turn", status: "done" });
+  const state = loadFirstPage({
+    items: [item(50, { text: "fresh" })],
+    turns: { native: settled },
+    nextCursor: 50,
+  });
+  const after = prependOlderPage(state, {
+    items: [item(50, { text: "stale" }), item(25)],
+    turns: { native: { ...settled, status: "running" } },
+    nextCursor: 25,
+  });
+  expect(after.items.map((row) => row.seq)).toEqual([25, 50]);
+  expect(after.items.at(-1)?.text).toBe("fresh");
+  expect(after.turns.native?.status).toBe("done");
+});
