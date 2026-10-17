@@ -579,7 +579,7 @@ export class AppTabObserver {
     this.#perfCounters.screenshotCalls += 1;
     try {
       const target = await this.#target(tabId, document);
-      this.#requireVisualPresentation(target);
+      await this.#requireVisualPresentation(target);
       const capture = await this.#captureTarget(target);
       const bytes = capture.bytes;
       if (bytes.byteLength === 0)
@@ -612,7 +612,7 @@ export class AppTabObserver {
     outputPath: string,
   ): Promise<unknown> {
     const target = await this.#target(tabId, document);
-    this.#requireVisualPresentation(target);
+    await this.#requireVisualPresentation(target);
     const duration = boundedDuration(durationMs);
     const extension = extname(outputPath).toLowerCase();
     if (extension !== ".webm" && extension !== ".mp4")
@@ -661,7 +661,7 @@ export class AppTabObserver {
         target.cdpSessionId,
       );
       while (Date.now() - startedAt <= duration) {
-        if (target.isPresented?.() === false) {
+        if (target.isPresented?.() === false || !(await this.#isPageDrawn(target))) {
           presentationLost = true;
           break;
         }
@@ -698,7 +698,7 @@ export class AppTabObserver {
     outputPath: string,
   ): Promise<unknown> {
     const target = await this.#target(tabId, document);
-    this.#requireVisualPresentation(target);
+    await this.#requireVisualPresentation(target);
     const duration = boundedDuration(durationMs);
     const events: unknown[] = [];
     const complete = new Promise<void>((resolve) => {
@@ -720,7 +720,7 @@ export class AppTabObserver {
     await delay(duration);
     await this.#cdp(target.webContents, "Tracing.end");
     await complete;
-    this.#requireVisualPresentation(target);
+    await this.#requireVisualPresentation(target);
     if (!events.some((event) => isVisualTraceEvent(event))) {
       throw visualUnavailable(document, "No visual frame events arrived during the trace.");
     }
@@ -833,8 +833,21 @@ export class AppTabObserver {
     }
   }
 
-  #requireVisualPresentation(target: AppTabObservationTarget): void {
-    if (target.isPresented?.() === false) {
+  async #isPageDrawn(target: AppTabObservationTarget): Promise<boolean> {
+    const response = await this.#cdp(
+      target.webContents,
+      "Runtime.evaluate",
+      {
+        expression: 'document.visibilityState === "visible"',
+        returnByValue: true,
+      },
+      target.cdpSessionId,
+    );
+    return asRecord(asRecord(response).result).value === true;
+  }
+
+  async #requireVisualPresentation(target: AppTabObservationTarget): Promise<void> {
+    if (target.isPresented?.() === false || !(await this.#isPageDrawn(target))) {
       throw visualUnavailable(target.document, "The tab is not displayed in a visible window.");
     }
   }
@@ -931,7 +944,7 @@ export class AppTabObserver {
           `${reference} is detached on a platform where pointer delivery cannot be guaranteed. Present the tab in a window, then retry.`,
         );
       }
-      if (target.isPresented?.() !== false) await this.#moveCursor(target, point, human);
+      await this.#moveCursor(target, point, human);
       for (const type of ["mousePressed", "mouseReleased"]) {
         await this.#dispatchMouseEvent(target, { type, button: "left", clickCount: 1, ...point });
       }
@@ -975,7 +988,9 @@ export class AppTabObserver {
   async hover(tabId: string, reference: string, observe = false, human = false): Promise<unknown> {
     const { target, node } = await this.#referencedTarget(tabId, reference);
     const point = await this.#nodeCenter(target, node.backendNodeId);
-    await this.#moveCursor(target, point, human);
+    if (!(await this.#moveCursor(target, point, human))) {
+      await this.#dispatchMouseEvent(target, { type: "mouseMoved", ...point });
+    }
     return this.#actionResult(
       tabId,
       { tabId, target: reference, hovered: true },
@@ -1501,7 +1516,8 @@ export class AppTabObserver {
     target: AppTabObservationTarget,
     destination: { x: number; y: number },
     human: boolean,
-  ): Promise<void> {
+  ): Promise<boolean> {
+    if (!(await this.#isPageDrawn(target))) return false;
     await this.#ensureCursor(target);
     const key = observationTargetKey(target);
     if (this.#activeCursorKey && this.#activeCursorKey !== key) {
@@ -1527,6 +1543,13 @@ export class AppTabObserver {
       inputMode: human ? "human" : "smooth",
     });
     for (let index = 1; index <= steps; index += 1) {
+      if (!(await this.#isPageDrawn(target))) {
+        this.#cursorLog("move-stopped", key, installation, {
+          reason: "page-undrawn",
+          completedSteps: index - 1,
+        });
+        return false;
+      }
       const progress = index / steps;
       const eased = progress * progress * (3 - 2 * progress);
       const bend = human ? Math.sin(Math.PI * progress) * Math.min(24, Math.hypot(dx, dy) / 12) : 0;
@@ -1541,6 +1564,7 @@ export class AppTabObserver {
     }
     this.#cursorPositions.set(key, destination);
     this.#cursorLog("move-completed", key, installation, { at: destination });
+    return true;
   }
 
   #state(tabId: string, target: AppTabObservationTarget, loaderId: string): TabSnapshotState {
