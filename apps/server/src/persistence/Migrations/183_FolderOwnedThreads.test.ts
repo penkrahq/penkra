@@ -44,7 +44,7 @@ it.effect(
       const notices = yield* sql`SELECT * FROM notices`;
       const objects = yield* sql`SELECT type, name, sql FROM sqlite_master
     WHERE tbl_name IN ('thread_harness_states', 'thread_runtime_bindings', 'notices') AND sql IS NOT NULL ORDER BY name`;
-      yield* runMigrations();
+      yield* runMigrations({ toMigrationInclusive: 183 });
       assert.deepStrictEqual(yield* readThreads, before);
       assert.deepStrictEqual(yield* sql`SELECT rowid, * FROM thread_items`, items);
       assert.deepStrictEqual(yield* sql`SELECT * FROM thread_harness_states`, harness);
@@ -120,7 +120,7 @@ it.effect("adopts only a folder's one agreed live thread directory", () =>
           ${directory}, ${deleted}, ${now}, ${now})`;
     }
     const before = yield* sql`SELECT id FROM threads ORDER BY id`;
-    yield* runMigrations();
+    yield* runMigrations({ toMigrationInclusive: 183 });
     assert.deepStrictEqual(
       yield* sql`SELECT folder_id, workspace_root FROM projection_folders
       WHERE folder_id IN ('adopt', 'existing', 'conflict', 'empty') ORDER BY folder_id`,

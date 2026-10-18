@@ -637,7 +637,7 @@ const managedLaunch = {
 };
 const resolveManagedLaunch = vi.fn(() => Effect.succeed(managedLaunch));
 const managedRouting = makeProviderServiceLayer({ resolveManagedLaunch });
-it.effect("ProviderServiceLive keeps persisted resumable sessions on startup", () =>
+it.effect("ProviderServiceLive keeps resumable bindings across scopes in the same process", () =>
   Effect.gen(function* () {
     const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "penkra-provider-service-"));
     const dbPath = path.join(tempDir, "orchestration.sqlite");
@@ -652,10 +652,11 @@ it.effect("ProviderServiceLive keeps persisted resumable sessions on startup", (
     };
 
     const persistenceLayer = makeSqlitePersistenceLive(dbPath);
-    const runtimeRepositoryLayer = ProviderSessionDirectoryLive.pipe(
-      Layer.provide(persistenceLayer),
-    );
-    const directoryLayer = ProviderSessionDirectoryLive.pipe(Layer.provide(runtimeRepositoryLayer));
+    const liveDirectory = yield* Effect.gen(function* () {
+      return yield* ProviderSessionDirectory;
+    }).pipe(Effect.provide(ProviderSessionDirectoryLive));
+    const runtimeRepositoryLayer = Layer.succeed(ProviderSessionDirectory, liveDirectory);
+    const directoryLayer = runtimeRepositoryLayer;
 
     yield* Effect.gen(function* () {
       const directory = yield* ProviderSessionDirectory;
@@ -701,92 +702,84 @@ it.effect("ProviderServiceLive keeps persisted resumable sessions on startup", (
   }).pipe(Effect.provide(NodeServices.layer)),
 );
 
-it.effect(
-  "ProviderServiceLive persists active sessions as stopped before adapter cleanup runs",
-  () =>
-    Effect.gen(function* () {
-      const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "penkra-provider-service-stopall-"));
-      const dbPath = path.join(tempDir, "orchestration.sqlite");
-      const persistenceLayer = makeSqlitePersistenceLive(dbPath);
-      const runtimeRepositoryLayer = ProviderSessionDirectoryLive.pipe(
-        Layer.provide(persistenceLayer),
-      );
+it.effect("ProviderServiceLive marks active sessions stopped before adapter cleanup runs", () =>
+  Effect.gen(function* () {
+    const liveDirectory = yield* Effect.gen(function* () {
+      return yield* ProviderSessionDirectory;
+    }).pipe(Effect.provide(ProviderSessionDirectoryLive));
+    const runtimeRepositoryLayer = Layer.succeed(ProviderSessionDirectory, liveDirectory);
 
-      const codex = makeFakeCodexAdapter();
-      const threadId = asThreadId("thread-stopall");
-      const resumeCursor = {
-        threadId,
-        resume: "resume-session-stopall",
-        resumeSessionAt: "assistant-message-stopall",
-        turnCount: 1,
-      };
-      codex.stopAll.mockImplementation(() =>
-        Effect.fail(
-          new ProviderAdapterSessionNotFoundError({
-            provider: "codex",
-            threadId,
-          }),
-        ),
-      );
-
-      const registry: typeof ProviderAdapterRegistry.Service = {
-        getByProvider: (provider) =>
-          provider === "codex"
-            ? Effect.succeed(codex.adapter)
-            : Effect.fail(new ProviderUnsupportedError({ provider })),
-        listProviders: () => Effect.succeed(["codex"]),
-      };
-
-      const providerLayer = makeProviderServiceLive().pipe(
-        Layer.provide(Layer.succeed(ProviderAdapterRegistry, registry)),
-        Layer.provide(ProviderSessionDirectoryLive.pipe(Layer.provide(runtimeRepositoryLayer))),
-        Layer.provide(AnalyticsService.layerTest),
-      );
-
-      yield* Effect.gen(function* () {
-        const provider = yield* ProviderService;
-        yield* provider.startSession(threadId, {
+    const codex = makeFakeCodexAdapter();
+    const threadId = asThreadId("thread-stopall");
+    const resumeCursor = {
+      threadId,
+      resume: "resume-session-stopall",
+      resumeSessionAt: "assistant-message-stopall",
+      turnCount: 1,
+    };
+    codex.stopAll.mockImplementation(() =>
+      Effect.fail(
+        new ProviderAdapterSessionNotFoundError({
           provider: "codex",
-          cwd: "/tmp/project",
-          runtimeMode: "full-access",
           threadId,
-        });
-        codex.updateSession(threadId, (existing) => ({
-          ...existing,
-          status: "running",
-          activeTurnId: asTurnId("turn-stopall"),
-          resumeCursor,
-        }));
-      }).pipe(Effect.provide(providerLayer));
+        }),
+      ),
+    );
 
-      const persisted = yield* Effect.gen(function* () {
-        const repository = yield* ProviderSessionDirectory;
-        return yield* repository.getBinding(threadId);
-      }).pipe(Effect.provide(runtimeRepositoryLayer));
+    const registry: typeof ProviderAdapterRegistry.Service = {
+      getByProvider: (provider) =>
+        provider === "codex"
+          ? Effect.succeed(codex.adapter)
+          : Effect.fail(new ProviderUnsupportedError({ provider })),
+      listProviders: () => Effect.succeed(["codex"]),
+    };
 
-      assert.equal(Option.isSome(persisted), true);
-      if (Option.isSome(persisted)) {
-        const runtimePayload = persisted.value.runtimePayload as Record<string, unknown>;
-        assert.equal(persisted.value.status, "stopped");
-        assert.deepEqual(persisted.value.resumeCursor, resumeCursor);
-        assert.equal(runtimePayload.activeTurnId, null);
-        assert.equal(runtimePayload.lastRuntimeEvent, "provider.stopAll");
-      }
+    const providerLayer = makeProviderServiceLive().pipe(
+      Layer.provide(Layer.succeed(ProviderAdapterRegistry, registry)),
+      Layer.provide(runtimeRepositoryLayer),
+      Layer.provide(AnalyticsService.layerTest),
+    );
 
-      fs.rmSync(tempDir, { recursive: true, force: true });
-    }).pipe(Effect.provide(NodeServices.layer)),
+    yield* Effect.gen(function* () {
+      const provider = yield* ProviderService;
+      yield* provider.startSession(threadId, {
+        provider: "codex",
+        cwd: "/tmp/project",
+        runtimeMode: "full-access",
+        threadId,
+      });
+      codex.updateSession(threadId, (existing) => ({
+        ...existing,
+        status: "running",
+        activeTurnId: asTurnId("turn-stopall"),
+        resumeCursor,
+      }));
+    }).pipe(Effect.provide(providerLayer));
+
+    const persisted = yield* Effect.gen(function* () {
+      const repository = yield* ProviderSessionDirectory;
+      return yield* repository.getBinding(threadId);
+    }).pipe(Effect.provide(runtimeRepositoryLayer));
+
+    assert.equal(Option.isSome(persisted), true);
+    if (Option.isSome(persisted)) {
+      const runtimePayload = persisted.value.runtimePayload as Record<string, unknown>;
+      assert.equal(persisted.value.status, "stopped");
+      assert.deepEqual(persisted.value.resumeCursor, resumeCursor);
+      assert.equal(runtimePayload.activeTurnId, null);
+      assert.equal(runtimePayload.lastRuntimeEvent, "provider.stopAll");
+    }
+  }).pipe(Effect.provide(NodeServices.layer)),
 );
 
 it.effect(
-  "ProviderServiceLive restores rollback routing after restart using persisted thread mapping",
+  "ProviderServiceLive restores rollback routing across service scopes using the live directory",
   () =>
     Effect.gen(function* () {
-      const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "penkra-provider-service-restart-"));
-      const dbPath = path.join(tempDir, "orchestration.sqlite");
-      const persistenceLayer = makeSqlitePersistenceLive(dbPath);
-      const runtimeRepositoryLayer = ProviderSessionDirectoryLive.pipe(
-        Layer.provide(persistenceLayer),
-      );
+      const liveDirectory = yield* Effect.gen(function* () {
+        return yield* ProviderSessionDirectory;
+      }).pipe(Effect.provide(ProviderSessionDirectoryLive));
+      const runtimeRepositoryLayer = Layer.succeed(ProviderSessionDirectory, liveDirectory);
 
       const firstCodex = makeFakeCodexAdapter();
       const firstRegistry: typeof ProviderAdapterRegistry.Service = {
@@ -797,9 +790,7 @@ it.effect(
         listProviders: () => Effect.succeed(["codex"]),
       };
 
-      const firstDirectoryLayer = ProviderSessionDirectoryLive.pipe(
-        Layer.provide(runtimeRepositoryLayer),
-      );
+      const firstDirectoryLayer = runtimeRepositoryLayer;
       const firstProviderLayer = makeProviderServiceLive().pipe(
         Layer.provide(Layer.succeed(ProviderAdapterRegistry, firstRegistry)),
         Layer.provide(firstDirectoryLayer),
@@ -848,9 +839,7 @@ it.effect(
             : Effect.fail(new ProviderUnsupportedError({ provider })),
         listProviders: () => Effect.succeed(["codex"]),
       };
-      const secondDirectoryLayer = ProviderSessionDirectoryLive.pipe(
-        Layer.provide(runtimeRepositoryLayer),
-      );
+      const secondDirectoryLayer = runtimeRepositoryLayer;
       const secondProviderLayer = makeProviderServiceLive().pipe(
         Layer.provide(Layer.succeed(ProviderAdapterRegistry, secondRegistry)),
         Layer.provide(secondDirectoryLayer),
@@ -887,8 +876,6 @@ it.effect(
       const rollbackCall = secondCodex.rollbackThread.mock.calls[0];
       assert.equal(typeof rollbackCall?.[0], "string");
       assert.equal(rollbackCall?.[1], 1);
-
-      fs.rmSync(tempDir, { recursive: true, force: true });
     }).pipe(Effect.provide(NodeServices.layer)),
 );
 

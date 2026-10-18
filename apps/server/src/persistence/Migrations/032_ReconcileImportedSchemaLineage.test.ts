@@ -267,16 +267,20 @@ it.layer(NodeSqliteClient.layerMemory())("032 fresh install", (it) => {
       // Nothing should blow up if we run it again.
       yield* runMigrations();
 
-      const threadsColumns = yield* projectionThreadsColumnNames(sql);
-      const messagesColumns = yield* projectionThreadMessagesColumnNames(sql);
+      const threadsColumns = (yield* sql<{ name: string }>`PRAGMA table_info(threads)`).map(
+        (row) => row.name,
+      );
+      const messagesColumns = (yield* sql<{ name: string }>`PRAGMA table_info(thread_items)`).map(
+        (row) => row.name,
+      );
 
       // The full chain completes without #032 trying to ADD COLUMN on top of
       // the historical schema, and the later cleanup removes obsolete Git fields.
       assert.notInclude(threadsColumns, "env_mode");
       assert.notInclude(threadsColumns, "associated_worktree_ref");
       assert.notInclude(threadsColumns, "create_branch_flow_completed");
-      assert.include(messagesColumns, "skills_json");
-      assert.include(messagesColumns, "dispatch_mode");
+      assert.include(messagesColumns, "data");
+      assert.include(messagesColumns, "source_id");
     }),
   );
 });

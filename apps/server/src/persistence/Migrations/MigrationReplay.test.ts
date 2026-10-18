@@ -114,14 +114,14 @@ schemaLayer("migration replay schema stability", (it) => {
 const dataLayer = it.layer(Layer.mergeAll(NodeSqliteClient.layerMemory()));
 
 dataLayer("migration replay data preservation", (it) => {
-  it.effect("preserves durable rows the replayed range would otherwise rebuild", () =>
+  it.effect("preserves durable rows during historical replay before clean-core replacement", () =>
     Effect.gen(function* () {
       const sql = yield* SqlClient.SqlClient;
       yield* runMigrations({ toMigrationInclusive: 175 });
       yield* seedDurableState;
 
       yield* forgetMigrationsFromReplayPoint;
-      yield* runMigrations();
+      yield* runMigrations({ toMigrationInclusive: 175 });
 
       const messages = yield* sql<{
         readonly messageId: string;

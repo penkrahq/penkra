@@ -38,7 +38,7 @@ it.effect(
       const before = yield* sql`SELECT * FROM thread_harness_states WHERE thread_id = 'retained'`;
       const bindingBefore =
         yield* sql`SELECT * FROM thread_runtime_bindings WHERE thread_id = 'retained'`;
-      yield* runMigrations();
+      yield* runMigrations({ toMigrationInclusive: 177 });
       assert.deepStrictEqual(yield* sql`SELECT * FROM thread_harness_states`, before);
       assert.deepStrictEqual(yield* sql`SELECT * FROM thread_runtime_bindings`, bindingBefore);
       assert.deepStrictEqual(yield* sql`SELECT * FROM notices`, noticeBefore);

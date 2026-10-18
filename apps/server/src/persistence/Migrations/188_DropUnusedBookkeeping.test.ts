@@ -1,8 +1,9 @@
+import { seedHistoricalThreadItem } from "./historicalFolderFixture.ts";
 import { assert, it } from "@effect/vitest";
 import { Effect } from "effect";
 import * as SqlClient from "effect/unstable/sql/SqlClient";
 
-import { createThread, upsertThreadItem } from "../../cleanCore/threadStore.ts";
+import { createThread } from "../../cleanCore/threadStore.ts";
 import { runMigrations } from "../Migrations.ts";
 import * as NodeSqliteClient from "../NodeSqliteClient.ts";
 import dropUnusedBookkeeping from "./188_DropUnusedBookkeeping.ts";
@@ -27,7 +28,7 @@ const seed = Effect.gen(function* () {
   });
   yield* sql`UPDATE threads SET provider_session_id = 'existing-session',
     native_state_id = 'existing-native' WHERE id = 'bookkeeping-thread'`;
-  yield* upsertThreadItem({
+  yield* seedHistoricalThreadItem({
     threadId: "bookkeeping-thread",
     sourceId: "existing-message",
     turnId: null,
@@ -78,8 +79,8 @@ it.effect("drops unused tables and their schema objects without changing chats o
       [],
     );
     assert.deepStrictEqual(yield* sql`PRAGMA foreign_key_check`, []);
-    yield* runMigrations();
-    assert.deepStrictEqual(yield* runMigrations(), []);
+    yield* runMigrations({ toMigrationInclusive: 188 });
+    assert.deepStrictEqual(yield* runMigrations({ toMigrationInclusive: 188 }), []);
   }).pipe(Effect.provide(NodeSqliteClient.layerMemory())),
 );
 

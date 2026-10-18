@@ -53,7 +53,7 @@ layer("161_CanonicalActivitySequence", (it) => {
           )
         `;
         }
-        yield* runMigrations();
+        yield* runMigrations({ toMigrationInclusive: 161 });
         // Once retained, sequence evidence survives migration replay even if the
         // accepted-command receipt has since aged out of retention.
         yield* sql`DELETE FROM orchestration_command_receipts`;

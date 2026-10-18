@@ -446,7 +446,19 @@ function makeHarnessLayer(
       }),
   });
 
-  const threadDetailsById = new Map(options.threadDetails ?? []);
+  const threadDetailsById = new Map<string, OrchestrationThread>(
+    [...(options.threadDetails ?? [])].map(([id, thread]) => [
+      id,
+      {
+        ...thread,
+        messages: thread.messages.map((message) =>
+          message.role === "user"
+            ? { ...message, origin: message.origin ?? { _tag: "user" as const } }
+            : message,
+        ),
+      },
+    ]),
+  );
   const projectionTurnsByKey = new Map<
     string,
     {
@@ -634,8 +646,33 @@ function makeHarnessLayer(
           conversationTurnCount:
             thread?.messages.filter((message) => message.role === "user").length ?? 0,
           messages: thread?.messages ?? [],
+          userStatuses: new Map(
+            (thread?.messages ?? [])
+              .filter((message) => message.role === "user")
+              .map((message) => [message.id, "sent"]),
+          ),
           activities: thread?.activities ?? [],
           pendingInteractions: thread?.pendingInteractions ?? [],
+          hasOlder: false,
+          nextCursor: null,
+        };
+      }),
+    getTurnPage: (input: { threadId: ThreadIdType; turnId: string }) =>
+      Effect.sync(() => {
+        const thread =
+          threadDetailsById.get(input.threadId) ??
+          (threadsById.has(input.threadId)
+            ? makeThreadDetail(threadsById.get(input.threadId)!)
+            : undefined);
+        return {
+          threadId: input.threadId,
+          conversationTurnCount: 0,
+          messages: (thread?.messages ?? []).filter((message) => message.turnId === input.turnId),
+          userStatuses: new Map(),
+          activities: (thread?.activities ?? []).filter(
+            (activity) => activity.turnId === input.turnId,
+          ),
+          pendingInteractions: [],
           hasOlder: false,
           nextCursor: null,
         };
@@ -723,6 +760,11 @@ function makeHarnessLayer(
           conversationTurnCount: thread.messages.filter((message) => message.role === "user")
             .length,
           messages: thread.messages,
+          userStatuses: new Map(
+            thread.messages
+              .filter((message) => message.role === "user")
+              .map((message) => [message.id, "sent"]),
+          ),
           activities: thread.activities,
           pendingInteractions: thread.pendingInteractions,
           hasOlder: false,
@@ -1586,7 +1628,7 @@ describe("AgentGateway", () => {
     }).pipe(Effect.provide(gatewayLayer));
   });
 
-  it.effect("exposes exactly the seven ordinary thread commands in help", () => {
+  it.effect("exposes exactly the eight ordinary thread commands in help", () => {
     const { gatewayLayer, makeHarness } = makeHarnessLayer(baseThreads);
     return Effect.gen(function* () {
       const harness = yield* makeHarness;
@@ -1597,7 +1639,16 @@ describe("AgentGateway", () => {
       });
       assert.isFalse(isToolError(response.result), toolErrorText(response.result));
       const text = toolErrorText(response.result);
-      const commandNames = ["archive", "create", "interrupt", "list", "read", "send", "unarchive"];
+      const commandNames = [
+        "archive",
+        "create",
+        "interrupt",
+        "list",
+        "read",
+        "send",
+        "steer",
+        "unarchive",
+      ];
       const exposed = [...text.matchAll(/- `penkra threads ([^` ]+)`/g)].map((match) => match[1]);
       assert.deepEqual(exposed.toSorted(), commandNames);
     }).pipe(Effect.provide(gatewayLayer));
@@ -1769,7 +1820,7 @@ describe("AgentGateway", () => {
     }).pipe(Effect.provide(gatewayLayer));
   });
 
-  it.effect("polls one queued turn with its exact FIFO position", () => {
+  it.effect("does not invent transcript items for a queued turn that has not started", () => {
     const target = makeThreadShell("thread-turn-poll");
     const { gatewayLayer, makeHarness } = makeHarnessLayer([
       makeThreadShell("thread-parent"),
@@ -1794,7 +1845,6 @@ describe("AgentGateway", () => {
       });
       assert.deepInclude(toolResultJson(response.result), {
         threadId: target.id,
-        turn: { turnId: "turn-queued-second", state: "queued", position: 2 },
         items: [],
         pageInfo: { nextCursor: null },
       });
@@ -1853,10 +1903,7 @@ describe("AgentGateway", () => {
         args: { threadId: target.id, turnId: requestedTurnId },
       });
       const payload = toolResultJson(response.result);
-      assert.deepEqual(payload.turn, {
-        turnId: requestedTurnId,
-        state: "completed",
-      });
+      assert.isUndefined(payload.turn);
       assert.deepEqual(
         (payload.items as Array<{ text?: string }>).map((item) => item.text),
         ["requested answer"],
@@ -1864,154 +1911,146 @@ describe("AgentGateway", () => {
     }).pipe(Effect.provide(gatewayLayer));
   });
 
-  it.effect(
-    "collects provider-native output after the logical turn's initiating message boundary",
-    () => {
-      const target = makeThreadShell("thread-logical-provider-result");
-      const logicalTurnId = TurnId.makeUnsafe("turn-logical-provider-result");
-      const providerTurnId = TurnId.makeUnsafe("turn-provider-native-result");
-      const resumedProviderTurnId = TurnId.makeUnsafe("turn-provider-resumed-result");
-      const pendingMessageId = MessageId.makeUnsafe("message-logical-provider-request");
-      const nextLogicalTurnId = TurnId.makeUnsafe("turn-logical-native-steer");
-      const nextPendingMessageId = MessageId.makeUnsafe("message-logical-native-steer");
-      const { gatewayLayer, makeHarness } = makeHarnessLayer(
-        [makeThreadShell("thread-parent"), target],
-        {
-          threadDetails: new Map([
-            [
-              target.id,
-              {
-                ...makeThreadDetail(target),
-                messages: [
-                  {
-                    id: MessageId.makeUnsafe("message-provider-before-request"),
-                    role: "assistant",
-                    text: "provider output before the logical dispatch",
-                    turnId: providerTurnId,
-                    streaming: false,
-                    source: "native",
-                    sequence: 9,
-                    createdAt: "2026-09-05T07:10:59.000Z",
-                    updatedAt: "2026-09-05T07:10:59.000Z",
+  it.effect("reads exact stored turn ids without inferring logical dispatch boundaries", () => {
+    const target = makeThreadShell("thread-logical-provider-result");
+    const logicalTurnId = TurnId.makeUnsafe("turn-logical-provider-result");
+    const providerTurnId = TurnId.makeUnsafe("turn-provider-native-result");
+    const resumedProviderTurnId = TurnId.makeUnsafe("turn-provider-resumed-result");
+    const pendingMessageId = MessageId.makeUnsafe("message-logical-provider-request");
+    const nextLogicalTurnId = TurnId.makeUnsafe("turn-logical-native-steer");
+    const nextPendingMessageId = MessageId.makeUnsafe("message-logical-native-steer");
+    const { gatewayLayer, makeHarness } = makeHarnessLayer(
+      [makeThreadShell("thread-parent"), target],
+      {
+        threadDetails: new Map([
+          [
+            target.id,
+            {
+              ...makeThreadDetail(target),
+              messages: [
+                {
+                  id: MessageId.makeUnsafe("message-provider-before-request"),
+                  role: "assistant",
+                  text: "provider output before the logical dispatch",
+                  turnId: providerTurnId,
+                  streaming: false,
+                  source: "native",
+                  sequence: 9,
+                  createdAt: "2026-09-05T07:10:59.000Z",
+                  updatedAt: "2026-09-05T07:10:59.000Z",
+                },
+                {
+                  id: pendingMessageId,
+                  role: "user",
+                  text: "pivot now",
+                  turnId: logicalTurnId,
+                  delivery: {
+                    state: "accepted",
+                    queued: false,
+                    sequence: 14,
                   },
-                  {
-                    id: pendingMessageId,
-                    role: "user",
-                    text: "pivot now",
-                    turnId: logicalTurnId,
-                    delivery: {
-                      state: "accepted",
-                      queued: false,
-                      sequence: 14,
-                    },
-                    streaming: false,
-                    source: "native",
-                    sequence: 10,
-                    createdAt: "2026-09-05T07:11:00.000Z",
-                    updatedAt: "2026-09-05T07:11:00.000Z",
-                  },
-                  {
-                    id: nextPendingMessageId,
-                    role: "user",
-                    text: "do this now",
-                    turnId: nextLogicalTurnId,
-                    delivery: { state: "accepted", queued: true, sequence: 15 },
-                    streaming: false,
-                    source: "native",
-                    sequence: 11,
-                    createdAt: "2026-09-05T07:11:01.000Z",
-                    updatedAt: "2026-09-05T07:11:04.000Z",
-                  },
-                  {
-                    id: MessageId.makeUnsafe("message-provider-after-request"),
-                    role: "assistant",
-                    text: "provider output after the logical dispatch",
-                    turnId: providerTurnId,
-                    streaming: false,
-                    source: "native",
-                    sequence: 12,
-                    createdAt: "2026-09-05T07:11:02.000Z",
-                    updatedAt: "2026-09-05T07:11:02.000Z",
-                  },
-                  {
-                    id: MessageId.makeUnsafe("message-provider-after-restart"),
-                    role: "assistant",
-                    text: "provider output after restart",
-                    turnId: resumedProviderTurnId,
-                    streaming: false,
-                    source: "native",
-                    sequence: 13,
-                    createdAt: "2026-09-05T07:11:03.000Z",
-                    updatedAt: "2026-09-05T07:11:03.000Z",
-                  },
-                  {
-                    id: MessageId.makeUnsafe("message-provider-after-native-steer"),
-                    role: "assistant",
-                    text: "provider output for the later logical steer",
-                    turnId: resumedProviderTurnId,
-                    streaming: false,
-                    source: "native",
-                    sequence: 16,
-                    createdAt: "2026-09-05T07:11:06.000Z",
-                    updatedAt: "2026-09-05T07:11:06.000Z",
-                  },
-                ],
-              },
-            ],
-          ]),
-        },
+                  streaming: false,
+                  source: "native",
+                  sequence: 10,
+                  createdAt: "2026-09-05T07:11:00.000Z",
+                  updatedAt: "2026-09-05T07:11:00.000Z",
+                },
+                {
+                  id: nextPendingMessageId,
+                  role: "user",
+                  text: "do this now",
+                  turnId: nextLogicalTurnId,
+                  delivery: { state: "accepted", queued: true, sequence: 15 },
+                  streaming: false,
+                  source: "native",
+                  sequence: 11,
+                  createdAt: "2026-09-05T07:11:01.000Z",
+                  updatedAt: "2026-09-05T07:11:04.000Z",
+                },
+                {
+                  id: MessageId.makeUnsafe("message-provider-after-request"),
+                  role: "assistant",
+                  text: "provider output after the logical dispatch",
+                  turnId: providerTurnId,
+                  streaming: false,
+                  source: "native",
+                  sequence: 12,
+                  createdAt: "2026-09-05T07:11:02.000Z",
+                  updatedAt: "2026-09-05T07:11:02.000Z",
+                },
+                {
+                  id: MessageId.makeUnsafe("message-provider-after-restart"),
+                  role: "assistant",
+                  text: "provider output after restart",
+                  turnId: resumedProviderTurnId,
+                  streaming: false,
+                  source: "native",
+                  sequence: 13,
+                  createdAt: "2026-09-05T07:11:03.000Z",
+                  updatedAt: "2026-09-05T07:11:03.000Z",
+                },
+                {
+                  id: MessageId.makeUnsafe("message-provider-after-native-steer"),
+                  role: "assistant",
+                  text: "provider output for the later logical steer",
+                  turnId: resumedProviderTurnId,
+                  streaming: false,
+                  source: "native",
+                  sequence: 16,
+                  createdAt: "2026-09-05T07:11:06.000Z",
+                  updatedAt: "2026-09-05T07:11:06.000Z",
+                },
+              ],
+            },
+          ],
+        ]),
+      },
+    );
+    return Effect.gen(function* () {
+      const harness = yield* makeHarness;
+      harness.setProjectionTurn({
+        threadId: target.id,
+        turnId: logicalTurnId,
+        state: "completed",
+        pendingMessageId,
+        providerTurnId: resumedProviderTurnId,
+        providerTurnIds: [providerTurnId, resumedProviderTurnId],
+      });
+      harness.setProjectionTurn({
+        threadId: target.id,
+        turnId: nextLogicalTurnId,
+        state: "completed",
+        pendingMessageId: nextPendingMessageId,
+        providerTurnId: resumedProviderTurnId,
+        providerTurnIds: [resumedProviderTurnId],
+      });
+      const response = yield* harness.callTool({
+        token: "token-parent",
+        name: "penkra_read_thread",
+        args: { threadId: target.id, turnId: providerTurnId },
+      });
+      const payload = toolResultJson(response.result);
+      assert.isUndefined(payload.turn);
+      assert.deepEqual(
+        (payload.items as Array<{ text?: string }>).map((item) => item.text),
+        [
+          "provider output before the logical dispatch",
+          "provider output after the logical dispatch",
+        ],
       );
-      return Effect.gen(function* () {
-        const harness = yield* makeHarness;
-        harness.setProjectionTurn({
-          threadId: target.id,
-          turnId: logicalTurnId,
-          state: "completed",
-          pendingMessageId,
-          providerTurnId: resumedProviderTurnId,
-          providerTurnIds: [providerTurnId, resumedProviderTurnId],
-        });
-        harness.setProjectionTurn({
-          threadId: target.id,
-          turnId: nextLogicalTurnId,
-          state: "completed",
-          pendingMessageId: nextPendingMessageId,
-          providerTurnId: resumedProviderTurnId,
-          providerTurnIds: [resumedProviderTurnId],
-        });
-        const response = yield* harness.callTool({
-          token: "token-parent",
-          name: "penkra_read_thread",
-          args: { threadId: target.id, turnId: logicalTurnId },
-        });
-        const payload = toolResultJson(response.result);
-        assert.deepEqual(payload.turn, {
-          turnId: logicalTurnId,
-          providerTurnId: resumedProviderTurnId,
-          state: "completed",
-        });
-        assert.deepEqual(
-          (payload.items as Array<{ text?: string }>).map((item) => item.text),
-          ["provider output after the logical dispatch", "provider output after restart"],
-        );
-        const nextResponse = yield* harness.callTool({
-          token: "token-parent",
-          name: "penkra_read_thread",
-          args: { threadId: target.id, turnId: nextLogicalTurnId },
-        });
-        const nextPayload = toolResultJson(nextResponse.result);
-        assert.deepEqual(nextPayload.turn, {
-          turnId: nextLogicalTurnId,
-          providerTurnId: resumedProviderTurnId,
-          state: "completed",
-        });
-        assert.deepEqual(
-          (nextPayload.items as Array<{ text?: string }>).map((item) => item.text),
-          ["provider output for the later logical steer"],
-        );
-      }).pipe(Effect.provide(gatewayLayer));
-    },
-  );
+      const nextResponse = yield* harness.callTool({
+        token: "token-parent",
+        name: "penkra_read_thread",
+        args: { threadId: target.id, turnId: resumedProviderTurnId },
+      });
+      const nextPayload = toolResultJson(nextResponse.result);
+      assert.isUndefined(nextPayload.turn);
+      assert.deepEqual(
+        (nextPayload.items as Array<{ text?: string }>).map((item) => item.text),
+        ["provider output after restart", "provider output for the later logical steer"],
+      );
+    }).pipe(Effect.provide(gatewayLayer));
+  });
 
   it.effect(
     "returns round-trippable Penkra turn handles for every provider transcript item",
@@ -2123,26 +2162,22 @@ describe("AgentGateway", () => {
             "turn",
           ]);
           for (const item of items) {
-            assert.equal(item.turnId, logicalTurnId);
-            assert.equal(item.providerTurnId, nativeTurnId);
+            assert.equal(item.turnId, nativeTurnId);
+            assert.isUndefined(item.providerTurnId);
             const roundTrip = yield* harness.callTool({
               token: "token-parent",
               name: "penkra_read_thread",
               args: { threadId: target.id, turnId: item.turnId },
             });
-            assert.deepEqual(toolResultJson(roundTrip.result).turn, {
-              turnId: logicalTurnId,
-              providerTurnId: nativeTurnId,
-              state: "completed",
-            });
+            assert.deepEqual(toolResultJson(roundTrip.result).items, items);
           }
           const nativeIdAttempt = yield* harness.callTool({
             token: "token-parent",
             name: "penkra_read_thread",
             args: { threadId: target.id, turnId: fixture.nativeTurnId },
           });
-          assert.equal(isToolError(nativeIdAttempt.result), true);
-          assert.match(toolErrorText(nativeIdAttempt.result), /was not found/u);
+          assert.isFalse(isToolError(nativeIdAttempt.result));
+          assert.deepEqual(toolResultJson(nativeIdAttempt.result).items, items);
         }
       }).pipe(Effect.provide(gatewayLayer));
     },
@@ -2190,10 +2225,7 @@ describe("AgentGateway", () => {
         args: { threadId: target.id, turnId: requestedTurnId },
       });
       const payload = toolResultJson(response.result);
-      assert.deepEqual(payload.turn, {
-        turnId: requestedTurnId,
-        state: "running",
-      });
+      assert.isUndefined(payload.turn);
       assert.deepInclude((payload.items as Array<Record<string, unknown>>)[0] ?? {}, {
         type: "message",
         text: "partial answer",

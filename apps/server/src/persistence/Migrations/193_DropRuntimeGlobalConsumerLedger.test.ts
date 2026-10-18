@@ -1,9 +1,10 @@
+import { seedHistoricalThreadItem } from "./historicalFolderFixture.ts";
 import { assert, it } from "@effect/vitest";
 import { Effect } from "effect";
 import * as SqlClient from "effect/unstable/sql/SqlClient";
 
 import { seedHistoricalFolderFixture } from "./historicalFolderFixture.ts";
-import { createThread, upsertThreadItem } from "../../cleanCore/threadStore.ts";
+import { createThread } from "../../cleanCore/threadStore.ts";
 import { runMigrations } from "../Migrations.ts";
 import * as NodeSqliteClient from "../NodeSqliteClient.ts";
 import dropGlobalConsumerLedger from "./193_DropRuntimeGlobalConsumerLedger.ts";
@@ -24,7 +25,7 @@ const seed = Effect.gen(function* () {
     createdBy: "user",
     createdAt: at,
   });
-  yield* upsertThreadItem({
+  yield* seedHistoricalThreadItem({
     threadId: "thread",
     sourceId: "message",
     turnId: null,
@@ -54,7 +55,7 @@ it.effect(
       const items = yield* sql`SELECT * FROM thread_items`;
       const events = yield* sql`SELECT * FROM provider_runtime_events`;
       const cursors = yield* sql`SELECT * FROM provider_runtime_thread_cursors`;
-      assert.deepStrictEqual(yield* runMigrations(), [
+      assert.deepStrictEqual(yield* runMigrations({ toMigrationInclusive: 195 }), [
         [193, "DropRuntimeGlobalConsumerLedger"],
         [194, "RemoveApprovalDecisionColumn"],
         [195, "RemoveFolderScripts"],
@@ -68,7 +69,7 @@ it.effect(
         [],
       );
       assert.deepStrictEqual(yield* sql`PRAGMA foreign_key_check`, []);
-      assert.deepStrictEqual(yield* runMigrations(), []);
+      assert.deepStrictEqual(yield* runMigrations({ toMigrationInclusive: 195 }), []);
     }).pipe(Effect.provide(NodeSqliteClient.layerMemory())),
 );
 

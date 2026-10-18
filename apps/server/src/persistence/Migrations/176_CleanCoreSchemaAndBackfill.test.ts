@@ -78,7 +78,7 @@ it.effect("backfills threads and thread_items from the replaced projection table
         )
       `;
 
-      yield* runMigrations();
+      yield* runMigrations({ toMigrationInclusive: 176 });
 
       const threads = yield* sql<{
         readonly id: string;
@@ -222,7 +222,7 @@ it.effect("unwraps an OpenCode <task_result> into plain result text", () =>
           ${now}, 'evt', ${now}, 1
         )
       `;
-      yield* runMigrations();
+      yield* runMigrations({ toMigrationInclusive: 176 });
       const rows = yield* sql<{ readonly text: string }>`
         SELECT text FROM thread_items WHERE thread_id = 'thread-task'
       `;
@@ -270,7 +270,7 @@ it.effect("groups tool activities by the web's tool-call identity, beside operat
           '2026-10-09T00:00:04.000Z', 'evt-x', '2026-10-09T00:00:04.000Z', 4
         )
       `;
-      yield* runMigrations();
+      yield* runMigrations({ toMigrationInclusive: 176 });
       const rows = yield* sql<{
         readonly sourceId: string;
         readonly kind: string;
@@ -321,7 +321,7 @@ it.effect("collapses a call present in both sources to one item", () =>
           '2026-10-09T00:00:01.000Z', 1
         )
       `;
-      yield* runMigrations();
+      yield* runMigrations({ toMigrationInclusive: 176 });
       const rows = yield* sql<{ readonly sourceId: string; readonly text: string }>`
         SELECT source_id AS "sourceId", text FROM thread_items
         WHERE thread_id = 'thread-overlap' AND kind = 'tool'
@@ -353,7 +353,7 @@ it.effect("rolls the backfill back when it fails, leaving the source intact", ()
         ) VALUES ('msg-bad', 'thread-bad', 'user', 'hi', 0, ${now}, ${now}, '{not json')
       `;
 
-      const result = yield* Effect.exit(runMigrations());
+      const result = yield* Effect.exit(runMigrations({ toMigrationInclusive: 176 }));
       assert.isTrue(Exit.isFailure(result));
 
       const rolledBack = yield* sql<{ readonly count: number }>`
