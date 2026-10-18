@@ -9,9 +9,11 @@ import { Spinner } from "~/components/ui/spinner";
 export const ThreadDetailHydrationState = function ThreadDetailHydrationState({
   state,
   onRetry,
+  error,
 }: {
-  state: "loading" | "failed";
+  state: "loading" | "failed" | "missing";
   onRetry: () => void;
+  error?: unknown;
 }) {
   if (state === "loading") {
     return (
@@ -26,11 +28,20 @@ export const ThreadDetailHydrationState = function ThreadDetailHydrationState({
   return (
     <div className="flex flex-col items-center gap-3 select-none">
       <span className="text-[length:calc(var(--app-font-size-base,12px)*1.1667)] text-muted-foreground">
-        This conversation didn't load.
+        {state === "missing"
+          ? "This conversation no longer exists."
+          : "This conversation didn't load."}
       </span>
-      <Button onClick={onRetry} size="sm" variant="outline">
-        Try again
-      </Button>
+      {state === "failed" && error != null && (
+        <span className="max-w-lg break-words text-sm text-muted-foreground">
+          {error instanceof Error ? error.message : String(error)}
+        </span>
+      )}
+      {state !== "missing" && (
+        <Button onClick={onRetry} size="sm" variant="outline">
+          Try again
+        </Button>
+      )}
     </div>
   );
 };

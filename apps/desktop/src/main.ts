@@ -7357,6 +7357,12 @@ function createWindow(options: { cloneFrom?: BrowserWindow | null } = {}): Brows
     },
   });
   shellWindowRegistry.add(window);
+  window.webContents.on("console-message", (details) => {
+    if (details.level !== "warning" && details.level !== "error") return;
+    writeDesktopLogHeader(
+      `renderer console window=${window.id} level=${details.level} source=${details.sourceId}:${details.lineNumber} ${details.message}`,
+    );
+  });
   mainWindow ??= window;
   const rendererOwnerId = window.webContents.id;
   // `ready-to-show` is not guaranteed by every development compositor path.

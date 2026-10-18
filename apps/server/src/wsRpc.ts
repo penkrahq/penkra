@@ -299,9 +299,7 @@ const makeWsRpcHandlersLayer = () =>
           streamAdmission.guard(
             clientId,
             { key: "folders.workspace-changes" },
-            bufferLiveUiStream(workspaceWatcher.stream, {
-              label: "folders.workspace-changes",
-            }),
+            workspaceWatcher.stream,
           ),
         [WS_METHODS.filesystemBrowse]: (input) =>
           rpcEffect(workspaceEntries.browse(input), "Failed to browse filesystem"),

@@ -3,7 +3,12 @@ import type { FixtureReadModel as ContractReadModel } from "../test/effectRpcWeb
 import { Schema } from "effect";
 import { promoteThreadCreate } from "../lib/threadCreatePromotion";
 import { toastManager } from "./ui/toast";
-import { getThreadList, getThreadListById, resetThreadListForTests } from "../threadListStore";
+import {
+  applyThreadRow,
+  getThreadList,
+  getThreadListById,
+  resetThreadListForTests,
+} from "../threadListStore";
 // Production CSS is part of the behavior under test because row height depends on it.
 import "../index.css";
 
@@ -508,29 +513,12 @@ function findThreadDetailFromFixtureSnapshot(
   return fixture.snapshot.threads.find((entry) => entry.id === threadId) ?? null;
 }
 
-function createThreadTurnsPageFromFixtureSnapshot(threadId: ThreadId) {
-  const thread = findThreadDetailFromFixtureSnapshot(threadId);
-  if (!thread) {
-    throw new Error(`Unable to create a fixture turn page for missing Thread ${threadId}.`);
-  }
-  return {
-    threadId,
-    snapshotSequence: fixture.snapshot.snapshotSequence,
-    conversationTurnCount: thread.messages.filter((message) => message.role === "user").length,
-    messages: thread.messages,
-    activities: thread.activities,
-    pendingInteractions: thread.pendingInteractions ?? [],
-    hasOlder: false,
-    nextCursor: null,
-  };
-}
-
 const fixtureSendStatuses = new Map<MessageId, "sent" | "sending" | "failed">();
 
 function createThreadItemsPageFromFixtureSnapshot(threadId: ThreadId) {
   const thread = findThreadDetailFromFixtureSnapshot(threadId);
   if (!thread) {
-    return { items: [], turns: {}, nextCursor: null };
+    return { items: [], turns: {}, finals: {}, hasSteps: {}, nextCursor: null };
   }
   const pending: Array<{ at: string; item: Omit<CleanCoreThreadItem, "seq"> }> = [];
   for (const message of thread.messages) {
@@ -614,27 +602,84 @@ function createThreadItemsPageFromFixtureSnapshot(threadId: ThreadId) {
       },
     });
   }
-  const items = pending
-    .toSorted((left, right) => left.at.localeCompare(right.at))
-    .map((entry, index) => ({ ...entry.item, seq: index + 1 })) as CleanCoreThreadItem[];
-  const turn = thread?.latestTurn;
-  const turns = turn?.startedAt
-    ? {
-        [turn.turnId]: {
-          threadId,
-          seq: 0,
-          sourceId: `turn:${turn.turnId}`,
-          turnId: turn.turnId,
-          kind: "turn",
-          status: turn.state === "completed" ? "done" : turn.state,
-          text: null,
-          data: JSON.stringify({ startedAt: turn.startedAt, endedAt: turn.completedAt }),
-          createdAt: turn.startedAt,
-          updatedAt: turn.completedAt ?? turn.startedAt,
-        },
-      }
-    : {};
-  return { items, turns, nextCursor: null };
+  const items: CleanCoreThreadItem[] = [];
+  const turns: Record<string, CleanCoreThreadItem> = {};
+  const makeMarker = (turnId: NonNullable<CleanCoreThreadItem["turnId"]>, at: string) => {
+    const known = thread.latestTurn?.turnId === turnId ? thread.latestTurn : null;
+    const marker: CleanCoreThreadItem = {
+      threadId,
+      seq: items.length + 1,
+      sourceId: "turn:" + turnId,
+      turnId,
+      kind: "turn",
+      status: known?.state === "completed" ? "done" : (known?.state ?? "done"),
+      text: null,
+      data: JSON.stringify({
+        startedAt: known?.startedAt ?? null,
+        endedAt: known?.completedAt ?? null,
+      }),
+      createdAt: known?.startedAt ?? at,
+      updatedAt: known?.completedAt ?? at,
+    };
+    items.push(marker);
+    turns[turnId] = marker;
+  };
+  // The real store upserts by source id while retaining its original position.
+  const unique = new Map<string, (typeof pending)[number]>();
+  for (const entry of pending) {
+    const first = unique.get(entry.item.sourceId);
+    unique.set(entry.item.sourceId, { ...entry, at: first?.at ?? entry.at });
+  }
+  for (const { item } of [...unique.values()].toSorted((left, right) =>
+    left.at.localeCompare(right.at),
+  )) {
+    if (item.kind !== "user" && item.turnId !== null && !turns[item.turnId])
+      makeMarker(item.turnId, item.createdAt);
+    items.push({ ...item, seq: items.length + 1 });
+  }
+  if (thread.latestTurn && !turns[thread.latestTurn.turnId])
+    makeMarker(thread.latestTurn.turnId, thread.latestTurn.startedAt ?? NOW_ISO);
+  const finals: Record<string, CleanCoreThreadItem> = {};
+  const hasSteps: Record<string, boolean> = {};
+  for (const item of items)
+    if (item.kind === "text" && item.turnId !== null) finals[item.turnId] = item;
+  for (const id of Object.keys(turns))
+    hasSteps[id] = items.some(
+      (item) =>
+        item.turnId === id &&
+        !["user", "question", "turn"].includes(item.kind) &&
+        item.sourceId !== finals[id]?.sourceId,
+    );
+  return { items, turns, finals, hasSteps, nextCursor: null };
+}
+
+function fixtureOutlinePage(threadId: ThreadId, beforeSeq?: number) {
+  const all = createThreadItemsPageFromFixtureSnapshot(threadId);
+  const items = all.items
+    .filter(
+      (item) =>
+        (item.kind === "user" ||
+          item.kind === "question" ||
+          item.kind === "turn" ||
+          item.turnId === null) &&
+        (beforeSeq === undefined || item.seq < beforeSeq),
+    )
+    .toReversed()
+    .slice(0, 50);
+  const turnIds = new Set(items.filter((item) => item.kind === "turn").map((item) => item.turnId));
+  return {
+    items,
+    turns: Object.fromEntries(
+      Object.entries(all.turns).filter(([id]) => turnIds.has(id as TurnId)),
+    ),
+    finals: Object.fromEntries(
+      Object.entries(all.finals).filter(([id]) => turnIds.has(id as TurnId)),
+    ),
+    hasSteps: Object.fromEntries(
+      Object.entries(all.hasSteps).filter(([id]) => turnIds.has(id as TurnId)),
+    ),
+    nextCursor: items.length === 50 ? items.at(-1)!.seq : null,
+  };
 }
 
 /** Push a clean-core thread change so mounted transcripts re-read thread_items. */
@@ -679,6 +724,7 @@ function publishThreadToFixture(): void {
 function syncReadModelForTest(snapshot: OrchestrationReadModel): void {
   fixture = { ...fixture, snapshot };
   for (const thread of snapshot.threads) {
+    applyThreadRow(summarizeFixtureThread(thread));
     useStore.getState().syncServerThreadShell(thread.id, createThreadShellFromReadModel(thread));
     pushCleanCoreThreadChange(thread.id);
   }
@@ -1907,7 +1953,24 @@ function resolveWsRpc(body: WsRequestEnvelope["body"]): unknown {
     return saved;
   }
   if (tag === WS_METHODS.cleanCoreListThreadItemsPage && typeof body.threadId === "string") {
-    return createThreadItemsPageFromFixtureSnapshot(ThreadId.makeUnsafe(body.threadId));
+    return fixtureOutlinePage(
+      ThreadId.makeUnsafe(body.threadId),
+      body.beforeSeq as number | undefined,
+    );
+  }
+  if (tag === WS_METHODS.cleanCoreListTurnItems && typeof body.threadId === "string") {
+    const all = createThreadItemsPageFromFixtureSnapshot(ThreadId.makeUnsafe(body.threadId));
+    const items = all.items
+      .filter(
+        (item) =>
+          item.turnId === body.turnId &&
+          !["user", "question", "turn"].includes(item.kind) &&
+          item.sourceId !== all.finals[body.turnId as string]?.sourceId &&
+          (typeof body.beforeSeq !== "number" || item.seq < body.beforeSeq),
+      )
+      .toReversed()
+      .slice(0, 50);
+    return { items, nextCursor: items.length === 50 ? items.at(-1)!.seq : null };
   }
   if (tag === WS_METHODS.providerGetConnections) {
     return {
@@ -2100,6 +2163,15 @@ function installDeterministicSendNativeApi(options?: {
       ...wsNativeApi,
       cleanCore: {
         ...wsNativeApi.cleanCore,
+        updateThread: async (input: Parameters<typeof wsNativeApi.cleanCore.updateThread>[0]) => {
+          if (input.update.action !== "resume") return wsNativeApi.cleanCore.updateThread(input);
+          wsRequests.push({ _tag: WS_METHODS.cleanCoreUpdateThread, ...input });
+          await options?.dispatchGate;
+          if (options?.dispatchError) throw options.dispatchError;
+          return resolveWsRpc({ _tag: WS_METHODS.cleanCoreUpdateThread, ...input }) as Awaited<
+            ReturnType<typeof wsNativeApi.cleanCore.updateThread>
+          >;
+        },
         createAndSendThread: async (
           input: Parameters<typeof wsNativeApi.cleanCore.createAndSendThread>[0],
         ) => {
@@ -2181,9 +2253,15 @@ const worker = setupWorker(
         });
         return;
       }
-      {}
-      {}
-      {}
+      if (
+        method === WS_METHODS.subscribeServerProviderStatuses ||
+        method === WS_METHODS.subscribeServerSettings ||
+        method === WS_METHODS.subscribeProjectWorkspaceChanges
+      ) {
+        // These are live streams, not one-off requests. Keep them open even
+        // when this fixture has no change to emit.
+        return;
+      }
       if (method === WS_METHODS.cleanCoreSubscribeSidebar) {
         cleanCoreNavigationChangeEmitters.add(() =>
           sendEffectRpcChunk(client, parsed.request.id, { kind: "navigation" }),
@@ -2198,6 +2276,7 @@ const worker = setupWorker(
         cleanCoreThreadChangeEmitters.set(threadId, () =>
           sendEffectRpcChunk(client, parsed.request.id, { threadId }),
         );
+        sendEffectRpcChunk(client, parsed.request.id, { threadId });
         return;
       }
       {}
@@ -2738,6 +2817,12 @@ async function waitForMountedChatReady(options: {
   const expectedThread = options.snapshot.threads.find(
     (thread) => thread.id === options.routeThreadId,
   );
+  const initialPage = fixtureOutlinePage(options.routeThreadId);
+  const expectedMessageCount = new Set(
+    [...initialPage.items, ...Object.values(initialPage.finals)]
+      .filter((item) => item.kind === "user" || item.kind === "text")
+      .map((item) => item.sourceId),
+  ).size;
 
   await vi.waitFor(
     () => {
@@ -2753,10 +2838,27 @@ async function waitForMountedChatReady(options: {
       if (!expectedThread) return;
       const state = useStore.getState();
       expect(state.threadIds?.includes(expectedThread.id)).toBe(true);
-      const hydratedMessageIdSet = new Set(state.messageIdsByThreadId?.[expectedThread.id] ?? []);
       expect(
-        expectedThread.messages.every((message) => hydratedMessageIdSet.has(message.id)),
-        "Active thread detail did not hydrate.",
+        getChatLifecycleDiagnosticSamples(expectedThread.id).some(
+          (sample) =>
+            sample.event === "derived-state" &&
+            sample.threadDetailHydration === "ready" &&
+            sample.projectedMessageCount >= expectedMessageCount,
+        ),
+        `Active thread detail did not hydrate: ${JSON.stringify({
+          expectedMessages: expectedMessageCount,
+          states: getChatLifecycleDiagnosticSamples(expectedThread.id)
+            .filter((sample) => sample.event === "derived-state")
+            .slice(-3)
+            .map((sample) => ({
+              hydration: sample.threadDetailHydration,
+              messages: sample.projectedMessageCount,
+            })),
+          requests: wsRequests
+            .filter((request) => request._tag.includes("cleanCore"))
+            .map((request) => request._tag)
+            .slice(-15),
+        })}`,
       ).toBe(true);
     },
     { timeout: 20_000, interval: 16 },
@@ -2993,13 +3095,12 @@ describe("ChatView timeline estimator parity (full app)", () => {
       await page.getByRole("button", { name: "Continue", exact: true }).click();
       await vi.waitFor(() => {
         const command = wsRequests
-          .map(readDispatchedCommand)
-          .find((item) => item?.type === "thread.turn.recover");
+          .map(readCleanCoreUpdate)
+          .find((item) => item?.action === "resume");
         expect(command).toMatchObject({
-          reason: "play",
-          turnId,
-          interruptedTurnId: turnId,
-          connectionId: snapshot.threads[0]!.connectionId ?? null,
+          action: "resume",
+          threadId: THREAD_ID,
+          runtimeMode: snapshot.threads[0]!.runtimeMode,
         });
         expect(wsRequests.some((request) => request._tag === "provider.getThreadBinding")).toBe(
           false,
@@ -3152,7 +3253,7 @@ describe("ChatView timeline estimator parity (full app)", () => {
 
       const settledTrigger = Array.from(
         document.querySelectorAll<HTMLButtonElement>("button"),
-      ).find((element) => element.textContent?.trim() === "Details");
+      ).find((element) => element.textContent?.includes("Worked for"));
       expect(settledTrigger).not.toBeUndefined();
       settledTrigger!.click();
       await vi.waitFor(
@@ -3675,12 +3776,12 @@ describe("ChatView timeline estimator parity (full app)", () => {
       ).toBe(false);
       expect(
         document.querySelector(`[data-thread-item][aria-label='${THREAD_TITLE}']`),
-      ).toHaveAttribute("data-state", "active");
+      ).toHaveAttribute("data-state", "default");
       expect(
         Array.from(document.querySelectorAll<HTMLButtonElement>("button")).find(
           (button) => button.textContent?.trim() === "Project",
         ),
-      ).toHaveAttribute("data-state", "default");
+      ).toHaveAttribute("data-state", "active");
 
       await vi.waitFor(() => {
         const draftFolderBar = document.querySelector<HTMLElement>(
@@ -3934,6 +4035,10 @@ describe("ChatView timeline estimator parity (full app)", () => {
           _tag: WS_METHODS.cleanCoreListThreadItemsPage,
           threadId: THREAD_ID,
         },
+        {
+          _tag: WS_METHODS.cleanCoreListThreadItemsPage,
+          threadId: THREAD_ID,
+        },
       ]);
       await vi.waitFor(
         () => {
@@ -4093,11 +4198,16 @@ describe("ChatView timeline estimator parity (full app)", () => {
       snapshot = {
         ...snapshot,
         snapshotSequence: snapshot.snapshotSequence + 1,
-        threads: snapshot.threads.map((thread) =>
-          thread.id === THREAD_ID
-            ? { ...change(thread), updatedAt: new Date().toISOString() }
-            : thread,
-        ),
+        threads: snapshot.threads.map((thread) => {
+          if (thread.id !== THREAD_ID) return thread;
+          const next = change(thread);
+          const updatedAt = new Date().toISOString();
+          return {
+            ...next,
+            updatedAt,
+            session: next.session ? { ...next.session, updatedAt } : null,
+          };
+        }),
       };
       fixture = { ...fixture, snapshot };
       syncReadModelForTest(snapshot);
@@ -4135,7 +4245,16 @@ describe("ChatView timeline estimator parity (full app)", () => {
       const play = await waitForElement(
         () => document.querySelector<HTMLButtonElement>('button[aria-label="Continue"]'),
         "Play did not appear after Stop.",
-      );
+      ).catch((cause) => {
+        throw new Error(
+          JSON.stringify(
+            getChatLifecycleDiagnosticSamples(THREAD_ID)
+              .filter((sample) => sample.event === "composer-continue-state")
+              .at(-1),
+          ),
+          { cause },
+        );
+      });
       expect(play.title).toBe("Continue");
       await page.getByTestId("composer-editor").fill("New instruction");
       await vi.waitFor(() => {
@@ -4163,23 +4282,22 @@ describe("ChatView timeline estimator parity (full app)", () => {
       );
       await page.getByRole("button", { name: "Continue", exact: true }).click();
       await vi.waitFor(() => {
-        expect(hasDispatchedCommandType("thread.turn.recover")).toBe(true);
+        expect(hasCleanCoreAction("resume")).toBe(true);
         expect(document.querySelector('button[aria-label="Continue"]')).toBeNull();
       });
       const command = wsRequests
-        .map(readDispatchedCommand)
-        .find((candidate) => candidate?.type === "thread.turn.recover");
+        .map(readCleanCoreUpdate)
+        .find((candidate) => candidate?.action === "resume");
       expect(command).toMatchObject({
-        reason: "play",
-        turnId,
-        interruptedTurnId: turnId,
-        connectionId: TEST_CONNECTION_ID,
+        action: "resume",
+        threadId: THREAD_ID,
+        runtimeMode: snapshot.threads[0]!.runtimeMode,
       });
       expect(wsRequests.some((request) => request._tag === "provider.getThreadBinding")).toBe(
         false,
       );
       expect(
-        snapshot.threads[0]?.messages.some((message) => message.id === command?.recoveryMessageId),
+        snapshot.threads[0]?.messages.some((message) => message.id === command?.messageId),
       ).toBe(false);
       update((thread) => ({
         ...thread,
@@ -4922,7 +5040,12 @@ describe("ChatView timeline estimator parity (full app)", () => {
       await vi.waitFor(() =>
         expect(readComposerDragTint()?.classList.contains("opacity-100")).toBe(true),
       );
-      expect(nextEditor.textContent).toBe("Next thread draft");
+      await expect
+        .element(page.getByTestId("composer-editor"))
+        .toHaveTextContent("Next thread draft");
+      expect(useComposerDraftStore.getState().draftsByThreadId[OTHER_THREAD_ID]?.prompt).toBe(
+        "Next thread draft",
+      );
     } finally {
       await mounted.cleanup();
     }
@@ -5603,38 +5726,20 @@ describe("ChatView timeline estimator parity (full app)", () => {
     }
   });
 
-  it("opens the composer model picker with configured keybinding labels loaded", async () => {
+  it("opens the composer model picker with the fixed product shortcut", async () => {
     const mounted = await mountChatView({
       viewport: DEFAULT_VIEWPORT,
       snapshot: createSnapshotForTargetUser({
         targetMessageId: "msg-user-model-picker-configured-shortcut" as MessageId,
         targetText: "configured model picker shortcut",
       }),
-      configureFixture: (nextFixture) => {
-        nextFixture.serverConfig = {
-          ...nextFixture.serverConfig,
-          keybindings: [
-            {
-              command: "modelPicker.toggle",
-              shortcut: {
-                key: "m",
-                metaKey: false,
-                ctrlKey: false,
-                shiftKey: false,
-                altKey: true,
-                modKey: true,
-              },
-            },
-          ],
-        };
-      },
     });
 
     try {
       const composerEditor = await waitForComposerEditor();
       await waitForServerConfigToApply();
       composerEditor.focus();
-      dispatchConfiguredShortcut(composerEditor, { key: "m", altKey: true });
+      dispatchConfiguredShortcut(composerEditor, { key: "m", shiftKey: true });
 
       await waitForComposerPickerSurfaceOpen();
     } finally {
@@ -6967,11 +7072,17 @@ describe("ChatView timeline estimator parity (full app)", () => {
       if (!editor) throw new Error("Composer editor missing");
       editor.focus();
       await userEvent.keyboard("New text stays here");
+      expect(editor.textContent).toContain("New text stays here");
       await page.getByRole("button", { name: "Remove failed message" }).click();
       await vi.waitFor(() =>
         expect(document.querySelector('[data-testid="failed-message-status"]')).toBeNull(),
       );
-      expect(editor.textContent).toContain("New text stays here");
+      await expect
+        .element(page.getByTestId("composer-editor"))
+        .toHaveTextContent("New text stays here");
+      expect(useComposerDraftStore.getState().draftsByThreadId[THREAD_ID]?.prompt).toBe(
+        "New text stays here",
+      );
       expect(
         wsRequests.some(
           (request) =>
@@ -7179,6 +7290,12 @@ describe("ChatView timeline estimator parity (full app)", () => {
           ...api,
           cleanCore: {
             ...api.cleanCore,
+            listThreadItemsPage: async (
+              input: Parameters<typeof api.cleanCore.listThreadItemsPage>[0],
+            ) => {
+              if (input.threadId === newThreadId) await detailGate;
+              return fixtureOutlinePage(input.threadId, input.beforeSeq);
+            },
             createAndSendThread: async (
               input: import("@penkra/contracts").CleanCoreCreateAndSendThreadInput,
             ) => {
@@ -7194,13 +7311,6 @@ describe("ChatView timeline estimator parity (full app)", () => {
               }) as import("@penkra/contracts").CleanCoreSendAdmission;
               await sendGate;
               return { ...created, sendResult };
-            },
-          },
-          orchestration: {
-            ...api.orchestration,
-            getThreadTurnsPage: async ({ threadId }: { threadId: ThreadId }) => {
-              if (threadId === newThreadId) await detailGate;
-              return createThreadTurnsPageFromFixtureSnapshot(threadId);
             },
           },
         },
@@ -7241,8 +7351,16 @@ describe("ChatView timeline estimator parity (full app)", () => {
         });
         releaseDetail();
         await vi.waitFor(() =>
-          expect(useStore.getState().threadDetailSyncById?.[newThreadId]).toBe("synced"),
+          expect(
+            getChatLifecycleDiagnosticSamples(newThreadId).some(
+              (sample) =>
+                sample.event === "derived-state" &&
+                sample.threadDetailHydration === "ready" &&
+                sample.projectedMessageCount > 0,
+            ),
+          ).toBe(true),
         );
+        expect(document.body.textContent?.split(prompt)).toHaveLength(2);
         expect(disappeared).toBe(false);
       } finally {
         probe.disconnect();
@@ -7288,24 +7406,6 @@ describe("ChatView timeline estimator parity (full app)", () => {
         targetMessageId: "msg-user-create-space-no-event" as MessageId,
         targetText: "create space without stream event",
       }),
-      configureFixture: (nextFixture) => {
-        nextFixture.serverConfig = {
-          ...nextFixture.serverConfig,
-          keybindings: [
-            {
-              command: "sidebar.search",
-              shortcut: {
-                key: "k",
-                metaKey: false,
-                ctrlKey: false,
-                shiftKey: false,
-                altKey: false,
-                modKey: true,
-              },
-            },
-          ],
-        };
-      },
     });
     const previousNativeApi = window.nativeApi;
     const wsNativeApi = readNativeApi();
@@ -7360,24 +7460,6 @@ describe("ChatView timeline estimator parity (full app)", () => {
           targetText: "palette new thread latest project",
         }),
       ),
-      configureFixture: (nextFixture) => {
-        nextFixture.serverConfig = {
-          ...nextFixture.serverConfig,
-          keybindings: [
-            {
-              command: "sidebar.search",
-              shortcut: {
-                key: "k",
-                metaKey: false,
-                ctrlKey: false,
-                shiftKey: false,
-                altKey: false,
-                modKey: true,
-              },
-            },
-          ],
-        };
-      },
     });
 
     try {
@@ -7806,24 +7888,6 @@ describe("ChatView timeline estimator parity (full app)", () => {
         targetMessageId: "msg-user-chat-shortcut-test" as MessageId,
         targetText: "chat shortcut test",
       }),
-      configureFixture: (nextFixture) => {
-        nextFixture.serverConfig = {
-          ...nextFixture.serverConfig,
-          keybindings: [
-            {
-              command: "chat.new",
-              shortcut: {
-                key: "n",
-                metaKey: false,
-                ctrlKey: false,
-                shiftKey: false,
-                altKey: false,
-                modKey: true,
-              },
-            },
-          ],
-        };
-      },
     });
 
     try {
@@ -7871,24 +7935,6 @@ describe("ChatView timeline estimator parity (full app)", () => {
         targetMessageId: "msg-user-promoted-draft-shortcut-test" as MessageId,
         targetText: "promoted draft shortcut test",
       }),
-      configureFixture: (nextFixture) => {
-        nextFixture.serverConfig = {
-          ...nextFixture.serverConfig,
-          keybindings: [
-            {
-              command: "chat.new",
-              shortcut: {
-                key: "n",
-                metaKey: false,
-                ctrlKey: false,
-                shiftKey: false,
-                altKey: false,
-                modKey: true,
-              },
-            },
-          ],
-        };
-      },
     });
 
     try {

@@ -58,10 +58,14 @@ beforeEach(() => {
 it("reads an active thread's queue by ID without reading the first sidebar page", async () => {
   const thread = row('[{"messageId":"message-1"}]', "2026-10-10T00:00:01.000Z");
   api.getThread.mockResolvedValue(thread);
-  await loadThread(thread.id);
+  expect(await loadThread(thread.id)).toEqual(thread);
   expect(api.getThread).toHaveBeenCalledExactlyOnceWith({ threadId: thread.id });
   expect(api.listThreads).not.toHaveBeenCalled();
   expect(getThreadListById().get(thread.id)).toEqual(thread);
+});
+it("returns a missing row explicitly instead of asking callers to infer it from the store", async () => {
+  api.getThread.mockResolvedValue(null);
+  expect(await loadThread(ThreadId.makeUnsafe("deleted-thread"))).toBeNull();
 });
 it("refreshes the canonical queue after a broadcast and ignores an older in-flight reply", async () => {
   const old = row("[]", "2026-10-10T00:00:01.000Z");

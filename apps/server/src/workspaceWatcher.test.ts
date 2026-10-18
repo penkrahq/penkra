@@ -4,6 +4,8 @@ import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 
 import { describe, expect, it } from "vitest";
 import { ThreadId, type ProjectWorkspaceChangeEvent } from "@penkra/contracts";
+import { Deferred, Effect, Fiber, Stream } from "effect";
+import { makeInvalidationHub } from "./cleanCore/invalidationHub";
 
 import {
   ensureDurableThreadWorkspace,
@@ -38,6 +40,39 @@ describe("deduplicateWorkspaceRoots", () => {
 });
 
 describe("workspace watcher lifecycle", () => {
+  it("keeps one dirty-root invalidation per blocked subscriber, without a dropping buffer", async () => {
+    await Effect.runPromise(
+      Effect.scoped(
+        Effect.gen(function* () {
+          const hub = makeInvalidationHub<ProjectWorkspaceChangeEvent>((event) => event.cwd);
+          const listening = yield* Deferred.make<void>();
+          const drain = yield* Deferred.make<void>();
+          const reader = yield* hub.stream(undefined, { cwd: "ready" }).pipe(
+            Stream.tap((event) =>
+              event.cwd === "ready"
+                ? Deferred.succeed(listening, undefined).pipe(Effect.andThen(Deferred.await(drain)))
+                : Effect.void,
+            ),
+            Stream.take(3),
+            Stream.runCollect,
+            Effect.forkScoped,
+          );
+          yield* Deferred.await(listening);
+          for (let i = 0; i < 10000; i++) {
+            hub.publish({ cwd: "root-a" });
+            hub.publish({ cwd: "root-b" });
+          }
+          yield* Deferred.succeed(drain, undefined);
+          expect(yield* Fiber.join(reader)).toEqual([
+            { cwd: "ready" },
+            { cwd: "root-a" },
+            { cwd: "root-b" },
+          ]);
+          yield* hub.close;
+        }),
+      ),
+    );
+  });
   it("filters high-churn implementation paths without hiding project metadata", () => {
     const root = path.resolve("/tmp/workspace");
     expect(shouldIgnoreWorkspaceWatchPath(root, path.join(root, "node_modules/pkg/index.js"))).toBe(
@@ -103,16 +138,13 @@ describe("workspace watcher lifecycle", () => {
     );
     await manager.start();
     callbacks.change(path.join(root, "src/index.ts"));
-    expect(events).toEqual([{ cwd: root, filesChanged: true, gitChanged: false, lostSync: false }]);
+    expect(events).toEqual([{ cwd: root }]);
     callbacks.change(path.join(root, ".git/HEAD"));
     expect(events[1]).toEqual({
       cwd: root,
-      filesChanged: false,
-      gitChanged: true,
-      lostSync: false,
     });
     callbacks.lostSync();
-    expect(events[2]).toEqual({ cwd: root, filesChanged: true, gitChanged: true, lostSync: true });
+    expect(events[2]).toEqual({ cwd: root });
     await manager.close();
     callbacks.change(path.join(root, "src/later.ts"));
     callbacks.lostSync();
@@ -131,7 +163,7 @@ describe("workspace watcher lifecycle", () => {
     const manager = new WorkspaceWatcherManager(
       async () => [],
       (event) => {
-        if (event.cwd === cwd && event.filesChanged) resolveEvent(event);
+        if (event.cwd === cwd) resolveEvent(event);
       },
       undefined,
       path.join(stateDir, DURABLE_THREAD_WORKSPACES_DIRNAME),
@@ -141,9 +173,6 @@ describe("workspace watcher lifecycle", () => {
       await writeFile(file, "after");
       expect(await published).toEqual({
         cwd,
-        filesChanged: true,
-        gitChanged: false,
-        lostSync: false,
       });
     } finally {
       await manager.close();
@@ -153,8 +182,8 @@ describe("workspace watcher lifecycle", () => {
 
   it("publishes recursive file changes and closes the built-in watcher", async () => {
     const root = await mkdtemp(path.join(os.tmpdir(), "penkra-workspace-watcher-"));
-    let resolveEvent!: (event: { cwd: string; filesChanged: boolean }) => void;
-    const published = new Promise<{ cwd: string; filesChanged: boolean }>((resolve) => {
+    let resolveEvent!: (event: { cwd: string }) => void;
+    const published = new Promise<{ cwd: string }>((resolve) => {
       resolveEvent = resolve;
     });
     const manager = new WorkspaceWatcherManager(
@@ -167,7 +196,7 @@ describe("workspace watcher lifecycle", () => {
       await mkdir(path.join(root, "src"));
       await writeFile(path.join(root, "src", "index.ts"), "export {};\n");
       const event = await published;
-      expect(event).toMatchObject({ cwd: root, filesChanged: true });
+      expect(event).toMatchObject({ cwd: root });
       await manager.close();
     } finally {
       await manager.close();

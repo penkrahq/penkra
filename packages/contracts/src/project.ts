@@ -133,8 +133,5 @@ export type ProjectCreateLocalFilePreviewGrantResult =
 // every connected renderer.
 export const ProjectWorkspaceChangeEvent = Schema.Struct({
   cwd: TrimmedNonEmptyString,
-  filesChanged: Schema.Boolean,
-  gitChanged: Schema.Boolean,
-  lostSync: Schema.Boolean,
 });
 export type ProjectWorkspaceChangeEvent = typeof ProjectWorkspaceChangeEvent.Type;

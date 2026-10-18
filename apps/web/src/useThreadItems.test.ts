@@ -17,6 +17,28 @@ const item = (seq: number, text = `item ${seq}`): CleanCoreThreadItem => ({
   updatedAt: "2026-10-09T00:00:00.000Z",
 });
 
+it("reads immediately without a subscription marker and does not confuse setup errors with read failures", async () => {
+  const { api } = makeApi({
+    first: { items: [item(1)], turns: {}, finals: {}, hasSteps: {}, nextCursor: null },
+  });
+  api.subscribeThread = vi.fn(async () => {
+    throw new Error("subscription setup failed");
+  });
+  const errors = vi.fn();
+  const warning = vi.spyOn(console, "warn").mockImplementation(() => {});
+  const controller = createThreadItemsController(api, "thread-1", () => {}, errors);
+  try {
+    expect(api.listThreadItemsPage).toHaveBeenCalledOnce();
+    await controller.reload();
+    expect(controller.getState().loaded).toBe(true);
+    expect(errors).not.toHaveBeenCalled();
+    expect(warning).toHaveBeenCalled();
+  } finally {
+    controller.dispose();
+    warning.mockRestore();
+  }
+});
+
 function makeApi(
   pages: Record<
     string,
@@ -183,7 +205,7 @@ it("coalesces changes during the first read and catches up on a reconnect marker
     },
   );
   try {
-    expect(api.listThreadItemsPage).not.toHaveBeenCalled();
+    expect(api.listThreadItemsPage).toHaveBeenCalledTimes(1);
     emitPush("thread-1"); // The server's initial marker.
     emitPush("thread-1");
     emitPush("thread-1");
