@@ -402,13 +402,14 @@ export function resolvePackagedDesktopSmokePenkraRoot(root: string): string {
   return join(root, "penkra-root");
 }
 
-export function resolvePackagedDesktopSmokeLogPath(root: string): string {
+export function resolvePackagedDesktopSmokeLogPath(root: string, version?: string): string {
   return join(
     resolvePackagedDesktopSmokePenkraRoot(root),
     ".penkra",
     "userdata",
     "logs",
-    "desktop-main.log",
+    // The published 0.14.3 installer is the historical native-upgrade fixture.
+    version === "0.14.3" ? "desktop-main.log" : "desktop.log",
   );
 }
 
@@ -750,7 +751,7 @@ export async function verifyPackagedDesktopStartup(
     throw new Error(`Packaged startup proof timed out after ${options.timeoutMs}ms.`);
   } catch (cause) {
     const log = logPath && existsSync(logPath) ? readFileSync(logPath, "utf8") : "<missing>";
-    const serverLogPath = logPath ? join(dirname(logPath), "server-child.log") : null;
+    const serverLogPath = logPath ? join(dirname(logPath), "server.log") : null;
     const serverLog =
       serverLogPath && existsSync(serverLogPath)
         ? readFileSync(serverLogPath, "utf8")

@@ -101,7 +101,7 @@ async function readApplicationVersion() {
   throw lastError;
 }
 async function launch(executablePath, version, launchEnv = env) {
-  const logPath = resolvePackagedDesktopSmokeLogPath(stateRoot);
+  const logPath = resolvePackagedDesktopSmokeLogPath(stateRoot, version);
   const logOffset = existsSync(logPath) ? readFileSync(logPath, "utf8").length : 0;
   application = await _electron.launch({
     executablePath,
@@ -192,7 +192,10 @@ try {
       "candidate download and artifact verification",
       180_000,
     );
-    const beforeLog = readFileSync(resolvePackagedDesktopSmokeLogPath(stateRoot), "utf8").length;
+    const candidateLogPath = resolvePackagedDesktopSmokeLogPath(stateRoot, candidateVersion);
+    const beforeLog = existsSync(candidateLogPath)
+      ? readFileSync(candidateLogPath, "utf8").length
+      : 0;
     const install = await page
       .evaluate(() => window.desktopBridge.installUpdate())
       .catch((error) => ({ transportClosed: String(error) }));
@@ -203,9 +206,8 @@ try {
       "production updater installs exact candidate bytes",
     );
     await until(() => {
-      const log = readFileSync(resolvePackagedDesktopSmokeLogPath(stateRoot), "utf8").slice(
-        beforeLog,
-      );
+      if (!existsSync(candidateLogPath)) return false;
+      const log = readFileSync(candidateLogPath, "utf8").slice(beforeLog);
       const result = inspectPackagedDesktopStartupLog(log);
       if (result.failure) throw new Error(result.failure);
       return result.hasProof;

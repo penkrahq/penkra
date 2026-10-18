@@ -97,7 +97,13 @@ describe("packaged desktop startup verification", () => {
       JSON.parse(readFileSync(join(env.XDG_CONFIG_HOME!, "Penkra", "root.json"), "utf8")),
     ).toEqual({ root: resolvePackagedDesktopSmokePenkraRoot(root) });
     expect(resolvePackagedDesktopSmokeLogPath(root)).toBe(
+      join(root, "penkra-root", ".penkra", "userdata", "logs", "desktop.log"),
+    );
+    expect(resolvePackagedDesktopSmokeLogPath(root, "0.14.3")).toBe(
       join(root, "penkra-root", ".penkra", "userdata", "logs", "desktop-main.log"),
+    );
+    expect(resolvePackagedDesktopSmokeLogPath(root, "0.14.4")).toBe(
+      resolvePackagedDesktopSmokeLogPath(root),
     );
   });
 
