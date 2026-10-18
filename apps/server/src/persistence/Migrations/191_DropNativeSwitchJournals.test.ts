@@ -21,7 +21,7 @@ it.effect(
       const sql = yield* SqlClient.SqlClient;
       yield* seed;
       const before = yield* sql`SELECT * FROM threads ORDER BY id`;
-      assert.deepStrictEqual(yield* runMigrations(), [
+      assert.deepStrictEqual(yield* runMigrations({ toMigrationInclusive: 195 }), [
         [191, "DropNativeSwitchJournals"],
         [192, "DropProviderDeliveryRepairs"],
         [193, "DropRuntimeGlobalConsumerLedger"],

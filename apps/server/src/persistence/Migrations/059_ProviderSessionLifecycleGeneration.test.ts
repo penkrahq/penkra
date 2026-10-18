@@ -30,7 +30,7 @@ layer("059_ProviderSessionLifecycleGeneration", (it) => {
         )
       `;
 
-      yield* runMigrations();
+      yield* runMigrations({ toMigrationInclusive: 59 });
       const legacy = yield* sql<{ readonly lifecycleGeneration: string }>`
         SELECT lifecycle_generation AS "lifecycleGeneration"
         FROM provider_session_runtime

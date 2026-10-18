@@ -1,8 +1,7 @@
 import { assert, it } from "@effect/vitest";
-import { FolderId, SpaceId, ThreadId } from "@penkra/contracts";
+import { ThreadId } from "@penkra/contracts";
 import { Effect } from "effect";
 import * as SqlClient from "effect/unstable/sql/SqlClient";
-import { listThreads } from "../../cleanCore/threadList.ts";
 import { runMigrations } from "../Migrations.ts";
 import * as NodeSqliteClient from "../NodeSqliteClient.ts";
 
@@ -25,13 +24,14 @@ it.effect(
       const readItems = sql`SELECT * FROM thread_items WHERE thread_id = 'former-child'`;
       const before = yield* readRows;
       const itemsBefore = yield* readItems;
-      yield* runMigrations();
+      yield* runMigrations({ toMigrationInclusive: 182 });
       assert.deepStrictEqual(yield* readRows, before);
       assert.deepStrictEqual(yield* readItems, itemsBefore);
-      const page = yield* listThreads({
-        spaceId: SpaceId.makeUnsafe("penkra-personal"),
-        folderId: FolderId.makeUnsafe("folder"),
-      });
+      const page = {
+        threads: yield* sql<{
+          id: string;
+        }>`SELECT * FROM threads WHERE space_id='penkra-personal' AND folder_id='folder' ORDER BY id`,
+      };
       assert.deepStrictEqual(
         page.threads.map((row) => row.id),
         [ThreadId.makeUnsafe("former-child"), ThreadId.makeUnsafe("original")],

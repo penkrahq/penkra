@@ -36,7 +36,7 @@ layer("039_ReconcileLegacyPinnedThreads", (it) => {
       `;
       assert.strictEqual(row36?.name, "ProjectionThreadsPinned");
 
-      yield* runMigrations();
+      yield* runMigrations({ toMigrationInclusive: 39 });
 
       const finalColumns = yield* projectionThreadsColumnNames(sql);
       assert.include(finalColumns, "is_pinned");
@@ -47,8 +47,8 @@ layer("039_ReconcileLegacyPinnedThreads", (it) => {
     Effect.gen(function* () {
       const sql = yield* SqlClient.SqlClient;
 
-      yield* runMigrations();
-      yield* runMigrations();
+      yield* runMigrations({ toMigrationInclusive: 39 });
+      yield* runMigrations({ toMigrationInclusive: 39 });
 
       const columns = yield* projectionThreadsColumnNames(sql);
       assert.include(columns, "is_pinned");

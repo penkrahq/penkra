@@ -41,29 +41,32 @@ const layer = Layer.mergeAll(
     Layer.provide(NodeServices.layer),
   ),
 );
-it.layer(layer)("stalled OpenCode title control", (it) => {
-  it.effect("does not expire an unfinished request, but releases after explicit interruption", () =>
+it.effect(
+  "keeps unfinished requests alive, cancels explicitly, and closes the process with its service",
+  () =>
     Effect.gen(function* () {
-      const service = yield* OpenCodeTextGeneration;
-      const fiber = yield* service
-        .generateThreadTitle({
-          cwd: process.cwd(),
-          message: "Hello",
-          modelSelection: { provider: "opencode", model: "openai/gpt-5" },
-        })
-        .pipe(Effect.forkChild);
-      while (!started) yield* Effect.yieldNow;
-      // One hour is a test observation horizon, not a proposed timeout.
-      yield* TestClock.adjust(Duration.hours(1));
-      expect(closed).toBe(0);
-      expect(promptArguments).toHaveLength(1);
-      expect(promptArguments[0]).not.toHaveProperty("signal");
-      yield* Fiber.interrupt(fiber);
-      yield* Effect.yieldNow;
-      // Existing production idle TTL is 30 seconds; +1 crosses its boundary.
-      yield* TestClock.adjust(Duration.millis(30_001));
-      yield* Effect.yieldNow;
+      yield* Effect.gen(function* () {
+        const service = yield* OpenCodeTextGeneration;
+        const fiber = yield* service
+          .generateThreadTitle({
+            cwd: process.cwd(),
+            message: "Hello",
+            modelSelection: { provider: "opencode", model: "openai/gpt-5" },
+          })
+          .pipe(Effect.forkChild);
+        while (!started) yield* Effect.yieldNow;
+        // One hour is a test observation horizon, not a proposed timeout.
+        yield* TestClock.adjust(Duration.hours(1));
+        expect(closed).toBe(0);
+        expect(promptArguments).toHaveLength(1);
+        expect(promptArguments[0]).not.toHaveProperty("signal");
+        yield* Fiber.interrupt(fiber);
+        yield* Effect.yieldNow;
+        // Idle servers belong to the service, not a request or an expiry timer.
+        yield* TestClock.adjust(Duration.millis(30_001));
+        yield* Effect.yieldNow;
+        expect(closed).toBe(0);
+      }).pipe(Effect.provide(layer));
       expect(closed).toBe(1);
     }),
-  );
-});
+);

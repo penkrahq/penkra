@@ -13,7 +13,7 @@ layer("144_CanonicalActivityLookupIndex", (it) => {
     () =>
       Effect.gen(function* () {
         const sql = yield* SqlClient.SqlClient;
-        yield* runMigrations();
+        yield* runMigrations({ toMigrationInclusive: 144 });
 
         const plan = yield* sql<{ readonly detail: string }>`
         EXPLAIN QUERY PLAN

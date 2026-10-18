@@ -11,7 +11,7 @@ layer("154_RestartReconciliationIndexes", (it) => {
   it.effect("uses narrow partial indexes for both orphan scans", () =>
     Effect.gen(function* () {
       const sql = yield* SqlClient.SqlClient;
-      yield* runMigrations();
+      yield* runMigrations({ toMigrationInclusive: 154 });
 
       const messagePlan = yield* sql<{ readonly detail: string }>`
         EXPLAIN QUERY PLAN
