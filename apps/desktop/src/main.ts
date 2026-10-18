@@ -7791,6 +7791,7 @@ if (hasSingleInstanceLock) {
     desktopFlavor,
     developmentInstance,
     getWindow: () => resolveShellWindow(),
+    isShellRenderer: (sender) => shellWindowRegistry.hasWebContents(sender),
     ipcMain,
     registerAsDefaultProtocolClient: !desktopSmokeUserDataPath,
     inspectInitialProtocolUrlFromArgv: desktopPlatform.deepLinks.inspectInitialArgv,
