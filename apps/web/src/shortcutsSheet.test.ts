@@ -3,6 +3,7 @@
 // Layer: UI helper tests
 
 import { describe, expect, it } from "vitest";
+import { KEYBINDINGS } from "@penkra/shared/keybindings";
 
 import { buildShortcutSheetSections } from "./shortcutsSheet";
 import type {} from "./types";
@@ -10,7 +11,7 @@ import type {} from "./types";
 describe("buildShortcutSheetSections", () => {
   it("includes the help shortcut and current thread jumps outside workspace mode", () => {
     const sections = buildShortcutSheetSections({
-      keybindings: [],
+      keybindings: KEYBINDINGS,
       platform: "MacIntel",
       context: {},
     });
@@ -30,7 +31,7 @@ describe("buildShortcutSheetSections", () => {
 
   it("does not surface removed terminal shortcuts from legacy context", () => {
     const sections = buildShortcutSheetSections({
-      keybindings: [],
+      keybindings: KEYBINDINGS,
       platform: "Linux",
       context: {},
     });
