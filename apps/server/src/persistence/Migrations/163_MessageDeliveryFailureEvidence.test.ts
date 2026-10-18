@@ -48,7 +48,7 @@ layer("163_MessageDeliveryFailureEvidence", (it) => {
            ${occurredAt}, ${occurredAt})
       `;
 
-      yield* runMigrations();
+      yield* runMigrations({ toMigrationInclusive: 163 });
 
       const rows = yield* sql<{
         readonly messageId: string;

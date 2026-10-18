@@ -14,7 +14,7 @@ layer("132_HotReadQueryIndexes", (it) => {
   it.effect("keeps canonical Thread message and activity reads on covering indexes", () =>
     Effect.gen(function* () {
       const sql = yield* SqlClient.SqlClient;
-      yield* runMigrations();
+      yield* runMigrations({ toMigrationInclusive: 132 });
 
       const messagePlan = yield* sql<{ readonly detail: string }>`
         EXPLAIN QUERY PLAN

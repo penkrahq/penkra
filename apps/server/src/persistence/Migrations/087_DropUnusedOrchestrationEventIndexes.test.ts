@@ -43,7 +43,7 @@ layer("087_DropUnusedOrchestrationEventIndexes", (it) => {
   it.effect("still writes and reads orchestration events after the indexes are gone", () =>
     Effect.gen(function* () {
       const sql = yield* SqlClient.SqlClient;
-      yield* runMigrations();
+      yield* runMigrations({ toMigrationInclusive: 87 });
 
       yield* sql`
         INSERT INTO orchestration_events (
@@ -71,8 +71,8 @@ layer("087_DropUnusedOrchestrationEventIndexes", (it) => {
 
   it.effect("is a no-op when re-run against a database that already dropped them", () =>
     Effect.gen(function* () {
-      yield* runMigrations();
-      const executed = yield* runMigrations();
+      yield* runMigrations({ toMigrationInclusive: 87 });
+      const executed = yield* runMigrations({ toMigrationInclusive: 87 });
       assert.lengthOf(executed, 0);
     }),
   );

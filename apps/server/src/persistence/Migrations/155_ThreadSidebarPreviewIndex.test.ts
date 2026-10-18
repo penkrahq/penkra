@@ -11,13 +11,13 @@ layer("155_ThreadSidebarPreviewIndex", (it) => {
   it.effect("serves the exact sidebar rollup order without a temporary sort", () =>
     Effect.gen(function* () {
       const sql = yield* SqlClient.SqlClient;
-      yield* runMigrations();
+      yield* runMigrations({ toMigrationInclusive: 155 });
       const timestamp = "2026-08-29T00:00:00.000Z";
       yield* sql`
         INSERT INTO projection_folders (
           folder_id, kind, title, workspace_root, default_model_selection_json,
-           created_at, updated_at
-        ) VALUES ('project-1', 'folder', 'Project', '/workspace', NULL,  ${timestamp}, ${timestamp})
+           scripts_json, created_at, updated_at
+        ) VALUES ('project-1', 'folder', 'Project', '/workspace', NULL, '[]', ${timestamp}, ${timestamp})
       `;
       yield* sql`
         INSERT INTO projection_threads (

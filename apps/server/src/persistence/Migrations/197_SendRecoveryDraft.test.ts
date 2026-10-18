@@ -30,7 +30,7 @@ it.effect("adds admission storage and preserves sent items through the replaceme
     yield* seed;
     const sql = yield* SqlClient.SqlClient;
     const before = yield* sql`SELECT thread_id,seq,source_id,text FROM thread_items`;
-    assert.deepStrictEqual(yield* runMigrations(), [
+    assert.deepStrictEqual(yield* runMigrations({ toMigrationInclusive: 202 }), [
       [197, "SendRecoveryDraft"],
       [198, "IndexLatestTurn"],
       [199, "IndexOpenQuestions"],

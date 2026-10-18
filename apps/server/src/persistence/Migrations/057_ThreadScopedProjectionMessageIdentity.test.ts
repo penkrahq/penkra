@@ -32,7 +32,7 @@ layer("057_ThreadScopedProjectionMessageIdentity", (it) => {
         )
       `;
 
-      yield* runMigrations();
+      yield* runMigrations({ toMigrationInclusive: 57 });
       yield* sql`
         INSERT INTO projection_thread_messages (
           message_id,
