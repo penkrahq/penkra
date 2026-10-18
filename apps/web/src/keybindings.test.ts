@@ -1,3 +1,4 @@
+import { KEYBINDINGS } from "@penkra/shared/keybindings";
 import { assert, describe, it } from "vitest";
 
 import {
@@ -195,128 +196,7 @@ function compile(bindings: TestBinding[]): ResolvedKeybindingsConfig {
 }
 
 // Mirror the server defaults here so frontend shortcut resolution stays aligned.
-const DEFAULT_BINDINGS = compile([
-  {
-    shortcut: modShortcut("b"),
-    command: "sidebar.toggle",
-  },
-  // Mirror server defaults: Cmd+K everywhere; Ctrl+K only off macOS.
-  { shortcut: modShortcut("k", { metaKey: true, modKey: false }), command: "sidebar.search" },
-  {
-    shortcut: ctrlShortcut("k"),
-    command: "sidebar.search",
-    whenAst: whenNot(whenIdentifier("isMac")),
-  },
-  {
-    shortcut: modShortcut("m", { shiftKey: true }),
-    command: "modelPicker.toggle",
-  },
-  {
-    shortcut: modShortcut("]", { altKey: true, modKey: false }),
-    command: "model.next",
-  },
-  {
-    shortcut: modShortcut("[", { altKey: true, modKey: false }),
-    command: "model.previous",
-  },
-  {
-    shortcut: modShortcut("e", { shiftKey: true }),
-    command: "traitsPicker.toggle",
-  },
-  {
-    shortcut: modShortcut("l", { metaKey: true, modKey: false }),
-    command: "composer.focus.toggle",
-  },
-  {
-    shortcut: modShortcut("u", { shiftKey: true }),
-    command: "settings.usage",
-  },
-  {
-    shortcut: modShortcut("o", { shiftKey: true }),
-    command: "sidebar.addProject",
-  },
-  {
-    shortcut: modShortcut("n"),
-    command: "chat.new",
-  },
-  {
-    shortcut: modShortcut("n", { shiftKey: true }),
-    command: "chat.newLatestProject",
-  },
-  {
-    shortcut: modShortcut("n", { altKey: true }),
-    command: "chat.newChat",
-  },
-  {
-    shortcut: modShortcut("c", { altKey: true }),
-    command: "chat.newClaude",
-  },
-  {
-    shortcut: modShortcut("x", { altKey: true }),
-    command: "chat.newCodex",
-  },
-  {
-    shortcut: modShortcut("r", { altKey: true }),
-    command: "chat.newOpenCode",
-  },
-  {
-    shortcut: ctrlShortcut("tab"),
-    command: "view.recent.next",
-  },
-  {
-    shortcut: ctrlShortcut("tab", { shiftKey: true }),
-    command: "view.recent.previous",
-  },
-  ...Array.from({ length: 9 }, (_, index) => ({
-    shortcut: modShortcut(String(index + 1), { altKey: true }),
-    command: `space.jump.${index + 1}` as KeybindingCommand,
-  })),
-  {
-    shortcut: modShortcut("1"),
-    command: "thread.jump.1",
-  },
-  {
-    shortcut: modShortcut("2"),
-    command: "thread.jump.2",
-  },
-  {
-    shortcut: modShortcut("3"),
-    command: "thread.jump.3",
-  },
-  {
-    shortcut: modShortcut("4"),
-    command: "thread.jump.4",
-  },
-  {
-    shortcut: modShortcut("5"),
-    command: "thread.jump.5",
-  },
-  {
-    shortcut: modShortcut("6"),
-    command: "thread.jump.6",
-  },
-  {
-    shortcut: modShortcut("7"),
-    command: "thread.jump.7",
-  },
-  {
-    shortcut: modShortcut("8"),
-    command: "thread.jump.8",
-  },
-  {
-    shortcut: modShortcut("9"),
-    command: "thread.jump.9",
-  },
-  {
-    shortcut: modShortcut("]", { shiftKey: true }),
-    command: "chat.visible.next",
-  },
-  {
-    shortcut: modShortcut("[", { shiftKey: true }),
-    command: "chat.visible.previous",
-  },
-  { shortcut: modShortcut("o"), command: "editor.openFavorite" },
-]);
+const DEFAULT_BINDINGS = KEYBINDINGS;
 
 describe("shortcut matching", () => {
   it("supports when expressions", () => {
@@ -478,12 +358,16 @@ describe("space jump shortcuts", () => {
     );
   });
 
-  it("resolves space jumps from the built-in fallbacks when no config is present", () => {
+  it("resolves space jumps from the fixed product table", () => {
     assert.strictEqual(
-      resolveShortcutCommand(event({ code: "Digit1", key: "1", metaKey: true, altKey: true }), [], {
-        platform: "MacIntel",
-        context: { modelPickerOpen: false },
-      }),
+      resolveShortcutCommand(
+        event({ code: "Digit1", key: "1", metaKey: true, altKey: true }),
+        KEYBINDINGS,
+        {
+          platform: "MacIntel",
+          context: { modelPickerOpen: false },
+        },
+      ),
       "space.jump.1",
     );
   });
@@ -893,123 +777,6 @@ describe("resolveShortcutCommand", () => {
         context: { modelPickerOpen: true },
       }),
       null,
-    );
-  });
-
-  it("falls back to composer picker defaults when runtime config is missing them", () => {
-    const legacyBindings = DEFAULT_BINDINGS.filter(
-      (binding) =>
-        binding.command !== "modelPicker.toggle" &&
-        binding.command !== "model.next" &&
-        binding.command !== "model.previous" &&
-        binding.command !== "traitsPicker.toggle",
-    );
-
-    assert.strictEqual(
-      resolveShortcutCommand(event({ key: "m", metaKey: true, shiftKey: true }), legacyBindings, {
-        platform: "MacIntel",
-        context: { modelPickerOpen: false },
-      }),
-      "modelPicker.toggle",
-    );
-    assert.strictEqual(
-      resolveShortcutCommand(event({ key: "e", metaKey: true, shiftKey: true }), legacyBindings, {
-        platform: "MacIntel",
-        context: { modelPickerOpen: false },
-      }),
-      "traitsPicker.toggle",
-    );
-    assert.strictEqual(
-      resolveShortcutCommand(event({ key: "]", altKey: true }), legacyBindings, {
-        platform: "MacIntel",
-        context: { modelPickerOpen: false },
-      }),
-      "model.next",
-    );
-    assert.strictEqual(
-      resolveShortcutCommand(event({ key: "[", altKey: true }), legacyBindings, {
-        platform: "MacIntel",
-        context: { modelPickerOpen: false },
-      }),
-      "model.previous",
-    );
-  });
-
-  it("falls back to the composer focus default when runtime config is missing it", () => {
-    const legacyBindings = DEFAULT_BINDINGS.filter(
-      (binding) => binding.command !== "composer.focus.toggle",
-    );
-
-    assert.strictEqual(
-      resolveShortcutCommand(event({ key: "l", metaKey: true }), legacyBindings, {
-        platform: "MacIntel",
-        context: { modelPickerOpen: false },
-      }),
-      "composer.focus.toggle",
-    );
-  });
-
-  it("falls back to provider-specific new chat defaults when runtime config is missing them", () => {
-    const legacyBindings = DEFAULT_BINDINGS.filter(
-      (binding) =>
-        binding.command !== "chat.newClaude" &&
-        binding.command !== "chat.newCodex" &&
-        binding.command !== "chat.newOpenCode",
-    );
-
-    assert.strictEqual(
-      resolveShortcutCommand(event({ key: "c", metaKey: true, altKey: true }), legacyBindings, {
-        platform: "MacIntel",
-        context: { modelPickerOpen: false },
-      }),
-      "chat.newClaude",
-    );
-    assert.strictEqual(
-      resolveShortcutCommand(event({ key: "x", metaKey: true, altKey: true }), legacyBindings, {
-        platform: "MacIntel",
-        context: { modelPickerOpen: false },
-      }),
-      "chat.newCodex",
-    );
-    assert.strictEqual(
-      resolveShortcutCommand(event({ key: "r", metaKey: true, altKey: true }), legacyBindings, {
-        platform: "MacIntel",
-        context: { modelPickerOpen: false },
-      }),
-      "chat.newOpenCode",
-    );
-    assert.strictEqual(
-      resolveShortcutCommand(
-        event({ code: "KeyC", key: "ç", metaKey: true, altKey: true }),
-        legacyBindings,
-        {
-          platform: "MacIntel",
-          context: { modelPickerOpen: false },
-        },
-      ),
-      "chat.newClaude",
-    );
-    assert.strictEqual(
-      resolveShortcutCommand(
-        event({ code: "KeyX", key: "≈", metaKey: true, altKey: true }),
-        legacyBindings,
-        {
-          platform: "MacIntel",
-          context: { modelPickerOpen: false },
-        },
-      ),
-      "chat.newCodex",
-    );
-    assert.strictEqual(
-      resolveShortcutCommand(
-        event({ code: "KeyR", key: "®", metaKey: true, altKey: true }),
-        legacyBindings,
-        {
-          platform: "MacIntel",
-          context: { modelPickerOpen: false },
-        },
-      ),
-      "chat.newOpenCode",
     );
   });
 });

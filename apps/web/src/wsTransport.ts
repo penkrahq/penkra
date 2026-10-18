@@ -972,11 +972,8 @@ export class WsTransport {
             (event: ServerConfigStreamEvent) => {
               if (event.type === "snapshot") {
                 this.emit(WS_CHANNELS.serverConfigUpdated, {
-                  issues: event.config.issues,
                   providers: event.config.providers,
                 });
-              } else if (event.type === "configUpdated") {
-                this.emit(WS_CHANNELS.serverConfigUpdated, event.payload);
               }
             },
             restartChannel,

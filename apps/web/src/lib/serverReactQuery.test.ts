@@ -26,9 +26,6 @@ function makeServerConfig(providers: readonly ServerProviderStatus[]): ServerCon
     cwd: "G:\\penkra",
     homeDir: "C:\\Users\\tester",
     chatWorkspaceRoot: "C:\\Users\\tester\\Documents\\Penkra",
-    keybindingsConfigPath: "C:\\PenkraDev\\keybindings.json",
-    keybindings: [],
-    issues: [],
     providers,
     availableEditors: [],
   };

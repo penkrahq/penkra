@@ -40,6 +40,7 @@ import { persistSidebarUiState, readSidebarUiState } from "./Sidebar.uiState";
 import { applyThreadRow, resetThreadListForTests } from "../threadListStore";
 import { useStore } from "../store";
 import { useSpacesUiStore } from "../spacesUiStore";
+import { useComposerDraftStore } from "../composerDraftStore";
 import type { Project, Space } from "../types";
 
 const spaceId = SpaceId.makeUnsafe("sidebar-stable-space");
@@ -219,4 +220,50 @@ it("converges with collapsed paging, dismissed statuses and route activation, th
   commits.mockClear();
   await act(async () => render(2));
   expect(commits).toHaveBeenCalledTimes(1);
+});
+
+it("highlights the folder, not the previous thread, while a new draft is open", async () => {
+  const route = createRootRoute();
+  const threadRoute = createRoute({
+    getParentRoute: () => route,
+    path: "/$threadId",
+    component: MountedSidebar,
+  });
+  const router = createRouter({
+    routeTree: route.addChildren([threadRoute]),
+    history: createMemoryHistory({ initialEntries: [`/${previousId}`] }),
+  });
+  await router.load();
+  await act(async () =>
+    root!.render(
+      <QueryClientProvider client={client}>
+        <RouterProvider router={router} />
+      </QueryClientProvider>,
+    ),
+  );
+  const draftId = ThreadId.makeUnsafe("new-folder-draft");
+  await act(async () => {
+    useComposerDraftStore.setState({
+      draftThreadsByThreadId: {
+        [draftId]: { folderId, spaceId, createdAt: at, runtimeMode: "full-access" },
+      },
+    });
+    await router.navigate({ to: "/$threadId", params: { threadId: draftId } });
+  });
+  expect(
+    container
+      .querySelector('[data-thread-item][aria-label="Previous"]')
+      ?.getAttribute("data-state"),
+  ).toBe("default");
+  expect(
+    Array.from(container.querySelectorAll("[data-state]"))
+      .find((node) => node.textContent === "Stable folder")
+      ?.getAttribute("data-state"),
+  ).toBe("active");
+  await act(async () => {
+    await router.navigate({ to: "/$threadId", params: { threadId: targetId } });
+  });
+  expect(
+    container.querySelector('[data-thread-item][aria-label="Target"]')?.getAttribute("data-state"),
+  ).toBe("active");
 });

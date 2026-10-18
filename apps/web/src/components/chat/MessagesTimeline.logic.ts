@@ -45,6 +45,7 @@ export function chunkWorkEntries(entries: ReadonlyArray<WorkLogEntry>): WorkEntr
 }
 
 export type MessagesTimelineRow =
+  | { kind: "turn-divider"; id: string; createdAt: string }
   | { kind: "boundary"; id: string; createdAt: string; turnId: string | null }
   | {
       kind: "turn-header";
@@ -356,6 +357,9 @@ export function deriveMessagesTimelineRows(input: {
         );
       }
     }
+    if (input.hasSteps?.[id]) {
+      block.push({ kind: "turn-divider", id: "turn-divider:" + id, createdAt: turn.createdAt });
+    }
     if (final) {
       const message = threadItemToChatMessage(final);
       block.push({
@@ -604,6 +608,8 @@ function isRowUnchanged(a: MessagesTimelineRow, b: MessagesTimelineRow): boolean
   if (a.kind !== b.kind || a.id !== b.id) return false;
 
   switch (a.kind) {
+    case "turn-divider":
+      return a.createdAt === (b as typeof a).createdAt;
     case "boundary":
       return a.turnId === (b as typeof a).turnId;
     case "turn-header": {

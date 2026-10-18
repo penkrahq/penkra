@@ -24,7 +24,6 @@ it("writes the desktop listening line exactly once, only after full readiness", 
           yield* Deferred.await(waiting);
           yield* readiness.markHttpListening;
           yield* readiness.markPushBusReady;
-          yield* readiness.markKeybindingsReady;
           yield* readiness.markTerminalSubscriptionsReady;
           expect(write).not.toHaveBeenCalled();
           yield* readiness.markOrchestrationSubscriptionsReady;

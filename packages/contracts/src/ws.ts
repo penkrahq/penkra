@@ -28,7 +28,6 @@ import {
 } from "./cleanCore";
 
 import { OrchestrationImportThreadInput, ORCHESTRATION_WS_METHODS } from "./orchestration";
-import { KeybindingRule } from "./keybindings";
 import {
   ProjectCreateLocalFilePreviewGrantInput,
   ProjectListDirectoriesInput,
@@ -129,7 +128,6 @@ export const WS_METHODS = {
   serverRefreshProviders: "server.refreshProviders",
   serverListProviderUsage: "server.listProviderUsage",
   serverTranscribeVoice: "server.transcribeVoice",
-  serverUpsertKeybinding: "server.upsertKeybinding",
   subscribeServerLifecycle: "server.subscribeLifecycle",
   subscribeServerConfig: "server.subscribeConfig",
   subscribeServerProviderStatuses: "server.subscribeProviderStatuses",
@@ -239,7 +237,6 @@ const WebSocketRequestBody = Schema.Union([
   tagRequestBody(WS_METHODS.serverRefreshProviders, Schema.Struct({})),
   tagRequestBody(WS_METHODS.serverListProviderUsage, ServerListProviderUsageInput),
   tagRequestBody(WS_METHODS.serverTranscribeVoice, ServerVoiceTranscriptionInput),
-  tagRequestBody(WS_METHODS.serverUpsertKeybinding, KeybindingRule),
 
   // Provider discovery
   tagRequestBody(WS_METHODS.providerGetComposerCapabilities, ProviderGetComposerCapabilitiesInput),

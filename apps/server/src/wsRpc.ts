@@ -39,7 +39,6 @@ import { SessionCredentialService } from "./auth/Services/SessionCredentialServi
 import { ServerConfig, type ServerConfigShape } from "./config";
 import { getSpaceNavigationState, updateSpaceNavigationState } from "./spaceNavigationState";
 import { realpathNearestExisting } from "./realpathNearestExisting";
-import { Keybindings } from "./keybindings";
 import { createLocalPreviewGrant } from "./localImageFiles";
 import {
   attachmentPrincipalForSession,
@@ -160,7 +159,6 @@ const makeWsRpcHandlersLayer = () =>
     Effect.gen(function* () {
       const config = yield* ServerConfig;
       const fileSystem = yield* FileSystem.FileSystem;
-      const keybindings = yield* Keybindings;
       const open = yield* Open;
       const path = yield* Path.Path;
       const projectionReadModelQuery = yield* ThreadReads;
@@ -262,15 +260,11 @@ const makeWsRpcHandlersLayer = () =>
       });
 
       const loadServerConfig = Effect.gen(function* () {
-        const keybindingsConfig = yield* keybindings.loadConfigState;
         const providerStatuses = yield* providerHealth.getStatuses;
         return {
           cwd: config.cwd,
           homeDir: config.homeDir,
           chatWorkspaceRoot: config.chatWorkspaceRoot,
-          keybindingsConfigPath: config.keybindingsConfigPath,
-          keybindings: keybindingsConfig.keybindings,
-          issues: keybindingsConfig.issues,
           providers: providerStatuses,
           availableEditors: resolveAvailableEditors(),
         };
@@ -701,16 +695,6 @@ const makeWsRpcHandlersLayer = () =>
             }),
             "Voice transcription failed",
           ),
-        [WS_METHODS.serverUpsertKeybinding]: (input) =>
-          rpcEffect(
-            keybindings.upsertKeybindingRule(input).pipe(
-              Effect.map((keybindingsConfig) => ({
-                keybindings: keybindingsConfig,
-                issues: [],
-              })),
-            ),
-            "Failed to update keybinding",
-          ),
         [WS_METHODS.subscribeServerLifecycle]: (_, { clientId }) =>
           streamAdmission.guard(
             clientId,
@@ -756,34 +740,23 @@ const makeWsRpcHandlersLayer = () =>
                 ),
               ),
               Stream.merge(
-                bufferLiveUiStream(keybindings.streamChanges, {
-                  label: "server.keybindings",
+                bufferLiveUiStream(providerHealth.streamChanges, {
+                  label: "server.provider-statuses",
                   onDroppedEvents: failLiveUiStreamForSnapshotResync,
                 }).pipe(
-                  Stream.map((event) => ({
-                    type: "configUpdated" as const,
-                    payload: { issues: event.issues, providers: [] },
+                  Stream.map((providers) => ({
+                    type: "providerStatuses" as const,
+                    payload: { providers },
                   })),
                 ),
-                Stream.merge(
-                  bufferLiveUiStream(providerHealth.streamChanges, {
-                    label: "server.provider-statuses",
-                    onDroppedEvents: failLiveUiStreamForSnapshotResync,
-                  }).pipe(
-                    Stream.map((providers) => ({
-                      type: "providerStatuses" as const,
-                      payload: { providers },
-                    })),
-                  ),
-                  bufferLiveUiStream(serverSettings.streamViews, {
-                    label: "server.settings",
-                    onDroppedEvents: failLiveUiStreamForSnapshotResync,
-                  }).pipe(
-                    Stream.map((settings) => ({
-                      type: "settingsUpdated" as const,
-                      payload: { settings },
-                    })),
-                  ),
+                bufferLiveUiStream(serverSettings.streamViews, {
+                  label: "server.settings",
+                  onDroppedEvents: failLiveUiStreamForSnapshotResync,
+                }).pipe(
+                  Stream.map((settings) => ({
+                    type: "settingsUpdated" as const,
+                    payload: { settings },
+                  })),
                 ),
               ),
             ).pipe(Stream.mapError((cause) => toWsRpcError(cause, "Server config stream failed"))),

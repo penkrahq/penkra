@@ -9,16 +9,12 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { render } from "vitest-browser-react";
 
 const harness = vi.hoisted(() => ({
-  config: {
-    keybindingsConfigPath: "/tmp/keybindings.json",
-    availableEditors: [],
-  },
   auth: { authenticated: true, role: "client" },
 }));
 
 vi.mock("@tanstack/react-query", () => ({
-  useQuery: (options: { queryKey: readonly string[] }) => ({
-    data: options.queryKey[0] === "config" ? harness.config : harness.auth,
+  useQuery: () => ({
+    data: harness.auth,
   }),
 }));
 
@@ -42,7 +38,7 @@ describe("AdvancedSettingsPanel", () => {
 
     expect(document.body.textContent).toContain("Authenticated as client.");
     expect(document.body.textContent).not.toContain("Recovery tools");
-    expect(page.getByRole("button", { name: "Open file" }).element()).toBeTruthy();
+    expect(document.body.textContent).not.toContain("Keybindings");
     await page.getByRole("button", { name: "View release history" }).click();
     expect(onOpenReleaseHistory).toHaveBeenCalledOnce();
   });

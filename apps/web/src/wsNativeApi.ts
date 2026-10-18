@@ -434,7 +434,6 @@ export function createWsNativeApi(): NativeApi {
       refreshProviders: () => transport.request(WS_METHODS.serverRefreshProviders),
       listProviderUsage: (input) => transport.request(WS_METHODS.serverListProviderUsage, input),
       transcribeVoice: requestVoiceTranscriptionUpload,
-      upsertKeybinding: (input) => transport.request(WS_METHODS.serverUpsertKeybinding, input),
     },
     provider: {
       getComposerCapabilities: (input) =>

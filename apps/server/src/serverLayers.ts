@@ -9,7 +9,6 @@ import { AgentGatewayLive } from "./agentGateway/Layers/AgentGateway";
 import { AgentGatewayCredentialsWithSecretsLive } from "./agentGateway/Layers/AgentGatewayCredentials";
 import { ThreadReadsLive } from "./cleanCore/ThreadReads.ts";
 import { ManagedAttachmentRepositoryLive } from "./persistence/Layers/ManagedAttachments.ts";
-import { KeybindingsLive } from "./keybindings";
 import { TextGenerationLayerLive } from "./textGeneration/runtimeLayer";
 import { AuthControlPlaneLive } from "./auth/Layers/AuthControlPlane";
 import { BootstrapCredentialServiceLive } from "./auth/Layers/BootstrapCredentialService";
@@ -157,7 +156,6 @@ export function makeServerRuntimeServicesLayer(
     providerThreadSwitchCoordinatorLayer,
     providerHealthLayer,
     TextGenerationLayerLive,
-    KeybindingsLive,
     ServerSettingsLive,
     ServerEnvironmentLive,
     authServicesLayer,
