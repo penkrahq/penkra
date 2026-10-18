@@ -3,9 +3,6 @@ import type { ServerConfig } from "@penkra/contracts";
 export function createBrowserTestServerConfig(checkedAt: string): ServerConfig {
   return {
     cwd: "/repo/project",
-    keybindingsConfigPath: "/repo/project/.penkra-keybindings.json",
-    keybindings: [],
-    issues: [],
     providers: [
       {
         provider: "codex",

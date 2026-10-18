@@ -1,5 +1,5 @@
 // FILE: AdvancedSettingsPanel.tsx
-// Purpose: Own advanced settings state and workflows for auth and keybindings.
+// Purpose: Own advanced settings state and workflows for auth.
 // Layer: Settings UI components
 // Exports: AdvancedSettingsPanel
 
@@ -8,12 +8,10 @@ import { useCallback, useState } from "react";
 
 import { logoutCurrentBrowserSession } from "~/authLogout";
 import { APP_VERSION } from "~/branding";
-import { resolveAndPersistPreferredEditor } from "~/editorPreferences";
 import { Button } from "~/components/ui/button";
 import { toastManager } from "~/components/ui/toast";
 import { ensureNativeApi, readNativeApi } from "~/nativeApi";
-import { serverAuthSessionQueryOptions, serverConfigQueryOptions } from "~/lib/serverReactQuery";
-import { useSettingsRestoreSignal } from "./SettingControls";
+import { serverAuthSessionQueryOptions } from "~/lib/serverReactQuery";
 import { SettingsRow, SettingsSection } from "./SettingsPanelPrimitives";
 
 export function AdvancedSettingsPanel(props: {
@@ -21,40 +19,8 @@ export function AdvancedSettingsPanel(props: {
   onOpenReleaseHistory: () => void;
   resetEpoch: number;
 }) {
-  const configQuery = useQuery(serverConfigQueryOptions());
   const authSessionQuery = useQuery(serverAuthSessionQueryOptions());
-  const [isOpeningKeybindings, setIsOpeningKeybindings] = useState(false);
   const [isLoggingOut, setIsLoggingOut] = useState(false);
-  const [openKeybindingsError, setOpenKeybindingsError] = useState<string | null>(null);
-
-  useSettingsRestoreSignal(props.resetEpoch, () => {
-    setOpenKeybindingsError(null);
-  });
-
-  const keybindingsConfigPath = configQuery.data?.keybindingsConfigPath ?? null;
-  const availableEditors = configQuery.data?.availableEditors;
-  const openKeybindingsFile = useCallback(() => {
-    if (!keybindingsConfigPath) return;
-    setOpenKeybindingsError(null);
-    setIsOpeningKeybindings(true);
-    const editor = resolveAndPersistPreferredEditor(availableEditors ?? []);
-    if (!editor) {
-      setOpenKeybindingsError("No available editors found.");
-      setIsOpeningKeybindings(false);
-      return;
-    }
-    void ensureNativeApi()
-      .shell.openInEditor(keybindingsConfigPath, editor)
-      .catch((error) => {
-        setOpenKeybindingsError(
-          error instanceof Error ? error.message : "Unable to open keybindings file.",
-        );
-      })
-      .finally(() => {
-        setIsOpeningKeybindings(false);
-      });
-  }, [availableEditors, keybindingsConfigPath]);
-
   const logoutCurrentSession = useCallback(async () => {
     if (isLoggingOut) return;
     const api = readNativeApi() ?? ensureNativeApi();
@@ -99,35 +65,6 @@ export function AdvancedSettingsPanel(props: {
           />
         </SettingsSection>
       ) : null}
-
-      <SettingsSection title="Developer tools">
-        <SettingsRow
-          title="Keybindings"
-          description="Open the persisted `keybindings.json` file to edit advanced bindings directly."
-          status={
-            <>
-              <span className="block break-all font-mono text-[length:var(--app-font-size-ui-sm,11px)] text-foreground">
-                {keybindingsConfigPath ?? "Resolving keybindings path..."}
-              </span>
-              {openKeybindingsError ? (
-                <span className="mt-1 block text-destructive">{openKeybindingsError}</span>
-              ) : (
-                <span className="mt-1 block">Opens in your preferred editor.</span>
-              )}
-            </>
-          }
-          control={
-            <Button
-              size="xs"
-              variant="outline"
-              disabled={!keybindingsConfigPath || isOpeningKeybindings}
-              onClick={openKeybindingsFile}
-            >
-              {isOpeningKeybindings ? "Opening..." : "Open file"}
-            </Button>
-          }
-        />
-      </SettingsSection>
 
       <SettingsSection title="About">
         <SettingsRow

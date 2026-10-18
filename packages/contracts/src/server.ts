@@ -8,7 +8,6 @@ import {
   ThreadId,
   TrimmedNonEmptyString,
 } from "./baseSchemas";
-import { KeybindingRule, ResolvedKeybindingsConfig } from "./keybindings";
 import { EditorId } from "./editor";
 import { ModelSelection, ProviderKind, ProviderStartOptions } from "./orchestration";
 import { ServerSettingsPatch, ServerSettingsView } from "./settings";
@@ -16,25 +15,6 @@ import { ExecutionEnvironmentDescriptor } from "./environment";
 
 export const SERVER_VOICE_TRANSCRIPTION_MAX_AUDIO_BYTES = 10 * 1024 * 1024;
 const SERVER_VOICE_TRANSCRIPTION_MAX_AUDIO_BASE64_CHARS = 14_000_000;
-
-const KeybindingsMalformedConfigIssue = Schema.Struct({
-  kind: Schema.Literal("keybindings.malformed-config"),
-  message: TrimmedNonEmptyString,
-});
-
-const KeybindingsInvalidEntryIssue = Schema.Struct({
-  kind: Schema.Literal("keybindings.invalid-entry"),
-  message: TrimmedNonEmptyString,
-  index: Schema.Number,
-});
-
-export const ServerConfigIssue = Schema.Union([
-  KeybindingsMalformedConfigIssue,
-  KeybindingsInvalidEntryIssue,
-]);
-export type ServerConfigIssue = typeof ServerConfigIssue.Type;
-
-const ServerConfigIssues = Schema.Array(ServerConfigIssue);
 
 export const ServerProviderStatusState = Schema.Literals(["ready", "warning", "error"]);
 export type ServerProviderStatusState = typeof ServerProviderStatusState.Type;
@@ -89,9 +69,6 @@ export const ServerConfig = Schema.Struct({
   cwd: TrimmedNonEmptyString,
   homeDir: Schema.optional(TrimmedNonEmptyString),
   chatWorkspaceRoot: Schema.optional(TrimmedNonEmptyString),
-  keybindingsConfigPath: TrimmedNonEmptyString,
-  keybindings: ResolvedKeybindingsConfig,
-  issues: ServerConfigIssues,
   providers: ServerProviderStatuses,
   availableEditors: Schema.Array(EditorId),
 });
@@ -181,17 +158,7 @@ export const ServerVoiceTranscriptionResult = Schema.Struct({
 });
 export type ServerVoiceTranscriptionResult = typeof ServerVoiceTranscriptionResult.Type;
 
-export const ServerUpsertKeybindingInput = KeybindingRule;
-export type ServerUpsertKeybindingInput = typeof ServerUpsertKeybindingInput.Type;
-
-export const ServerUpsertKeybindingResult = Schema.Struct({
-  keybindings: ResolvedKeybindingsConfig,
-  issues: ServerConfigIssues,
-});
-export type ServerUpsertKeybindingResult = typeof ServerUpsertKeybindingResult.Type;
-
 export const ServerConfigUpdatedPayload = Schema.Struct({
-  issues: ServerConfigIssues,
   providers: ServerProviderStatuses,
 });
 export type ServerConfigUpdatedPayload = typeof ServerConfigUpdatedPayload.Type;
@@ -252,10 +219,6 @@ export const ServerConfigStreamEvent = Schema.Union([
   Schema.Struct({
     type: Schema.Literal("snapshot"),
     config: ServerConfig,
-  }),
-  Schema.Struct({
-    type: Schema.Literal("configUpdated"),
-    payload: ServerConfigUpdatedPayload,
   }),
   Schema.Struct({
     type: Schema.Literal("providerStatuses"),

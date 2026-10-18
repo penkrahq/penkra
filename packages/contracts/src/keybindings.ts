@@ -1,11 +1,3 @@
-import { Schema } from "effect";
-import { TrimmedString } from "./baseSchemas";
-
-export const MAX_KEYBINDING_VALUE_LENGTH = 64;
-const MAX_KEYBINDING_WHEN_LENGTH = 256;
-export const MAX_WHEN_EXPRESSION_DEPTH = 64;
-export const MAX_KEYBINDINGS_COUNT = 256;
-
 const STATIC_KEYBINDING_COMMANDS = [
   "sidebar.toggle",
   "sidebar.search",
@@ -80,74 +72,28 @@ export const SPACE_JUMP_KEYBINDING_COMMANDS = [
 ] as const;
 export type SpaceJumpKeybindingCommand = (typeof SPACE_JUMP_KEYBINDING_COMMANDS)[number];
 
-export const KeybindingCommand = Schema.Literals(STATIC_KEYBINDING_COMMANDS);
-export type KeybindingCommand = typeof KeybindingCommand.Type;
-
-const KeybindingValue = TrimmedString.check(
-  Schema.isMinLength(1),
-  Schema.isMaxLength(MAX_KEYBINDING_VALUE_LENGTH),
-);
-
-const KeybindingWhen = TrimmedString.check(
-  Schema.isMinLength(1),
-  Schema.isMaxLength(MAX_KEYBINDING_WHEN_LENGTH),
-);
-export const KeybindingRule = Schema.Struct({
-  key: KeybindingValue,
-  command: KeybindingCommand,
-  when: Schema.optional(KeybindingWhen),
-});
-export type KeybindingRule = typeof KeybindingRule.Type;
-
-export const KeybindingsConfig = Schema.Array(KeybindingRule).check(
-  Schema.isMaxLength(MAX_KEYBINDINGS_COUNT),
-);
-export type KeybindingsConfig = typeof KeybindingsConfig.Type;
-
-export const KeybindingShortcut = Schema.Struct({
-  key: KeybindingValue,
-  metaKey: Schema.Boolean,
-  ctrlKey: Schema.Boolean,
-  shiftKey: Schema.Boolean,
-  altKey: Schema.Boolean,
-  modKey: Schema.Boolean,
-});
-export type KeybindingShortcut = typeof KeybindingShortcut.Type;
-
-export const KeybindingWhenNode: Schema.Schema<KeybindingWhenNode> = Schema.Union([
-  Schema.Struct({
-    type: Schema.Literal("identifier"),
-    name: Schema.NonEmptyString,
-  }),
-  Schema.Struct({
-    type: Schema.Literal("not"),
-    node: Schema.suspend((): Schema.Schema<KeybindingWhenNode> => KeybindingWhenNode),
-  }),
-  Schema.Struct({
-    type: Schema.Literal("and"),
-    left: Schema.suspend((): Schema.Schema<KeybindingWhenNode> => KeybindingWhenNode),
-    right: Schema.suspend((): Schema.Schema<KeybindingWhenNode> => KeybindingWhenNode),
-  }),
-  Schema.Struct({
-    type: Schema.Literal("or"),
-    left: Schema.suspend((): Schema.Schema<KeybindingWhenNode> => KeybindingWhenNode),
-    right: Schema.suspend((): Schema.Schema<KeybindingWhenNode> => KeybindingWhenNode),
-  }),
-]);
+export type KeybindingCommand = (typeof STATIC_KEYBINDING_COMMANDS)[number];
+export interface KeybindingRule {
+  readonly key: string;
+  readonly command: KeybindingCommand;
+  readonly when?: string;
+}
+export interface KeybindingShortcut {
+  readonly key: string;
+  readonly metaKey: boolean;
+  readonly ctrlKey: boolean;
+  readonly shiftKey: boolean;
+  readonly altKey: boolean;
+  readonly modKey: boolean;
+}
 export type KeybindingWhenNode =
   | { type: "identifier"; name: string }
   | { type: "not"; node: KeybindingWhenNode }
   | { type: "and"; left: KeybindingWhenNode; right: KeybindingWhenNode }
   | { type: "or"; left: KeybindingWhenNode; right: KeybindingWhenNode };
-
-export const ResolvedKeybindingRule = Schema.Struct({
-  command: KeybindingCommand,
-  shortcut: KeybindingShortcut,
-  whenAst: Schema.optional(KeybindingWhenNode),
-}).annotate({ parseOptions: { onExcessProperty: "ignore" } });
-export type ResolvedKeybindingRule = typeof ResolvedKeybindingRule.Type;
-
-export const ResolvedKeybindingsConfig = Schema.Array(ResolvedKeybindingRule).check(
-  Schema.isMaxLength(MAX_KEYBINDINGS_COUNT),
-);
-export type ResolvedKeybindingsConfig = typeof ResolvedKeybindingsConfig.Type;
+export interface ResolvedKeybindingRule {
+  readonly command: KeybindingCommand;
+  readonly shortcut: KeybindingShortcut;
+  readonly whenAst?: KeybindingWhenNode;
+}
+export type ResolvedKeybindingsConfig = ReadonlyArray<ResolvedKeybindingRule>;

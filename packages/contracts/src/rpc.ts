@@ -11,7 +11,6 @@ import * as RpcGroup from "effect/unstable/rpc/RpcGroup";
 
 import { OpenInEditorInput } from "./editor";
 import { FilesystemBrowseInput, FilesystemBrowseResult } from "./filesystem";
-import { KeybindingRule } from "./keybindings";
 import {
   ORCHESTRATION_WS_METHODS,
   OrchestrationImportThreadInput,
@@ -78,7 +77,6 @@ import {
   ServerUpdateSettingsResult,
   ServerSpaceNavigationState,
   ServerUpdateSpaceNavigationStateInput,
-  ServerUpsertKeybindingResult,
   ServerVoiceTranscriptionInput,
   ServerVoiceTranscriptionResult,
 } from "./server";
@@ -268,12 +266,6 @@ export const WsServerListProviderUsageRpc = Rpc.make(WS_METHODS.serverListProvid
 export const WsServerTranscribeVoiceRpc = Rpc.make(WS_METHODS.serverTranscribeVoice, {
   payload: ServerVoiceTranscriptionInput,
   success: ServerVoiceTranscriptionResult,
-  error: WsRpcError,
-});
-
-export const WsServerUpsertKeybindingRpc = Rpc.make(WS_METHODS.serverUpsertKeybinding, {
-  payload: KeybindingRule,
-  success: ServerUpsertKeybindingResult,
   error: WsRpcError,
 });
 
@@ -621,7 +613,6 @@ export const WsFeatureRpcGroup = RpcGroup.make(
   WsServerRefreshProvidersRpc,
   WsServerListProviderUsageRpc,
   WsServerTranscribeVoiceRpc,
-  WsServerUpsertKeybindingRpc,
   WsSubscribeServerLifecycleRpc,
   WsSubscribeServerConfigRpc,
   WsSubscribeServerProviderStatusesRpc,

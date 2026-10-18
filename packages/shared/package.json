@@ -4,6 +4,10 @@
   "private": true,
   "type": "module",
   "exports": {
+    "./keybindings": {
+      "types": "./src/keybindings.ts",
+      "import": "./src/keybindings.ts"
+    },
     "./userItemData": {
       "types": "./src/userItemData.ts",
       "import": "./src/userItemData.ts"

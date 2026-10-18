@@ -1,4 +1,5 @@
 import { Schema } from "effect";
+import { KEYBINDINGS } from "@penkra/shared/keybindings";
 import { loadThread, useThreadList, getThreadListById, useThreadSummary } from "../threadListStore";
 import { useThreadStop } from "../hooks/useThreadStop";
 import { useAttachmentPreviewHandoffs } from "../hooks/useAttachmentPreviewHandoffs";
@@ -23,7 +24,6 @@ import {
   type ProviderStartOptions,
   type ProviderUserInputAnswers,
   type CleanCoreAnswerThreadQuestionInput,
-  type ResolvedKeybindingsConfig,
   type ServerProviderStatus,
   ThreadId,
   type TurnId,
@@ -373,7 +373,6 @@ import { buildModelSelection } from "../providerModelOptions";
 
 const EMPTY_ACTIVITIES: OrchestrationThreadActivity[] = [];
 const EMPTY_MESSAGES: ChatMessage[] = [];
-const EMPTY_KEYBINDINGS: ResolvedKeybindingsConfig = [];
 const EMPTY_PROJECT_ENTRIES: ProjectEntry[] = [];
 const EMPTY_PROVIDER_NATIVE_COMMANDS: ProviderNativeCommandDescriptor[] = [];
 const EMPTY_PROVIDER_SKILLS: ProviderSkillDescriptor[] = [];
@@ -2467,7 +2466,7 @@ function ChatViewContent({
     );
     return new Set(nonPersistedComposerImageIds.filter((id) => !durableBlobIds.has(id)));
   }, [durablyPersistedComposerImageIds, nonPersistedComposerImageIds]);
-  const keybindings = serverConfigQuery.data?.keybindings ?? EMPTY_KEYBINDINGS;
+  const keybindings = KEYBINDINGS;
   const rememberCustomBinaryPathForDispatch = useCallback(
     (input: {
       threadId: Thread["id"];

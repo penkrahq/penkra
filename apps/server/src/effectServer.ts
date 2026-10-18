@@ -16,7 +16,6 @@ import { remoteAccessPolicyError, ServerConfig } from "./config";
 import { resolveListeningPort } from "./startupAccess";
 import { patchBunWebSocketCloseEventCompatibility } from "./bunWebSocketCompatibility";
 import { makeEffectHttpRouteLayer } from "./http";
-import { Keybindings } from "./keybindings";
 import {
   ManagedAttachmentCleanup,
   type ManagedAttachmentCleanupShape,
@@ -47,7 +46,6 @@ export interface ServerShape {
     | AgentGatewayCredentials
     | FileSystem.FileSystem
     | Path.Path
-    | Keybindings
     | ManagedAttachmentCleanup
     | ServerLifecycleEvents
     | ThreadReads
@@ -135,7 +133,6 @@ export const createEffectServer = Effect.fn(function* (
     });
   }
   const agentGatewayCredentials = yield* AgentGatewayCredentials;
-  const keybindings = yield* Keybindings;
   const managedAttachmentCleanup = yield* ManagedAttachmentCleanup;
   const workspaceWatcher = yield* WorkspaceWatcher;
   const lifecycleEvents = yield* ServerLifecycleEvents;
@@ -145,18 +142,8 @@ export const createEffectServer = Effect.fn(function* (
   const serverSettings = yield* ServerSettingsService;
   const readiness = yield* makeServerReadiness;
 
-  yield* keybindings.syncDefaultKeybindingsOnStartup.pipe(
-    Effect.catch((error) =>
-      Effect.logWarning("failed to sync keybindings defaults on startup", {
-        path: error.configPath,
-        detail: error.detail,
-        cause: error.cause,
-      }),
-    ),
-  );
   yield* serverSettings.start;
   yield* readiness.markPushBusReady;
-  yield* readiness.markKeybindingsReady;
 
   let nodeServer: http.Server | null = null;
   patchBunWebSocketCloseEventCompatibility();

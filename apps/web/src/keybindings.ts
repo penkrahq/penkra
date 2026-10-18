@@ -1,6 +1,5 @@
 import {
   type KeybindingCommand,
-  type ResolvedKeybindingRule,
   type KeybindingShortcut,
   type KeybindingWhenNode,
   type ResolvedKeybindingsConfig,
@@ -36,123 +35,6 @@ interface ResolvedShortcutLabelOptions extends ShortcutMatchOptions {
   platform?: string;
 }
 
-function commandShortcut(
-  key: string,
-  overrides: Partial<Omit<KeybindingShortcut, "key">> = {},
-): KeybindingShortcut {
-  return {
-    key,
-    metaKey: false,
-    ctrlKey: false,
-    shiftKey: false,
-    altKey: false,
-    modKey: true,
-    ...overrides,
-  };
-}
-
-export const DEFAULT_SHORTCUT_FALLBACKS: ResolvedKeybindingsConfig = [
-  {
-    command: "sidebar.addProject",
-    shortcut: commandShortcut("o", { shiftKey: true }),
-  },
-  {
-    command: "chat.new",
-    shortcut: commandShortcut("n"),
-  },
-  {
-    command: "chat.newLatestProject",
-    shortcut: commandShortcut("n", { shiftKey: true }),
-  },
-  {
-    command: "chat.newClaude",
-    shortcut: commandShortcut("c", { altKey: true }),
-  },
-  {
-    command: "chat.newChat",
-    shortcut: commandShortcut("n", { altKey: true }),
-  },
-  {
-    command: "chat.newCodex",
-    shortcut: commandShortcut("x", { altKey: true }),
-  },
-  {
-    command: "chat.newOpenCode",
-    shortcut: commandShortcut("r", { altKey: true }),
-  },
-  {
-    command: "view.recent.next",
-    shortcut: commandShortcut("tab", { ctrlKey: true, modKey: false }),
-  },
-  {
-    command: "view.recent.previous",
-    shortcut: commandShortcut("tab", { ctrlKey: true, shiftKey: true, modKey: false }),
-  },
-  {
-    command: "modelPicker.toggle",
-    shortcut: commandShortcut("m", { shiftKey: true }),
-  },
-  {
-    command: "model.next",
-    shortcut: commandShortcut("]", { altKey: true, modKey: false }),
-  },
-  {
-    command: "model.previous",
-    shortcut: commandShortcut("[", { altKey: true, modKey: false }),
-  },
-  {
-    command: "traitsPicker.toggle",
-    shortcut: commandShortcut("e", { shiftKey: true }),
-  },
-  {
-    command: "composer.focus.toggle",
-    shortcut: commandShortcut("l", { metaKey: true, modKey: false }),
-  },
-  {
-    command: "settings.usage",
-    shortcut: commandShortcut("u", { shiftKey: true }),
-  },
-  ...SPACE_JUMP_KEYBINDING_COMMANDS.map((command, index) => ({
-    command,
-    shortcut: commandShortcut(String(index + 1), { altKey: true }),
-  })),
-  {
-    command: "thread.jump.1",
-    shortcut: commandShortcut("1"),
-  },
-  {
-    command: "thread.jump.2",
-    shortcut: commandShortcut("2"),
-  },
-  {
-    command: "thread.jump.3",
-    shortcut: commandShortcut("3"),
-  },
-  {
-    command: "thread.jump.4",
-    shortcut: commandShortcut("4"),
-  },
-  {
-    command: "thread.jump.5",
-    shortcut: commandShortcut("5"),
-  },
-  {
-    command: "thread.jump.6",
-    shortcut: commandShortcut("6"),
-  },
-  {
-    command: "thread.jump.7",
-    shortcut: commandShortcut("7"),
-  },
-  {
-    command: "thread.jump.8",
-    shortcut: commandShortcut("8"),
-  },
-  {
-    command: "thread.jump.9",
-    shortcut: commandShortcut("9"),
-  },
-];
 const EVENT_CODE_KEY_ALIASES: Readonly<Record<string, readonly string[]>> = {
   BracketLeft: ["["],
   BracketRight: ["]"],
@@ -345,29 +227,12 @@ function resolveShortcutCommandFromBindings(
   return null;
 }
 
-function getFallbackBindings(
-  keybindings: ResolvedKeybindingsConfig,
-): ReadonlyArray<ResolvedKeybindingRule> {
-  const configuredCommands = new Set(keybindings.map((binding) => binding.command));
-  return DEFAULT_SHORTCUT_FALLBACKS.filter((binding) => !configuredCommands.has(binding.command));
-}
-
 export function resolveShortcutCommand(
   event: ShortcutEventLike,
   keybindings: ResolvedKeybindingsConfig,
   options?: ShortcutMatchOptions,
 ): string | null {
-  const explicitCommand = resolveShortcutCommandFromBindings(event, keybindings, options);
-  if (explicitCommand !== null) {
-    return explicitCommand;
-  }
-
-  const fallbackBindings = getFallbackBindings(keybindings);
-  if (fallbackBindings.length === 0) {
-    return null;
-  }
-
-  return resolveShortcutCommandFromBindings(event, fallbackBindings, options);
+  return resolveShortcutCommandFromBindings(event, keybindings, options);
 }
 
 function formatShortcutKeyLabel(key: string): string {
@@ -452,10 +317,6 @@ export function shortcutLabelForCommand(
       if (!binding || binding.command !== command) continue;
       return formatShortcutLabel(binding.shortcut, platform);
     }
-    for (const binding of getFallbackBindings(keybindings)) {
-      if (binding.command !== command) continue;
-      return formatShortcutLabel(binding.shortcut, platform);
-    }
     return null;
   }
 
@@ -464,12 +325,7 @@ export function shortcutLabelForCommand(
     return formatShortcutLabel(shortcut, platform);
   }
 
-  const fallbackShortcut = findEffectiveShortcutForCommand(
-    getFallbackBindings(keybindings),
-    command,
-    resolvedOptions,
-  );
-  return fallbackShortcut ? formatShortcutLabel(fallbackShortcut, platform) : null;
+  return null;
 }
 
 export function threadJumpCommandForIndex(index: number): ThreadJumpKeybindingCommand | null {
@@ -496,12 +352,9 @@ export function shouldShowThreadJumpHints(
   options?: ShortcutMatchOptions,
 ): boolean {
   const platform = resolvePlatform(options);
-  const fallbackBindings = getFallbackBindings(keybindings);
 
   for (const command of THREAD_JUMP_KEYBINDING_COMMANDS) {
-    const shortcut =
-      findEffectiveShortcutForCommand(keybindings, command, options) ??
-      findEffectiveShortcutForCommand(fallbackBindings, command, options);
+    const shortcut = findEffectiveShortcutForCommand(keybindings, command, options);
     if (!shortcut) continue;
     if (matchesShortcutModifiers(event, shortcut, platform)) {
       return true;

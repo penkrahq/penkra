@@ -1,4 +1,5 @@
-import { FolderId, type ResolvedKeybindingsConfig } from "@penkra/contracts";
+import { KEYBINDINGS } from "@penkra/shared/keybindings";
+import { FolderId } from "@penkra/contracts";
 import { useQuery } from "@tanstack/react-query";
 import { Outlet, createFileRoute, useLocation, useNavigate } from "@tanstack/react-router";
 import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
@@ -26,7 +27,6 @@ import {
   resolveNewThreadTarget,
 } from "../lib/projectShortcutTargets";
 import { startChatForActiveSurface } from "../lib/startContainerChat";
-import { serverConfigQueryOptions } from "../lib/serverReactQuery";
 import { isOrdinarySpaceProject } from "../lib/spaces";
 import { resolveShortcutCommand } from "../keybindings";
 import { closeSelectedPanelTabForFolder } from "../lib/panelShortcuts";
@@ -50,7 +50,6 @@ import {
 } from "~/components/ui/sidebar";
 import { cn } from "~/lib/utils";
 
-const EMPTY_KEYBINDINGS: ResolvedKeybindingsConfig = [];
 const MAINTENANCE_EVENT_STALE_MS = 5 * 60 * 1000;
 
 type MaintenanceToastId = ReturnType<typeof toastManager.add>;
@@ -214,9 +213,8 @@ function ChatRouteGlobalShortcuts() {
   const clearLatestFolderId = useLatestProjectStore((state) => state.clearLatestFolderId);
   const threadsHydrated = useStore((state) => state.threadsHydrated);
   const activeSpaceId = useSpacesUiStore((state) => state.activeSpaceId);
-  const serverConfigQuery = useQuery(serverConfigQueryOptions());
   const providerConnectionsQuery = useQuery(providerConnectionsQueryOptions());
-  const keybindings = serverConfigQuery.data?.keybindings ?? EMPTY_KEYBINDINGS;
+  const keybindings = KEYBINDINGS;
   const platform = typeof navigator === "undefined" ? "" : navigator.platform;
   const providerStatuses = useProviderStatusesForLocalConfig();
   const refreshProviderStatuses = useRefreshProviderStatusesNow();

@@ -42,7 +42,6 @@ function makeServerConfig(overrides: Partial<ServerConfigShape> = {}): ServerCon
     homeDir: os.homedir(),
     chatWorkspaceRoot: resolveDefaultChatWorkspaceRoot({ homeDir: os.homedir() }),
     baseDir,
-    keybindingsConfigPath: path.join(baseDir, "keybindings.json"),
     stateDir: baseDir,
     serverRuntimeStatePath: path.join(baseDir, "runtime.json"),
     serverSettingsPath: path.join(baseDir, "settings.json"),

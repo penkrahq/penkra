@@ -830,11 +830,13 @@ export const MessagesTimeline = memo(function MessagesTimeline({
         className={cn(
           CHAT_COLUMN_FRAME_CLASS_NAME,
           "px-1 transition-colors duration-500",
-          row.kind === "work" ||
-            row.kind === "working-header" ||
-            (row.kind === "message" && row.message.role === "assistant")
-            ? "pb-2"
-            : "pb-4",
+          row.kind === "turn-header" || row.kind === "turn-divider"
+            ? "pb-0"
+            : row.kind === "work" ||
+                row.kind === "working-header" ||
+                (row.kind === "message" && row.message.role === "assistant")
+              ? "pb-2"
+              : "pb-4",
           row.kind === "message" && row.message.role === "assistant" ? "group/assistant" : null,
           row.kind === "message" && row.message.id === highlightedMessageId
             ? "rounded-xl bg-[var(--color-background-elevated-secondary)]"
@@ -855,6 +857,7 @@ export const MessagesTimeline = memo(function MessagesTimeline({
             type="button"
             aria-expanded={row.expanded}
             className="-ml-0.5 inline-flex items-center gap-1 pb-2 text-left text-muted-foreground/70 hover:text-muted-foreground/90"
+            style={{ fontSize: chatTypographyStyle.fontSize }}
             onClick={() =>
               setExpandedTurns((current) => ({ ...current, [row.turnId]: !row.expanded }))
             }
@@ -863,6 +866,7 @@ export const MessagesTimeline = memo(function MessagesTimeline({
             <DisclosureChevron open={row.expanded} className="text-muted-foreground/55" />
           </button>
         )}
+        {row.kind === "turn-divider" && <div className="mb-3 h-px w-full bg-border" />}
         {row.kind === "media" && (
           <PresentedMediaRow
             items={row.entries.flatMap((entry) =>

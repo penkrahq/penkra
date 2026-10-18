@@ -47,8 +47,6 @@ import type {
   ServerUpdateSettingsResult,
   ServerSpaceNavigationState,
   ServerUpdateSpaceNavigationStateInput,
-  ServerUpsertKeybindingInput,
-  ServerUpsertKeybindingResult,
   ServerVoiceTranscriptionInput,
   ServerVoiceTranscriptionResult,
 } from "./server";
@@ -997,7 +995,6 @@ export interface NativeApi {
     transcribeVoice: (
       input: ServerVoiceTranscriptionInput,
     ) => Promise<ServerVoiceTranscriptionResult>;
-    upsertKeybinding: (input: ServerUpsertKeybindingInput) => Promise<ServerUpsertKeybindingResult>;
   };
   provider: {
     getComposerCapabilities: (

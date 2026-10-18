@@ -3,6 +3,7 @@
 // Exports: Sidebar
 
 import { SidebarSearchPaletteController } from "./SidebarSearchPaletteController";
+import { KEYBINDINGS } from "@penkra/shared/keybindings";
 import { SidebarThreadPageEnd } from "./SidebarThreadPageEnd";
 import { useSidebarThreadRows, type SidebarThreadRow } from "../sidebarThreadRows";
 import {
@@ -31,7 +32,6 @@ import {
   lazy,
   useCallback,
   useEffect,
-  useLayoutEffect,
   useMemo,
   useRef,
   useState,
@@ -185,7 +185,6 @@ import { toastManager } from "./ui/toast";
 import { useSpacesController } from "./useSpacesController";
 const AddPlusIcon = createCentralIconComponent("plus-medium");
 
-const EMPTY_KEYBINDINGS: ResolvedKeybindingsConfig = [];
 const THREAD_PREVIEW_LIMIT = 5;
 // Each "Show more" click reveals this many extra rows; collapsing resets the preview.
 const THREAD_PREVIEW_PAGE_SIZE = 5;
@@ -411,10 +410,7 @@ export default function Sidebar() {
       }
     };
   }, []);
-  const { data: keybindings = EMPTY_KEYBINDINGS } = useQuery({
-    ...serverConfigQueryOptions(),
-    select: (config) => config.keybindings,
-  });
+  const keybindings = KEYBINDINGS;
   const { data: serverCwd = null } = useQuery({
     ...serverConfigQueryOptions(),
     select: (config) => config.cwd ?? null,
@@ -477,28 +473,8 @@ export default function Sidebar() {
   const removeFromSelection = useThreadSelectionStore((s) => s.removeFromSelection);
   const setSelectionAnchor = useThreadSelectionStore((s) => s.setAnchor);
 
-  const routedSidebarThreadId =
+  const activeSidebarThreadId =
     routeThreadId && sidebarThreadSummaryById[routeThreadId] ? routeThreadId : null;
-  const [lastRoutedSidebarThreadId, setLastRoutedSidebarThreadId] = useState<ThreadId | null>(
-    routedSidebarThreadId,
-  );
-  useLayoutEffect(() => {
-    if (routedSidebarThreadId) {
-      setLastRoutedSidebarThreadId(routedSidebarThreadId);
-    }
-  }, [routedSidebarThreadId]);
-  const routeDraftThread = routeThreadId ? draftThreadsByThreadId[routeThreadId] : undefined;
-  const routeDraftFolderThreads = routeDraftThread
-    ? canonicalSidebarRows.filter(
-        (row) => row.folderId === routeDraftThread.folderId && row.archivedAt === null,
-      )
-    : [];
-  const retainedFolderSidebarThreadId =
-    lastRoutedSidebarThreadId &&
-    routeDraftFolderThreads.some((row) => row.id === lastRoutedSidebarThreadId)
-      ? lastRoutedSidebarThreadId
-      : (routeDraftFolderThreads.at(-1)?.id ?? null);
-  const activeSidebarThreadId = routedSidebarThreadId ?? retainedFolderSidebarThreadId;
   const sidebarThreads = useMemo(
     () => canonicalSidebarRows.filter((row) => row.archivedAt === null),
     [canonicalSidebarRows],

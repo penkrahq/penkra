@@ -1,3 +1,4 @@
+import { KEYBINDINGS } from "@penkra/shared/keybindings";
 import { threadShellFromRow } from "@penkra/shared/threadView";
 import { applyFolderAppTabs } from "../rightDockStore";
 
@@ -14,7 +15,7 @@ import {
   useRouterState,
 } from "@tanstack/react-router";
 import { useMemo, useEffect, useRef, useState } from "react";
-import { QueryClient, useQuery, useQueryClient } from "@tanstack/react-query";
+import { QueryClient, useQueryClient } from "@tanstack/react-query";
 
 import { APP_DISPLAY_NAME, APP_VERSION } from "../branding";
 import { DesktopWindowControls } from "../components/DesktopWindowControls";
@@ -35,7 +36,6 @@ import type { FeedbackThreadContext } from "../feedback";
 import {
   reconcileServerProviderStatuses,
   refreshServerConfigAfterTransportOpen,
-  serverConfigQueryOptions,
   serverQueryKeys,
   serverSettingsQueryOptions,
 } from "../lib/serverReactQuery";
@@ -246,8 +246,7 @@ function TransportCompatibilityView({ issue }: { issue: WsCompatibilityError }) 
 
 function GlobalShortcutsDialog() {
   const [open, setOpen] = useState(false);
-  const serverConfigQuery = useQuery(serverConfigQueryOptions());
-  const keybindings = serverConfigQuery.data?.keybindings ?? [];
+  const keybindings = KEYBINDINGS;
   const platform = typeof navigator === "undefined" ? "" : navigator.platform;
 
   useEffect(() => {

@@ -280,7 +280,6 @@ export function makeHealthEffectRouteLayer(readiness: ServerReadiness) {
             status: "ok",
             startupReady: snapshot.startupReady,
             pushBusReady: snapshot.pushBusReady,
-            keybindingsReady: snapshot.keybindingsReady,
             terminalSubscriptionsReady: snapshot.terminalSubscriptionsReady,
             orchestrationSubscriptionsReady: snapshot.orchestrationSubscriptionsReady,
           },

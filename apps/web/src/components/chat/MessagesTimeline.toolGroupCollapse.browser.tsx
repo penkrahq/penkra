@@ -159,6 +159,37 @@ describe("independent transcript summary rows", () => {
   afterEach(() => {
     document.body.innerHTML = "";
   });
+  it("preserves the settled header typography and divider before the answer", async () => {
+    const screen = await render(<PagedTurn />);
+    try {
+      await expect.poll(() => button(screen.container, "Worked for") !== undefined).toBe(true);
+      const header = button(screen.container, "Worked for")!;
+      expect(header.style.fontSize).not.toBe("");
+      const divider = () =>
+        screen.container.querySelector('[data-timeline-row-kind="turn-divider"]');
+      expect(divider()).not.toBeNull();
+      await page.screenshot({
+        element: screen.container,
+        path: "../../../../../.penkra/scratch/p4-render-boundary/settled-header-closed.png",
+      });
+      header.click();
+      await expect.poll(() => button(screen.container, "Ran 50 commands") !== undefined).toBe(true);
+      const summary = screen.container.querySelector('[data-timeline-row-kind="summary"]')!;
+      expect(
+        summary.compareDocumentPosition(divider()!) & Node.DOCUMENT_POSITION_FOLLOWING,
+      ).not.toBe(0);
+      const answer = screen.container.querySelector('[data-message-id="answer"]')!;
+      expect(
+        divider()!.compareDocumentPosition(answer) & Node.DOCUMENT_POSITION_FOLLOWING,
+      ).not.toBe(0);
+      await page.screenshot({
+        element: screen.container,
+        path: "../../../../../.penkra/scratch/p4-render-boundary/settled-header-expanded.png",
+      });
+    } finally {
+      await screen.unmount();
+    }
+  });
   it("loads one details page on expansion and mounts summary members as sibling list rows", async () => {
     const screen = await render(<PagedTurn />);
     try {
