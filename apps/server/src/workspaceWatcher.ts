@@ -8,13 +8,14 @@ import { watch, type FSWatcher } from "node:fs";
 import { mkdir } from "node:fs/promises";
 
 import type { ProjectWorkspaceChangeEvent } from "@penkra/contracts";
-import { Effect, Fiber, Layer, PubSub, Queue, ServiceMap, Stream } from "effect";
+import { Effect, Fiber, Layer, ServiceMap, Stream } from "effect";
 
 import { ServerConfig } from "./config";
 import { DURABLE_THREAD_WORKSPACES_DIRNAME } from "./scratchWorkspaces";
 
 import { getNavigation } from "./cleanCore/navigation";
 import { ThreadPublisher } from "./cleanCore/ThreadPublisher";
+import { makeInvalidationHub } from "./cleanCore/invalidationHub";
 
 interface WorkspaceWatchSubscription {
   readonly close: () => void;
@@ -48,11 +49,6 @@ export function deduplicateWorkspaceRoots(roots: readonly string[]): string[] {
     (candidate, index) =>
       !normalized.slice(0, index).some((ancestor) => isWithin(ancestor, candidate)),
   );
-}
-
-function isGitMetadataPath(projectRoot: string, changedPath: string): boolean {
-  const relative = path.relative(projectRoot, changedPath);
-  return relative === ".git" || relative.startsWith(`.git${path.sep}`);
 }
 
 export function shouldIgnoreWorkspaceWatchPath(watchRoot: string, changedPath: string): boolean {
@@ -182,23 +178,12 @@ export class WorkspaceWatcherManager {
     ].filter((root) => isWithin(root, changedPath));
     const projectRoot = matchingRoots.toSorted((left, right) => right.length - left.length)[0];
     if (!projectRoot) return;
-    const gitChanged = isGitMetadataPath(projectRoot, changedPath);
-    this.publishChange({
-      cwd: projectRoot,
-      filesChanged: !gitChanged,
-      gitChanged,
-      lostSync: false,
-    });
+    this.publishChange({ cwd: projectRoot });
   }
 
   private publishLostSync(watchRoot: string): void {
     for (const projectRoot of this.rootsForWatch(watchRoot)) {
-      this.publishChange({
-        cwd: projectRoot,
-        filesChanged: true,
-        gitChanged: true,
-        lostSync: true,
-      });
+      this.publishChange({ cwd: projectRoot });
     }
   }
 
@@ -231,8 +216,8 @@ export const WorkspaceWatcherLive = Layer.effect(
     const scratchRoot = path.join(config.stateDir, DURABLE_THREAD_WORKSPACES_DIRNAME);
     yield* Effect.promise(() => mkdir(scratchRoot, { recursive: true, mode: 0o700 }));
     const changes = yield* Effect.acquireRelease(
-      PubSub.sliding<ProjectWorkspaceChangeEvent>(256),
-      PubSub.shutdown,
+      Effect.sync(() => makeInvalidationHub<ProjectWorkspaceChangeEvent>((event) => event.cwd)),
+      (hub) => hub.close,
     );
     const manager = new WorkspaceWatcherManager(
       () =>
@@ -242,7 +227,7 @@ export const WorkspaceWatcherLive = Layer.effect(
             Effect.provideService(SqlClient.SqlClient, sql),
           ),
         ),
-      (event) => void Effect.runFork(PubSub.publish(changes, event)),
+      (event) => changes.publish(event),
       createNodeWorkspaceWatch,
       scratchRoot,
     );
@@ -271,6 +256,6 @@ export const WorkspaceWatcherLive = Layer.effect(
       ),
     );
 
-    return { stream: Stream.fromPubSub(changes), close } satisfies WorkspaceWatcherShape;
+    return { stream: changes.stream(), close } satisfies WorkspaceWatcherShape;
   }),
 );

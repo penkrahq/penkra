@@ -48,11 +48,7 @@ export async function invalidateProjectQueriesForWorkspaceChange(
   queryClient: QueryClient,
   event: ProjectWorkspaceChangeEvent,
 ): Promise<void> {
-  if (event.lostSync) {
-    await queryClient.invalidateQueries({ queryKey: projectQueryKeys.all });
-  } else if (event.filesChanged) {
-    await invalidateProjectFileQueriesForCwds(queryClient, [event.cwd]);
-  }
+  await invalidateProjectFileQueriesForCwds(queryClient, [event.cwd]);
 }
 
 const DEFAULT_SEARCH_ENTRIES_LIMIT = 80;

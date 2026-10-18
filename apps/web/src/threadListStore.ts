@@ -156,13 +156,14 @@ export function applyThreadRow(row: CleanCoreThreadSummary): void {
 }
 
 /** Read one indexed row, including its canonical queue. */
-export async function loadThread(threadId: ThreadId): Promise<void> {
+export async function loadThread(threadId: ThreadId): Promise<CleanCoreThreadSummary | null> {
   const thread = await ensureNativeApi().cleanCore.getThread({ threadId });
   const next = new Map(byId);
   const stored = next.get(threadId);
   if (thread === null) next.delete(threadId);
   else if (stored === undefined || stored.updatedAt <= thread.updatedAt) next.set(threadId, thread);
   setThreads(next);
+  return thread;
 }
 
 export async function refreshThreadPage(threadId: ThreadId): Promise<void> {

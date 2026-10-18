@@ -8,6 +8,7 @@ import {
   QUEUED_MESSAGE_EDIT_NONEMPTY_DRAFT_ERROR,
   QueuedEditDraftNotEmptyError,
   type CleanCoreThreadSummary,
+  type CleanCoreThreadItem,
   type CleanCoreUserSendMessageInput,
   DEFAULT_MODEL_BY_PROVIDER,
   MessageId,
@@ -578,34 +579,48 @@ export default function ChatView(props: ChatViewProps) {
     (state) => state.threadShellById?.[props.threadId] !== undefined,
   );
   const awaitingCreationResponse = localDraft !== undefined && !hasServerThread;
-  const [rowReadFailed, setRowReadFailed] = useState(false);
+  const [rowReadState, setRowReadState] = useState<{
+    state: "loading" | "failed" | "missing";
+    error?: unknown;
+  }>({ state: "loading" });
   const shellReads = useRef(new Map<ThreadId, Promise<void>>());
   const readRow = useCallback(() => {
-    setRowReadFailed(false);
+    setRowReadState({ state: "loading" });
     void loadThread(props.threadId)
-      .then(() => {
-        if (!getThreadListById().has(props.threadId)) setRowReadFailed(true);
+      .then((loaded) => {
+        if (loaded === null) setRowReadState({ state: "missing" });
       })
-      .catch(() => setRowReadFailed(true));
+      .catch((error: unknown) => {
+        console.error(
+          `Thread row read failed thread=${props.threadId}: ${error instanceof Error ? (error.stack ?? error.message) : String(error)}`,
+        );
+        setRowReadState({ state: "failed", error });
+      });
   }, [props.threadId]);
   useEffect(() => {
     if (hasServerThread && row === null) readRow();
   }, [props.threadId, hasServerThread, row === null, readRow]);
   const readShell = useCallback(() => {
-    setRowReadFailed(false);
+    setRowReadState({ state: "loading" });
     let request = shellReads.current.get(props.threadId);
     if (request === undefined) {
       request = ensureNativeApi()
         .cleanCore.getThreadShell({ threadId: props.threadId })
         .then((shell) => {
-          if (shell === null) throw new Error("The thread is no longer available");
+          if (shell === null) {
+            setRowReadState({ state: "missing" });
+            return;
+          }
           useStore.getState().syncServerThreadShell(props.threadId, shell);
         });
       shellReads.current.set(props.threadId, request);
     }
     void request.catch((error: unknown) => {
       shellReads.current.delete(props.threadId);
-      setRowReadFailed(true);
+      console.error(
+        `Thread shell read failed thread=${props.threadId}: ${error instanceof Error ? (error.stack ?? error.message) : String(error)}`,
+      );
+      setRowReadState({ state: "failed", error });
       toastManager.add({
         type: "error",
         title: "Could not load thread",
@@ -623,7 +638,8 @@ export default function ChatView(props: ChatViewProps) {
     return (
       <div className="flex min-h-0 flex-1 items-center justify-center">
         <ThreadDetailHydrationState
-          state={rowReadFailed ? "failed" : "loading"}
+          state={rowReadState.state}
+          error={rowReadState.error}
           onRetry={row === null ? readRow : readShell}
         />
       </div>
@@ -797,13 +813,28 @@ function ChatViewContent({
     canonicalRows.some((row) => row.id === threadId) ? threadId : null,
     preservePageAnchor,
   );
+  const [acceptedFirstMessage, setAcceptedFirstMessage] = useState<CleanCoreThreadItem | null>(
+    null,
+  );
+  useEffect(() => {
+    if (
+      acceptedFirstMessage !== null &&
+      (acceptedFirstMessage.threadId !== threadId ||
+        threadItemsState.items.some((item) => item.sourceId === acceptedFirstMessage.sourceId))
+    )
+      setAcceptedFirstMessage(null);
+  }, [threadId, threadItemsState.items, acceptedFirstMessage]);
   const threadItems = useMemo(
     () =>
       mergeBySeq(threadItemsState.items, [
         ...Object.values(threadItemsState.finals),
         ...Object.values(threadItemsState.details).flatMap((detail) => detail.items),
+        ...(acceptedFirstMessage?.threadId === threadId &&
+        !threadItemsState.items.some((item) => item.sourceId === acceptedFirstMessage.sourceId)
+          ? [acceptedFirstMessage]
+          : []),
       ]),
-    [threadItemsState],
+    [threadItemsState, acceptedFirstMessage, threadId],
   );
   const serverThread = useMemo(
     () =>
@@ -4365,6 +4396,18 @@ function ChatViewContent({
         };
         if (!isLocalDraftThread)
           return api.cleanCore.sendMessage({ ...send, threadId: threadIdForSend });
+        setAcceptedFirstMessage({
+          threadId: threadIdForSend,
+          sourceId: messageIdForSend,
+          seq: 1,
+          turnId: null,
+          kind: "user",
+          status: "sending",
+          text: send.message.text,
+          data: JSON.stringify({ origin: { _tag: "user" }, attachments: send.message.attachments }),
+          createdAt: messageCreatedAt,
+          updatedAt: messageCreatedAt,
+        });
         const result = await api.cleanCore.createAndSendThread({
           ...send,
           thread: {
@@ -4391,6 +4434,9 @@ function ChatViewContent({
       return true;
     })()
       .catch((error) => {
+        setAcceptedFirstMessage((current) =>
+          current?.threadId === threadIdForSend ? null : current,
+        );
         const currentDraft = useComposerDraftStore.getState().draftsByThreadId[threadIdForSend];
         if (
           composerCleared &&
@@ -6177,6 +6223,7 @@ function ChatViewContent({
                             threadDetailHydration === "ready" ? "loading" : threadDetailHydration
                           }
                           onRetry={retryThreadDetailHydration}
+                          error={threadItemsError}
                         />
                       </div>
                     )}

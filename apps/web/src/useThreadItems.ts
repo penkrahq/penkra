@@ -101,7 +101,12 @@ export function createThreadItemsController(
     onChange(next);
   };
   const report = (error: unknown) => {
-    if (!disposed) onError(error);
+    if (!disposed) {
+      console.error(
+        `Thread transcript read failed thread=${threadId}: ${error instanceof Error ? (error.stack ?? error.message) : String(error)}`,
+      );
+      onError(error);
+    }
   };
   const outline = createPageReader({
     read: (beforeSeq?: number) =>
@@ -156,7 +161,13 @@ export function createThreadItemsController(
   const unsubscribe = api.onThreadChange((change) => {
     if (change.threadId === threadId) void reload().catch(report);
   });
-  void api.subscribeThread({ threadId }).catch(report);
+  void reload().catch(report);
+  void api.subscribeThread({ threadId }).catch((error) => {
+    if (!disposed)
+      console.warn(
+        `Thread subscription setup failed thread=${threadId}: ${error instanceof Error ? (error.stack ?? error.message) : String(error)}`,
+      );
+  });
   return {
     reload,
     loadOlder: outline.loadOlder,
@@ -170,7 +181,11 @@ export function createThreadItemsController(
     dispose: () => {
       disposed = true;
       unsubscribe();
-      void api.unsubscribeThread({ threadId }).catch(onError);
+      void api.unsubscribeThread({ threadId }).catch((error) => {
+        console.warn(
+          `Thread subscription cleanup failed thread=${threadId}: ${error instanceof Error ? (error.stack ?? error.message) : String(error)}`,
+        );
+      });
     },
   };
 }

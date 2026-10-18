@@ -10,7 +10,7 @@ import { useComposerDraftStore } from "../composerDraftStore";
 import { parseChatRouteSearch } from "../chatRouteSearch";
 import { isLocalThreadArchiveNavigationPending } from "../lib/threadArchiveNavigation";
 import { useStore } from "../store";
-import { getThreadListById, loadThread, useThreadSummary } from "../threadListStore";
+import { loadThread, useThreadSummary } from "../threadListStore";
 import { toastManager } from "../components/ui/toast";
 import { SingleChatSurface } from "../components/chat/SingleChatSurface";
 import { resolveSingleFolderId, shouldRedirectArchivedThreadRoute } from "./-chatThreadRoute.logic";
@@ -24,7 +24,7 @@ function ChatThreadRouteView() {
   const threadFolderId = thread?.folderId ?? null;
   const threadArchived = thread !== null && thread.archivedAt !== null;
   const threadDeleted = thread !== null && thread.deletedAt !== null;
-  const readsByThreadId = useRef(new Map<ThreadId, Promise<void>>());
+  const readsByThreadId = useRef(new Map<ThreadId, ReturnType<typeof loadThread>>());
   const draftThreadState = useComposerDraftStore(
     (store) => store.draftThreadsByThreadId[threadId] ?? null,
   );
@@ -85,10 +85,9 @@ function ChatThreadRouteView() {
     }
     let cancelled = false;
     void request
-      .then(() => {
+      .then((loaded) => {
         if (cancelled) return;
-        const loaded = getThreadListById().get(threadId);
-        if (loaded === undefined || loaded.archivedAt !== null || loaded.deletedAt !== null)
+        if (loaded === null || loaded.archivedAt !== null || loaded.deletedAt !== null)
           void navigate({ to: "/", replace: true });
       })
       .catch((error: unknown) => {
