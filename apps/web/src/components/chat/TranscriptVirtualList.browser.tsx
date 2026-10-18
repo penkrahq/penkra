@@ -72,24 +72,6 @@ function BoundaryPagesHarness({
   );
 }
 
-function PendingMeasurementRow({ row }: { row: TestRow }) {
-  const ref = useRef<HTMLDivElement | null>(null);
-  useLayoutEffect(() => {
-    if (row.id !== "pending-48" || !ref.current) return;
-    // Change geometry after Core's commit ref measured the old height, then
-    // capture the reader before ResizeObserver delivers the new measurement.
-    ref.current.style.height = row.height + "px";
-    ref.current
-      .closest('[data-testid="pending-scroll"]')
-      ?.dispatchEvent(new Event("scroll", { bubbles: true }));
-  }, [row.id, row.height]);
-  return (
-    <div ref={ref} style={{ height: row.id === "pending-48" ? 48 : row.height }}>
-      {row.id}
-    </div>
-  );
-}
-
 function VirtualListHarness() {
   const [rows, setRows] = useState<TestRow[]>(() =>
     Array.from({ length: 60 }, (_, index) => ({
@@ -966,7 +948,14 @@ describe("TranscriptVirtualList", () => {
         anchorRevision="pending"
         estimatedItemSize={48}
         keyExtractor={(row) => row.id}
-        renderItem={(row) => <PendingMeasurementRow row={row} />}
+        renderItem={(row) => (
+          <div
+            data-pending-height={row.id}
+            style={{ height: row.id === "pending-48" ? 48 : row.height }}
+          >
+            {row.id}
+          </div>
+        )}
         paddingEnd={16}
         data-testid="pending-scroll"
         style={{ height: 300, overflowY: "auto" }}
@@ -979,6 +968,22 @@ describe("TranscriptVirtualList", () => {
       await vi.waitFor(() => expect(element).toHaveAttribute("data-initial-placement", "resolved"));
       element.dispatchEvent(new WheelEvent("wheel", { bubbles: true, deltaY: -800 }));
       element.scrollTop = 2_520;
+      element.dispatchEvent(new Event("scroll", { bubbles: true }));
+      // Wait for the old measured size, then change and capture in one task.
+      // A child layout effect can run during initial placement before the
+      // reader's listener exists, so mounting alone cannot force this race.
+      await vi.waitFor(() =>
+        expect(
+          getChatScrollDiagnosticSamples().some(
+            (sample) =>
+              sample.event === "row-measured" &&
+              sample.detail.key === "pending-48" &&
+              sample.detail.size === 48,
+          ),
+        ).toBe(true),
+      );
+      element.querySelector<HTMLElement>('[data-pending-height="pending-48"]')!.style.height =
+        "304px";
       element.dispatchEvent(new Event("scroll", { bubbles: true }));
       await vi.waitFor(() => {
         const anchor = element.querySelector<HTMLElement>('[data-row-key="pending-52"]');
