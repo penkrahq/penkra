@@ -20,7 +20,7 @@ layer("162_TranscriptMessageSearch", (it) => {
           '2026-09-09T00:00:00.000Z', '2026-09-09T00:00:00.000Z'
         )
       `;
-      yield* runMigrations();
+      yield* runMigrations({ toMigrationInclusive: 162 });
 
       const inserted = yield* sql<{ readonly messageId: string }>`
         SELECT messages.message_id AS "messageId"
@@ -65,7 +65,7 @@ layer("162_TranscriptMessageSearch", (it) => {
   it.effect("uses the trigram virtual-table index for literal phrase lookup", () =>
     Effect.gen(function* () {
       const sql = yield* SqlClient.SqlClient;
-      yield* runMigrations();
+      yield* runMigrations({ toMigrationInclusive: 162 });
       const plan = yield* sql<{ readonly detail: string }>`
         EXPLAIN QUERY PLAN
         SELECT rowid
@@ -79,7 +79,7 @@ layer("162_TranscriptMessageSearch", (it) => {
   it.effect("finds a rare literal in a five-thousand-message transcript through FTS", () =>
     Effect.gen(function* () {
       const sql = yield* SqlClient.SqlClient;
-      yield* runMigrations();
+      yield* runMigrations({ toMigrationInclusive: 162 });
       yield* sql.unsafe(`
         WITH RECURSIVE numbers(value) AS (
           VALUES(1)

@@ -1,6 +1,26 @@
 import { Effect } from "effect";
 import * as SqlClient from "effect/unstable/sql/SqlClient";
 
+// Frozen pre-203 transcript fixture; current writers require columns absent here.
+export const seedHistoricalThreadItem = (input: {
+  threadId: string;
+  sourceId: string;
+  turnId: string | null;
+  kind: string;
+  status: string;
+  text: string;
+  data?: string | null;
+  createdAt: string;
+  updatedAt: string;
+}) =>
+  Effect.gen(function* () {
+    const sql = yield* SqlClient.SqlClient;
+    yield* sql`INSERT INTO thread_items
+    (thread_id, seq, source_id, turn_id, kind, status, text, data, created_at, updated_at)
+    VALUES (${input.threadId}, 1, ${input.sourceId}, ${input.turnId}, ${input.kind},
+      ${input.status}, ${input.text}, ${input.data ?? null}, ${input.createdAt}, ${input.updatedAt})`;
+  });
+
 // Test fixture for the historical schema before migration 195 removes script metadata.
 export const seedHistoricalFolderFixture = (input: {
   folderId: string;

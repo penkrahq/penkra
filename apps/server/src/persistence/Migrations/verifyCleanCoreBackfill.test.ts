@@ -30,7 +30,7 @@ const seedSource = Effect.gen(function* () {
 it.effect("verifies every message and open question through the real migration path", () =>
   Effect.gen(function* () {
     yield* seedSource;
-    yield* runMigrations();
+    yield* runMigrations({ toMigrationInclusive: 176 });
     const sql = yield* SqlClient.SqlClient;
     assert.deepStrictEqual(yield* sql`SELECT kind, status FROM thread_items ORDER BY source_id`, [
       { kind: "text", status: "done" },
@@ -45,7 +45,7 @@ it.effect("verifies every message and open question through the real migration p
 it.effect("names the first thread with a message-count mismatch", () =>
   Effect.gen(function* () {
     yield* seedSource;
-    yield* runMigrations();
+    yield* runMigrations({ toMigrationInclusive: 176 });
     const sql = yield* SqlClient.SqlClient;
     yield* sql`DELETE FROM thread_items WHERE source_id = 'assistant'`;
     const failure = yield* Effect.flip(verifyCleanCoreBackfill);
@@ -57,7 +57,7 @@ it.effect("names the first thread with a message-count mismatch", () =>
 it.effect("checks question identity even when the total open count is unchanged", () =>
   Effect.gen(function* () {
     yield* seedSource;
-    yield* runMigrations();
+    yield* runMigrations({ toMigrationInclusive: 176 });
     const sql = yield* SqlClient.SqlClient;
     yield* sql`UPDATE thread_items SET source_id = 'question:wrong' WHERE source_id = 'question:open'`;
     const failure = yield* Effect.flip(verifyCleanCoreBackfill);
@@ -96,7 +96,9 @@ it.effect("rolls back the first canonical insert and earlier tracker repair toge
       },
     });
     const result = yield* Effect.exit(
-      runMigrations().pipe(Effect.provideService(SqlClient.SqlClient, injected)),
+      runMigrations({ toMigrationInclusive: 176 }).pipe(
+        Effect.provideService(SqlClient.SqlClient, injected),
+      ),
     );
     assert.isTrue(inserted);
     if (!Exit.isFailure(result)) throw new Error("Expected the injected migration to fail");
@@ -112,7 +114,7 @@ it.effect("rolls back the first canonical insert and earlier tracker repair toge
 it.effect("rejects a lost thread before reporting any item mismatch", () =>
   Effect.gen(function* () {
     yield* seedSource;
-    yield* runMigrations();
+    yield* runMigrations({ toMigrationInclusive: 176 });
     const sql = yield* SqlClient.SqlClient;
     yield* sql`DELETE FROM threads WHERE id = 'thread'`;
     const failure = yield* Effect.flip(verifyCleanCoreBackfill);
@@ -123,7 +125,7 @@ it.effect("rejects a lost thread before reporting any item mismatch", () =>
 it.effect("rejects an answered question incorrectly migrated as open", () =>
   Effect.gen(function* () {
     yield* seedSource;
-    yield* runMigrations();
+    yield* runMigrations({ toMigrationInclusive: 176 });
     const sql = yield* SqlClient.SqlClient;
     yield* sql`UPDATE thread_items SET status = 'open' WHERE source_id = 'question:answered'`;
     const failure = yield* Effect.flip(verifyCleanCoreBackfill);
