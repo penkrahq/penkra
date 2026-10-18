@@ -6,7 +6,7 @@
 import { createHash } from "node:crypto";
 import { resolve } from "node:path";
 
-import { app, type BrowserWindow, type IpcMain } from "electron";
+import { app, type BrowserWindow, type IpcMain, type WebContents } from "electron";
 import { electronClient } from "@better-auth/electron/client";
 import { storage } from "@better-auth/electron/storage";
 import { createAuthClient } from "better-auth/client";
@@ -51,6 +51,7 @@ export function configurePenkraAccountAuth(input: {
   desktopFlavor: PenkraDesktopFlavor;
   developmentInstance?: number;
   getWindow: () => BrowserWindow | null;
+  isShellRenderer: (sender: WebContents) => boolean;
   ipcMain: IpcMain;
   inspectInitialProtocolUrlFromArgv: boolean;
   registerAsDefaultProtocolClient?: boolean;
@@ -203,7 +204,7 @@ export function configurePenkraAccountAuth(input: {
 
   input.ipcMain.removeHandler(DESKTOP_IPC_CHANNELS.accountAuth.getState);
   input.ipcMain.handle(DESKTOP_IPC_CHANNELS.accountAuth.getState, async (event) => {
-    if (event.sender !== input.getWindow()?.webContents) return authError("Authentication failed.");
+    if (!input.isShellRenderer(event.sender)) return authError("Authentication failed.");
     const result = await signInClient.getSession();
     if (result.error) return authError(result.error.message);
     const user = result.data?.user;
@@ -214,7 +215,7 @@ export function configurePenkraAccountAuth(input: {
 
   input.ipcMain.removeHandler(DESKTOP_IPC_CHANNELS.accountAuth.requestSignIn);
   input.ipcMain.handle(DESKTOP_IPC_CHANNELS.accountAuth.requestSignIn, async (event) => {
-    if (event.sender !== input.getWindow()?.webContents) return;
+    if (!input.isShellRenderer(event.sender)) return;
     pendingIntent = "sign-in";
     try {
       await signInClient.requestAuth();
@@ -226,7 +227,7 @@ export function configurePenkraAccountAuth(input: {
 
   input.ipcMain.removeHandler(DESKTOP_IPC_CHANNELS.accountAuth.requestSignUp);
   input.ipcMain.handle(DESKTOP_IPC_CHANNELS.accountAuth.requestSignUp, async (event) => {
-    if (event.sender !== input.getWindow()?.webContents) return;
+    if (!input.isShellRenderer(event.sender)) return;
     pendingIntent = "sign-up";
     try {
       await signUpClient.requestAuth();
@@ -238,7 +239,7 @@ export function configurePenkraAccountAuth(input: {
 
   input.ipcMain.removeHandler(DESKTOP_IPC_CHANNELS.accountAuth.signOut);
   input.ipcMain.handle(DESKTOP_IPC_CHANNELS.accountAuth.signOut, async (event) => {
-    if (event.sender !== input.getWindow()?.webContents) return;
+    if (!input.isShellRenderer(event.sender)) return;
     await signInClient.signOut();
     input.getWindow()?.webContents.send(DESKTOP_IPC_CHANNELS.accountAuth.userUpdated, null);
   });
