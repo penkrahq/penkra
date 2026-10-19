@@ -1901,7 +1901,7 @@ function resolveWsRpc(body: WsRequestEnvelope["body"]): unknown {
   {}
   {}
   if (tag === WS_METHODS.cleanCoreGetNavigation) {
-    const { spaces, folders } = createStartupSnapshotFromReadModel(fixture.snapshot, []);
+    const { spaces, folders } = createStartupSnapshotFromReadModel(fixture.snapshot, []).navigation;
     return { spaces, folders };
   }
   if (tag === WS_METHODS.cleanCoreUpdateNavigation) {
@@ -1928,12 +1928,13 @@ function resolveWsRpc(body: WsRequestEnvelope["body"]): unknown {
     } else if (!recordSpaceCreateUpdate(body.update) && !recordFolderCreateUpdate(body.update))
       throw new Error("Unexpected navigation fixture update");
     for (const emit of cleanCoreNavigationChangeEmitters) emit();
-    const navigation = createStartupSnapshotFromReadModel(fixture.snapshot, []);
+    const { navigation } = createStartupSnapshotFromReadModel(fixture.snapshot, []);
     return { spaces: navigation.spaces, folders: navigation.folders };
   }
   {}
   if (tag === WS_METHODS.cleanCoreGetBootstrap)
     return {
+      navigation: createStartupSnapshotFromReadModel(fixture.snapshot, []).navigation,
       runningThreads: fixture.snapshot.threads
         .filter((thread) => thread.session?.status === "running")
         .map(summarizeFixtureThread),
@@ -2252,6 +2253,7 @@ const worker = setupWorker(
       }
       if (
         method === WS_METHODS.subscribeServerProviderStatuses ||
+        method === WS_METHODS.serverSubscribeProviderUsage ||
         method === WS_METHODS.subscribeServerSettings ||
         method === WS_METHODS.subscribeProjectWorkspaceChanges
       ) {
@@ -7414,7 +7416,10 @@ describe("ChatView timeline estimator parity (full app)", () => {
           ...wsNativeApi?.cleanCore,
           updateNavigation: vi.fn(async (input: { update: unknown }) => {
             expect(recordSpaceCreateUpdate(input.update)).toBe(true);
-            const { spaces, folders } = createStartupSnapshotFromReadModel(fixture.snapshot, []);
+            const { spaces, folders } = createStartupSnapshotFromReadModel(
+              fixture.snapshot,
+              [],
+            ).navigation;
             return { spaces, folders };
           }),
         },
@@ -7515,7 +7520,7 @@ describe("ChatView timeline estimator parity (full app)", () => {
     });
 
     try {
-      useStore.setState({ folders: [], threadsHydrated: false });
+      useStore.setState({ folders: [], startupHydrated: false });
       await waitForLayout();
       const initialPath = mounted.router.state.location.pathname;
       await waitForServerConfigToApply();
@@ -7555,7 +7560,10 @@ describe("ChatView timeline estimator parity (full app)", () => {
             wsRequests.push({ _tag: WS_METHODS.cleanCoreUpdateNavigation, update: input.update });
             expect(recordFolderCreateUpdate(input.update)).toBe(true);
             for (const emit of cleanCoreNavigationChangeEmitters) emit();
-            const { spaces, folders } = createStartupSnapshotFromReadModel(fixture.snapshot, []);
+            const { spaces, folders } = createStartupSnapshotFromReadModel(
+              fixture.snapshot,
+              [],
+            ).navigation;
             return { spaces, folders };
           }),
         },

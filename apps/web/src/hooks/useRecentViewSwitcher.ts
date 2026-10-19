@@ -60,7 +60,7 @@ export function useRecentViewSwitcher(input: UseRecentViewSwitcherInput) {
     () => Object.fromEntries(sidebarRows.map((row) => [row.id, row])),
     [sidebarRows],
   );
-  const threadsHydrated = useStore((state) => state.threadsHydrated);
+  const startupHydrated = useStore((state) => state.startupHydrated);
   const settingsSection = typeof routeSearch.section === "string" ? routeSearch.section : undefined;
   const currentRecentView = deriveCurrentRecentView({
     pathname,
@@ -156,10 +156,10 @@ export function useRecentViewSwitcher(input: UseRecentViewSwitcherInput) {
   }, [currentRecentView, currentRecentViewKey, recordRecentView]);
 
   useEffect(() => {
-    if (!threadsHydrated || didHydrationPruneRef.current) return;
+    if (!startupHydrated || didHydrationPruneRef.current) return;
     didHydrationPruneRef.current = true;
     pruneRecentViewsStore(buildRecentViewAvailability());
-  }, [buildRecentViewAvailability, pruneRecentViewsStore, threadsHydrated]);
+  }, [buildRecentViewAvailability, pruneRecentViewsStore, startupHydrated]);
 
   const activateRecentView = (view: RecentView) => {
     switch (view.kind) {

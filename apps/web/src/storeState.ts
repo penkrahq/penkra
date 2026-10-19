@@ -34,7 +34,7 @@ export interface AppState {
   folders: Project[];
 
   sidebarThreadSummaryById: Record<string, SidebarThreadSummary>;
-  threadsHydrated: boolean;
+  startupHydrated: boolean;
   threadIds?: ThreadId[];
   threadShellById?: Record<ThreadId, ThreadShell>;
   threadSessionById?: Record<ThreadId, ThreadSession | null>;
@@ -78,7 +78,7 @@ export const initialState: AppState = {
   folders: [],
 
   sidebarThreadSummaryById: {},
-  threadsHydrated: false,
+  startupHydrated: false,
   threadIds: [],
   threadShellById: {},
   threadSessionById: {},

@@ -70,7 +70,7 @@ export function useSpacesController(input: {
 
   const navigate = useNavigate();
   const spaces = useStore((store) => store.spaces);
-  const threadsHydrated = useStore((store) => store.threadsHydrated);
+  const startupHydrated = useStore((store) => store.startupHydrated);
   const activeSpaceId = useSpacesUiStore((store) => store.activeSpaceId);
   const setActiveSpaceId = useSpacesUiStore((store) => store.setActiveSpaceId);
   const rememberSpaceThread = useSpacesUiStore((store) => store.rememberThread);
@@ -111,7 +111,7 @@ export function useSpacesController(input: {
   }, [hydrateSpacesUi]);
 
   useEffect(() => {
-    if (!threadsHydrated) return;
+    if (!startupHydrated) return;
     reconcileSpacesUi({
       activeSpaceIds: new Set(spaces.map((space) => space.id)),
       projectSpaceById: new Map(
@@ -134,7 +134,7 @@ export function useSpacesController(input: {
           .map((thread) => [thread.id, thread.spaceId as SpaceId] as const),
       ),
     });
-  }, [ordinarySpaceFolders, reconcileSpacesUi, sidebarThreads, spaces, threadsHydrated]);
+  }, [ordinarySpaceFolders, reconcileSpacesUi, sidebarThreads, spaces, startupHydrated]);
 
   useRouteSpaceSync({
     routeFolderId: routeSpaceFolderId,

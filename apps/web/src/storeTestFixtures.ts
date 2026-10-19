@@ -106,7 +106,7 @@ export function makeState(thread: Thread): AppState {
     folders: [makeProject()],
 
     sidebarThreadSummaryById: {},
-    threadsHydrated: true,
+    startupHydrated: true,
     threadIds: [thread.id],
     threadShellById: { [thread.id]: shell },
     threadSessionById: { [thread.id]: session },
@@ -195,21 +195,23 @@ export function makeReadModel(
 export function makeStartupSnapshot(): OrchestrationStartupSnapshot {
   return {
     snapshotSequence: 2,
-    spaces: [],
-    folders: [
-      {
-        id: FolderId.makeUnsafe("project-1"),
-        title: "Project",
-        workspaceRoot: "/tmp/project",
-        defaultModelSelection: {
-          provider: "codex",
-          model: "gpt-5.3-codex",
+    navigation: {
+      spaces: [],
+      folders: [
+        {
+          id: FolderId.makeUnsafe("project-1"),
+          title: "Project",
+          workspaceRoot: "/tmp/project",
+          defaultModelSelection: {
+            provider: "codex",
+            model: "gpt-5.3-codex",
+          },
+          createdAt: "2026-02-27T00:00:00.000Z",
+          updatedAt: "2026-02-27T00:00:00.000Z",
+          spaceId: TEST_SPACE_ID,
         },
-        createdAt: "2026-02-27T00:00:00.000Z",
-        updatedAt: "2026-02-27T00:00:00.000Z",
-        spaceId: TEST_SPACE_ID,
-      },
-    ],
+      ],
+    },
     runningThreads: [],
   };
 }

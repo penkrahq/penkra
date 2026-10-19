@@ -5,6 +5,7 @@ import { resetThreadListForTests } from "../threadListStore";
 
 import {
   type CleanCoreThreadItem,
+  type CleanCoreListThreadItemsPageResult,
   EventId,
   FolderId,
   MessageId,
@@ -217,10 +218,12 @@ function createThreadTurnsPage(threadId: ThreadId): OrchestrationGetThreadTurnsP
   };
 }
 
-function createThreadItemsPageFromFixtureSnapshot(threadId: ThreadId) {
+function createThreadItemsPageFromFixtureSnapshot(
+  threadId: ThreadId,
+): CleanCoreListThreadItemsPageResult {
   const thread = getFixtureThread(threadId);
   if (!thread) {
-    return { items: [], turns: {}, nextCursor: null };
+    return { items: [], turns: {}, finals: {}, hasSteps: {}, nextCursor: null };
   }
   const pending: Array<{ at: string; item: Omit<CleanCoreThreadItem, "seq"> }> = [];
   for (const message of thread.messages) {
@@ -299,7 +302,7 @@ function createThreadItemsPageFromFixtureSnapshot(threadId: ThreadId) {
   const items = pending
     .toSorted((left, right) => left.at.localeCompare(right.at))
     .map((entry, index) => ({ ...entry.item, seq: index + 1 })) as CleanCoreThreadItem[];
-  return { items, turns: {}, nextCursor: null };
+  return { items, turns: {}, finals: {}, hasSteps: {}, nextCursor: null };
 }
 
 /** Push a clean-core thread change so mounted transcripts re-read thread_items. */
@@ -392,11 +395,12 @@ function resolveUnaryRequest(method: string, body: Record<string, unknown>): unk
     return { state: "idle", activeTurnId: null, lastError: null };
   if (method === WS_METHODS.cleanCoreGetNavigation) {
     navigationReadCount += 1;
-    const { spaces, folders } = createStartupSnapshotFromReadModel(fixture.snapshot, []);
+    const { spaces, folders } = createStartupSnapshotFromReadModel(fixture.snapshot, []).navigation;
     return { spaces, folders };
   }
   if (method === WS_METHODS.cleanCoreGetBootstrap)
     return {
+      navigation: createStartupSnapshotFromReadModel(fixture.snapshot, []).navigation,
       runningThreads: fixture.snapshot.threads
         .filter((thread) => thread.session?.status === "running")
         .map(summarizeFixtureThread),
@@ -436,6 +440,7 @@ const worker = setupWorker(
       if (
         method === WS_METHODS.cleanCoreSubscribeThread ||
         method === WS_METHODS.subscribeServerProviderStatuses ||
+        method === WS_METHODS.serverSubscribeProviderUsage ||
         method === WS_METHODS.subscribeServerSettings ||
         method === WS_METHODS.subscribeProjectWorkspaceChanges
       ) {
@@ -584,10 +589,22 @@ describe("EventRouter canonical navigation", () => {
     document.body.innerHTML = "";
   });
 
+  it("hydrates navigation with bootstrap without a competing startup navigation request", async () => {
+    const mounted = await mountApp();
+    try {
+      await vi.waitFor(() => expect(useStore.getState().startupHydrated).toBe(true));
+      expect(useStore.getState().folders.some((row) => row.id === PROJECT_ID)).toBe(true);
+      expect(navigationReadCount).toBe(0);
+    } finally {
+      await mounted.cleanup();
+    }
+  });
+
   it("re-reads canonical navigation on bare pushes and removes missing rows", async () => {
     const mounted = await mountApp();
     try {
       await vi.waitFor(() => expect(navigationStreamRequestId).toBeDefined());
+      await vi.waitFor(() => expect(useStore.getState().startupHydrated).toBe(true));
       fixture = {
         ...fixture,
         snapshot: {

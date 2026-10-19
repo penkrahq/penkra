@@ -51,7 +51,7 @@ export function useSidebarThreadActions(input: {
   readonly sidebarThreads: readonly SidebarThreadRow[];
   readonly sidebarTreeThreads: readonly SidebarThreadRow[];
   readonly sidebarThreadSummaryById: Readonly<Record<string, SidebarThreadRow>>;
-  readonly threadsHydrated: boolean;
+  readonly startupHydrated: boolean;
 }) {
   const {
     appSettings,

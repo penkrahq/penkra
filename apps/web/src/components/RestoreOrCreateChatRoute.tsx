@@ -26,7 +26,7 @@ export function RestoreOrCreateChatRoute({
   readonly createFreshChat: () => Promise<StartContainerChatResult>;
 }) {
   const navigate = useNavigate();
-  const threadsHydrated = useStore((store) => store.threadsHydrated);
+  const startupHydrated = useStore((store) => store.startupHydrated);
   const [attempt, setAttempt] = useState(0);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   // One fresh-chat creation at a time per mount: a dep change mid-create re-runs the effect,
@@ -34,7 +34,7 @@ export function RestoreOrCreateChatRoute({
   const createFreshChatInFlightRef = useRef(false);
 
   useEffect(() => {
-    if (!threadsHydrated) {
+    if (!startupHydrated) {
       return;
     }
 
@@ -80,7 +80,7 @@ export function RestoreOrCreateChatRoute({
     return () => {
       cancelled = true;
     };
-  }, [attempt, createFreshChat, navigate, resolveRestoreRoute, threadsHydrated]);
+  }, [attempt, createFreshChat, navigate, resolveRestoreRoute, startupHydrated]);
 
   return (
     <SplashScreen

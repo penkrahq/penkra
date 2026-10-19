@@ -148,7 +148,7 @@ export function TaskCompletionNotifications() {
     select: (params) =>
       typeof params.threadId === "string" ? ThreadId.makeUnsafe(params.threadId) : null,
   });
-  const threadsHydrated = useStore((store) => store.threadsHydrated);
+  const startupHydrated = useStore((store) => store.startupHydrated);
   const visibleThreadIds = resolveVisibleToastThreadIds({ activeThreadId });
 
   useEffect(() => {
@@ -177,7 +177,7 @@ export function TaskCompletionNotifications() {
   const completionOptionsRef = useRef({ settings, visibleThreadIds, navigate });
   completionOptionsRef.current = { settings, visibleThreadIds, navigate };
   useEffect(() => {
-    if (!threadsHydrated) return;
+    if (!startupHydrated) return;
     const tracker = createCompletedThreadTracker(getThreadList());
     const questions = createOpenQuestionTracker(getThreadList());
     const stopBaseline = subscribeThreadPageReads((rows) => {
@@ -218,7 +218,7 @@ export function TaskCompletionNotifications() {
       stopBaseline();
       stopChanges();
     };
-  }, [threadsHydrated]);
+  }, [startupHydrated]);
 
   return null;
 }

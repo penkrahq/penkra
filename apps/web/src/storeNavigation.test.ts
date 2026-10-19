@@ -1,6 +1,7 @@
 import { FolderId, SpaceId } from "@penkra/contracts";
 import { describe, expect, it } from "vitest";
-import { syncServerNavigation } from "./storeProjection";
+import { syncServerNavigation, syncServerStartup } from "./storeProjection";
+import { initialState } from "./storeState";
 import { makeProject, makeReadModelProject, makeState, makeThread } from "./storeTestFixtures";
 
 const at = "2026-10-12T00:00:00.000Z";
@@ -17,6 +18,38 @@ const space = {
 const folder = makeReadModelProject({ spaceId, workspaceRoot: "/tmp/shared" });
 
 describe("canonical navigation re-reads", () => {
+  it("hydrates cold startup with folders before readiness", () => {
+    const initial = { ...initialState, spaces: [], folders: [], startupHydrated: false };
+    const ready = syncServerStartup(initial, {
+      navigation: { spaces: [space], folders: [folder] },
+      runningThreads: [],
+    });
+    expect(initial.startupHydrated).toBe(false);
+    expect(initial.folders).toEqual([]);
+    expect(ready.startupHydrated).toBe(true);
+    expect(ready.folders.find((row) => row.spaceId === spaceId)?.id).toBe(folder.id);
+  });
+  it("does not manufacture a folder for a genuinely empty Space", () => {
+    const ready = syncServerStartup(initialState, {
+      navigation: { spaces: [space], folders: [] },
+      runningThreads: [],
+    });
+    expect(ready.startupHydrated).toBe(true);
+    expect(ready.spaces[0]?.id).toBe(spaceId);
+    expect(ready.folders).toEqual([]);
+  });
+  it("applies complete current navigation again on reconnect", () => {
+    const before = syncServerStartup(initialState, {
+      navigation: { spaces: [space], folders: [folder] },
+      runningThreads: [],
+    });
+    const after = syncServerStartup(before, {
+      navigation: { spaces: [space], folders: [{ ...folder, title: "After reconnect" }] },
+      runningThreads: [],
+    });
+    expect(after.startupHydrated).toBe(true);
+    expect(after.folders[0]?.name).toBe("After reconnect");
+  });
   it("adds complete folder and Space rows without waiting for a domain event", () => {
     const state = syncServerNavigation(
       { ...makeState(makeThread()), spaces: [], folders: [] },

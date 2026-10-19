@@ -1,10 +1,12 @@
 // Purpose: Apply canonical navigation and thread shells to the window's presentation store.
 import type {
+  CleanCoreGetBootstrapResult,
   CleanCoreGetNavigationResult,
   OrchestrationSpaceShell,
   OrchestrationThreadShell,
   ThreadId,
 } from "@penkra/contracts";
+import { threadShellFromRow } from "@penkra/shared/threadView";
 import { getThreadFromState } from "./threadDerivation";
 import {
   arraysShallowEqual,
@@ -85,6 +87,16 @@ export function syncServerNavigation(
   for (const space of navigation.spaces) next = upsertSpace(next, space);
   for (const folder of navigation.folders) next = upsertProject(next, folder, "id-only");
   return next;
+}
+
+export function syncServerStartup(
+  state: AppState,
+  snapshot: CleanCoreGetBootstrapResult,
+): AppState {
+  let next = syncServerNavigation(state, snapshot.navigation);
+  for (const row of snapshot.runningThreads)
+    next = syncServerThreadShell(next, row.id, threadShellFromRow(row));
+  return { ...next, startupHydrated: true };
 }
 
 export function upsertProject(

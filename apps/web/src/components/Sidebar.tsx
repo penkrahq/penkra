@@ -313,7 +313,7 @@ export default function Sidebar() {
   // Selection state only; the handlers and sync effects live in useSpacesController.
   const storedActiveSpaceId = useSpacesUiStore((store) => store.activeSpaceId);
   const activeSpaceId = resolveActiveSpaceId(storedActiveSpaceId, spaces);
-  const threadsHydrated = useStore((store) => store.threadsHydrated);
+  const startupHydrated = useStore((store) => store.startupHydrated);
   const canonicalSidebarRows = useSidebarThreadRows();
   const sidebarThreadSummaryById = useMemo(
     () => Object.fromEntries(canonicalSidebarRows.map((row) => [row.id, row])),
@@ -616,7 +616,7 @@ export default function Sidebar() {
       sidebarThreads,
       sidebarTreeThreads,
       sidebarThreadSummaryById,
-      threadsHydrated,
+      startupHydrated,
     });
   const activeRouteFolderId = routeThreadId
     ? (sidebarThreadSummaryById[routeThreadId]?.folderId ??
@@ -768,7 +768,7 @@ export default function Sidebar() {
 
     // The folders snapshot can be temporarily empty during startup. Wait for hydration
     // before treating a missing target as a genuine no-project state.
-    if (!threadsHydrated) {
+    if (!startupHydrated) {
       return;
     }
     handleStartAddProject();
@@ -777,7 +777,7 @@ export default function Sidebar() {
     handleStartAddProject,
     prefetchModelsForProjectNewThread,
     primaryNewThreadTarget,
-    threadsHydrated,
+    startupHydrated,
   ]);
 
   const handleImportThread = useCallback(
@@ -2233,7 +2233,7 @@ export default function Sidebar() {
       // exists it deliberately leaves the event untouched so the sidebar can
       // surface the project prerequisite instead of turning the shortcut into a
       // silent no-op.
-      if (command === "chat.new" && threadsHydrated && !primaryNewThreadTarget) {
+      if (command === "chat.new" && startupHydrated && !primaryNewThreadTarget) {
         event.preventDefault();
         event.stopPropagation();
         openInlineFolderCreator();
@@ -2366,7 +2366,7 @@ export default function Sidebar() {
     spaces,
     threadJumpCommandByThreadId,
     threadJumpThreadIds,
-    threadsHydrated,
+    startupHydrated,
     visibleSidebarThreadIds,
   ]);
 
