@@ -1,17 +1,14 @@
 // FILE: providerEventBridge.ts
 // Purpose: Translate the adapters' ProviderRuntimeEvent stream into the
 // clean-core consumer events. The item upsert is the only transcript writer
-// (0.14.4 design 2.1/2.3), so messages, reasoning, tools, questions and notices
+// (0.14.4 design 2.1/2.3), so messages, tools, questions and notices
 // all map here, keyed by the provider source id.
 // Layer: Server clean core
 // Exports: toCleanCoreProviderEvents
 
 import type { ProviderRuntimeEvent } from "@penkra/contracts";
 
-import {
-  projectProviderRuntimeActivities,
-  readableReasoningDetail,
-} from "../orchestration/providerRuntimeActivityProjection.ts";
+import { projectProviderRuntimeActivities } from "../orchestration/providerRuntimeActivityProjection.ts";
 import type { CleanCoreProviderEvent } from "./providerStreamConsumer.ts";
 import { threadItemActivityData } from "./threadItemData.ts";
 import type { ThreadItemKind } from "./threadStore.ts";
@@ -21,10 +18,9 @@ const NON_TOOL_NOTICE_TYPES = new Set([
   "error",
   "review_entered",
   "review_exited",
-  "unknown",
 ]);
 
-function itemKind(itemType: string): ThreadItemKind {
+function itemKind(itemType: string): ThreadItemKind | null {
   switch (itemType) {
     case "user_message":
       return "user";
@@ -32,7 +28,8 @@ function itemKind(itemType: string): ThreadItemKind {
       return "text";
     case "reasoning":
     case "plan":
-      return "reasoning";
+    case "unknown":
+      return null;
     default:
       return NON_TOOL_NOTICE_TYPES.has(itemType) ? "notice" : "tool";
   }
@@ -41,7 +38,7 @@ function itemKind(itemType: string): ThreadItemKind {
 function itemStatus(kind: ThreadItemKind, status: string | undefined): string {
   if (kind === "user") return "sent";
   const failed = status === "failed" || status === "declined";
-  if (kind === "text" || kind === "reasoning") {
+  if (kind === "text") {
     return status === "completed" ? "done" : failed ? "interrupted" : "streaming";
   }
   if (kind === "tool") {
@@ -147,15 +144,7 @@ export function toCleanCoreProviderEvents(
     case "item.completed": {
       const payload = event.payload;
       const kind = itemKind(payload.itemType);
-      if (
-        kind === "reasoning" &&
-        (event.provider !== "codex" ||
-          event.type !== "item.completed" ||
-          payload.itemType !== "reasoning" ||
-          !event.itemId ||
-          readableReasoningDetail(payload.detail) === undefined)
-      )
-        return [];
+      if (kind === null) return [];
       return [
         {
           type: "item",
@@ -173,10 +162,7 @@ export function toCleanCoreProviderEvents(
                 ? {}
                 : { text: payload.detail }
               : {
-                  text:
-                    kind === "reasoning"
-                      ? readableReasoningDetail(payload.detail)!
-                      : (payload.detail ?? payload.title ?? null),
+                  text: payload.detail ?? payload.title ?? null,
                 }),
             data:
               kind === "tool" || kind === "notice"

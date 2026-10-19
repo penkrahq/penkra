@@ -64,8 +64,6 @@ function normalizeKind(
       return `question.${status}`;
     case "notice":
       return typeof value === "string" && value.length > 0 ? value : "runtime.warning";
-    case "reasoning":
-      return "task.progress";
     case "user":
     case "text":
     case "turn":
@@ -94,15 +92,7 @@ const TOOL_STATUS_BY_ITEM_STATUS: Record<string, PenkraMcpToolStatus> = {
 };
 
 export function threadItemToActivity(item: CleanCoreThreadItem): OrchestrationThreadActivity {
-  const data =
-    item.kind === "reasoning"
-      ? {
-          tone: "tool",
-          kind: "task.progress",
-          summary: "Reasoning trace",
-          payload: { detail: item.text, data: { toolCallId: item.sourceId } },
-        }
-      : parseThreadItemData(item.data);
+  const data = parseThreadItemData(item.data);
   const hasActivityShape = data !== null && ("payload" in data || "kind" in data || "tone" in data);
   const rawPayload = hasActivityShape
     ? (data?.payload ?? null)

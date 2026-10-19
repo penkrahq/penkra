@@ -255,7 +255,7 @@ describe("provider runtime activity projection", () => {
     expect(events.map((event) => projectProviderRuntimeActivities(event))).toEqual([[], [], []]);
   });
 
-  it("folders only readable completed Codex-family reasoning summaries", () => {
+  it("does not project provider reasoning into activities", () => {
     const absent = [
       runtimeEvent({
         type: "content.delta",
@@ -286,8 +286,8 @@ describe("provider runtime activity projection", () => {
     ];
     expect(absent.map((event) => projectProviderRuntimeActivities(event))).toEqual([[], [], []]);
 
-    for (const provider of ["codex"] as const) {
-      const [activity] = projectProviderRuntimeActivities(
+    for (const provider of ["codex", "claudeAgent", "opencode"] as const) {
+      const activities = projectProviderRuntimeActivities(
         runtimeEvent({
           type: "item.completed",
           eventId: `reasoning-${provider}`,
@@ -301,16 +301,7 @@ describe("provider runtime activity projection", () => {
           },
         }),
       );
-      expect(activity).toMatchObject({
-        id: `provider-reasoning:${THREAD_ID}:reasoning-${provider}`,
-        kind: "task.progress",
-        summary: "Reasoning trace",
-        payload: {
-          status: "completed",
-          detail: "Read the protocol mapping",
-          data: { toolCallId: `reasoning-${provider}` },
-        },
-      });
+      expect(activities).toEqual([]);
     }
   });
 

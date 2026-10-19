@@ -252,11 +252,8 @@ function createThreadItemsPageFromFixtureSnapshot(threadId: ThreadId) {
     });
   }
   for (const activity of thread.activities) {
-    const kind = activity.kind.startsWith("tool.")
-      ? "tool"
-      : activity.kind === "reasoning"
-        ? "reasoning"
-        : "notice";
+    if (activity.kind === "reasoning") continue;
+    const kind = activity.kind.startsWith("tool.") ? "tool" : "notice";
     const payload = (activity.payload ?? null) as Record<string, unknown> | null;
     const payloadStatus =
       typeof payload?.status === "string" ? payload.status.toLowerCase() : undefined;

@@ -59,7 +59,7 @@ export const CleanCoreThreadItem = Schema.Struct({
   seq: NonNegativeInt,
   sourceId: Schema.String,
   turnId: Schema.NullOr(TurnId),
-  kind: Schema.Literals(["user", "text", "reasoning", "tool", "question", "notice", "turn"]),
+  kind: Schema.Literals(["user", "text", "tool", "question", "notice", "turn"]),
   status: Schema.String,
   text: Schema.NullOr(Schema.String),
   data: Schema.NullOr(Schema.String),

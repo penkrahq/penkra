@@ -721,129 +721,82 @@ lifecycleLayer("CodexAdapterLive lifecycle", (it) => {
     }),
   );
 
-  it.effect("maps Codex 0.144 reasoning summaries from canonical item arrays", () =>
+  it.effect("does not turn reasoning part notifications into transcript activity", () =>
     Effect.gen(function* () {
       const adapter = yield* CodexAdapter;
-      const firstEventFiber = yield* Stream.runHead(adapter.streamEvents).pipe(Effect.forkChild);
-
+      const received = yield* Stream.runHead(adapter.streamEvents).pipe(Effect.forkChild);
+      for (const [method, payload] of [
+        [
+          "item/reasoning/summaryPartAdded",
+          { threadId: "thread-1", turnId: "turn-1", itemId: "rs_1", summaryIndex: 0 },
+        ],
+        [
+          "item/reasoning/summaryTextDelta",
+          { delta: "**Inspecting screenshot**", summaryIndex: 0 },
+        ],
+        ["item/reasoning/textDelta", { delta: "private reasoning" }],
+        ["item/started", { item: { type: "reasoning", id: "rs_1" } }],
+        [
+          "item/completed",
+          { item: { type: "reasoning", id: "rs_1", summary: ["**Inspecting screenshot**"] } },
+        ],
+        [
+          "item/completed",
+          { item: { type: "functionCallOutput", id: "output_1", name: "tool", output: "result" } },
+        ],
+        [
+          "item/started",
+          {
+            item: {
+              type: "hookPrompt",
+              id: "hook_1",
+              fragments: [{ text: "hook", hookRunId: "run" }],
+            },
+          },
+        ],
+        ["item/completed", { item: { type: "sleep", id: "sleep_1", durationMs: 10 } }],
+        [
+          "item/started",
+          {
+            item: {
+              type: "subAgentActivity",
+              id: "child_1",
+              kind: "spawn",
+              agentThreadId: "child",
+              agentPath: "root/child",
+            },
+          },
+        ],
+        [
+          "item/commandExecution/terminalInteraction",
+          { threadId: "thread-1", turnId: "turn-1", itemId: "cmd_1", stdin: "yes\n" },
+        ],
+      ] as const)
+        lifecycleManager.emit("event", {
+          id: asEventId(method),
+          kind: "notification",
+          provider: "codex",
+          createdAt: new Date().toISOString(),
+          method,
+          threadId: asThreadId("thread-1"),
+          turnId: asTurnId("turn-1"),
+          itemId: asItemId("rs_1"),
+          payload,
+        } satisfies ProviderEvent);
       lifecycleManager.emit("event", {
-        id: asEventId("evt-reasoning-complete"),
+        id: asEventId("answer"),
         kind: "notification",
         provider: "codex",
         createdAt: new Date().toISOString(),
         method: "item/completed",
         threadId: asThreadId("thread-1"),
         turnId: asTurnId("turn-1"),
-        itemId: asItemId("reasoning_1"),
-        payload: {
-          item: {
-            type: "reasoning",
-            id: "reasoning_1",
-            summary: ["Inspect the protocol.", "Update the adapter."],
-            content: [],
-          },
-        },
+        itemId: asItemId("answer"),
+        payload: { item: { type: "agentMessage", id: "answer", text: "Done" } },
       } satisfies ProviderEvent);
-
-      const firstEvent = yield* Fiber.join(firstEventFiber);
-      assert.equal(firstEvent._tag, "Some");
-      if (firstEvent._tag !== "Some" || firstEvent.value.type !== "item.completed") {
-        return;
-      }
-      assert.equal(firstEvent.value.payload.itemType, "reasoning");
-      assert.equal(firstEvent.value.payload.detail, "Inspect the protocol.\n\nUpdate the adapter.");
-    }),
-  );
-
-  it.effect("maps structured reasoning summary parts without exposing raw content", () =>
-    Effect.gen(function* () {
-      const adapter = yield* CodexAdapter;
-      const firstEventFiber = yield* Stream.runHead(adapter.streamEvents).pipe(Effect.forkChild);
-
-      lifecycleManager.emit("event", {
-        id: asEventId("evt-structured-reasoning-complete"),
-        kind: "notification",
-        provider: "codex",
-        createdAt: new Date().toISOString(),
-        method: "item/completed",
-        threadId: asThreadId("thread-1"),
-        turnId: asTurnId("turn-1"),
-        itemId: asItemId("reasoning_2"),
-        payload: {
-          item: {
-            type: "reasoning",
-            id: "reasoning_2",
-            summary: [
-              { type: "summary_text", text: "Inspect the protocol." },
-              { summary: "Update the adapter." },
-            ],
-            content: [{ type: "reasoning_text", text: "private raw trace" }],
-          },
-        },
-      } satisfies ProviderEvent);
-
-      const firstEvent = yield* Fiber.join(firstEventFiber);
-      assert.equal(firstEvent._tag, "Some");
-      if (firstEvent._tag !== "Some" || firstEvent.value.type !== "item.completed") {
-        return;
-      }
-      assert.equal(firstEvent.value.payload.detail, "Inspect the protocol.\n\nUpdate the adapter.");
-    }),
-  );
-
-  it.effect("keeps Codex reasoning trace and summary delta streams distinct", () =>
-    Effect.gen(function* () {
-      const adapter = yield* CodexAdapter;
-      const eventsFiber = yield* Stream.runCollect(Stream.take(adapter.streamEvents, 2)).pipe(
-        Effect.forkChild,
-      );
-
-      lifecycleManager.emit("event", {
-        id: asEventId("evt-reasoning-trace-delta"),
-        kind: "notification",
-        provider: "codex",
-        createdAt: new Date().toISOString(),
-        method: "item/reasoning/textDelta",
-        threadId: asThreadId("thread-1"),
-        turnId: asTurnId("turn-1"),
-        itemId: asItemId("reasoning_1"),
-        payload: {
-          threadId: "provider-thread-1",
-          turnId: "turn-1",
-          itemId: "reasoning_1",
-          delta: "raw trace",
-          contentIndex: 2,
-        },
-      } satisfies ProviderEvent);
-      lifecycleManager.emit("event", {
-        id: asEventId("evt-reasoning-summary-delta"),
-        kind: "notification",
-        provider: "codex",
-        createdAt: new Date().toISOString(),
-        method: "item/reasoning/summaryTextDelta",
-        threadId: asThreadId("thread-1"),
-        turnId: asTurnId("turn-1"),
-        itemId: asItemId("reasoning_1"),
-        payload: {
-          threadId: "provider-thread-1",
-          turnId: "turn-1",
-          itemId: "reasoning_1",
-          delta: "readable summary",
-          summaryIndex: 1,
-        },
-      } satisfies ProviderEvent);
-
-      const events = Array.from(yield* Fiber.join(eventsFiber));
-      assert.equal(events[0]?.type, "content.delta");
-      assert.equal(events[1]?.type, "content.delta");
-      if (events[0]?.type === "content.delta") {
-        assert.equal(events[0].payload.streamKind, "reasoning_text");
-        assert.equal(events[0].payload.contentIndex, 2);
-      }
-      if (events[1]?.type === "content.delta") {
-        assert.equal(events[1].payload.streamKind, "reasoning_summary_text");
-        assert.equal(events[1].payload.summaryIndex, 1);
-      }
+      const result = yield* Fiber.join(received);
+      assert.equal(result._tag, "Some");
+      if (result._tag === "Some") assert.equal(result.value.itemId, "answer");
     }),
   );
 
@@ -1527,10 +1480,10 @@ lifecycleLayer("CodexAdapterLive lifecycle", (it) => {
       }),
   );
 
-  it.effect("maps Codex task and reasoning event chunks into canonical runtime events", () =>
+  it.effect("maps Codex task lifecycle events into canonical runtime events", () =>
     Effect.gen(function* () {
       const adapter = yield* CodexAdapter;
-      const eventsFiber = yield* Stream.runCollect(Stream.take(adapter.streamEvents, 4)).pipe(
+      const eventsFiber = yield* Stream.runCollect(Stream.take(adapter.streamEvents, 2)).pipe(
         Effect.forkChild,
       );
 
@@ -1547,41 +1500,6 @@ lifecycleLayer("CodexAdapterLive lifecycle", (it) => {
             type: "task_started",
             turn_id: "turn-structured-1",
             collaboration_mode_kind: "plan",
-          },
-        },
-      } satisfies ProviderEvent);
-
-      lifecycleManager.emit("event", {
-        id: asEventId("evt-codex-agent-reasoning"),
-        kind: "notification",
-        provider: "codex",
-        threadId: asThreadId("thread-1"),
-        createdAt: new Date().toISOString(),
-        method: "codex/event/agent_reasoning",
-        payload: {
-          id: "turn-structured-1",
-          msg: {
-            type: "agent_reasoning",
-            text: "Need to compare both transport layers before finalizing the plan.",
-          },
-        },
-      } satisfies ProviderEvent);
-
-      lifecycleManager.emit("event", {
-        id: asEventId("evt-codex-reasoning-delta"),
-        kind: "notification",
-        provider: "codex",
-        threadId: asThreadId("thread-1"),
-        createdAt: new Date().toISOString(),
-        method: "codex/event/reasoning_content_delta",
-        payload: {
-          id: "turn-structured-1",
-          msg: {
-            type: "reasoning_content_delta",
-            turn_id: "turn-structured-1",
-            item_id: "rs_reasoning_1",
-            delta: "**Compare** transport boundaries",
-            summary_index: 0,
           },
         },
       } satisfies ProviderEvent);
@@ -1612,28 +1530,11 @@ lifecycleLayer("CodexAdapterLive lifecycle", (it) => {
         assert.equal(events[0].payload.taskType, "plan");
       }
 
-      assert.equal(events[1]?.type, "task.progress");
-      if (events[1]?.type === "task.progress") {
+      assert.equal(events[1]?.type, "task.completed");
+      if (events[1]?.type === "task.completed") {
+        assert.equal(events[1].turnId, "turn-structured-1");
         assert.equal(events[1].payload.taskId, "turn-structured-1");
-        assert.equal(
-          events[1].payload.description,
-          "Need to compare both transport layers before finalizing the plan.",
-        );
-      }
-
-      assert.equal(events[2]?.type, "content.delta");
-      if (events[2]?.type === "content.delta") {
-        assert.equal(events[2].turnId, "turn-structured-1");
-        assert.equal(events[2].itemId, "rs_reasoning_1");
-        assert.equal(events[2].payload.streamKind, "reasoning_summary_text");
-        assert.equal(events[2].payload.summaryIndex, 0);
-      }
-
-      assert.equal(events[3]?.type, "task.completed");
-      if (events[3]?.type === "task.completed") {
-        assert.equal(events[3].turnId, "turn-structured-1");
-        assert.equal(events[3].payload.taskId, "turn-structured-1");
-        assert.equal(events[3].payload.summary, "<proposed_plan>\n# Ship it\n</proposed_plan>");
+        assert.equal(events[1].payload.summary, "<proposed_plan>\n# Ship it\n</proposed_plan>");
       }
     }),
   );

@@ -52,7 +52,7 @@ export type CleanCoreProviderEvent =
       readonly threadId: string;
       readonly turnId?: string | null;
       readonly sourceId: string;
-      readonly kind: "text" | "reasoning" | "tool";
+      readonly kind: "text" | "tool";
       readonly delta: string;
       readonly at: string;
     }

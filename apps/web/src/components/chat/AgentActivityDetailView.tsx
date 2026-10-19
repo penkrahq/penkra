@@ -22,7 +22,6 @@ import {
   type AgentActivityDetail,
   formatAgentActivityEntryPreview,
   formatAgentActivityEntryTitle,
-  isReasoningUpdateWorkEntry,
 } from "./agentActivity.logic";
 
 const DETAIL_BOTTOM_INSET_PX = 64;
@@ -166,7 +165,7 @@ function AgentActivityEventRow(props: {
 }) {
   const preview = formatAgentActivityEntryPreview(props.entry);
   const title = formatAgentActivityEntryTitle(props.entry);
-  const body = isReasoningUpdateWorkEntry(props.entry) ? preview : (preview ?? props.entry.detail);
+  const body = preview ?? props.entry.detail;
 
   return (
     <div className="py-3 first:pt-0 last:pb-0">

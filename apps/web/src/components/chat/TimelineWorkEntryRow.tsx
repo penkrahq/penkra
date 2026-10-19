@@ -37,12 +37,7 @@ import {
   isThreadSelectionWorkEntry,
   type WorkLogEntry,
 } from "../../session-logic";
-import {
-  formatAgentActivityEntryPreview,
-  isAgentActivityWorkEntry,
-  isCodexActivityStatusWorkEntry,
-  isReasoningUpdateWorkEntry,
-} from "./agentActivity.logic";
+import { isAgentActivityWorkEntry, isCodexActivityStatusWorkEntry } from "./agentActivity.logic";
 import ChatMarkdown from "../ChatMarkdown";
 import { DiffStatLabel } from "./DiffStatLabel";
 import { type ExpandedImagePreview } from "./ExpandedImagePreview";
@@ -144,9 +139,6 @@ function extractFilePathFromDetail(detail: string): string | null {
 }
 
 function workEntryPreview(workEntry: TimelineWorkEntry): string | null {
-  if (isReasoningUpdateWorkEntry(workEntry)) {
-    return formatAgentActivityEntryPreview(workEntry);
-  }
   const isFileRelated =
     workEntry.requestKind === "file-read" ||
     workEntry.requestKind === "file-change" ||
@@ -620,9 +612,7 @@ export const TimelineWorkEntryRow = memo(function TimelineWorkEntryRow(props: {
     : rawPreview;
   const displayText = webFetchUrl
     ? describeLinkChip(webFetchUrl).label
-    : isReasoningUpdateWorkEntry(workEntry) && preview
-      ? preview
-      : combineWorkEntryDisplayText(heading, preview);
+    : combineWorkEntryDisplayText(heading, preview);
   const showInlineAgentTaskPreview =
     workEntry.itemType === "collab_agent_tool_call" &&
     (workEntry.subagents?.length ?? 0) === 0 &&
