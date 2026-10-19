@@ -7,8 +7,9 @@ import {
   createThreadItemsController,
   type ThreadItemsController,
   type ThreadItemsApi,
+  type TurnItemsRange,
 } from "../../useThreadItems";
-import { EMPTY_THREAD_ITEMS_STATE } from "../../threadItemsStore";
+import { EMPTY_THREAD_ITEMS_STATE, turnSegmentKey } from "../../threadItemsStore";
 import { afterEach, describe, expect, it } from "vitest";
 import { render } from "vitest-browser-react";
 import { page } from "vitest/browser";
@@ -17,6 +18,7 @@ import { threadItemsToTimelineEntries } from "./threadItemMappers";
 import type { TranscriptVirtualListRef } from "./TranscriptVirtualList";
 
 const turnId = TurnId.makeUnsafe("turn");
+const detailKey = turnSegmentKey(turnId, 0);
 const marker: CleanCoreThreadItem = {
   threadId: ThreadId.makeUnsafe("thread"),
   seq: 1,
@@ -36,6 +38,17 @@ const final: CleanCoreThreadItem = {
   kind: "text",
   text: "Finished.",
   data: null,
+};
+const segments = {
+  turn: [
+    {
+      fromSeq: 0,
+      toSeq: null,
+      hasSteps: true,
+      startedAt: marker.createdAt,
+      endedAt: marker.updatedAt,
+    },
+  ],
 };
 const step = (seq: number): CleanCoreThreadItem => ({
   ...marker,
@@ -65,7 +78,7 @@ function PagedTurn() {
         items: [marker],
         turns: { turn: marker },
         finals: { turn: final },
-        hasSteps: { turn: true },
+        segments,
         nextCursor: null,
       }),
       listTurnItems: async ({ beforeSeq }) => {
@@ -92,14 +105,14 @@ function PagedTurn() {
       },
       () => {
         const scroll = ref.current?.getScrollableNode();
-        const key = controller.current?.getState().details.turn?.items[0]?.sourceId;
+        const key = controller.current?.getState().details[detailKey]?.items[0]?.sourceId;
         const row = key ? scroll?.querySelector<HTMLElement>('[data-row-key="' + key + '"]') : null;
         if (scroll && row && key)
           setAnchorSample({
             key,
             top: row.getBoundingClientRect().top - scroll.getBoundingClientRect().top,
           });
-        ref.current?.preserveAnchorBelowBoundary("turn-boundary:turn");
+        ref.current?.preserveAnchorBelowBoundary("turn-boundary:" + detailKey);
       },
     );
     controller.current = instance;
@@ -109,13 +122,13 @@ function PagedTurn() {
     };
   }, []);
   const onExpanded = useCallback(
-    (ids: ReadonlyArray<string>) => controller.current?.setExpandedTurns(ids),
+    (ranges: ReadonlyArray<TurnItemsRange>) => controller.current?.setExpandedTurns(ranges),
     [],
   );
   const onOlder = useCallback(() => {
-    void controller.current?.loadOlderTurn("turn");
+    void controller.current?.loadOlderTurn(detailKey);
   }, []);
-  const steps = state.details.turn?.items ?? [];
+  const steps = state.details[detailKey]?.items ?? [];
   const loaded = steps.length;
   return (
     <div style={{ display: "flex", flexDirection: "column", width: 700, height: 600 }}>
@@ -129,11 +142,11 @@ function PagedTurn() {
         activeTurnStartedAt={null}
         turns={{ turn: marker }}
         finals={{ turn: final }}
-        hasSteps={{ turn: true }}
+        segments={segments}
         details={{
-          turn: {
+          [detailKey]: {
             items: steps,
-            nextCursor: state.details.turn?.nextCursor ?? null,
+            nextCursor: state.details[detailKey]?.nextCursor ?? null,
             loaded: loaded > 0,
           },
         }}
@@ -158,6 +171,101 @@ function button(container: HTMLElement, text: string) {
 describe("independent transcript summary rows", () => {
   afterEach(() => {
     document.body.innerHTML = "";
+  });
+  it("keeps a steer between two independently expandable work segments", async () => {
+    await page.viewport(900, 800);
+    const steer: CleanCoreThreadItem = {
+      ...marker,
+      seq: 4,
+      sourceId: "steer",
+      kind: "user",
+      status: "sent",
+      text: "Focus on the tests next.",
+      data: JSON.stringify({
+        origin: { _tag: "agent", senderThreadId: "service" },
+        attachments: [],
+        steered: true,
+      }),
+    };
+    const answer = { ...final, seq: 7, text: "Both parts are complete." };
+    const before = step(2);
+    const after = step(5);
+    const parts = [
+      {
+        fromSeq: 0,
+        toSeq: 4,
+        hasSteps: true,
+        startedAt: marker.createdAt,
+        endedAt: "2026-10-17T00:00:30.000Z",
+      },
+      {
+        fromSeq: 4,
+        toSeq: null,
+        hasSteps: true,
+        startedAt: "2026-10-17T00:00:30.000Z",
+        endedAt: "2026-10-17T00:01:15.000Z",
+      },
+    ];
+    const screen = await render(
+      <div
+        style={{
+          display: "flex",
+          flexDirection: "column",
+          width: 700,
+          height: 600,
+        }}
+      >
+        <MessagesTimeline
+          hasMessages
+          isWorking={false}
+          activeTurnInProgress={false}
+          activeTurnStartedAt={null}
+          turns={{ turn: marker }}
+          finals={{ turn: answer }}
+          segments={{ turn: parts }}
+          details={{
+            [turnSegmentKey(turnId, 0, 4)]: { items: [before], nextCursor: null, loaded: true },
+            [turnSegmentKey(turnId, 4)]: { items: [after], nextCursor: null, loaded: true },
+          }}
+          timelineEntries={threadItemsToTimelineEntries([marker, before, steer, after, answer])}
+          onImageExpand={() => {}}
+          markdownCwd={undefined}
+          resolvedTheme="dark"
+          timestampFormat="locale"
+          workspaceRoot={undefined}
+        />
+      </div>,
+    );
+    try {
+      await expect
+        .poll(
+          () => screen.container.querySelectorAll('[data-timeline-row-kind="turn-header"]').length,
+        )
+        .toBe(2);
+      const headers = Array.from(
+        screen.container.querySelectorAll<HTMLElement>('[data-timeline-row-kind="turn-header"]'),
+      );
+      const message = screen.container.querySelector<HTMLElement>('[data-message-id="steer"]')!;
+      expect(headers[0]!.getBoundingClientRect().bottom).toBeLessThanOrEqual(
+        message.getBoundingClientRect().top,
+      );
+      expect(message.getBoundingClientRect().bottom).toBeLessThanOrEqual(
+        headers[1]!.getBoundingClientRect().top,
+      );
+      expect(message.textContent).toContain("Steered by agent");
+      expect(button(screen.container, "Worked for 30s")).toBeDefined();
+      button(screen.container, "Worked for 45s")!.click();
+      await expect
+        .poll(() => screen.container.querySelectorAll('[data-timeline-row-kind="work"]').length)
+        .toBe(1);
+      expect(headers[0]!.querySelector("button")!.getAttribute("aria-expanded")).toBe("false");
+      await page.screenshot({
+        element: screen.container,
+        path: "../../../../../.penkra/scratch/stream-steer-regressions/steer-segments.png",
+      });
+    } finally {
+      await screen.unmount();
+    }
   });
   it("preserves the settled header typography and divider before the answer", async () => {
     const screen = await render(<PagedTurn />);

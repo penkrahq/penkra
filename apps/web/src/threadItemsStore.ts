@@ -5,7 +5,10 @@
 // Exports: ThreadItemsState, EMPTY_THREAD_ITEMS_STATE, loadFirstPage,
 //   prependOlderPage, mergeItems
 
-import type { CleanCoreThreadItem } from "@penkra/contracts";
+import type { CleanCoreThreadItem, CleanCoreTurnSegment } from "@penkra/contracts";
+
+export const turnSegmentKey = (turnId: string, fromSeq: number, toSeq: number | null = null) =>
+  JSON.stringify([turnId, fromSeq, toSeq]);
 
 export interface ItemSequence {
   readonly items: ReadonlyArray<CleanCoreThreadItem>;
@@ -15,7 +18,7 @@ export interface ItemSequence {
 
 export interface ThreadItemsPage {
   readonly finals: Readonly<Record<string, CleanCoreThreadItem>>;
-  readonly hasSteps: Readonly<Record<string, boolean>>;
+  readonly segments: Readonly<Record<string, ReadonlyArray<CleanCoreTurnSegment>>>;
   /** Newest first, as the server returns it. */
   readonly items: ReadonlyArray<CleanCoreThreadItem>;
   readonly nextCursor: number | null;
@@ -25,7 +28,7 @@ export interface ThreadItemsPage {
 export interface ThreadItemsState {
   readonly details: Readonly<Record<string, ItemSequence>>;
   readonly finals: ThreadItemsPage["finals"];
-  readonly hasSteps: ThreadItemsPage["hasSteps"];
+  readonly segments: ThreadItemsPage["segments"];
   /** Oldest first, so the transcript renders in order. */
   readonly items: ReadonlyArray<CleanCoreThreadItem>;
   /** Cursor for the next older page, or null when exhausted. */
@@ -38,7 +41,7 @@ export interface ThreadItemsState {
 export const EMPTY_THREAD_ITEMS_STATE: ThreadItemsState = {
   details: {},
   finals: {},
-  hasSteps: {},
+  segments: {},
   items: [],
   turns: {},
   nextCursor: null,
@@ -54,7 +57,7 @@ export const loadFirstPage = (page: ThreadItemsPage): ThreadItemsState => ({
   items: ascending(page.items),
   turns: page.turns,
   finals: page.finals,
-  hasSteps: page.hasSteps,
+  segments: page.segments,
   nextCursor: page.nextCursor,
   loaded: true,
 });
@@ -74,7 +77,7 @@ export const prependOlderPage = (
   ),
   turns: { ...page.turns, ...state.turns },
   finals: { ...page.finals, ...state.finals },
-  hasSteps: { ...page.hasSteps, ...state.hasSteps },
+  segments: { ...page.segments, ...state.segments },
   nextCursor: page.nextCursor,
   loaded: true,
 });
@@ -85,7 +88,7 @@ export const mergeItems = (
   incoming: ReadonlyArray<CleanCoreThreadItem>,
   turns: ThreadItemsPage["turns"],
   finals: ThreadItemsPage["finals"],
-  hasSteps: ThreadItemsPage["hasSteps"],
+  segments: ThreadItemsPage["segments"],
 ): ThreadItemsState => {
   const firstSeq = incoming.length === 0 ? 0 : Math.min(...incoming.map((item) => item.seq));
   const retainedTurns = {
@@ -93,6 +96,18 @@ export const mergeItems = (
     ...turns,
   };
   const keepTurn = ([id]: [string, unknown]) => id in retainedTurns;
+  const retainedSegments = Object.fromEntries(
+    Object.entries({ ...state.segments, ...segments }).filter(keepTurn),
+  );
+  const detailKeys = new Set(
+    Object.entries(retainedTurns).flatMap(([id, turn]) =>
+      turn.status === "running"
+        ? [turnSegmentKey(id, 0)]
+        : (retainedSegments[id] ?? []).map((segment) =>
+            turnSegmentKey(id, segment.fromSeq, segment.toSeq),
+          ),
+    ),
+  );
   return {
     ...state,
     items: mergeBySeq(
@@ -100,15 +115,15 @@ export const mergeItems = (
       incoming,
     ),
     turns: retainedTurns,
-    details: Object.fromEntries(Object.entries(state.details).filter(keepTurn)),
+    details: Object.fromEntries(
+      Object.entries(state.details).filter(([key]) => detailKeys.has(key)),
+    ),
     finals: Object.fromEntries(
       Object.entries({ ...state.finals, ...finals }).filter(
         ([id]) => id in retainedTurns && (!(id in turns) || id in finals),
       ),
     ),
-    hasSteps: Object.fromEntries(
-      Object.entries({ ...state.hasSteps, ...hasSteps }).filter(keepTurn),
-    ),
+    segments: retainedSegments,
     loaded: true,
   };
 };

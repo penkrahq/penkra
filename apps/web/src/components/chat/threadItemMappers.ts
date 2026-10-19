@@ -184,6 +184,7 @@ export interface ThreadItemUserContent {
   readonly mentions: ReadonlyArray<ProviderMentionReference>;
   readonly origin?: MessageOrigin;
   readonly steered?: true;
+  readonly anchor?: import("@penkra/contracts").ThreadItemAnchor;
 }
 
 export function threadItemToUserContent(item: CleanCoreThreadItem): ThreadItemUserContent {
@@ -251,17 +252,21 @@ export function threadItemsToTimelineEntries(
 ): TimelineEntry[] {
   const ordered = [...items].toSorted((left, right) => left.seq - right.seq);
   const entries: TimelineEntry[] = [];
-  const messagePositions = new Map(
-    ordered.filter((item) => item.kind === "user").map((item) => [item.sourceId, item.seq]),
-  );
+  const messagePositions = new Map(ordered.map((item) => [item.sourceId, item.seq]));
   for (const item of ordered) {
     if (item.kind === "user" && !isVisibleThreadMessageItem(item)) continue;
     if (item.kind === "user" || item.kind === "text") {
+      const message = threadItemToChatMessage(item);
+      const anchor = item.kind === "user" ? threadItemToUserContent(item).anchor : undefined;
+      if (anchor !== undefined) {
+        const sourceId = "messageId" in anchor ? anchor.messageId : anchor.turnRowSourceId;
+        message.anchor = { ...anchor, sequence: messagePositions.get(sourceId) };
+      }
       entries.push({
         id: item.sourceId,
         kind: "message",
         createdAt: item.createdAt,
-        message: threadItemToChatMessage(item),
+        message,
       });
       continue;
     }

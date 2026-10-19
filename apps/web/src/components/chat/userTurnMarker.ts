@@ -5,12 +5,9 @@
 // what gets rendered and what gets measured can never drift apart.
 // Layer: web chat feature (pure logic, no I/O).
 
-// Agent-dispatched turns take
-// precedence over the steer marker so the origin stays visible even for
-// steered dispatches.
 import type { MessageOrigin } from "@penkra/contracts";
 
-export type UserTurnMarkerKind = "agent" | "steer";
+export type UserTurnMarkerKind = "agent" | "agent-steer" | "steer";
 
 export function resolveUserTurnMarker(message: {
   readonly origin?: MessageOrigin | undefined;
@@ -18,7 +15,7 @@ export function resolveUserTurnMarker(message: {
 }): UserTurnMarkerKind | null {
   if (message.origin?._tag === "recovery") return null;
   if (message.origin?._tag === "agent") {
-    return "agent";
+    return message.steered ? "agent-steer" : "agent";
   }
   if (message.steered) {
     return "steer";

@@ -12,6 +12,7 @@ import {
 } from "./MessagesTimeline.logic";
 import type { TimelineEntry, WorkLogEntry } from "../../session-logic";
 import { threadItemsToTimelineEntries } from "./threadItemMappers";
+import { turnSegmentKey } from "../../threadItemsStore";
 
 describe("normalizeCompactToolLabel", () => {
   it("removes trailing completion wording from command labels", () => {
@@ -317,8 +318,120 @@ describe("server-defined transcript rows", () => {
     activeTurnStartedAt: null,
     turns: { t1: marker },
     finals: { t1: final },
-    hasSteps: { t1: true },
+    segments: {
+      t1: [
+        {
+          fromSeq: 0,
+          toSeq: null,
+          hasSteps: true,
+          startedAt: marker.createdAt,
+          endedAt: marker.updatedAt,
+        },
+      ],
+    },
   };
+  it("places independent settled folds on either side of a steer, with no fold for an empty segment", () => {
+    const steer = item(5, "user", {
+      data: JSON.stringify({
+        origin: { _tag: "agent", senderThreadId: "sender" },
+        attachments: [],
+        steered: true,
+      }),
+    });
+    const after = item(6, "tool");
+    const input = {
+      ...base,
+      timelineEntries: threadItemsToTimelineEntries([
+        history[0]!,
+        history[1]!,
+        history[2]!,
+        steer,
+        after,
+        final,
+      ]),
+      segments: {
+        t1: [
+          {
+            fromSeq: 0,
+            toSeq: 5,
+            hasSteps: true,
+            startedAt: marker.createdAt,
+            endedAt: marker.updatedAt,
+          },
+          {
+            fromSeq: 5,
+            toSeq: null,
+            hasSteps: true,
+            startedAt: marker.createdAt,
+            endedAt: marker.updatedAt,
+          },
+        ],
+      },
+    };
+    const rows = deriveMessagesTimelineRows(input);
+    expect(rows.map((row) => row.id)).toEqual([
+      "item-1",
+      'turn-header:["t1",0,5]',
+      "item-5",
+      'turn-header:["t1",5,null]',
+      "turn-divider:t1",
+      "item-7",
+    ]);
+    const open = deriveMessagesTimelineRows({
+      ...input,
+      expandedTurns: { [turnSegmentKey("t1", 5)]: true },
+    });
+    expect(open.map((row) => row.id)).toEqual([
+      "item-1",
+      'turn-header:["t1",0,5]',
+      "item-5",
+      'turn-header:["t1",5,null]',
+      "item-6",
+      "turn-divider:t1",
+      "item-7",
+    ]);
+    const empty = deriveMessagesTimelineRows({
+      ...input,
+      segments: {
+        t1: input.segments.t1.map((segment, index) => ({ ...segment, hasSteps: index === 0 })),
+      },
+    });
+    expect(empty.filter((row) => row.kind === "turn-header")).toHaveLength(1);
+    const paged = deriveMessagesTimelineRows({
+      ...input,
+      outlineCursor: 5,
+      timelineEntries: threadItemsToTimelineEntries([steer, after, final]),
+    });
+    expect(paged.map((row) => row.id)).toEqual([
+      "outline-boundary:5",
+      "item-5",
+      'turn-header:["t1",5,null]',
+      "turn-divider:t1",
+      "item-7",
+    ]);
+  });
+  it("anchors a Claude steer after the previous final and before the consuming turn, preserving stored sequence", () => {
+    const consuming = item(9, "turn", { sourceId: "turn:t2", turnId: TurnId.makeUnsafe("t2") });
+    const answer = item(10, "text", { turnId: TurnId.makeUnsafe("t2") });
+    const steer = item(5, "user", {
+      turnId: TurnId.makeUnsafe("t2"),
+      data: JSON.stringify({
+        origin: { _tag: "user" },
+        attachments: [],
+        steered: true,
+        anchor: { turnRowSourceId: "turn:t2" },
+      }),
+    });
+    const rows = deriveMessagesTimelineRows({
+      ...base,
+      timelineEntries: threadItemsToTimelineEntries([history[0]!, steer, final, consuming, answer]),
+      turns: { t1: marker, t2: consuming },
+      finals: { t1: final, t2: answer },
+      segments: { t1: [], t2: [] },
+    });
+    expect(rows.map((row) => row.id)).toEqual(["item-1", "item-7", "item-5", "item-10"]);
+    expect(steer.seq).toBe(5);
+  });
   it.each([false, true])(
     "anchors changes above visible or hidden inputs (hidden=%s), without moving stored order",
     (hidden) => {
@@ -396,9 +509,9 @@ describe("server-defined transcript rows", () => {
         ...base,
         finals: {},
         timelineEntries: steps(first),
-        expandedTurns: { t1: true },
+        expandedTurns: { [turnSegmentKey("t1", 0)]: true },
         expandedSummaries: { "summary:step-201": expanded },
-        details: { t1: { items: [item(first, "tool")], nextCursor: first } },
+        details: { [turnSegmentKey("t1", 0)]: { items: [item(first, "tool")], nextCursor: first } },
       });
     const closed = derive(152, false);
     expect(closed.map((row) => row.kind)).toEqual(["turn-header", "summary"]);
@@ -415,7 +528,7 @@ describe("server-defined transcript rows", () => {
     expect(after.filter((row) => row.kind === "work")).toHaveLength(100);
     expect(after.findIndex((row) => row.kind === "boundary")).toBe(2);
   });
-  it("keeps steers and answers in sequence before the settled block, with exact timing", () => {
+  it("keeps ordinary inputs and questions in sequence before the settled block, with exact timing", () => {
     const rows = deriveMessagesTimelineRows(base);
     expect(rows.map((row) => row.kind)).toEqual([
       "message",
@@ -429,17 +542,20 @@ describe("server-defined transcript rows", () => {
       "item-1",
       "item-5",
       "item-6",
-      "turn-header:t1",
+      'turn-header:["t1",0,null]',
       "turn-divider:t1",
       "item-7",
     ]);
     expect(rows[3]).toMatchObject({ elapsed: "5m", expanded: false });
-    const open = deriveMessagesTimelineRows({ ...base, expandedTurns: { t1: true } });
+    const open = deriveMessagesTimelineRows({
+      ...base,
+      expandedTurns: { [turnSegmentKey("t1", 0)]: true },
+    });
     expect(open.map((row) => row.id)).toEqual([
       "item-1",
       "item-5",
       "item-6",
-      "turn-header:t1",
+      'turn-header:["t1",0,null]',
       "item-3",
       "item-4",
       "turn-divider:t1",
@@ -470,7 +586,7 @@ describe("server-defined transcript rows", () => {
     const rows = deriveMessagesTimelineRows({
       ...base,
       timelineEntries: threadItemsToTimelineEntries([history[0]!, final]),
-      hasSteps: { t1: false },
+      segments: { t1: [] },
     });
     expect(rows.map((row) => row.kind)).toEqual(["message", "message"]);
     expect(rows.at(-1)).toMatchObject({ showAssistantCopyButton: true });
@@ -479,16 +595,16 @@ describe("server-defined transcript rows", () => {
     const rows = deriveMessagesTimelineRows({
       ...base,
       outlineCursor: 1,
-      expandedTurns: { t1: true },
-      details: { t1: { items: [item(3, "tool")], nextCursor: 3 } },
+      expandedTurns: { [turnSegmentKey("t1", 0)]: true },
+      details: { [turnSegmentKey("t1", 0)]: { items: [item(3, "tool")], nextCursor: 3 } },
     });
     expect(rows.filter((row) => row.kind === "boundary").map((row) => row.id)).toEqual([
       "outline-boundary:1",
-      "turn-boundary:t1:3",
+      'turn-boundary:["t1",0,null]:3',
     ]);
     const closed = deriveMessagesTimelineRows({
       ...base,
-      details: { t1: { items: [], nextCursor: 3 } },
+      details: { [turnSegmentKey("t1", 0)]: { items: [], nextCursor: 3 } },
     });
     expect(closed.some((row) => row.kind === "boundary")).toBe(false);
   });
@@ -501,8 +617,8 @@ describe("server-defined transcript rows", () => {
         ...base,
         finals: {},
         timelineEntries: threadItemsToTimelineEntries(steps),
-        expandedTurns: { t1: true },
-        details: { t1: { items: steps, nextCursor: firstSeq } },
+        expandedTurns: { [turnSegmentKey("t1", 0)]: true },
+        details: { [turnSegmentKey("t1", 0)]: { items: steps, nextCursor: firstSeq } },
       });
     };
     const before = derivePage(152);
@@ -515,7 +631,7 @@ describe("server-defined transcript rows", () => {
       ...base,
       finals: {},
       timelineEntries: threadItemsToTimelineEntries([item(3, "tool")]),
-      expandedTurns: { t1: true },
+      expandedTurns: { [turnSegmentKey("t1", 0)]: true },
     });
     expect(rows.map((row) => row.kind)).toEqual(["turn-header", "work"]);
   });
@@ -526,7 +642,7 @@ describe("server-defined transcript rows", () => {
       ...base,
       turns: { t1: marker, t2: other },
       finals: { t1: final, t2: answer },
-      hasSteps: { t1: true, t2: false },
+      segments: { ...base.segments, t2: [] },
     });
     expect(rows.filter((row) => row.kind === "message").map((row) => row.id)).toEqual([
       "item-1",
@@ -561,7 +677,7 @@ describe("server-defined transcript rows", () => {
     const rows = deriveMessagesTimelineRows({
       ...base,
       timelineEntries: [media("second", 1), media("first", 0)],
-      expandedTurns: { t1: true },
+      expandedTurns: { [turnSegmentKey("t1", 0)]: true },
     });
     const gallery = rows.find((row) => row.kind === "media");
     expect(gallery?.kind === "media" && gallery.entries.map((entry) => entry.id)).toEqual([

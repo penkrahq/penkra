@@ -232,7 +232,7 @@ export const writeMessageOutcome = (outcome: MessageOutcome, at: string) =>
     const queued = queue.some((message) => message.messageId === cohort.requestId);
     const leaderQueued = queue.some((message) => message.messageId === cohort.leaderId);
     if (outcome.type === "acknowledged") {
-      yield* sql`UPDATE thread_items SET status='sent',send_payload=NULL,turn_id=${outcome.turnId},updated_at=${at}
+      yield* sql`UPDATE thread_items SET status='sent',send_payload=NULL,turn_id=COALESCE(turn_id,${outcome.turnId}),updated_at=${at}
       WHERE thread_id=${outcome.threadId} AND source_id IN (SELECT value FROM json_each(${JSON.stringify(cohort.ids)}))`;
       yield* sql`UPDATE threads SET last_error=NULL WHERE id=${outcome.threadId}`;
       if (leaderQueued)

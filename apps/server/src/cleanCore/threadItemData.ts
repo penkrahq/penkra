@@ -7,6 +7,8 @@
 // Exports: THREAD_ITEM_DATA_LIMIT_BYTES, capThreadItemData, ThreadItemActivityData,
 //   threadItemActivityData
 
+import type { ThreadItemAnchor } from "@penkra/contracts";
+
 export const THREAD_ITEM_DATA_LIMIT_BYTES = 64 * 1024;
 
 /**
@@ -38,7 +40,7 @@ export interface ThreadItemActivityData {
   readonly kind: string;
   readonly summary: string;
   readonly payload: unknown;
-  readonly anchor?: { readonly messageId: string };
+  readonly anchor?: ThreadItemAnchor;
 }
 
 export function threadItemActivityData(activity: ThreadItemActivityData): string {

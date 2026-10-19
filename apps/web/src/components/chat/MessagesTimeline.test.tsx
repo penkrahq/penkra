@@ -105,7 +105,17 @@ function settledFixture(items: ReadonlyArray<{ kind: "tool" | "text" | "notice";
   return {
     turns: TIMING_FIXTURE_TURNS,
     finals: { "fixture-duration": answer },
-    hasSteps: { "fixture-duration": rows.length > 0 },
+    segments: {
+      "fixture-duration": [
+        {
+          fromSeq: 0,
+          toSeq: null,
+          hasSteps: rows.length > 0,
+          startedAt: turn.createdAt,
+          endedAt: turn.updatedAt,
+        },
+      ],
+    },
     timelineEntries: threadItemsToTimelineEntries([...rows, answer]),
   };
 }
@@ -706,7 +716,7 @@ describe("MessagesTimeline", () => {
       />,
     );
 
-    expect(markup).toContain(`Sent by ${senderTitle}`);
+    expect(markup).toContain(`Steered by ${senderTitle}`);
     expect(markup).toContain("Queued · not delivered · position 1");
     expect(markup).not.toContain("Steering conversation");
     expect(markup).toContain(`aria-label="Open ${clampedSenderTitle}"`);
@@ -2453,7 +2463,17 @@ it("shows persisted turn duration for settled canonical transcript items", () =>
       activeTurnInProgress={false}
       activeTurnStartedAt={null}
       turns={TIMING_FIXTURE_TURNS}
-      hasSteps={{ "fixture-duration": true }}
+      segments={{
+        "fixture-duration": [
+          {
+            fromSeq: 0,
+            toSeq: null,
+            hasSteps: true,
+            startedAt: TIMING_FIXTURE_TURNS["fixture-duration"].createdAt,
+            endedAt: TIMING_FIXTURE_TURNS["fixture-duration"].updatedAt,
+          },
+        ],
+      }}
       finals={{
         "fixture-duration": {
           ...turn,

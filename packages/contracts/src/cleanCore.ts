@@ -68,9 +68,18 @@ export const CleanCoreThreadItem = Schema.Struct({
 });
 export type CleanCoreThreadItem = typeof CleanCoreThreadItem.Type;
 
+export const CleanCoreTurnSegment = Schema.Struct({
+  fromSeq: NonNegativeInt,
+  toSeq: Schema.NullOr(NonNegativeInt),
+  hasSteps: Schema.Boolean,
+  startedAt: Schema.NullOr(IsoDateTime),
+  endedAt: Schema.NullOr(IsoDateTime),
+});
+export type CleanCoreTurnSegment = typeof CleanCoreTurnSegment.Type;
+
 export const CleanCoreListThreadItemsPageResult = Schema.Struct({
   finals: Schema.Record(Schema.String, CleanCoreThreadItem),
-  hasSteps: Schema.Record(Schema.String, Schema.Boolean),
+  segments: Schema.Record(Schema.String, Schema.Array(CleanCoreTurnSegment)),
   turns: Schema.Record(Schema.String, CleanCoreThreadItem),
   items: Schema.Array(CleanCoreThreadItem),
   nextCursor: Schema.NullOr(NonNegativeInt),
@@ -80,6 +89,8 @@ export type CleanCoreListThreadItemsPageResult = typeof CleanCoreListThreadItems
 export const CleanCoreListTurnItemsInput = Schema.Struct({
   threadId: ThreadId,
   turnId: TurnId,
+  fromSeq: Schema.optional(NonNegativeInt),
+  toSeq: Schema.optional(Schema.NullOr(NonNegativeInt)),
   beforeSeq: Schema.optional(NonNegativeInt),
 });
 export type CleanCoreListTurnItemsInput = typeof CleanCoreListTurnItemsInput.Type;
@@ -119,12 +130,19 @@ export type CleanCoreSubscribeThreadInput = typeof CleanCoreSubscribeThreadInput
 export const DesktopRunningWorkState = Schema.Struct({ working: Schema.Array(ThreadId) });
 export type DesktopRunningWorkState = typeof DesktopRunningWorkState.Type;
 
+export const ThreadItemAnchor = Schema.Union([
+  Schema.Struct({ messageId: Schema.String }),
+  Schema.Struct({ turnRowSourceId: Schema.String }),
+]);
+export type ThreadItemAnchor = typeof ThreadItemAnchor.Type;
+
 export const UserItemData = Schema.Struct({
   origin: MessageOrigin,
   attachments: Schema.Array(ChatAttachment),
   skills: Schema.optionalKey(Schema.Array(ProviderSkillReference)),
   mentions: Schema.optionalKey(Schema.Array(ProviderMentionReference)),
   steered: Schema.optionalKey(Schema.Literal(true)),
+  anchor: Schema.optionalKey(ThreadItemAnchor),
 });
 export type UserItemData = typeof UserItemData.Type;
 

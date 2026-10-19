@@ -3,6 +3,7 @@ import { toCleanCoreProviderEvents } from "./providerEventBridge.ts";
 import { listThreadItemsPage } from "./threadItemsPage.ts";
 import { seedThreadFolderFixture } from "./threadFixtures.ts";
 import { assert, it } from "@effect/vitest";
+import { EventId, RuntimeItemId, ThreadId, TurnId } from "@penkra/contracts";
 import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
@@ -29,6 +30,65 @@ const baseThread = {
   createdBy: "user" as const,
   createdAt: "2026-10-09T00:00:00.000Z",
 };
+
+it.effect(
+  "a matched Claude steer echo moves only the existing steered row without changing its sequence",
+  () =>
+    withDb(
+      Effect.gen(function* () {
+        yield* runMigrations();
+        yield* seedThreadFolderFixture("core-test-folder", "space-1");
+        yield* createThread(baseThread);
+        const sql = yield* SqlClient.SqlClient;
+        const data = JSON.stringify({ origin: { _tag: "user" }, attachments: [], steered: true });
+        yield* upsertThreadItem({
+          threadId: baseThread.id,
+          sourceId: "steer",
+          turnId: "offered",
+          kind: "user",
+          status: "sending",
+          text: "Keep this",
+          data,
+          createdAt: baseThread.createdAt,
+          updatedAt: baseThread.createdAt,
+        });
+        const [before] = yield* sql<{
+          seq: number;
+        }>`SELECT seq FROM thread_items WHERE source_id='steer'`;
+        const publisher = makeThreadPublisher();
+        for (const sourceId of ["steer", "missing"]) {
+          const events = toCleanCoreProviderEvents({
+            type: "item.updated",
+            provider: "claudeAgent",
+            eventId: EventId.makeUnsafe(sourceId),
+            threadId: ThreadId.makeUnsafe(baseThread.id),
+            turnId: TurnId.makeUnsafe("consuming"),
+            itemId: RuntimeItemId.makeUnsafe(sourceId),
+            createdAt: baseThread.createdAt,
+            payload: { itemType: "user_message", data: { admittedTurnId: "offered" } },
+          });
+          for (const event of events) yield* applyProviderEvent(publisher, event);
+        }
+        const rows = yield* sql<{
+          seq: number;
+          turnId: string;
+          text: string;
+          data: string;
+        }>`SELECT seq,turn_id AS "turnId",text,data FROM thread_items WHERE kind='user'`;
+        assert.deepStrictEqual(
+          rows.map((row) => ({ ...row, data: JSON.parse(row.data) })),
+          [
+            {
+              seq: before!.seq,
+              turnId: "consuming",
+              text: "Keep this",
+              data: { ...JSON.parse(data), anchor: { turnRowSourceId: "turn:consuming" } },
+            },
+          ],
+        );
+      }),
+    ),
+);
 
 it.effect(
   "anchors the first item or delta before a delayed turn start, retaining row identity",

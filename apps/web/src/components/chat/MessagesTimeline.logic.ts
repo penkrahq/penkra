@@ -3,7 +3,12 @@
 // Layer: Web chat presentation helpers
 // Exports: row derivation, structural sharing, copy/timer helpers
 
-import { type TurnId, type CleanCoreThreadItem } from "@penkra/contracts";
+import {
+  type TurnId,
+  type CleanCoreThreadItem,
+  type CleanCoreTurnSegment,
+} from "@penkra/contracts";
+import { turnSegmentKey } from "../../threadItemsStore";
 import {
   type TimelineEntry,
   type WorkLogEntry,
@@ -52,6 +57,7 @@ export type MessagesTimelineRow =
       id: string;
       createdAt: string;
       turnId: string;
+      segmentKey: string;
       elapsed: string | null;
       expanded: boolean;
     }
@@ -125,7 +131,7 @@ export function resolveAssistantMessageDisplayText(
   return input.hasVisibleMediaInTurn ? null : "(empty response)";
 }
 
-// The server's turn marker, final answer and hasSteps flag define each block.
+// The server's turn marker, final answer and segments flag define each block.
 // No message-boundary inference or folding into a preceding answer.
 export function deriveMessagesTimelineRows(input: {
   timelineEntries: ReadonlyArray<TimelineEntry>;
@@ -135,7 +141,7 @@ export function deriveMessagesTimelineRows(input: {
   activeTurnStartedAt: string | null;
   turns?: Readonly<Record<string, CleanCoreThreadItem>> | undefined;
   finals?: Readonly<Record<string, CleanCoreThreadItem>> | undefined;
-  hasSteps?: Readonly<Record<string, boolean>> | undefined;
+  segments?: Readonly<Record<string, ReadonlyArray<CleanCoreTurnSegment>>> | undefined;
   details?:
     | Readonly<
         Record<string, { items: ReadonlyArray<CleanCoreThreadItem>; nextCursor: number | null }>
@@ -167,12 +173,13 @@ export function deriveMessagesTimelineRows(input: {
       seq: number | undefined,
     ): MessagesTimelineRow | undefined => {
       if (turnId == null || turns[turnId]?.status !== "running") return;
-      const detail = input.details?.[turnId];
+      const key = turnSegmentKey(turnId, 0);
+      const detail = input.details?.[key];
       if (detail?.nextCursor == null || detail.items[0]?.seq !== seq) return;
       return {
         kind: "boundary",
-        id: "turn-boundary:" + turnId + ":" + detail.nextCursor,
-        turnId,
+        id: "turn-boundary:" + key + ":" + detail.nextCursor,
+        turnId: key,
         createdAt: turns[turnId]!.createdAt,
       };
     };
@@ -297,10 +304,15 @@ export function deriveMessagesTimelineRows(input: {
         : row.kind === "boundary" && row.turnId !== null
           ? (input.details?.[row.turnId]?.items[0]?.seq ?? 0)
           : seqById.get(row.id)!;
-    const anchorSequence = row.kind === "work" ? row.entry.anchor?.sequence : undefined;
+    const anchorSequence =
+      row.kind === "work"
+        ? row.entry.anchor?.sequence
+        : row.kind === "message"
+          ? row.message.anchor?.sequence
+          : undefined;
     events.push({
       seq: anchorSequence ?? seq,
-      priority: anchorSequence === undefined ? 1 : -1,
+      priority: anchorSequence === undefined ? 1 : row.kind === "work" ? -2 : -1,
       rows: [row],
     });
   }
@@ -321,51 +333,65 @@ export function deriveMessagesTimelineRows(input: {
       continue;
     }
     const final = finals[id];
-    const block: MessagesTimelineRow[] = [];
-    const expanded = input.expandedTurns?.[id] === true;
-    const timing =
-      turn.data === null
-        ? null
-        : (JSON.parse(turn.data) as { startedAt: string | null; endedAt: string | null });
-    if (input.hasSteps?.[id]) {
+    const segments = input.segments?.[id] ?? [];
+    for (const segment of segments) {
+      if (!segment.hasSteps) continue;
+      if (
+        input.outlineCursor != null &&
+        segment.toSeq !== null &&
+        segment.toSeq <= input.outlineCursor
+      )
+        continue;
+      const key = turnSegmentKey(id, segment.fromSeq, segment.toSeq);
+      const block: MessagesTimelineRow[] = [];
+      const expanded = input.expandedTurns?.[key] === true;
       block.push({
         kind: "turn-header",
-        id: "turn-header:" + id,
+        id: "turn-header:" + key,
         turnId: id,
+        segmentKey: key,
         createdAt: turn.createdAt,
         expanded,
         elapsed:
-          timing?.startedAt && timing.endedAt
-            ? formatElapsed(timing.startedAt, timing.endedAt)
+          segment.startedAt && segment.endedAt
+            ? formatElapsed(segment.startedAt, segment.endedAt)
             : null,
       });
       if (expanded) {
-        const detail = input.details?.[id];
+        const detail = input.details?.[key];
         block.push(
           ...rowsFor(
             (entriesByTurn.get(id) ?? []).filter(
               (entry) =>
+                seqOf(entry) >= segment.fromSeq &&
+                (segment.toSeq === null || seqOf(entry) < segment.toSeq) &&
                 !(
                   entry.kind === "message" &&
                   (entry.message.role === "user" || entry.message.id === final?.sourceId)
-                ) && !isQuestion(entry),
+                ) &&
+                !isQuestion(entry),
             ),
             detail?.nextCursor != null
               ? {
                   kind: "boundary",
-                  id: "turn-boundary:" + id + ":" + detail.nextCursor,
-                  turnId: id,
+                  id: "turn-boundary:" + key + ":" + detail.nextCursor,
+                  turnId: key,
                   createdAt: turn.createdAt,
                 }
               : undefined,
           ),
         );
       }
-    }
-    if (final && input.hasSteps?.[id]) {
-      block.push({ kind: "turn-divider", id: "turn-divider:" + id, createdAt: turn.createdAt });
+      events.push({
+        seq: segment.toSeq ?? final?.seq ?? segment.fromSeq,
+        priority: segment.toSeq === null ? 1 : 0,
+        rows: block,
+      });
     }
     if (final) {
+      const block: MessagesTimelineRow[] = [];
+      if (segments.some((segment) => segment.hasSteps))
+        block.push({ kind: "turn-divider", id: "turn-divider:" + id, createdAt: turn.createdAt });
       const message = threadItemToChatMessage(final);
       block.push({
         kind: "message",
@@ -375,8 +401,8 @@ export function deriveMessagesTimelineRows(input: {
         showAssistantCopyButton: true,
         assistantCopyStreaming: false,
       });
+      events.push({ seq: final.seq, priority: 2, rows: block });
     }
-    events.push({ seq: final?.seq ?? turn.seq, priority: 1, rows: block });
   }
   const result = events
     .toSorted((a, b) => a.seq - b.seq || a.priority - b.priority)

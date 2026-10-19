@@ -5,6 +5,8 @@
 
 import type { CleanCoreThreadItem } from "@penkra/contracts";
 import type { ThreadItemsState } from "../../threadItemsStore";
+import { turnSegmentKey } from "../../threadItemsStore";
+import type { TurnItemsRange } from "../../useThreadItems";
 import {
   type MessageId,
   type ProviderMentionReference,
@@ -168,6 +170,7 @@ const USER_TURN_MARKER_PRESENTATION: Record<
   { readonly Icon: LucideIcon; readonly label: string }
 > = {
   agent: { Icon: BotIcon, label: "Sent by agent" },
+  "agent-steer": { Icon: BotIcon, label: "Steered by agent" },
   steer: { Icon: SteerIcon, label: "Steering conversation" },
 };
 
@@ -196,7 +199,9 @@ function UserDispatchModeChip({
   const clampedSenderTitle = senderTitle?.trim() ? clampMentionTitle(senderTitle) : undefined;
   const hasKnownSenderTitle = clampedSenderTitle !== undefined;
   const senderLabel =
-    markerKind === "agent" && hasKnownSenderTitle ? `Sent by ${senderTitle}` : label;
+    origin?._tag === "agent" && hasKnownSenderTitle
+      ? `${steered ? "Steered" : "Sent"} by ${senderTitle}`
+      : label;
   const content = (
     <>
       <Icon className="size-3 shrink-0 text-muted-foreground/75" />
@@ -209,7 +214,7 @@ function UserDispatchModeChip({
     </>
   );
   if (
-    markerKind === "agent" &&
+    origin?._tag === "agent" &&
     hasKnownSenderTitle &&
     senderThread &&
     !senderThread.archivedAt &&
@@ -261,10 +266,10 @@ interface MessagesTimelineProps {
   timelineEntries: ReturnType<typeof deriveTimelineEntries>;
   turns?: Readonly<Record<string, CleanCoreThreadItem>> | undefined;
   finals?: ThreadItemsState["finals"];
-  hasSteps?: ThreadItemsState["hasSteps"];
+  segments?: ThreadItemsState["segments"];
   details?: ThreadItemsState["details"];
   outlineCursor?: number | null;
-  onExpandedTurnsChange?: (ids: ReadonlyArray<string>) => void;
+  onExpandedTurnsChange?: (ranges: ReadonlyArray<TurnItemsRange>) => void;
   onLoadOlderTurn?: (id: string) => void;
   nowIso?: string;
   onOpenAgentActivity?: (activityId: string) => void;
@@ -310,7 +315,7 @@ export const MessagesTimeline = memo(function MessagesTimeline({
   timelineEntries,
   turns,
   finals,
-  hasSteps,
+  segments,
   details,
   outlineCursor,
   onExpandedTurnsChange,
@@ -393,11 +398,17 @@ export const MessagesTimeline = memo(function MessagesTimeline({
   const [expandedTurns, setExpandedTurns] = useState<Record<string, boolean>>({});
   useEffect(() => {
     onExpandedTurnsChange?.(
-      Object.entries(turns ?? {})
-        .filter(([id, turn]) => turn.status === "running" || expandedTurns[id])
-        .map(([id]) => id),
+      Object.entries(turns ?? {}).flatMap(([id, turn]) =>
+        turn.status === "running"
+          ? [{ turnId: id, fromSeq: 0, toSeq: null }]
+          : (segments?.[id] ?? [])
+              .filter(
+                (segment) => expandedTurns[turnSegmentKey(id, segment.fromSeq, segment.toSeq)],
+              )
+              .map((segment) => ({ turnId: id, fromSeq: segment.fromSeq, toSeq: segment.toSeq })),
+      ),
     );
-  }, [turns, expandedTurns, onExpandedTurnsChange]);
+  }, [turns, segments, expandedTurns, onExpandedTurnsChange]);
   const onRenderedItems = useCallback(
     (items: ReadonlyArray<MessagesTimelineRow>) => {
       for (const row of items)
@@ -416,7 +427,7 @@ export const MessagesTimeline = memo(function MessagesTimeline({
           timelineEntries,
           turns,
           finals,
-          hasSteps,
+          segments,
           details,
           outlineCursor,
           expandedTurns,
@@ -431,7 +442,7 @@ export const MessagesTimeline = memo(function MessagesTimeline({
       timelineEntries,
       turns,
       finals,
-      hasSteps,
+      segments,
       details,
       outlineCursor,
       expandedTurns,
@@ -858,7 +869,7 @@ export const MessagesTimeline = memo(function MessagesTimeline({
             className="-ml-0.5 inline-flex items-center gap-1 pb-2 text-left text-muted-foreground/70 hover:text-muted-foreground/90"
             style={{ fontSize: chatTypographyStyle.fontSize }}
             onClick={() =>
-              setExpandedTurns((current) => ({ ...current, [row.turnId]: !row.expanded }))
+              setExpandedTurns((current) => ({ ...current, [row.segmentKey]: !row.expanded }))
             }
           >
             <span>{row.elapsed ? `Worked for ${row.elapsed}` : "Details"}</span>

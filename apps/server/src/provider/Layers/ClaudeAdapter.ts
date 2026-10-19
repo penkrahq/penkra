@@ -8,6 +8,7 @@
  */
 
 import { spawn as spawnChildProcess } from "node:child_process";
+import { randomUUID } from "node:crypto";
 import {
   observeProviderProcess,
   type ProviderProcessDiagnostics,
@@ -329,6 +330,10 @@ interface ClaudeSessionContext {
   currentApiModelId: string | undefined;
   resumeSessionId: string | undefined;
   readonly pendingUserInputs: Map<string, PendingUserInput>;
+  readonly pendingSteers: Map<
+    string,
+    { readonly messageId: string; readonly admittedTurnId: TurnId }
+  >;
   readonly turns: Array<{
     id: TurnId;
     items: Array<unknown>;
@@ -2508,6 +2513,7 @@ function makeClaudeAdapter(options?: ClaudeAdapterLiveOptions) {
           currentApiModelId: undefined,
           resumeSessionId: undefined,
           pendingUserInputs: new Map(),
+          pendingSteers: new Map(),
           turns: [],
           inFlightTools: new Map(),
           trackedTasks: new Map(),
@@ -2820,6 +2826,28 @@ function makeClaudeAdapter(options?: ClaudeAdapterLiveOptions) {
       Effect.gen(function* () {
         if (message.type !== "user") {
           return;
+        }
+
+        const steer =
+          message.uuid === undefined ? undefined : context.pendingSteers.get(message.uuid);
+        if (steer !== undefined && "isReplay" in message && message.isReplay === true) {
+          context.pendingSteers.delete(message.uuid!);
+          yield* ensureSyntheticTurn(context);
+          const turnId = context.turnState!.turnId;
+          if (turnId !== steer.admittedTurnId) {
+            const stamp = yield* makeEventStamp();
+            yield* offerRuntimeEvent(context, {
+              type: "item.updated",
+              eventId: stamp.eventId,
+              provider: PROVIDER,
+              createdAt: stamp.createdAt,
+              threadId: context.session.threadId,
+              turnId,
+              itemId: asRuntimeItemId(steer.messageId),
+              payload: { itemType: "user_message", data: { admittedTurnId: steer.admittedTurnId } },
+              providerRefs: nativeProviderRefs(context),
+            });
+          }
         }
 
         if (context.turnState) {
@@ -4626,6 +4654,7 @@ function makeClaudeAdapter(options?: ClaudeAdapterLiveOptions) {
           ...(existingResumeSessionId ? { resume: existingResumeSessionId } : {}),
           ...(newSessionId ? { sessionId: newSessionId } : {}),
           includePartialMessages: true,
+          extraArgs: { "replay-user-messages": null },
           // Forward full subagent conversations (text + thinking) tagged with
           // parent_tool_use_id so child threads can stream live.
           forwardSubagentText: true,
@@ -4722,6 +4751,7 @@ function makeClaudeAdapter(options?: ClaudeAdapterLiveOptions) {
             currentApiModelId: apiModelId,
             resumeSessionId: existingResumeSessionId,
             pendingUserInputs,
+            pendingSteers: new Map(),
             turns: [],
             inFlightTools,
             trackedTasks,
@@ -5100,10 +5130,24 @@ function makeClaudeAdapter(options?: ClaudeAdapterLiveOptions) {
           fileSystem,
           attachmentsDir: serverConfig.attachmentsDir,
         });
+        const uuid = randomUUID();
+        if (input.clientMessageId !== undefined) {
+          context.pendingSteers.set(uuid, {
+            messageId: input.clientMessageId,
+            admittedTurnId: liveTurnState.turnId,
+          });
+        }
         yield* Queue.offer(context.promptQueue, {
           type: "message",
-          message,
-        }).pipe(Effect.mapError((cause) => toRequestError(input.threadId, "turn/steer", cause)));
+          message: { ...message, uuid },
+        }).pipe(
+          Effect.onError(() =>
+            Effect.sync(() => {
+              context.pendingSteers.delete(uuid);
+            }),
+          ),
+          Effect.mapError((cause) => toRequestError(input.threadId, "turn/steer", cause)),
+        );
 
         const steerText = input.input?.trim();
         if (steerText) {

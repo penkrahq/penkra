@@ -196,6 +196,77 @@ it.effect("native success settles the same row without changing its seq", () =>
     }),
   ),
 );
+it.effect("a late send acknowledgement preserves the turn that consumed the steer", () =>
+  withDb(
+    Effect.gen(function* () {
+      const publisher = yield* setup;
+      const admission = yield* sendMessage(publisher, driver, input);
+      const sql = yield* SqlClient.SqlClient;
+      yield* sql`UPDATE thread_items SET turn_id='consuming-turn' WHERE source_id='message'`;
+      yield* settleMessage(
+        publisher,
+        { type: "acknowledged", threadId: "thread", messageId: "message", turnId: "offered-turn" },
+        at,
+      );
+      assert.deepStrictEqual(yield* sql`SELECT seq,status,turn_id FROM thread_items`, [
+        {
+          seq: "seq" in admission ? admission.seq : -1,
+          status: "sent",
+          turn_id: "consuming-turn",
+        },
+      ]);
+    }),
+  ),
+);
+it.effect(
+  "redelivery clears the failed attempt's turn before accepting a new acknowledgement",
+  () =>
+    withDb(
+      Effect.gen(function* () {
+        const publisher = yield* setup;
+        yield* sendMessage(publisher, driver, input);
+        const sql = yield* SqlClient.SqlClient;
+        yield* sql`UPDATE thread_items SET turn_id='failed-turn',data=json_set(data,'$.anchor',json_object('turnRowSourceId','turn:failed-turn')) WHERE source_id='message'`;
+        yield* settleMessage(
+          publisher,
+          { type: "failed", threadId: "thread", messageId: "message", error: "Provider exited" },
+          at,
+        );
+        yield* sendMessage(publisher, driver, {
+          ...input,
+          message: { ...input.message, messageId: MessageId.makeUnsafe("next-message") },
+        });
+        assert.deepStrictEqual(
+          yield* sql`SELECT status,turn_id FROM thread_items WHERE source_id='message'`,
+          [{ status: "sending", turn_id: null }],
+        );
+        const [retried] = yield* sql<{
+          data: string;
+        }>`SELECT data FROM thread_items WHERE source_id='message'`;
+        assert.deepStrictEqual(JSON.parse(retried!.data), {
+          origin: { _tag: "user" },
+          attachments: [],
+        });
+        yield* settleMessage(
+          publisher,
+          {
+            type: "acknowledged",
+            threadId: "thread",
+            messageId: "next-message",
+            turnId: "new-turn",
+          },
+          at,
+        );
+        assert.deepStrictEqual(
+          yield* sql`SELECT status,turn_id FROM thread_items WHERE kind='user' ORDER BY seq`,
+          [
+            { status: "sent", turn_id: "new-turn" },
+            { status: "sent", turn_id: "new-turn" },
+          ],
+        );
+      }),
+    ),
+);
 it.effect(
   "native failure keeps a failed row and records last_error without touching the composer",
   () =>

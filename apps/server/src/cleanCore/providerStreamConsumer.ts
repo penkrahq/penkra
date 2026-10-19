@@ -34,6 +34,14 @@ import {
 
 export type CleanCoreProviderEvent =
   | {
+      readonly type: "user.consumed";
+      readonly threadId: string;
+      readonly sourceId: string;
+      readonly admittedTurnId: string;
+      readonly turnId: string;
+      readonly at: string;
+    }
+  | {
       readonly type: "turn.started";
       readonly threadId: string;
       readonly turnId: string;
@@ -85,6 +93,15 @@ export const PROVIDER_CUTOFF_NOTICE = "This turn was cut off because the provide
 const writeProviderEvent = (event: CleanCoreProviderEvent) =>
   Effect.gen(function* () {
     switch (event.type) {
+      case "user.consumed": {
+        const sql = yield* SqlClient.SqlClient;
+        const changed = yield* sql`UPDATE thread_items SET turn_id=${event.turnId},
+          data=json_set(data,'$.anchor',json_object('turnRowSourceId',${`turn:${event.turnId}`})), updated_at=${event.at}
+          WHERE thread_id=${event.threadId} AND source_id=${event.sourceId} AND kind='user'
+          AND json_extract(data,'$.steered')=1 AND (turn_id IS NULL OR turn_id=${event.admittedTurnId})
+          RETURNING seq`;
+        return changed.length ? [event.threadId] : [];
+      }
       case "turn.started": {
         yield* setThreadState(event.threadId, "running", event.turnId, null, event.at);
         yield* upsertThreadItem({
