@@ -17,7 +17,7 @@ export {
   deriveWorkLogEntries,
   isFileChangeWorkLogEntry,
   isProviderFileEditWorkLogEntry,
-  isThreadSelectionWorkEntry,
+  isTranscriptSeparatorWorkEntry,
   isRoutedSubagentWorkEntry,
   omitRoutedSubagentWorkEntries,
   orderedActivities,

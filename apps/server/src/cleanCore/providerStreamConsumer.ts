@@ -8,13 +8,18 @@ import { renameThread } from "./threadStore.ts";
 // Layer: Server clean core
 // Exports: CleanCoreProviderEvent, PROVIDER_CUTOFF_NOTICE, applyProviderEvent
 
-import type { ProviderRuntimeEvent } from "@penkra/contracts";
+import {
+  PROVIDER_DISPLAY_NAMES,
+  type ProviderKind,
+  type ProviderRuntimeEvent,
+} from "@penkra/contracts";
 import { Effect } from "effect";
 import * as SqlClient from "effect/unstable/sql/SqlClient";
 
 import { failSendingMessagesOnStartup, writeSendingMessageFailures } from "./sendMessage.ts";
 import { toCleanCoreProviderEvents } from "./providerEventBridge.ts";
 import { writeProviderConnectionFacts } from "./providerConnectionFacts.ts";
+import { threadItemActivityData } from "./threadItemData.ts";
 
 import {
   answerQuestion,
@@ -147,7 +152,8 @@ const writeProviderEvent = (event: CleanCoreProviderEvent) =>
             const sql = yield* SqlClient.SqlClient;
             const [thread] = yield* sql<{
               state: string;
-            }>`SELECT state FROM threads WHERE id=${threadId}`;
+              provider: ProviderKind;
+            }>`SELECT state, provider FROM threads WHERE id=${threadId}`;
             if (!thread) return [];
             const reason = event.reason ?? PROVIDER_CUTOFF_NOTICE;
             const failedSending = yield* writeSendingMessageFailures(threadId, reason, event.at);
@@ -160,17 +166,24 @@ const writeProviderEvent = (event: CleanCoreProviderEvent) =>
               event.at,
             );
             yield* settleRunningItems(threadId, event.at);
-            if (event.type === "provider.exited" && thread.state === "running")
+            if (event.type === "provider.exited" && thread.state === "running") {
+              const summary = `${PROVIDER_DISPLAY_NAMES[thread.provider]} stopped before finishing`;
               yield* upsertThreadItem({
                 threadId,
                 sourceId: `provider-cutoff:${event.at}`,
                 kind: "notice",
                 status: "done",
-                text: PROVIDER_CUTOFF_NOTICE,
-                data: null,
+                text: summary,
+                data: threadItemActivityData({
+                  tone: "info",
+                  kind: "provider-stopped",
+                  summary,
+                  payload: {},
+                }),
                 createdAt: event.at,
                 updatedAt: event.at,
               });
+            }
             return [threadId];
           }),
         );

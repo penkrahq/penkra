@@ -9,11 +9,7 @@ import path from "node:path";
 import { Cause, Effect, Exit } from "effect";
 import * as SqlClient from "effect/unstable/sql/SqlClient";
 
-import {
-  applyProviderEvent,
-  PROVIDER_CUTOFF_NOTICE,
-  settleRunningThreadsOnStartup,
-} from "./providerStreamConsumer.ts";
+import { applyProviderEvent, settleRunningThreadsOnStartup } from "./providerStreamConsumer.ts";
 import { createThread, makeThreadPublisher, upsertThreadItem } from "./threadStore.ts";
 import { runMigrations } from "../persistence/Migrations.ts";
 import * as NodeSqliteClient from "../persistence/NodeSqliteClient.ts";
@@ -202,10 +198,17 @@ it.effect("provider exit idles the thread and records one cutoff notice", () =>
         SELECT state FROM threads WHERE id = 'thread-1'
       `;
       assert.deepStrictEqual(threads, [{ state: "idle" }]);
-      const notices = yield* sql<{ readonly text: string }>`
-        SELECT text FROM thread_items WHERE thread_id = 'thread-1' AND kind = 'notice'
+      const notices = yield* sql<{ readonly text: string; readonly data: string }>`
+        SELECT text, data FROM thread_items WHERE thread_id = 'thread-1' AND kind = 'notice'
       `;
-      assert.deepStrictEqual(notices, [{ text: PROVIDER_CUTOFF_NOTICE }]);
+      assert.lengthOf(notices, 1);
+      assert.equal(notices[0]!.text, "ChatGPT stopped before finishing");
+      assert.deepStrictEqual(JSON.parse(notices[0]!.data), {
+        tone: "info",
+        kind: "provider-stopped",
+        summary: "ChatGPT stopped before finishing",
+        payload: {},
+      });
     }),
   ),
 );
