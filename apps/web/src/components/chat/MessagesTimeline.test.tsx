@@ -1169,8 +1169,9 @@ describe("MessagesTimeline", () => {
     );
 
     expect(markup).toContain("Compacting conversation...");
-    expect(markup).toContain("Working for");
-    expect(markup).not.toContain("h-px flex-1 bg-border");
+    expect(markup).toContain(">Working</div>");
+    expect(markup).not.toContain("Working for");
+    expect(markup).not.toContain("h-px w-full bg-border");
   });
 
   it("renders the server-selected final footer after the separate Worked-for header", async () => {
@@ -1447,7 +1448,7 @@ describe("MessagesTimeline", () => {
     expect(markup).not.toContain("+2 more tool calls");
   });
 
-  it("keeps Thinking visible alongside the live elapsed-time status", async () => {
+  it("keeps Thinking visible alongside Working without a live clock or divider", async () => {
     const activeTurnId = TurnId.makeUnsafe("turn-reasoning-live");
     const markup = renderToStaticMarkup(
       <MessagesTimeline
@@ -1505,7 +1506,9 @@ describe("MessagesTimeline", () => {
 
     expect(markup.match(/data-codex-status-row="true"/g) ?? []).toHaveLength(1);
     expect(markup.match(/data-work-entry-icon="true"/g) ?? []).toHaveLength(1);
-    expect(markup).toContain("Working for");
+    expect(markup).toContain(">Working</div>");
+    expect(markup).not.toContain("Working for");
+    expect(markup).not.toContain("h-px w-full bg-border");
     expect(markup).toContain('class="shimmer pt-0.5 text-muted-foreground/70 font-system-ui"');
     expect(markup).toContain(">Thinking</div>");
     expect(markup).not.toContain('aria-hidden="true">Thinking</div>');

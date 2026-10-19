@@ -26,7 +26,7 @@ import {
   type RefObject,
   type ReactNode,
 } from "react";
-import { deriveTimelineEntries, formatClockElapsed, type WorkLogEntry } from "../../session-logic";
+import { deriveTimelineEntries, type WorkLogEntry } from "../../session-logic";
 import {
   areChatScrollDiagnosticsEnabled,
   recordChatPaginationDiagnostic,
@@ -128,7 +128,6 @@ const MESSAGE_HOVER_REVEAL_CLASS_NAME =
 // How long a jumped-to message keeps its highlight tint before fading back out.
 const JUMP_HIGHLIGHT_DURATION_MS = 1200;
 // Elapsed labels show whole seconds, so their leaf clock updates once per second (decision 6b).
-const WORKING_TIMER_TICK_MS = 1_000;
 const MESSAGE_SEND_ENTER_ANIMATION_MS = 180;
 const MESSAGE_SEND_ENTER_CLEANUP_BUFFER_MS = 60;
 const EMPTY_MESSAGE_ID_SET: ReadonlySet<MessageId> = new Set();
@@ -470,11 +469,11 @@ export const MessagesTimeline = memo(function MessagesTimeline({
     });
   }, [viewportMemoryKey, activeTurnId, activeTurnStartedAt, isWorking, activeTurnInProgress]);
   const thinkingRowDerivedVisible = rows.some((row) => row.kind === "working");
-  const workingTimerDerivedVisible = rows.some((row) => row.kind === "working-header");
+  const workingHeaderDerivedVisible = rows.some((row) => row.kind === "working-header");
   const previousLifecycleRowsRef = useRef<{
     threadId: string;
     thinking: boolean;
-    timer: boolean;
+    header: boolean;
   } | null>(null);
   useEffect(() => {
     if (!viewportMemoryKey) return;
@@ -483,7 +482,7 @@ export const MessagesTimeline = memo(function MessagesTimeline({
       previousLifecycleRowsRef.current = {
         threadId: viewportMemoryKey,
         thinking: thinkingRowDerivedVisible,
-        timer: workingTimerDerivedVisible,
+        header: workingHeaderDerivedVisible,
       };
       if (thinkingRowDerivedVisible) {
         recordChatLifecycleUiDiagnostic({
@@ -494,9 +493,9 @@ export const MessagesTimeline = memo(function MessagesTimeline({
           isWorking,
         });
       }
-      if (workingTimerDerivedVisible) {
+      if (workingHeaderDerivedVisible) {
         recordChatLifecycleUiDiagnostic({
-          event: "working-timer-derived-visible",
+          event: "working-header-derived-visible",
           threadId: viewportMemoryKey,
           activeTurnId: activeTurnId ?? null,
           activeTurnStartedAt,
@@ -517,11 +516,11 @@ export const MessagesTimeline = memo(function MessagesTimeline({
         isWorking,
       });
     }
-    if (previous.timer !== workingTimerDerivedVisible) {
+    if (previous.header !== workingHeaderDerivedVisible) {
       recordChatLifecycleUiDiagnostic({
-        event: workingTimerDerivedVisible
-          ? "working-timer-derived-visible"
-          : "working-timer-derived-hidden",
+        event: workingHeaderDerivedVisible
+          ? "working-header-derived-visible"
+          : "working-header-derived-hidden",
         threadId: viewportMemoryKey,
         activeTurnId: activeTurnId ?? null,
         activeTurnStartedAt,
@@ -531,7 +530,7 @@ export const MessagesTimeline = memo(function MessagesTimeline({
     previousLifecycleRowsRef.current = {
       threadId: viewportMemoryKey,
       thinking: thinkingRowDerivedVisible,
-      timer: workingTimerDerivedVisible,
+      header: workingHeaderDerivedVisible,
     };
   }, [
     activeTurnId,
@@ -539,7 +538,7 @@ export const MessagesTimeline = memo(function MessagesTimeline({
     isWorking,
     thinkingRowDerivedVisible,
     viewportMemoryKey,
-    workingTimerDerivedVisible,
+    workingHeaderDerivedVisible,
   ]);
   useEffect(() => {
     if (!viewportMemoryKey || !areChatScrollDiagnosticsEnabled()) return;
@@ -1196,19 +1195,11 @@ export const MessagesTimeline = memo(function MessagesTimeline({
           })()}
 
         {row.kind === "working-header" && (
-          <div>
-            <div
-              className="-ml-0.5 pb-2 text-muted-foreground/70"
-              style={{ fontSize: chatTypographyStyle.fontSize }}
-            >
-              Working for{" "}
-              {nowIso ? (
-                (formatClockElapsed(row.createdAt, nowIso) ?? "0s")
-              ) : (
-                <WorkingTimer createdAt={row.createdAt} />
-              )}
-            </div>
-            <div className="h-px w-full bg-border" />
+          <div
+            className="-ml-0.5 pb-2 text-muted-foreground/70"
+            style={{ fontSize: chatTypographyStyle.fontSize }}
+          >
+            Working
           </div>
         )}
 
@@ -1304,32 +1295,6 @@ function reconcileStableTimelineRows(
   const nextState = computeStableMessagesTimelineRows(rows, previousStateRef.current);
   previousStateRef.current = nextState;
   return nextState.result;
-}
-
-// Keep the live clock scoped to tiny leaf components so active Claude turns do
-// not force the full transcript tree to re-render every second.
-function WorkingTimer({ createdAt }: { createdAt: string }) {
-  const textRef = useRef<HTMLSpanElement>(null);
-  const initialText = formatWorkingTimerNow(createdAt);
-
-  useEffect(() => {
-    const updateText = () => {
-      if (textRef.current) {
-        textRef.current.textContent = formatWorkingTimerNow(createdAt);
-      }
-    };
-    updateText();
-    const id = window.setInterval(updateText, WORKING_TIMER_TICK_MS);
-    return () => {
-      window.clearInterval(id);
-    };
-  }, [createdAt]);
-
-  return <span ref={textRef}>{initialText}</span>;
-}
-
-function formatWorkingTimerNow(startIso: string): string {
-  return formatClockElapsed(startIso, new Date().toISOString()) ?? "0s";
 }
 
 const UserImageAttachmentThumbnail = memo(function UserImageAttachmentThumbnail(props: {
