@@ -70,6 +70,7 @@ import {
   ServerGetEnvironmentResult,
   ServerListProviderUsageInput,
   ServerListProviderUsageResult,
+  ServerProviderUsageChange,
   ServerLifecycleStreamEvent,
   ServerGetSettingsResult,
   ServerRefreshProvidersResult,
@@ -261,6 +262,12 @@ export const WsServerListProviderUsageRpc = Rpc.make(WS_METHODS.serverListProvid
   payload: ServerListProviderUsageInput,
   success: ServerListProviderUsageResult,
   error: WsRpcError,
+});
+export const WsServerSubscribeProviderUsageRpc = Rpc.make(WS_METHODS.serverSubscribeProviderUsage, {
+  payload: Schema.Struct({}),
+  success: ServerProviderUsageChange,
+  error: WsRpcError,
+  stream: true,
 });
 
 export const WsServerTranscribeVoiceRpc = Rpc.make(WS_METHODS.serverTranscribeVoice, {
@@ -612,6 +619,7 @@ export const WsFeatureRpcGroup = RpcGroup.make(
   WsServerUpdateSpaceNavigationStateRpc,
   WsServerRefreshProvidersRpc,
   WsServerListProviderUsageRpc,
+  WsServerSubscribeProviderUsageRpc,
   WsServerTranscribeVoiceRpc,
   WsSubscribeServerLifecycleRpc,
   WsSubscribeServerConfigRpc,

@@ -59,7 +59,7 @@ import { ProviderConnectionLoginCoordinator } from "./provider/Services/Provider
 import { ProviderLaunchResolver } from "./provider/Services/ProviderLaunchResolver";
 import { ProviderConnectionRepository } from "./persistence/Services/ProviderConnections";
 import { ProviderInstallationRepository } from "./persistence/Services/ProviderInstallations";
-import { listProviderUsage } from "./providerUsage";
+import { ProviderUsage } from "./providerUsage/ProviderUsage.ts";
 import { ServerEnvironment } from "./environment/Services/ServerEnvironment";
 import { ServerLifecycleEvents } from "./serverLifecycleEvents";
 import { ServerRuntimeStartup } from "./serverRuntimeStartup";
@@ -178,6 +178,7 @@ const makeWsRpcHandlersLayer = () =>
       const serverSettings = yield* ServerSettingsService;
       const sql = yield* SqlClient.SqlClient;
       const threadPublisher = yield* ThreadPublisher;
+      const providerUsage = yield* ProviderUsage;
       const workspaceEntries = yield* WorkspaceEntries;
       const workspaceFileSystem = yield* WorkspaceFileSystem;
       const workspaceWatcher = yield* WorkspaceWatcher;
@@ -660,7 +661,21 @@ const makeWsRpcHandlersLayer = () =>
             "Failed to disconnect the Connection",
           ),
         [WS_METHODS.serverListProviderUsage]: (input) =>
-          rpcEffect(listProviderUsage(input), "Failed to load provider usage"),
+          rpcEffect(
+            providerUsage.snapshot.pipe(
+              Effect.map((snapshots) =>
+                snapshots.filter(
+                  (snapshot) =>
+                    snapshot.connectionId !== undefined &&
+                    input.connectionIds.includes(snapshot.connectionId) &&
+                    (input.provider === undefined || input.provider === snapshot.provider),
+                ),
+              ),
+            ),
+            "Failed to read provider usage",
+          ),
+        [WS_METHODS.serverSubscribeProviderUsage]: (_, { clientId }) =>
+          streamAdmission.guard(clientId, { key: "server.providerUsage" }, providerUsage.changes),
         [WS_METHODS.serverTranscribeVoice]: (input) =>
           rpcEffect(
             Effect.gen(function* () {

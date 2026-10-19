@@ -10,7 +10,7 @@ import {
   ProviderKind,
   TrimmedNonEmptyString,
 } from "@penkra/contracts";
-import { Effect, Option, Schema, ServiceMap } from "effect";
+import { Effect, Option, Schema, ServiceMap, type Stream } from "effect";
 
 import type { PersistenceDecodeError, PersistenceSqlError } from "../Errors.ts";
 
@@ -69,6 +69,7 @@ export interface ManagedProfileCommitResult {
 }
 
 export interface ProviderConnectionRepositoryShape {
+  readonly changes: Stream.Stream<ProviderConnectionId>;
   readonly create: (
     input: CreateProviderConnectionInput,
   ) => Effect.Effect<ProviderConnection, ProviderConnectionRepositoryError>;

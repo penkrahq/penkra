@@ -45,6 +45,7 @@ import {
   ServerUpdateSettingsInput,
   ServerUpdateSpaceNavigationStateInput,
   ServerListProviderUsageInput,
+  ServerProviderUsageChange,
   ServerProviderStatusesUpdatedPayload,
   ServerSettingsUpdatedPayload,
   ServerVoiceTranscriptionInput,
@@ -127,6 +128,7 @@ export const WS_METHODS = {
   serverUpdateSpaceNavigationState: "server.updateSpaceNavigationState",
   serverRefreshProviders: "server.refreshProviders",
   serverListProviderUsage: "server.listProviderUsage",
+  serverSubscribeProviderUsage: "server.subscribeProviderUsage",
   serverTranscribeVoice: "server.transcribeVoice",
   subscribeServerLifecycle: "server.subscribeLifecycle",
   subscribeServerConfig: "server.subscribeConfig",
@@ -162,6 +164,7 @@ export const WS_CHANNELS = {
   serverConfigUpdated: "server.configUpdated",
   serverProviderStatusesUpdated: "server.providerStatusesUpdated",
   serverSettingsUpdated: "server.settingsUpdated",
+  serverProviderUsageUpdated: "server.providerUsageUpdated",
 } as const;
 
 // -- Tagged Union of all request body schemas ─────────────────────────
@@ -236,6 +239,7 @@ const WebSocketRequestBody = Schema.Union([
   ),
   tagRequestBody(WS_METHODS.serverRefreshProviders, Schema.Struct({})),
   tagRequestBody(WS_METHODS.serverListProviderUsage, ServerListProviderUsageInput),
+  tagRequestBody(WS_METHODS.serverSubscribeProviderUsage, Schema.Struct({})),
   tagRequestBody(WS_METHODS.serverTranscribeVoice, ServerVoiceTranscriptionInput),
 
   // Provider discovery
@@ -288,6 +292,7 @@ export const WsWelcomePayload = Schema.Struct({
 export type WsWelcomePayload = typeof WsWelcomePayload.Type;
 
 export interface WsPushPayloadByChannel {
+  readonly [WS_CHANNELS.serverProviderUsageUpdated]: ServerProviderUsageChange;
   readonly [WS_CHANNELS.serverWelcome]: WsWelcomePayload;
   readonly [WS_CHANNELS.serverMaintenanceUpdated]: ServerLifecycleStreamEvent;
   readonly [WS_CHANNELS.serverConfigUpdated]: typeof ServerConfigUpdatedPayload.Type;
@@ -313,6 +318,10 @@ const makeWsPushSchema = <const Channel extends string, Payload extends Schema.S
   });
 
 export const WsPushServerWelcome = makeWsPushSchema(WS_CHANNELS.serverWelcome, WsWelcomePayload);
+export const WsPushServerProviderUsageUpdated = makeWsPushSchema(
+  WS_CHANNELS.serverProviderUsageUpdated,
+  ServerProviderUsageChange,
+);
 export const WsPushServerMaintenanceUpdated = makeWsPushSchema(
   WS_CHANNELS.serverMaintenanceUpdated,
   ServerLifecycleStreamEvent,
@@ -344,6 +353,7 @@ export const WsPushCleanCoreThreadChange = makeWsPushSchema(
 );
 
 export const WsPushChannelSchema = Schema.Literals([
+  WS_CHANNELS.serverProviderUsageUpdated,
   WS_CHANNELS.serverWelcome,
   WS_CHANNELS.serverMaintenanceUpdated,
   WS_CHANNELS.serverConfigUpdated,
@@ -356,6 +366,7 @@ export const WsPushChannelSchema = Schema.Literals([
 export type WsPushChannelSchema = typeof WsPushChannelSchema.Type;
 
 export const WsPush = Schema.Union([
+  WsPushServerProviderUsageUpdated,
   WsPushServerWelcome,
   WsPushServerMaintenanceUpdated,
   WsPushServerConfigUpdated,

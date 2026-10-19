@@ -1,7 +1,7 @@
 // FILE: providerUsage/index.ts
 // Purpose: Orchestrate the live provider-usage fetchers — defensive batch fetch (one failure never
 // blocks the others). Exposes both a plain async API
-// (for tests) and an Effect that reads ServerConfig (for the WS RPC handler).
+// (for tests) and an Effect loader for the server-owned usage snapshots.
 
 import type {
   ProviderConnectionId,
@@ -200,25 +200,27 @@ export const listProviderUsage = Effect.fn(function* (input: ServerListProviderU
       record.lifecycle === "active" &&
       (input.provider === undefined || record.harness === input.provider),
   );
-  const facts = yield* Effect.forEach(activeRecords, (record) =>
-    usageFacts
-      .get(record.id)
-      .pipe(Effect.map((fact) => [record.id, Option.getOrNull(fact)] as const)),
-  );
-  const rateLimitFacts = new Map(
-    facts.filter(
-      (entry): entry is readonly [ProviderConnectionId, ConnectionRateLimitObservation] =>
-        entry[1] !== null,
-    ),
-  );
-  return yield* Effect.tryPromise({
+  const fetched = yield* Effect.tryPromise({
     try: () =>
       collectProviderConnectionUsageSnapshots({
         connections: activeRecords,
         stateDir: serverConfig.stateDir,
         ctx: context,
-        rateLimitFacts,
       }),
     catch: () => [] as ServerListProviderUsageResult,
   });
+  // Read runtime observations after the HTTP read so a fact received during it
+  // is not replaced with an observation captured before the request.
+  return yield* Effect.forEach(fetched, (snapshot) =>
+    Effect.gen(function* () {
+      const fact =
+        snapshot.connectionId === undefined
+          ? Option.none<ConnectionRateLimitObservation>()
+          : yield* usageFacts.get(snapshot.connectionId);
+      return mergeConnectionUsageSnapshots({
+        fetched: snapshot,
+        runtime: Option.isSome(fact) ? snapshotFromConnectionRateLimitFact(fact.value) : null,
+      });
+    }),
+  );
 });

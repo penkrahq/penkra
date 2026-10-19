@@ -92,6 +92,8 @@ export const writeProviderConnectionFacts = (event: ProviderRuntimeEvent) =>
     }
 
     const tokenUsage = completedTurnTokenUsage(event);
+    const connectionRateLimits = yield* ConnectionRateLimits;
+    yield* connectionRateLimits.refreshUsage(ProviderConnectionId.makeUnsafe(connectionId));
     yield* Effect.gen(function* () {
       const inserted = yield* sql<{ readonly sourceEventId: string }>`
             INSERT INTO connection_usage_turn_events (source_event_id, connection_id, utc_day)

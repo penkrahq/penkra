@@ -5,6 +5,7 @@ import { ProviderConnection, ProviderConnectionId } from "@penkra/contracts";
 import { Effect, Layer, Option, Schema } from "effect";
 import * as SqlClient from "effect/unstable/sql/SqlClient";
 import * as SqlSchema from "effect/unstable/sql/SqlSchema";
+import { makeInvalidationHub } from "../../cleanCore/invalidationHub.ts";
 
 import { toPersistenceSqlOrDecodeError } from "../Errors.ts";
 import {
@@ -34,6 +35,10 @@ const toPublicConnection = (record: ProviderConnectionRecord): ProviderConnectio
 
 const makeProviderConnectionRepository = Effect.gen(function* () {
   const sql = yield* SqlClient.SqlClient;
+  const changes = yield* Effect.acquireRelease(
+    Effect.sync(() => makeInvalidationHub<ProviderConnectionId>((id) => id)),
+    (hub) => hub.close,
+  );
 
   const selectRecord = SqlSchema.findOneOption({
     Request: Schema.Struct({ id: CreateProviderConnectionInput.fields.id }),
@@ -279,7 +284,7 @@ const makeProviderConnectionRepository = Effect.gen(function* () {
       ),
     );
 
-  return {
+  const repository: Omit<ProviderConnectionRepositoryShape, "changes"> = {
     create: (input) =>
       mapped(
         "ProviderConnectionRepository.create",
@@ -459,6 +464,41 @@ const makeProviderConnectionRepository = Effect.gen(function* () {
           `.pipe(Effect.andThen(selectRecord({ id: input.id }))),
         ),
       ).pipe(Effect.map(Option.map(toPublicConnection))),
+  };
+  const notify = (id: ProviderConnectionId) => Effect.sync(() => changes.publish(id));
+  return {
+    ...repository,
+    changes: changes.stream(),
+    create: (input) =>
+      repository.create(input).pipe(Effect.tap((connection) => notify(connection.id))),
+    reactivateIdentity: (input) =>
+      repository.reactivateIdentity(input).pipe(
+        Effect.tap((connection) =>
+          Option.match(connection, {
+            onNone: () => Effect.void,
+            onSome: (value) => notify(value.id),
+          }),
+        ),
+      ),
+    commitManagedProfile: (input) =>
+      repository.commitManagedProfile(input).pipe(
+        Effect.tap((result) =>
+          Option.match(result, {
+            onNone: () => Effect.void,
+            onSome: (value) => notify(value.connection.id),
+          }),
+        ),
+      ),
+    identifyManaged: (input) =>
+      repository.identifyManaged(input).pipe(
+        Effect.tap((connection) =>
+          Option.match(connection, {
+            onNone: () => Effect.void,
+            onSome: (value) => notify(value.id),
+          }),
+        ),
+      ),
+    terminate: (input) => repository.terminate(input).pipe(Effect.tap(() => notify(input.id))),
   } satisfies ProviderConnectionRepositoryShape;
 });
 

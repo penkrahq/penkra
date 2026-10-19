@@ -522,6 +522,7 @@ it("a turn started after the update admission check receives a persisted cut-off
           } as unknown as ServerSettingsShape,
           installationRepository: {
             activate: () => Effect.succeed({} as never),
+            changes: Stream.empty,
             getActiveRecord: () => Effect.die("not expected"),
             list: () => Effect.succeed([]),
             getRecord: () => Effect.succeed(Option.none()),
@@ -565,9 +566,7 @@ it("a turn started after the update admission check receives a persisted cut-off
         ).toEqual({ state: "idle", active_turn_id: null });
         const notices =
           yield* sql`SELECT text FROM thread_items WHERE thread_id = ${input.threadId} AND kind = 'notice'`;
-        expect(notices.map((row) => row.text)).toContain(
-          "This turn was cut off because the provider stopped.",
-        );
+        expect(notices.map((row) => row.text)).toContain("ChatGPT stopped before finishing");
       }).pipe(
         Effect.provide(makeCodexAdapterLive({ manager: f.manager })),
         Effect.provide(NodeServices.layer),

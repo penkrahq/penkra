@@ -2,14 +2,13 @@
 // Purpose: Locks down server React Query polling profiles and cache options.
 // Layer: Web data-fetching unit tests
 
-import type { ProviderConnectionId, ServerConfig, ServerProviderStatus } from "@penkra/contracts";
+import type { ServerConfig, ServerProviderStatus } from "@penkra/contracts";
 import { QueryClient } from "@tanstack/react-query";
 import { describe, expect, it } from "vitest";
 
 import {
   reconcileServerProviderStatuses,
   refreshServerConfigAfterTransportOpen,
-  serverAllProviderUsageQueryOptions,
   serverQueryKeys,
 } from "./serverReactQuery";
 
@@ -128,27 +127,5 @@ describe("server provider status reconciliation", () => {
     expect(queryClient.getQueryData<ServerConfig>(serverQueryKeys.config())?.providers).toEqual([
       READY_CODEX_STATUS,
     ]);
-  });
-});
-
-describe("serverAllProviderUsageQueryOptions", () => {
-  it("can be disabled by provider-scoped usage surfaces", () => {
-    const options = serverAllProviderUsageQueryOptions({ enabled: false, connectionIds: [] });
-
-    expect(options.enabled).toBe(false);
-    expect(options.refetchInterval).toBe(false);
-  });
-
-  it("keys connection-scoped usage independently", () => {
-    const first = "connection-a" as ProviderConnectionId;
-    const second = "connection-b" as ProviderConnectionId;
-    const scoped = serverAllProviderUsageQueryOptions({
-      provider: "claudeAgent",
-      connectionIds: [second, first],
-    });
-
-    expect(scoped.queryKey).toEqual(
-      serverQueryKeys.allProviderUsage("claudeAgent", [first, second]),
-    );
   });
 });

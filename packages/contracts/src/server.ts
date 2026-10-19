@@ -128,6 +128,11 @@ export const ServerProviderUsageSnapshot = Schema.Struct({
   detail: Schema.optional(TrimmedNonEmptyString),
 });
 export type ServerProviderUsageSnapshot = typeof ServerProviderUsageSnapshot.Type;
+export const ServerProviderUsageChange = Schema.Struct({
+  connectionId: ProviderConnectionId,
+  snapshot: ServerProviderUsageSnapshot,
+});
+export type ServerProviderUsageChange = typeof ServerProviderUsageChange.Type;
 
 // Live account usage requested by the composer account picker.
 export const ServerListProviderUsageInput = Schema.Struct({

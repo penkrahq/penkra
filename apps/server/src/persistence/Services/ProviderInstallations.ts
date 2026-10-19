@@ -8,7 +8,7 @@ import {
   ProviderKind,
   TrimmedNonEmptyString,
 } from "@penkra/contracts";
-import { Effect, Option, Schema, ServiceMap } from "effect";
+import { Effect, Option, Schema, ServiceMap, type Stream } from "effect";
 
 import type { PersistenceDecodeError, PersistenceSqlError } from "../Errors.ts";
 
@@ -41,6 +41,7 @@ export const ProviderInstallationRecord = Schema.Struct({
 export type ProviderInstallationRecord = typeof ProviderInstallationRecord.Type;
 
 export interface ProviderInstallationRepositoryShape {
+  readonly changes: Stream.Stream<typeof ProviderKind.Type>;
   readonly activate: (
     input: ActivateProviderInstallationInput,
   ) => Effect.Effect<ProviderInstallation, ProviderInstallationRepositoryError>;

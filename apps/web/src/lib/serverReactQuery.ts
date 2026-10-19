@@ -1,9 +1,4 @@
-import type {
-  ProviderConnectionId,
-  ProviderKind,
-  ServerConfig,
-  ServerProviderStatus,
-} from "@penkra/contracts";
+import type { ServerConfig, ServerProviderStatus } from "@penkra/contracts";
 import { queryOptions, type QueryClient } from "@tanstack/react-query";
 import { ensureNativeApi } from "~/nativeApi";
 
@@ -13,11 +8,6 @@ export const serverQueryKeys = {
   authSession: () => ["server", "auth", "session"] as const,
   environment: () => ["server", "environment"] as const,
   settings: () => ["server", "settings"] as const,
-  allProviderUsage: (
-    provider?: ProviderKind | null,
-    connectionIds?: ReadonlyArray<ProviderConnectionId>,
-  ) =>
-    ["server", "allProviderUsage", provider ?? null, ...(connectionIds ?? []).toSorted()] as const,
 };
 
 export function serverConfigQueryOptions() {
@@ -140,28 +130,5 @@ export function serverSettingsQueryOptions() {
       return api.server.getSettings();
     },
     staleTime: Infinity,
-  });
-}
-
-// Live usage for the account picker, always scoped to its listed connections.
-export function serverAllProviderUsageQueryOptions(input: {
-  enabled?: boolean;
-  provider?: ProviderKind | null;
-  connectionIds: ReadonlyArray<ProviderConnectionId>;
-}) {
-  const provider = input.provider ?? null;
-  const connectionIds = input.connectionIds;
-  return queryOptions({
-    queryKey: serverQueryKeys.allProviderUsage(provider, connectionIds),
-    enabled: input.enabled ?? true,
-    staleTime: Infinity,
-    refetchOnMount: "always",
-    refetchInterval: false,
-    refetchOnWindowFocus: false,
-    queryFn: async () =>
-      ensureNativeApi().server.listProviderUsage({
-        ...(provider ? { provider } : {}),
-        connectionIds: [...connectionIds],
-      }),
   });
 }

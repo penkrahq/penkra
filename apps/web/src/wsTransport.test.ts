@@ -121,6 +121,7 @@ interface WsTransportInternals {
   stopStream(key: string, options?: { readonly resetCapacityRetry?: boolean }): Promise<void>;
   startStream(...args: unknown[]): void;
   startChannelStream(channel: string): void;
+  stopChannelStream(channel: string): void;
   emitThreadStreamFailure(failure: WsThreadStreamFailure): void;
   emit(channel: string, data: unknown): void;
 }
@@ -149,6 +150,44 @@ function makeBareTransport(): {
   });
   return { transport, internals };
 }
+
+it("opens one provider-usage subscription channel and tears it down by its stream key", async () => {
+  const { internals } = makeBareTransport();
+  const stream = {};
+  const subscribe = vi.fn(() => stream);
+  const emit = vi.fn();
+  const stopStream = vi.fn();
+  let resolveStarted!: () => void;
+  const started = new Promise<void>((resolve) => {
+    resolveStarted = resolve;
+  });
+  const change = { connectionId: "account", snapshot: { source: "test" } };
+  const startStream = vi.fn(
+    (
+      _client: unknown,
+      key: string,
+      receivedStream: unknown,
+      onValue: (change: unknown) => void,
+    ) => {
+      expect(key).toBe("server.providerUsage");
+      expect(receivedStream).toBe(stream);
+      onValue(change);
+      resolveStarted();
+    },
+  );
+  Object.assign(internals, {
+    getClient: () => Promise.resolve({ [WS_METHODS.serverSubscribeProviderUsage]: subscribe }),
+    startStream,
+    stopStream,
+    emit,
+  });
+  internals.startChannelStream(WS_CHANNELS.serverProviderUsageUpdated);
+  await started;
+  expect(subscribe).toHaveBeenCalledExactlyOnceWith({});
+  expect(emit).toHaveBeenCalledWith(WS_CHANNELS.serverProviderUsageUpdated, change);
+  internals.stopChannelStream(WS_CHANNELS.serverProviderUsageUpdated);
+  expect(stopStream).toHaveBeenCalledWith("server.providerUsage");
+});
 
 beforeEach(() => {
   sockets.length = 0;

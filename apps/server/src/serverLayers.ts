@@ -25,6 +25,7 @@ import { ServerEnvironmentLive } from "./environment/Layers/ServerEnvironment";
 import { ProviderInstallationRepositoryLive } from "./persistence/Layers/ProviderInstallations";
 import { ProviderConnectionRepositoryLive } from "./persistence/Layers/ProviderConnections";
 import { ConnectionRateLimitsLive } from "./providerUsage/ConnectionRateLimits";
+import { ProviderUsageLive } from "./providerUsage/ProviderUsage.ts";
 import { ProviderConnectionLoginRepositoryLive } from "./persistence/Layers/ProviderConnectionLogins";
 import { ProviderCredentialBrokerLive } from "./provider/providerCredentialBroker";
 import { ProviderConnectionLifecycleLive } from "./provider/Layers/ProviderConnectionLifecycle";
@@ -56,6 +57,10 @@ export function makeServerRuntimeServicesLayer(
   const providerConnectionLifecycleLayer = ProviderConnectionLifecycleLive.pipe(
     Layer.provideMerge(providerConnectionPersistenceLayer),
     Layer.provideMerge(ProviderCredentialBrokerLive),
+  );
+  const providerUsageLayer = ProviderUsageLive.pipe(
+    Layer.provideMerge(providerConnectionPersistenceLayer),
+    Layer.provideMerge(ProviderInstallationRepositoryLive),
   );
   const providerConnectionLoginCoordinatorLayer = ProviderConnectionLoginCoordinatorLive.pipe(
     Layer.provideMerge(providerConnectionPersistenceLayer),
@@ -147,6 +152,7 @@ export function makeServerRuntimeServicesLayer(
     managedAttachmentCleanupLayer,
     ProviderInstallationRepositoryLive,
     providerConnectionPersistenceLayer,
+    providerUsageLayer,
     ProviderCredentialBrokerLive,
     providerConnectionLifecycleLayer,
     providerConnectionLoginCoordinatorLayer,

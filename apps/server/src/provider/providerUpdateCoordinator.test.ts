@@ -19,6 +19,7 @@ import {
 } from "./providerUpdateCoordinator";
 
 const installationRepository = {
+  changes: Stream.empty,
   getActiveRecord: () => Effect.die("not expected"),
   activate: () => Effect.succeed({} as never),
   list: () => Effect.succeed([]),

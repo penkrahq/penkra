@@ -5,6 +5,7 @@ import { ProviderInstallation, ProviderKind } from "@penkra/contracts";
 import { Effect, Layer, Option, Schema } from "effect";
 import * as SqlClient from "effect/unstable/sql/SqlClient";
 import * as SqlSchema from "effect/unstable/sql/SqlSchema";
+import { makeInvalidationHub } from "../../cleanCore/invalidationHub.ts";
 
 import { toPersistenceSqlOrDecodeError } from "../Errors.ts";
 import {
@@ -15,6 +16,10 @@ import {
 
 const makeProviderInstallationRepository = Effect.gen(function* () {
   const sql = yield* SqlClient.SqlClient;
+  const changes = yield* Effect.acquireRelease(
+    Effect.sync(() => makeInvalidationHub<typeof ProviderKind.Type>((provider) => provider)),
+    (hub) => hub.close,
+  );
   const listRows = SqlSchema.findAll({
     Request: Schema.Void,
     Result: ProviderInstallation,
@@ -74,7 +79,7 @@ const makeProviderInstallationRepository = Effect.gen(function* () {
       Effect.mapError(toPersistenceSqlOrDecodeError(`${operation}:query`, `${operation}:decode`)),
     );
 
-  return {
+  const repository: Omit<ProviderInstallationRepositoryShape, "changes"> = {
     activate: (input) =>
       mapped(
         "ProviderInstallationRepository.activate",
@@ -138,6 +143,18 @@ const makeProviderInstallationRepository = Effect.gen(function* () {
           ),
         ),
       ),
+  };
+  return {
+    ...repository,
+    changes: changes.stream(),
+    activate: (input) =>
+      repository
+        .activate(input)
+        .pipe(Effect.tap((result) => Effect.sync(() => changes.publish(result.harness)))),
+    reactivate: (id, at) =>
+      repository
+        .reactivate(id, at)
+        .pipe(Effect.tap((result) => Effect.sync(() => changes.publish(result.harness)))),
   } satisfies ProviderInstallationRepositoryShape;
 });
 
