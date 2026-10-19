@@ -16,6 +16,7 @@ import { ProviderService } from "../../provider/Services/ProviderService.ts";
 import { ProviderSessionDirectory } from "../../provider/Services/ProviderSessionDirectory.ts";
 import { ProviderTurnSelectionResolver } from "../../provider/Services/ProviderTurnSelectionResolver.ts";
 import { TurnDispatch } from "../../cleanCore/turnDispatch.ts";
+import { ConnectionRateLimits } from "../../providerUsage/ConnectionRateLimits.ts";
 import { commitThreadTurnSelection } from "../../cleanCore/threadTurnSelection.ts";
 import {
   ProviderThreadSwitchCoordinator,
@@ -32,6 +33,7 @@ export const makeProviderThreadSwitchCoordinator = Effect.gen(function* () {
   const dispatch = yield* TurnDispatch;
   const sql = yield* SqlClient.SqlClient;
   const publisher = yield* ThreadPublisher;
+  const usage = yield* ConnectionRateLimits;
   const lanes = yield* ThreadLanes;
   const resolver = yield* ProviderTurnSelectionResolver;
   const provider = yield* ProviderService;
@@ -246,6 +248,12 @@ export const makeProviderThreadSwitchCoordinator = Effect.gen(function* () {
           Effect.mapError((cause) => failure("Could not commit the turn selection.", cause)),
           Effect.onError(() => discardUncommitted.pipe(Effect.orDie)),
         );
+    if (
+      !nativeSteer &&
+      selection.connectionId !== null &&
+      selection.connectionId !== thread.connectionId
+    )
+      yield* usage.refreshUsage(selection.connectionId);
     const committed = {
       ...selection,
       nativeStateId: nativeState?.id ?? thread.nativeStateId,

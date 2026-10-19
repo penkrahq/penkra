@@ -9,7 +9,6 @@ import {
   type ServerProviderUsageSnapshot,
 } from "@penkra/contracts";
 import { IconKey, IconUser } from "@tabler/icons-react";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useMemo, useState } from "react";
 
 import { Button } from "~/components/ui/button";
@@ -21,7 +20,6 @@ import {
   MenuTrigger,
 } from "~/components/ui/menu";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "~/components/ui/tooltip";
-import { invalidateProviderUsage } from "~/lib/providerDataRefresh";
 import { ensureNativeApi } from "~/nativeApi";
 import { ExternalLinkIcon, PlusIcon } from "~/lib/icons";
 import {
@@ -34,7 +32,7 @@ import {
   connectionUsageEmptyMessage,
   normalizeServerProviderUsageRateLimit,
 } from "~/lib/connectionUsageDisplay";
-import { serverAllProviderUsageQueryOptions } from "~/lib/serverReactQuery";
+import { useProviderUsage } from "~/providerUsageStore";
 import { cn } from "~/lib/utils";
 
 import {
@@ -209,23 +207,7 @@ export function ComposerConnectionControl(props: {
   const selected =
     choices.find((choice) => choice.connectionId === props.selectedConnectionId) ??
     (props.selectedConnectionId === undefined ? choices[0] : undefined);
-  const queryClient = useQueryClient();
-  const usageQuery = useQuery(
-    serverAllProviderUsageQueryOptions({
-      enabled: open && available.length > 0,
-      provider: props.provider,
-      connectionIds: available.map((connection) => connection.id),
-    }),
-  );
-  const snapshots = useMemo(
-    () =>
-      new Map(
-        (usageQuery.data ?? []).flatMap((snapshot) =>
-          snapshot.connectionId ? [[snapshot.connectionId, snapshot] as const] : [],
-        ),
-      ),
-    [usageQuery.data],
-  );
+  const snapshots = useProviderUsage();
   if (!selected) return null;
 
   const selectedConnection = selected.connection;
@@ -239,7 +221,6 @@ export function ComposerConnectionControl(props: {
       open={open}
       onOpenChange={(nextOpen) => {
         setOpen(nextOpen);
-        if (nextOpen) void invalidateProviderUsage(queryClient);
       }}
       keepOpenOnSubmenuInteraction
     >
@@ -314,7 +295,7 @@ export function ComposerConnectionControl(props: {
           <ConnectionUsageRows rows={rows} />
         ) : (
           <p className="px-2 pb-2 pt-1 text-[length:var(--app-font-size-ui-sm,11px)] text-muted-foreground">
-            {usageQuery.isPending ? "Loading usage…" : connectionUsageEmptyMessage(snapshot)}
+            {snapshot === undefined ? "Loading usage…" : connectionUsageEmptyMessage(snapshot)}
           </p>
         )}
         {snapshot?.detail && rows.length > 0 ? (

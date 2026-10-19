@@ -40,6 +40,7 @@ import { requireHttpExternalUrl } from "./lib/externalUrl";
 import { WsTransport, type WsThreadStreamFailure } from "./wsTransport";
 import { emitWsCompatibilityIssue, emitWsTransportState } from "./wsTransportEvents";
 import { resolveWsHttpUrl } from "./lib/wsHttpUrl";
+import { applyProviderUsage, clearProviderUsage } from "./providerUsageStore";
 
 export type { WsThreadStreamFailure } from "./wsTransport";
 
@@ -100,6 +101,7 @@ const cleanCoreThreadChangeListeners = createListenerRegistry<CleanCoreThreadCha
 const threadStreamFailureListeners = createListenerRegistry<WsThreadStreamFailure>();
 
 function clearWsNativeApiListeners(): void {
+  clearProviderUsage();
   cleanCoreSidebarChangeListeners.clear();
   welcomeListeners.clear();
   serverConfigUpdatedListeners.clear();
@@ -282,6 +284,9 @@ export function createWsNativeApi(): NativeApi {
   transport.subscribe(WS_CHANNELS.serverProviderStatusesUpdated, (message) => {
     serverProviderStatusesUpdatedListeners.emit(message.data);
   });
+  transport.subscribe(WS_CHANNELS.serverProviderUsageUpdated, (message) =>
+    applyProviderUsage(message.data),
+  );
   transport.subscribe(WS_CHANNELS.serverMaintenanceUpdated, (message) => {
     serverMaintenanceUpdatedListeners.emit(message.data);
   });

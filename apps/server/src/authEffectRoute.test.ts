@@ -10,7 +10,7 @@ import {
   ATTACHMENT_CANCEL_ROUTE_PATH,
   ATTACHMENT_UPLOAD_ROUTE_PATH,
 } from "@penkra/shared/binaryTransfer";
-import { DateTime, Effect, Exit, Layer, Scope } from "effect";
+import { DateTime, Effect, Exit, Layer, Scope, Stream } from "effect";
 import { HttpRouter } from "effect/unstable/http";
 import { describe, expect, it } from "vitest";
 
@@ -132,6 +132,7 @@ async function withAuthEffectServer(
             listProviders: () => Effect.succeed([]),
           }),
           Layer.succeed(ProviderInstallationRepository, {
+            changes: Stream.empty,
             getActiveRecord: () => Effect.die("provider installation not used in this test"),
             activate: () => Effect.die("provider installation not used in this test"),
             list: () => Effect.succeed([]),

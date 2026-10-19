@@ -26,6 +26,7 @@ import {
   type ServerLifecycleStreamEvent,
   type ServerProviderStatusesUpdatedPayload,
   type ServerSettingsUpdatedPayload,
+  type ServerProviderUsageChange,
   type WsPush,
   type WsPushChannel,
   type WsPushMessage,
@@ -962,6 +963,15 @@ export class WsTransport {
               this.emit(CLEAN_CORE_WS_CHANNELS.sidebarChange, change),
             restartChannel,
           );
+        } else if (channel === WS_CHANNELS.serverProviderUsageUpdated) {
+          this.startStream(
+            client,
+            "server.providerUsage",
+            client[WS_METHODS.serverSubscribeProviderUsage]({}),
+            (change: ServerProviderUsageChange) =>
+              this.emit(WS_CHANNELS.serverProviderUsageUpdated, change),
+            restartChannel,
+          );
         } else if (isServerLifecyclePushChannel(channel)) {
           this.startLifecycleStream(client);
         } else if (channel === WS_CHANNELS.serverConfigUpdated) {
@@ -1025,6 +1035,8 @@ export class WsTransport {
     } else if (channel === WS_CHANNELS.serverConfigUpdated) this.stopStream("server.config");
     else if (channel === WS_CHANNELS.serverProviderStatusesUpdated)
       this.stopStream("server.providers");
+    else if (channel === WS_CHANNELS.serverProviderUsageUpdated)
+      this.stopStream("server.providerUsage");
     else if (channel === WS_CHANNELS.serverSettingsUpdated) this.stopStream("server.settings");
     else if (channel === WS_CHANNELS.projectWorkspaceChange)
       this.stopStream("project.workspaceChanges");

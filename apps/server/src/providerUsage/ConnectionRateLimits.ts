@@ -2,7 +2,8 @@
 // Purpose: Process-local provider quota observations; never restored from SQLite.
 
 import type { ProviderConnectionId, ProviderKind } from "@penkra/contracts";
-import { Effect, Layer, Option, ServiceMap } from "effect";
+import { Effect, Layer, Option, ServiceMap, type Stream } from "effect";
+import { makeInvalidationHub } from "../cleanCore/invalidationHub.ts";
 
 import { mergeCodexQuotaFacts } from "./codexQuotaBuckets.ts";
 
@@ -22,12 +23,19 @@ export class ConnectionRateLimits extends ServiceMap.Service<
       connectionId: ProviderConnectionId,
     ) => Effect.Effect<Option.Option<ConnectionRateLimitObservation>>;
     readonly update: (observation: ConnectionRateLimitObservation) => Effect.Effect<void, Error>;
+    readonly refreshUsage: (connectionId: ProviderConnectionId) => Effect.Effect<void>;
+    readonly changes: Stream.Stream<ProviderConnectionId>;
   }
 >()("penkra/providerUsage/ConnectionRateLimits") {}
 
 export const makeConnectionRateLimits = Effect.sync(() => {
   const observations = new Map<ProviderConnectionId, ConnectionRateLimitObservation>();
+  const changes = makeInvalidationHub<ProviderConnectionId>((id) => id);
   return {
+    changes: changes.stream(),
+    close: changes.close,
+    refreshUsage: (connectionId: ProviderConnectionId) =>
+      Effect.sync(() => changes.publish(connectionId)),
     get: (connectionId: ProviderConnectionId) =>
       Effect.sync(() => Option.fromUndefinedOr(observations.get(connectionId))),
     update: (observation: ConnectionRateLimitObservation) =>
@@ -45,6 +53,7 @@ export const makeConnectionRateLimits = Effect.sync(() => {
                 )
               : observation.limitsJson;
           observations.set(observation.connectionId, { ...observation, limitsJson });
+          changes.publish(observation.connectionId);
         },
         catch: (cause) => (cause instanceof Error ? cause : new Error(String(cause))),
       }),
@@ -53,5 +62,5 @@ export const makeConnectionRateLimits = Effect.sync(() => {
 
 export const ConnectionRateLimitsLive = Layer.effect(
   ConnectionRateLimits,
-  makeConnectionRateLimits,
+  Effect.acquireRelease(makeConnectionRateLimits, (service) => service.close),
 );
