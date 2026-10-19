@@ -552,10 +552,14 @@ export const OrchestrationReadModel = Schema.Struct({
 });
 export type OrchestrationReadModel = typeof OrchestrationReadModel.Type;
 
-export const OrchestrationStartupSnapshot = Schema.Struct({
-  snapshotSequence: NonNegativeInt,
+export const OrchestrationNavigation = Schema.Struct({
   spaces: Schema.Array(OrchestrationSpaceShell),
   folders: Schema.Array(OrchestrationFolderShell),
+});
+
+export const OrchestrationStartupSnapshot = Schema.Struct({
+  snapshotSequence: NonNegativeInt,
+  navigation: OrchestrationNavigation,
   runningThreads: Schema.Array(CleanCoreThreadSummary),
 });
 export type OrchestrationStartupSnapshot = typeof OrchestrationStartupSnapshot.Type;

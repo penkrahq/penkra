@@ -2,6 +2,7 @@ import { ModelSelection } from "@penkra/contracts";
 import { ProviderAuthCircuits } from "./provider/providerAuthCircuit.ts";
 import { PLAY_TURN_RECOVERY_PROMPT } from "./cleanCore/sendMessage.ts";
 import { getNavigation, updateNavigation } from "./cleanCore/navigation";
+import { getBootstrap } from "./cleanCore/bootstrap";
 import { getFolderAppTabs, updateFolderAppTabs } from "./cleanCore/folderAppTabs.ts";
 import { listArchivedNavigation, listArchivedThreads, restoreThread } from "./cleanCore/archive.ts";
 import {} from "./scratchWorkspaces.ts";
@@ -69,12 +70,7 @@ import { WorkspaceEntries } from "./workspace/Services/WorkspaceEntries";
 import { WorkspaceFileSystem } from "./workspace/Services/WorkspaceFileSystem";
 import { makeWsStreamAdmission } from "./wsStreamAdmission";
 import { listThreadItemsPage, listTurnItems } from "./cleanCore/threadItemsPage.ts";
-import {
-  findThread,
-  listThreads,
-  listRunningThreads,
-  searchThreads,
-} from "./cleanCore/threadList.ts";
+import { findThread, listThreads, searchThreads } from "./cleanCore/threadList.ts";
 import { getThreadDraft, setThreadDraft } from "./cleanCore/threadDraft.ts";
 import {
   markThreadVisited,
@@ -343,10 +339,7 @@ const makeWsRpcHandlersLayer = () =>
             ),
           ),
         [WS_METHODS.cleanCoreGetBootstrap]: () =>
-          rpcEffect(
-            listRunningThreads().pipe(Effect.map((runningThreads) => ({ runningThreads }))),
-            "Failed to load running threads",
-          ),
+          rpcEffect(getBootstrap, "Failed to load startup state"),
         [WS_METHODS.cleanCoreGetNavigation]: () =>
           rpcEffect(getNavigation, "Failed to read navigation"),
         [WS_METHODS.cleanCoreUpdateNavigation]: (input) =>

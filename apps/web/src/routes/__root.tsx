@@ -2,7 +2,7 @@ import { KEYBINDINGS } from "@penkra/shared/keybindings";
 import { threadShellFromRow } from "@penkra/shared/threadView";
 import { applyFolderAppTabs } from "../rightDockStore";
 
-import { syncServerNavigation } from "../storeProjection";
+import { syncServerNavigation, syncServerStartup } from "../storeProjection";
 import { applyThreadRow, subscribeThreadRowChanges } from "../threadListStore";
 import { useThreadSummary } from "../threadListStore";
 import { ThreadId, type ServerConfig, type WsCompatibilityError } from "@penkra/contracts";
@@ -106,7 +106,7 @@ export const Route = createRootRouteWithContext<{
 });
 
 function RootRouteView() {
-  const threadsHydrated = useStore((store) => store.threadsHydrated);
+  const startupHydrated = useStore((store) => store.startupHydrated);
   useAppTypography();
   useAppDensity();
   usePreloadRouteChunks();
@@ -180,7 +180,7 @@ function RootRouteView() {
               <GlobalWhatsNewSurface />
               <TaskCompletionNotifications />
               <ConnectionDefaultsMigration />
-              {threadsHydrated ? (
+              {startupHydrated ? (
                 <Outlet />
               ) : (
                 <div className="flex min-h-screen bg-background" role="status" aria-busy="true">
@@ -440,7 +440,6 @@ function EventRouter() {
       }
       if (change.kind === "navigation") refreshNavigation();
     });
-    refreshNavigation();
     return () => {
       disposed = true;
       unsubscribe();
@@ -498,13 +497,12 @@ function EventRouter() {
     const loadBootstrap = () =>
       api.cleanCore
         .getBootstrap()
-        .then(({ runningThreads }) => {
+        .then((snapshot) => {
           if (disposed) return;
-          for (const row of runningThreads) {
+          for (const row of snapshot.runningThreads) {
             applyThreadRow(row);
-            useStore.getState().syncServerThreadShell(row.id, threadShellFromRow(row));
           }
-          useStore.setState({ threadsHydrated: true });
+          useStore.setState((state) => syncServerStartup(state, snapshot));
         })
         .catch((error) => {
           if (!disposed)
@@ -514,7 +512,6 @@ function EventRouter() {
               description: errorMessage(error),
             });
         });
-    void loadBootstrap();
     const unsubWorkspaceChange = api.folders.onWorkspaceChange((event) => {
       void invalidateProjectQueriesForWorkspaceChange(queryClient, event);
     });

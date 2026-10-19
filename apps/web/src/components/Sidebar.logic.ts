@@ -653,13 +653,13 @@ export type ProjectEmptyState = "loading" | "empty" | null;
 export function resolveProjectEmptyState(input: {
   readonly folderCount: number;
   readonly shouldShowProjectPathEntry: boolean;
-  readonly threadsHydrated: boolean;
+  readonly startupHydrated: boolean;
 }): ProjectEmptyState {
   if (input.folderCount > 0 || input.shouldShowProjectPathEntry) {
     return null;
   }
 
-  return input.threadsHydrated ? "empty" : "loading";
+  return input.startupHydrated ? "empty" : "loading";
 }
 
 // Match the exact rows the sidebar renders for one project, including folded previews.

@@ -189,7 +189,7 @@ let sidebarThreads: SidebarThreadRow[];
 function render(
   overrides: {
     routeThreadId?: ThreadId | null;
-    threadsHydrated?: boolean;
+    startupHydrated?: boolean;
   } = {},
 ) {
   reactHarness.beginRender();
@@ -206,7 +206,7 @@ function render(
     sidebarThreadSummaryById: Object.fromEntries(
       sidebarThreads.map((thread) => [thread.id, thread]),
     ),
-    threadsHydrated: overrides.threadsHydrated ?? false,
+    startupHydrated: overrides.startupHydrated ?? false,
   });
 }
 

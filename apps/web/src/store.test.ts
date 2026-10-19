@@ -85,7 +85,7 @@ describe("store facade", () => {
       ],
 
       sidebarThreadSummaryById: {},
-      threadsHydrated: true,
+      startupHydrated: true,
     };
 
     const next = reorderFolders(state, project1, project3);
@@ -118,7 +118,7 @@ describe("store facade", () => {
       ],
 
       sidebarThreadSummaryById: {},
-      threadsHydrated: true,
+      startupHydrated: true,
     };
 
     const next = setAllFoldersExpanded(state, true);
@@ -151,7 +151,7 @@ describe("store facade", () => {
       ],
 
       sidebarThreadSummaryById: {},
-      threadsHydrated: true,
+      startupHydrated: true,
     };
 
     const next = setAllFoldersExpanded(state, false);
@@ -183,7 +183,7 @@ describe("store facade", () => {
       ],
 
       sidebarThreadSummaryById: {},
-      threadsHydrated: true,
+      startupHydrated: true,
     };
 
     const next = collapseFoldersExcept(state, project2);
@@ -232,7 +232,7 @@ describe("store facade", () => {
       ],
 
       sidebarThreadSummaryById: {},
-      threadsHydrated: true,
+      startupHydrated: true,
     };
     const readModel = {
       snapshotSequence: 2,
@@ -287,7 +287,7 @@ describe("store facade", () => {
       ],
 
       sidebarThreadSummaryById: {},
-      threadsHydrated: true,
+      startupHydrated: true,
     };
 
     const snapshotWithoutProject2 = {
@@ -393,7 +393,7 @@ describe("store facade", () => {
           }),
         ],
         sidebarThreadSummaryById: {},
-        threadsHydrated: true,
+        startupHydrated: true,
       }));
 
       freshStore.useStore.getState().renameProjectLocally(folderId, null);
@@ -450,7 +450,7 @@ describe("store facade", () => {
           }),
         ],
         sidebarThreadSummaryById: {},
-        threadsHydrated: true,
+        startupHydrated: true,
       }));
 
       freshStore.useStore.getState().renameProjectLocally(folderId, "penkra");

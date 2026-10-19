@@ -47,8 +47,8 @@ vi.mock("@tanstack/react-router", () => ({
   useNavigate: () => fixture.navigate,
 }));
 vi.mock("../store", () => ({
-  useStore: (select: (state: { threadsHydrated: boolean }) => unknown) =>
-    select({ threadsHydrated: fixture.hydrated }),
+  useStore: (select: (state: { startupHydrated: boolean }) => unknown) =>
+    select({ startupHydrated: fixture.hydrated }),
 }));
 vi.mock("../composerDraftStore", () => ({
   useComposerDraftStore: (

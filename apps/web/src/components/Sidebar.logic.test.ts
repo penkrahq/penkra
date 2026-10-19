@@ -436,21 +436,21 @@ describe("resolveProjectEmptyState", () => {
       resolveProjectEmptyState({
         folderCount: 0,
         shouldShowProjectPathEntry: false,
-        threadsHydrated: false,
+        startupHydrated: false,
       }),
     ).toBe("loading");
     expect(
       resolveProjectEmptyState({
         folderCount: 0,
         shouldShowProjectPathEntry: false,
-        threadsHydrated: true,
+        startupHydrated: true,
       }),
     ).toBe("empty");
     expect(
       resolveProjectEmptyState({
         folderCount: 1,
         shouldShowProjectPathEntry: false,
-        threadsHydrated: false,
+        startupHydrated: false,
       }),
     ).toBeNull();
   });

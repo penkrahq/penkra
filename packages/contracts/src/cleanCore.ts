@@ -28,7 +28,6 @@ import {
   RuntimeMode,
   OrchestrationThreadShell,
   OrchestrationFolderShell,
-  OrchestrationSpaceShell,
   ChatAttachment,
   ProviderStartOptions,
   AssistantDeliveryMode,
@@ -36,6 +35,7 @@ import {
   SpaceIconName,
   FolderIconDataUrl,
   FOLDER_MOVE_MAX_COUNT,
+  OrchestrationNavigation,
 } from "./orchestration";
 
 /** Bounded read page size from clean-core design 2.1 and 2.8. */
@@ -308,10 +308,7 @@ export const CleanCoreUpdateFolderAppTabsInput = Schema.Struct({
 });
 export type CleanCoreUpdateFolderAppTabsInput = typeof CleanCoreUpdateFolderAppTabsInput.Type;
 
-export const CleanCoreGetNavigationResult = Schema.Struct({
-  spaces: Schema.Array(OrchestrationSpaceShell),
-  folders: Schema.Array(OrchestrationFolderShell),
-});
+export const CleanCoreGetNavigationResult = OrchestrationNavigation;
 export type CleanCoreGetNavigationResult = typeof CleanCoreGetNavigationResult.Type;
 export const CleanCoreFolderCreateUpdate = Schema.Struct({
   action: Schema.Literal("folder.create"),
@@ -593,6 +590,7 @@ export const CleanCoreRestoreThreadInput = Schema.Struct({
 export type CleanCoreRestoreThreadInput = typeof CleanCoreRestoreThreadInput.Type;
 
 export const CleanCoreGetBootstrapResult = Schema.Struct({
+  navigation: CleanCoreGetNavigationResult,
   runningThreads: Schema.Array(CleanCoreThreadSummary),
 });
 export type CleanCoreGetBootstrapResult = typeof CleanCoreGetBootstrapResult.Type;

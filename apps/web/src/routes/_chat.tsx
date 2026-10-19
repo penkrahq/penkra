@@ -211,7 +211,7 @@ function ChatRouteGlobalShortcuts() {
   const latestFolderId = useLatestProjectStore((state) => state.latestFolderId);
   const setLatestFolderId = useLatestProjectStore((state) => state.setLatestFolderId);
   const clearLatestFolderId = useLatestProjectStore((state) => state.clearLatestFolderId);
-  const threadsHydrated = useStore((state) => state.threadsHydrated);
+  const startupHydrated = useStore((state) => state.startupHydrated);
   const activeSpaceId = useSpacesUiStore((state) => state.activeSpaceId);
   const providerConnectionsQuery = useQuery(providerConnectionsQueryOptions());
   const keybindings = KEYBINDINGS;
@@ -271,10 +271,10 @@ function ChatRouteGlobalShortcuts() {
   }, [currentFolderId, setLatestFolderId]);
 
   useEffect(() => {
-    if (threadsHydrated && latestFolderId && persistedLatestProjectStillExists === null) {
+    if (startupHydrated && latestFolderId && persistedLatestProjectStillExists === null) {
       clearLatestFolderId(latestFolderId);
     }
-  }, [clearLatestFolderId, latestFolderId, persistedLatestProjectStillExists, threadsHydrated]);
+  }, [clearLatestFolderId, latestFolderId, persistedLatestProjectStillExists, startupHydrated]);
 
   useEffect(() => {
     const onWindowKeyDown = (event: KeyboardEvent) => {

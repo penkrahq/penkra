@@ -137,12 +137,14 @@ export function createStartupSnapshotFromReadModel(
 ): OrchestrationStartupSnapshot {
   return {
     snapshotSequence: snapshot.snapshotSequence,
-    spaces: snapshot.spaces
-      .filter((space) => space.deletedAt === null && space.archivedAt === null)
-      .map(({ deletedAt: _deletedAt, ...space }) => space),
-    folders: snapshot.folders
-      .filter((folder) => folder.deletedAt === null && folder.archivedAt == null)
-      .map(({ deletedAt: _deletedAt, ...folder }) => folder),
+    navigation: {
+      spaces: snapshot.spaces
+        .filter((space) => space.deletedAt === null && space.archivedAt === null)
+        .map(({ deletedAt: _deletedAt, ...space }) => space),
+      folders: snapshot.folders
+        .filter((folder) => folder.deletedAt === null && folder.archivedAt == null)
+        .map(({ deletedAt: _deletedAt, ...folder }) => folder),
+    },
     runningThreads,
   };
 }

@@ -123,7 +123,7 @@ beforeEach(() => {
   const rows = [row(targetId, "Target"), row(previousId, "Previous")];
   rows.forEach(applyThreadRow);
   api.listThreads.mockResolvedValue({ threads: rows, nextCursor: null });
-  useStore.setState({ spaces: [space], folders: [folder], threadsHydrated: true });
+  useStore.setState({ spaces: [space], folders: [folder], startupHydrated: true });
   useSpacesUiStore.setState({ activeSpaceId: spaceId });
   persistSidebarUiState({
     collapsedSpaceIds: [],

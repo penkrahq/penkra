@@ -16,7 +16,7 @@ import { SingleChatSurface } from "../components/chat/SingleChatSurface";
 import { resolveSingleFolderId, shouldRedirectArchivedThreadRoute } from "./-chatThreadRoute.logic";
 
 function ChatThreadRouteView() {
-  const threadsHydrated = useStore((store) => store.threadsHydrated);
+  const startupHydrated = useStore((store) => store.startupHydrated);
   const threadId = Route.useParams({
     select: (params) => ThreadId.makeUnsafe(params.threadId),
   });
@@ -55,7 +55,7 @@ function ChatThreadRouteView() {
   }, [threadId]);
 
   useEffect(() => {
-    if (!threadsHydrated) {
+    if (!startupHydrated) {
       return;
     }
 
@@ -109,14 +109,14 @@ function ChatThreadRouteView() {
     thread,
     threadArchived,
     threadDeleted,
-    threadsHydrated,
+    startupHydrated,
   ]);
 
   if (threadArchived || threadDeleted) {
     return null;
   }
 
-  if (!threadsHydrated) {
+  if (!startupHydrated) {
     return null;
   }
 
