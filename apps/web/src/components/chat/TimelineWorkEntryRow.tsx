@@ -34,7 +34,7 @@ import { cn } from "~/lib/utils";
 
 import {
   isFileChangeWorkLogEntry,
-  isThreadSelectionWorkEntry,
+  isTranscriptSeparatorWorkEntry,
   type WorkLogEntry,
 } from "../../session-logic";
 import { isAgentActivityWorkEntry, isCodexActivityStatusWorkEntry } from "./agentActivity.logic";
@@ -665,13 +665,21 @@ export const TimelineWorkEntryRow = memo(function TimelineWorkEntryRow(props: {
   // Use the text font size (matching the UI settings) for tool call rows
   const rowFontSizePx = textFontSizePx;
 
-  if (isThreadSelectionWorkEntry(workEntry)) {
+  if (isTranscriptSeparatorWorkEntry(workEntry)) {
+    const description =
+      workEntry.activityKind === "provider-stopped"
+        ? workEntry.label
+        : "New messages use this selection. Earlier messages are unchanged.";
     return (
       <Tooltip>
         <TooltipTrigger
           render={
             <div
-              aria-label={`${workEntry.label}. New messages use this selection. Earlier messages are unchanged.`}
+              aria-label={
+                workEntry.activityKind === "provider-stopped"
+                  ? workEntry.label
+                  : `${workEntry.label}. ${description}`
+              }
               className="flex h-7 w-full items-center justify-center gap-2 text-muted-foreground/55"
               data-transcript-selection-event={workEntry.activityKind}
             />
@@ -687,9 +695,7 @@ export const TimelineWorkEntryRow = memo(function TimelineWorkEntryRow(props: {
           </span>
           <span className="h-px w-20 shrink-0 bg-border/65" aria-hidden="true" />
         </TooltipTrigger>
-        <TooltipPopup side="top">
-          New messages use this selection. Earlier messages are unchanged.
-        </TooltipPopup>
+        <TooltipPopup side="top">{description}</TooltipPopup>
       </Tooltip>
     );
   }

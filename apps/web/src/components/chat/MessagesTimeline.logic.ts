@@ -8,7 +8,7 @@ import {
   type TimelineEntry,
   type WorkLogEntry,
   formatElapsed,
-  isThreadSelectionWorkEntry,
+  isTranscriptSeparatorWorkEntry,
 } from "../../session-logic";
 import { normalizeCompactToolLabel as normalizeCompactToolLabelValue } from "../../lib/toolCallLabel";
 import {
@@ -236,7 +236,7 @@ export function deriveMessagesTimelineRows(input: {
         entry.kind === "work" &&
         !entry.entry.presentedMedia &&
         !isQuestion(entry) &&
-        !isThreadSelectionWorkEntry(entry.entry)
+        !isTranscriptSeparatorWorkEntry(entry.entry)
       ) {
         if (work.length && work.at(-1)!.turnId !== entry.entry.turnId) flushWork(false);
         work.push(entry.entry);

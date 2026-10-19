@@ -35,10 +35,14 @@ import type { ChatMessage } from "./types";
 
 export type WorkLogRequestKind = "command" | "file-read" | "file-change";
 
-const THREAD_SELECTION_ACTIVITY_KINDS = new Set(["connection-changed", "model-changed"]);
+const TRANSCRIPT_SEPARATOR_KINDS = new Set([
+  "connection-changed",
+  "model-changed",
+  "provider-stopped",
+]);
 
-export function isThreadSelectionWorkEntry(entry: Pick<WorkLogEntry, "activityKind">): boolean {
-  return THREAD_SELECTION_ACTIVITY_KINDS.has(entry.activityKind ?? "");
+export function isTranscriptSeparatorWorkEntry(entry: Pick<WorkLogEntry, "activityKind">): boolean {
+  return TRANSCRIPT_SEPARATOR_KINDS.has(entry.activityKind ?? "");
 }
 
 export interface WorkLogEntry {
@@ -389,7 +393,7 @@ function shouldKeepActivityForWorkLog(
   // message that uses them. They are intentionally thread-scoped (turnId is
   // null), so the ordinary visible-turn filter must not hide their transcript
   // boundary once assistant messages have supplied concrete turn ids.
-  if (THREAD_SELECTION_ACTIVITY_KINDS.has(activity.kind)) {
+  if (TRANSCRIPT_SEPARATOR_KINDS.has(activity.kind)) {
     return true;
   }
 
@@ -2096,8 +2100,10 @@ function compareTimelineEntries(left: TimelineEntry, right: TimelineEntry): numb
   // the same timestamp. Keep that boundary immediately before the message;
   // otherwise the generic message-first tie order folds it into the following
   // assistant's "Worked for" disclosure.
-  const leftIsSelectionBoundary = left.kind === "work" && isThreadSelectionWorkEntry(left.entry);
-  const rightIsSelectionBoundary = right.kind === "work" && isThreadSelectionWorkEntry(right.entry);
+  const leftIsSelectionBoundary =
+    left.kind === "work" && isTranscriptSeparatorWorkEntry(left.entry);
+  const rightIsSelectionBoundary =
+    right.kind === "work" && isTranscriptSeparatorWorkEntry(right.entry);
   if (leftIsSelectionBoundary !== rightIsSelectionBoundary) {
     return leftIsSelectionBoundary ? -1 : 1;
   }

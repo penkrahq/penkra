@@ -307,6 +307,13 @@ describe("MessagesTimeline", () => {
             tone: "info" as const,
             activityKind: "model-changed",
           },
+          {
+            id: "provider-cutoff",
+            createdAt: "2026-03-17T19:12:30.000Z",
+            label: "Claude stopped before finishing",
+            tone: "info" as const,
+            activityKind: "provider-stopped",
+          },
         ].map((workEntry) => (
           <TimelineWorkEntryRow
             key={workEntry.id}
@@ -321,6 +328,8 @@ describe("MessagesTimeline", () => {
 
     expect(markup).toContain('data-transcript-selection-event="connection-changed"');
     expect(markup).toContain('data-transcript-selection-event="model-changed"');
+    expect(markup).toContain('data-transcript-selection-event="provider-stopped"');
+    expect(markup).not.toContain('data-work-entry-icon="true"');
     expect(markup).toContain("Connection changed to Work");
     expect(markup).toContain("Model changed to Claude Sonnet 5");
     expect(markup).toContain("New messages use this selection. Earlier messages are unchanged.");
