@@ -82,7 +82,7 @@ it.effect(
           }>`SELECT rowid,seq,data FROM thread_items WHERE thread_id=${baseThread.id} AND source_id=${`turn:${turn}`}`;
           assert.equal(anchor!.rowid, rows[0]!.rowid);
           assert.equal(anchor!.seq, rows[0]!.seq);
-          assert.equal(JSON.parse(anchor!.data).startedAt, "2026-10-09T00:00:02.000Z");
+          assert.equal(JSON.parse(anchor!.data).startedAt, baseThread.createdAt);
         }
       }),
     ),
@@ -164,6 +164,64 @@ it.effect("turn error sets threads.state = error with last_error", () =>
         SELECT state, last_error AS "lastError" FROM threads WHERE id = 'thread-1'
       `;
       assert.deepStrictEqual(rows, [{ state: "error", lastError: "boom" }]);
+    }),
+  ),
+);
+
+it.effect("the first marker event fixes its start time across late and repeated starts", () =>
+  withDb(
+    Effect.gen(function* () {
+      yield* runMigrations();
+      yield* seedThreadFolderFixture("core-test-folder", "space-1");
+      yield* createThread(baseThread);
+      const publisher = makeThreadPublisher();
+      const sql = yield* SqlClient.SqlClient;
+      const first = "2026-10-19T00:00:01.000Z";
+      yield* applyProviderEvent(publisher, {
+        type: "delta",
+        threadId: baseThread.id,
+        turnId: "early",
+        sourceId: "early-text",
+        kind: "text",
+        delta: "Early output",
+        at: first,
+      });
+      const [anchor] = yield* sql<{
+        data: string;
+      }>`SELECT data FROM thread_items WHERE source_id='turn:early'`;
+      assert.deepStrictEqual(JSON.parse(anchor!.data), { startedAt: first, endedAt: null });
+      yield* sql`UPDATE thread_items SET data=json_set(data,'$.retained',true) WHERE source_id='turn:early'`;
+      for (const turnId of ["early", "ordinary"]) {
+        const at = "2026-10-19T00:00:02.000Z";
+        yield* applyProviderEvent(publisher, {
+          type: "turn.started",
+          threadId: baseThread.id,
+          turnId,
+          at,
+        });
+        yield* applyProviderEvent(publisher, {
+          type: "turn.started",
+          threadId: baseThread.id,
+          turnId,
+          at: "2026-10-19T00:00:03.000Z",
+        });
+        const [row] = yield* sql<{
+          data: string;
+        }>`SELECT data FROM thread_items WHERE source_id=${`turn:${turnId}`}`;
+        assert.equal(JSON.parse(row!.data).startedAt, turnId === "early" ? first : at);
+        if (turnId === "early") assert.equal(JSON.parse(row!.data).retained, 1);
+        yield* applyProviderEvent(publisher, {
+          type: "turn.ended",
+          threadId: baseThread.id,
+          turnId,
+          state: "completed",
+          at: "2026-10-19T00:00:04.000Z",
+        });
+      }
+      assert.deepStrictEqual(
+        yield* sql`SELECT count(*) AS missing FROM thread_items WHERE kind='turn' AND json_extract(data,'$.startedAt') IS NULL`,
+        [{ missing: 0 }],
+      );
     }),
   ),
 );
