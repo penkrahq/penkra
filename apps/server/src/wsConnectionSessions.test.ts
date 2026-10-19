@@ -1,4 +1,7 @@
-import { Effect, Exit, Scope } from "effect";
+import { Deferred, Effect, Exit, Fiber, Scope } from "effect";
+import { WS_METHODS } from "@penkra/contracts";
+import { Headers } from "effect/unstable/http";
+import type { RpcMiddleware } from "effect/unstable/rpc";
 import { describe, expect, it } from "vitest";
 
 import {
@@ -8,6 +11,9 @@ import {
 import {
   CurrentWsSessionRole,
   makeWsConnectionSessions,
+  makeWsConnectionSessionMiddleware,
+  WsConnectionSessions,
+  WS_CONNECTION_SESSION_HEADER,
   provideWsConnectionSession,
   type WsConnectionSession,
 } from "./wsConnectionSessions.ts";
@@ -18,6 +24,49 @@ const OWNER_SESSION: WsConnectionSession = {
 };
 
 describe("WsConnectionSessions", () => {
+  it("runs five concurrent expensive reads for one client while preserving its authenticated identity", async () => {
+    await Effect.runPromise(
+      Effect.gen(function* () {
+        const sessions = yield* makeWsConnectionSessions;
+        const key = yield* sessions.register(OWNER_SESSION);
+        const middleware = yield* makeWsConnectionSessionMiddleware.pipe(
+          Effect.provideService(WsConnectionSessions, sessions),
+        );
+        const ready = yield* Deferred.make<void>();
+        const release = yield* Deferred.make<void>();
+        const methods = [
+          WS_METHODS.cleanCoreGetBootstrap,
+          WS_METHODS.cleanCoreListThreadItemsPage,
+          WS_METHODS.providerListModels,
+          WS_METHODS.providerListCommands,
+          WS_METHODS.filesystemBrowse,
+        ];
+        let started = 0;
+        const reads = methods.map((method) =>
+          middleware(
+            Effect.gen(function* () {
+              expect(yield* CurrentWsSessionRole).toBe("owner");
+              expect(yield* CurrentManagedAttachmentPrincipal).toEqual(
+                OWNER_SESSION.attachmentPrincipal,
+              );
+              if (++started === methods.length) yield* Deferred.succeed(ready, undefined);
+              yield* Deferred.await(release);
+              return method as unknown as RpcMiddleware.SuccessValue;
+            }),
+            {
+              clientId: 1,
+              headers: Headers.fromInput({ [WS_CONNECTION_SESSION_HEADER]: key }),
+              rpc: { _tag: method },
+            } as unknown as Parameters<typeof middleware>[1],
+          ),
+        );
+        const fiber = yield* Effect.all(reads, { concurrency: "unbounded" }).pipe(Effect.forkChild);
+        yield* Deferred.await(ready);
+        yield* Deferred.succeed(release, undefined);
+        expect(yield* Fiber.join(fiber)).toEqual(methods);
+      }).pipe(Effect.scoped),
+    );
+  });
   it("registers sessions for the connection scope and forgets them on close", async () => {
     const sessions = await Effect.runPromise(makeWsConnectionSessions);
     const scope = await Effect.runPromise(Scope.make());

@@ -6,10 +6,13 @@
 // handler fibers. This registry bridges that gap: the upgrade route registers the
 // connection's authenticated session under an unguessable key, injects the key as
 // a synthetic request header (overriding any client-supplied value), and the RPC
-// admission middleware resolves it back into handler-scoped services.
+// session middleware resolves it back into handler-scoped services.
 import { randomUUID } from "node:crypto";
 
 import { Effect, Layer, Scope, ServiceMap } from "effect";
+import { WsRpcError } from "@penkra/contracts";
+import { Headers } from "effect/unstable/http";
+import { RpcMiddleware } from "effect/unstable/rpc";
 
 import {
   CurrentManagedAttachmentPrincipal,
@@ -63,6 +66,27 @@ export const makeWsConnectionSessions = Effect.sync(() => {
 export const WsConnectionSessionsLive = Layer.effect(
   WsConnectionSessions,
   makeWsConnectionSessions,
+);
+
+export class WsConnectionSessionMiddleware extends RpcMiddleware.Service<WsConnectionSessionMiddleware>()(
+  "penkra/WsConnectionSessionMiddleware",
+  { error: WsRpcError, requiredForClient: false },
+) {}
+
+export const makeWsConnectionSessionMiddleware = Effect.gen(function* () {
+  const sessions = yield* WsConnectionSessions;
+  // RPC handlers descend from the server's layer fiber, not the HTTP upgrade
+  // fiber. Restore that connection's authenticated role and attachment principal.
+  return ((effect, options) =>
+    provideWsConnectionSession(
+      effect,
+      sessions.lookup(Headers.get(options.headers, WS_CONNECTION_SESSION_HEADER)),
+    )) satisfies RpcMiddleware.RpcMiddleware<never, WsRpcError, never>;
+});
+
+export const WsConnectionSessionMiddlewareLive = Layer.effect(
+  WsConnectionSessionMiddleware,
+  makeWsConnectionSessionMiddleware,
 );
 
 /**
