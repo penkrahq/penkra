@@ -357,7 +357,7 @@ export function deriveMessagesTimelineRows(input: {
         );
       }
     }
-    if (input.hasSteps?.[id]) {
+    if (final && input.hasSteps?.[id]) {
       block.push({ kind: "turn-divider", id: "turn-divider:" + id, createdAt: turn.createdAt });
     }
     if (final) {

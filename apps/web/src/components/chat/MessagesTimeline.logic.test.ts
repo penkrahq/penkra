@@ -349,7 +349,7 @@ describe("server-defined transcript rows", () => {
         details: { t1: { items: [item(first, "tool")], nextCursor: first } },
       });
     const closed = derive(152, false);
-    expect(closed.map((row) => row.kind)).toEqual(["turn-header", "summary", "turn-divider"]);
+    expect(closed.map((row) => row.kind)).toEqual(["turn-header", "summary"]);
     expect(closed[1]).toMatchObject({ id: "summary:step-201", summary: { entryCount: 50 } });
     const before = derive(152, true);
     const after = derive(102, true);
@@ -465,7 +465,7 @@ describe("server-defined transcript rows", () => {
       timelineEntries: threadItemsToTimelineEntries([item(3, "tool")]),
       expandedTurns: { t1: true },
     });
-    expect(rows.map((row) => row.kind)).toEqual(["turn-header", "work", "turn-divider"]);
+    expect(rows.map((row) => row.kind)).toEqual(["turn-header", "work"]);
   });
   it("does not merge adjacent provider turns into one user response", () => {
     const other = item(10, "turn", { sourceId: "turn:t2", turnId: TurnId.makeUnsafe("t2") });
