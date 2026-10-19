@@ -647,7 +647,7 @@ it.effect("a failed cutoff notice rolls back turn and item changes and publishes
 );
 
 it.effect(
-  "turn end settles streaming text and reasoning as well as running tools, keeping other turns intact",
+  "turn end settles streaming text as well as running tools, keeping other turns intact",
   () =>
     withDb(
       Effect.gen(function* () {
@@ -658,7 +658,6 @@ it.effect(
         yield* createThread(baseThread);
         for (const [sourceId, kind, status, turnId] of [
           ["text", "text", "streaming", "turn"],
-          ["reasoning", "reasoning", "streaming", "turn"],
           ["tool", "tool", "running", "turn"],
           ["delta-without-turn", "text", "streaming", null],
           ["other-turn", "tool", "running", "other-turn"],
@@ -687,7 +686,6 @@ it.effect(
           [
             { source_id: "turn:turn", status: "interrupted" },
             { source_id: "text", status: "interrupted" },
-            { source_id: "reasoning", status: "interrupted" },
             { source_id: "tool", status: "interrupted" },
             { source_id: "delta-without-turn", status: "interrupted" },
             { source_id: "turn:other-turn", status: "running" },
@@ -744,7 +742,6 @@ for (const state of ["completed", "error"] as const) {
         yield* createThread(baseThread);
         for (const [sourceId, kind, status] of [
           ["text", "text", "streaming"],
-          ["reasoning", "reasoning", "streaming"],
           ["tool", "tool", "running"],
           ["finished-text", "text", "done"],
           ["failed-tool", "tool", "error"],
@@ -773,7 +770,6 @@ for (const state of ["completed", "error"] as const) {
           [
             { source_id: "turn:turn", status: state === "completed" ? "done" : "error" },
             { source_id: "text", status: "interrupted" },
-            { source_id: "reasoning", status: "interrupted" },
             { source_id: "tool", status: "interrupted" },
             { source_id: "finished-text", status: "done" },
             { source_id: "failed-tool", status: "error" },

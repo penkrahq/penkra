@@ -312,11 +312,6 @@ function buildToolProgressActivityPayload(
   });
 }
 
-export function readableReasoningDetail(value: string | undefined): string | undefined {
-  const trimmed = value?.trim();
-  return trimmed?.replace(/<!--[\s\S]*?-->/gu, "").trim() ? trimmed : undefined;
-}
-
 function asString(value: unknown): string | undefined {
   return typeof value === "string" ? value : undefined;
 }
@@ -459,36 +454,6 @@ export function projectProviderRuntimeActivities(
       ? { sequence }
       : {};
   })();
-  // Codex only renders completed reasoning items with a readable summary.
-  // Empty starts/completions are private/encrypted reasoning boundaries, not
-  // transcript rows. Waiting for the authoritative completion also avoids
-  // per-token activity writes and transcript height churn.
-  if (
-    event.provider === "codex" &&
-    event.type === "item.completed" &&
-    event.payload.itemType === "reasoning" &&
-    event.itemId !== undefined &&
-    readableReasoningDetail(event.payload.detail) !== undefined
-  ) {
-    const reasoningItemId = String(event.itemId);
-    const reasoningDetail = readableReasoningDetail(event.payload.detail)!;
-    return [
-      {
-        id: EventId.makeUnsafe(`provider-reasoning:${event.threadId}:${reasoningItemId}`),
-        createdAt: event.createdAt,
-        tone: "tool",
-        kind: "task.progress",
-        summary: "Reasoning trace",
-        payload: toActivityPayload({
-          ...(event.payload.status ? { status: event.payload.status } : {}),
-          detail: truncateDetail(reasoningDetail, MAX_ACTIVITY_DATA_STRING_CHARS),
-          data: { toolCallId: reasoningItemId },
-        }),
-        ...projectedTurn,
-        ...maybeSequence,
-      },
-    ];
-  }
   switch (event.type) {
     case "session.configured": {
       const payload = buildConfiguredContextWindowPayload(event);

@@ -17,14 +17,7 @@ import { capThreadItemData, THREAD_ITEM_DATA_LIMIT_BYTES } from "./threadItemDat
 import { makeInvalidationHub, type InvalidationHub } from "./invalidationHub.ts";
 import { appendToolOutputWindow, type RawOutputWindow } from "./toolOutputWindow.ts";
 
-export type ThreadItemKind =
-  | "user"
-  | "text"
-  | "reasoning"
-  | "tool"
-  | "question"
-  | "notice"
-  | "turn";
+export type ThreadItemKind = "user" | "text" | "tool" | "question" | "notice" | "turn";
 
 export interface ThreadItemInput {
   readonly threadId: string;
@@ -125,6 +118,21 @@ const ensureTurnAnchor = (threadId: string, turnId: string | null | undefined, a
       ON CONFLICT(thread_id,source_id) DO NOTHING`;
   });
 
+const acceptsItemKind = (threadId: string, sourceId: string, kind: ThreadItemKind) =>
+  Effect.gen(function* () {
+    const sql = yield* SqlClient.SqlClient;
+    const [existing] = yield* sql<{ kind: string }>`SELECT kind FROM thread_items
+      WHERE thread_id=${threadId} AND source_id=${sourceId}`;
+    if (!existing || existing.kind === kind) return true;
+    yield* Effect.logError("Conflicting transcript item kind; update ignored", {
+      threadId,
+      sourceId,
+      storedKind: existing.kind,
+      incomingKind: kind,
+    });
+    return false;
+  });
+
 export const upsertThreadItem = (input: ThreadItemInput) =>
   Effect.gen(function* () {
     const sql = yield* SqlClient.SqlClient;
@@ -140,6 +148,7 @@ export const upsertThreadItem = (input: ThreadItemInput) =>
       decodeUserItemData(JSON.parse(input.data ?? "{}")).origin._tag === "recovery";
     yield* sql.withTransaction(
       Effect.gen(function* () {
+        if (!(yield* acceptsItemKind(input.threadId, input.sourceId, input.kind))) return;
         if (input.kind !== "user" && input.kind !== "turn")
           yield* ensureTurnAnchor(input.threadId, input.turnId, input.createdAt);
         yield* sql`
@@ -553,7 +562,7 @@ export const settleRunningItems = (threadId: string, at: string, turnId?: string
 export const appendThreadItemText = (
   threadId: string,
   sourceId: string,
-  kind: "text" | "reasoning",
+  kind: "text",
   delta: string,
   at: string,
   turnId?: string | null,
@@ -562,6 +571,7 @@ export const appendThreadItemText = (
     const sql = yield* SqlClient.SqlClient;
     yield* sql.withTransaction(
       Effect.gen(function* () {
+        if (!(yield* acceptsItemKind(threadId, sourceId, kind))) return;
         yield* ensureTurnAnchor(threadId, turnId, at);
         yield* sql`
       INSERT INTO thread_items (
@@ -593,6 +603,7 @@ export const appendToolOutput = (
     const sql = yield* SqlClient.SqlClient;
     yield* sql.withTransaction(
       Effect.gen(function* () {
+        if (!(yield* acceptsItemKind(threadId, sourceId, "tool"))) return;
         yield* ensureTurnAnchor(threadId, turnId, at);
         const [row] = yield* sql<{ output: string | null }>`
       SELECT json_extract(data, '$.payload.data.rawOutput') AS output

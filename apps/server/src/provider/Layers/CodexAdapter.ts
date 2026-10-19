@@ -451,10 +451,6 @@ function joinedTextParts(value: unknown): string | undefined {
   return parts.length > 0 ? parts.join("\n\n") : undefined;
 }
 
-function reasoningSummaryDetail(item: Record<string, unknown>): string | undefined {
-  return asString(item.summary)?.trim() || joinedTextParts(item.summary);
-}
-
 function itemDetail(
   item: Record<string, unknown>,
   payload: Record<string, unknown>,
@@ -562,22 +558,10 @@ function toThreadState(
 
 function contentStreamKindFromMethod(
   method: string,
-):
-  | "assistant_text"
-  | "reasoning_text"
-  | "reasoning_summary_text"
-  | "plan_text"
-  | "command_output"
-  | "file_change_output" {
+): "assistant_text" | "command_output" | "file_change_output" {
   switch (method) {
     case "item/agentMessage/delta":
       return "assistant_text";
-    case "item/reasoning/textDelta":
-      return "reasoning_text";
-    case "item/reasoning/summaryTextDelta":
-      return "reasoning_summary_text";
-    case "item/plan/delta":
-      return "plan_text";
     case "item/commandExecution/outputDelta":
       return "command_output";
     case "item/fileChange/outputDelta":
@@ -823,7 +807,7 @@ function mapItemLifecycle(
   }
 
   const itemType = toCanonicalItemType(source.type ?? source.kind);
-  if (itemType === "unknown" && lifecycle !== "item.updated") {
+  if (itemType === "unknown" || itemType === "reasoning" || itemType === "plan") {
     return undefined;
   }
   const generatedImageReference =
@@ -844,10 +828,7 @@ function mapItemLifecycle(
   const canonicalItemType =
     lifecycle === "item.completed" && itemType === "review_exited" ? "assistant_message" : itemType;
 
-  // Only the provider-authored summary is user-visible reasoning. Raw content
-  // may contain model trace data and must not leak into transcript activities.
-  const detail =
-    itemType === "reasoning" ? reasoningSummaryDetail(source) : itemDetail(source, payload ?? {});
+  const detail = itemDetail(source, payload ?? {});
   const status = itemStatus(lifecycle, source.status);
   const input = itemInput(source);
 
@@ -1175,26 +1156,14 @@ function mapToRuntimeEvents(
     if (!source) {
       return [];
     }
-    const itemType = toCanonicalItemType(source.type ?? source.kind);
     const completed = mapItemLifecycle(event, canonicalThreadId, "item.completed");
     return completed ? [completed] : [];
   }
 
   if (
-    event.method === "item/reasoning/summaryPartAdded" ||
-    event.method === "item/commandExecution/terminalInteraction"
-  ) {
-    const updated = mapItemLifecycle(event, canonicalThreadId, "item.updated");
-    return updated ? [updated] : [];
-  }
-
-  if (
     event.method === "item/agentMessage/delta" ||
     event.method === "item/commandExecution/outputDelta" ||
-    event.method === "item/fileChange/outputDelta" ||
-    event.method === "item/plan/delta" ||
-    event.method === "item/reasoning/summaryTextDelta" ||
-    event.method === "item/reasoning/textDelta"
+    event.method === "item/fileChange/outputDelta"
   ) {
     const delta =
       event.textDelta ??
@@ -1291,49 +1260,6 @@ function mapToRuntimeEvents(
       },
     ];
     return events;
-  }
-
-  if (event.method === "codex/event/agent_reasoning") {
-    const msg = codexEventMessage(payload);
-    const taskId = asString(payload?.id);
-    const description = asString(msg?.text);
-    if (!taskId || !description) {
-      return [];
-    }
-    return [
-      {
-        ...codexEventBase(event, canonicalThreadId),
-        type: "task.progress",
-        payload: {
-          taskId: asRuntimeTaskId(taskId),
-          description,
-        },
-      },
-    ];
-  }
-
-  if (event.method === "codex/event/reasoning_content_delta") {
-    const msg = codexEventMessage(payload);
-    const delta = asString(msg?.delta);
-    if (!delta) {
-      return [];
-    }
-    return [
-      {
-        ...codexEventBase(event, canonicalThreadId),
-        type: "content.delta",
-        payload: {
-          streamKind:
-            asNumber(msg?.summary_index) !== undefined
-              ? "reasoning_summary_text"
-              : "reasoning_text",
-          delta,
-          ...(asNumber(msg?.summary_index) !== undefined
-            ? { summaryIndex: asNumber(msg?.summary_index) }
-            : {}),
-        },
-      },
-    ];
   }
 
   if (event.method === "model/rerouted") {

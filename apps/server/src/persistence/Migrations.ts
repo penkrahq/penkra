@@ -1,3 +1,4 @@
+import Migration0210 from "./Migrations/210_RemoveProviderReasoning.ts";
 import Migration0209 from "./Migrations/209_TranscriptOutline.ts";
 import Migration0208 from "./Migrations/208_DeriveOpenQuestions.ts";
 import Migration0207 from "./Migrations/207_FinalTextSearchAndToolOutput.ts";
@@ -433,6 +434,7 @@ export const migrationEntries = [
   [207, "FinalTextSearchAndToolOutput", Migration0207],
   [208, "DeriveOpenQuestions", Migration0208],
   [209, "TranscriptOutline", Migration0209],
+  [210, "RemoveProviderReasoning", Migration0210],
 ] as const;
 
 export const makeMigrationLoader = (throughId?: number) =>

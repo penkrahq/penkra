@@ -76,8 +76,8 @@ it("maps an assistant message completion to a done text item", () => {
   );
 });
 
-it("failed and declined text or reasoning items are interrupted, never error", () => {
-  for (const itemType of ["assistant_message", "reasoning", "plan"]) {
+it("failed and declined text items are interrupted, never error", () => {
+  for (const itemType of ["assistant_message"]) {
     for (const status of ["failed", "declined"]) {
       const [event] = bridge({
         ...base,
@@ -85,10 +85,6 @@ it("failed and declined text or reasoning items are interrupted, never error", (
         itemId: "failed-item",
         payload: { itemType, status, detail: "Partial output" },
       });
-      if (itemType === "plan") {
-        assert.equal(event, undefined);
-        continue;
-      }
       assert.equal(event?.type, "item");
       if (event?.type !== "item") throw new Error("Expected item completion");
       assert.equal(event.item.status, "interrupted");
@@ -123,20 +119,23 @@ it("maps a tool item to running/done and carries one canonical activity copy", (
   assert.equal((JSON.parse(failed.item.data) as { kind: string }).kind, "tool.completed");
 });
 
-it("maps reasoning and notice items", () => {
-  assert.equal(
-    (
-      bridge({
-        ...base,
-        type: "item.completed",
-        itemId: "r1",
-        payload: { itemType: "reasoning", status: "completed", detail: "Readable summary" },
-      })[0] as {
-        item: { kind: string; status: string };
-      }
-    ).item.kind,
-    "reasoning",
-  );
+it("drops reasoning, plan and unknown items across providers and lifecycles", () => {
+  for (const provider of ["codex", "claudeAgent", "opencode"])
+    for (const type of ["item.started", "item.updated", "item.completed"])
+      for (const itemType of ["reasoning", "plan", "unknown"])
+        assert.deepStrictEqual(
+          bridge({
+            ...base,
+            provider,
+            type,
+            itemId: "r1",
+            payload: { itemType, status: "completed", detail: "Readable summary" },
+          }),
+          [],
+        );
+});
+
+it("maps notice items", () => {
   assert.equal(
     (
       bridge({

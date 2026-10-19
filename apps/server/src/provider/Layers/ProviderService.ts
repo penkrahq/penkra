@@ -2,7 +2,6 @@ import {
   applyProviderDeltaRun,
   consumeProviderRuntimeEvent,
 } from "../../cleanCore/providerStreamConsumer.ts";
-import { makeReasoningSummaryBuffer } from "../../cleanCore/providerReasoningSummary.ts";
 import { ConnectionRateLimits } from "../../providerUsage/ConnectionRateLimits.ts";
 import { ProviderAuthCircuits } from "../providerAuthCircuit.ts";
 /**
@@ -2506,13 +2505,10 @@ export function makeManagedProviderServiceLive(options?: ProviderServiceLiveOpti
       const rateLimits = yield* ConnectionRateLimits;
       const circuits = yield* ProviderAuthCircuits;
       const launchResolver = yield* ProviderLaunchResolver;
-      const prepareReasoning = makeReasoningSummaryBuffer();
       return yield* makeProviderService({
         ...options,
         consumeRuntimeEvent: (event) => {
-          const prepared = prepareReasoning(event);
-          if (prepared === null) return Effect.succeed(event);
-          return consumeProviderRuntimeEvent(publisher, prepared).pipe(
+          return consumeProviderRuntimeEvent(publisher, event).pipe(
             Effect.provideService(SqlClient.SqlClient, sql),
             Effect.provideService(ConnectionRateLimits, rateLimits),
             Effect.provideService(ProviderAuthCircuits, circuits),
@@ -2520,8 +2516,7 @@ export function makeManagedProviderServiceLive(options?: ProviderServiceLiveOpti
           );
         },
         consumeRuntimeDeltaRun: (events) => {
-          const prepared = events.map(prepareReasoning).filter((event) => event !== null);
-          return applyProviderDeltaRun(publisher, prepared).pipe(
+          return applyProviderDeltaRun(publisher, events).pipe(
             Effect.provideService(SqlClient.SqlClient, sql),
           );
         },

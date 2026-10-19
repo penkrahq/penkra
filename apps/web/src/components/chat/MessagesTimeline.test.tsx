@@ -1465,20 +1465,6 @@ describe("MessagesTimeline", () => {
         activeTurnStartedAt="2026-03-17T19:12:28.000Z"
         timelineEntries={[
           {
-            id: "entry-reasoning-trace",
-            kind: "work",
-            createdAt: "2026-03-17T19:12:28.100Z",
-            entry: {
-              id: "reasoning-trace",
-              createdAt: "2026-03-17T19:12:28.100Z",
-              turnId: activeTurnId,
-              label: "Reasoning trace",
-              toolTitle: "Reasoning trace",
-              detail: "**Inspecting apps/web/src/store.ts**\n\n<!-- -->",
-              tone: "tool",
-            },
-          },
-          {
             id: "entry-mcp-tool",
             kind: "work",
             createdAt: "2026-03-17T19:12:28.200Z",
@@ -1490,20 +1476,6 @@ describe("MessagesTimeline", () => {
               toolTitle: "MCP tool call",
               toolName: "mcp__docs__search",
               itemType: "mcp_tool_call",
-              tone: "tool",
-            },
-          },
-          {
-            id: "entry-reasoning-summary",
-            kind: "work",
-            createdAt: "2026-03-17T19:12:28.300Z",
-            entry: {
-              id: "reasoning-summary",
-              createdAt: "2026-03-17T19:12:28.300Z",
-              turnId: activeTurnId,
-              label: "Reasoning summary",
-              toolTitle: "Reasoning summary",
-              preview: "Updating the adapter",
               tone: "tool",
             },
           },
@@ -1531,14 +1503,12 @@ describe("MessagesTimeline", () => {
       />,
     );
 
-    expect(markup.match(/data-codex-status-row="true"/g) ?? []).toHaveLength(3);
+    expect(markup.match(/data-codex-status-row="true"/g) ?? []).toHaveLength(1);
     expect(markup.match(/data-work-entry-icon="true"/g) ?? []).toHaveLength(1);
     expect(markup).toContain("Working for");
     expect(markup).toContain('class="shimmer pt-0.5 text-muted-foreground/70 font-system-ui"');
     expect(markup).toContain(">Thinking</div>");
     expect(markup).not.toContain('aria-hidden="true">Thinking</div>');
-    expect(markup).toContain("Inspecting apps/web/src/store.ts");
-    expect(markup).not.toContain("Reasoning trace Inspecting");
   });
 
   it("keeps Thinking when a new local send has no server turn id yet", async () => {
@@ -1561,19 +1531,6 @@ describe("MessagesTimeline", () => {
               text: "Previous request",
               createdAt: "2026-03-17T19:12:20.000Z",
               streaming: false,
-            },
-          },
-          {
-            id: "entry-reasoning-previous",
-            kind: "work",
-            createdAt: "2026-03-17T19:12:21.000Z",
-            entry: {
-              id: "reasoning-previous",
-              createdAt: "2026-03-17T19:12:21.000Z",
-              turnId: previousTurnId,
-              label: "Reasoning",
-              toolTitle: "Reasoning",
-              tone: "info",
             },
           },
           {

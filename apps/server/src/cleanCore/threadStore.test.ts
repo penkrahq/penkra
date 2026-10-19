@@ -33,6 +33,39 @@ const baseThread = {
   createdAt: "2026-10-09T00:00:00.000Z",
 };
 
+it.effect("a conflicting item kind changes neither its row nor the thread summary", () =>
+  withDb(
+    Effect.gen(function* () {
+      yield* runMigrations();
+      yield* seedThreadFolderFixture("core-test-folder", "space-1");
+      yield* createThread(baseThread);
+      const sql = yield* SqlClient.SqlClient;
+      const input = {
+        threadId: "thread-1",
+        sourceId: "same-id",
+        kind: "notice" as const,
+        status: "done",
+        text: "Original",
+        createdAt: baseThread.createdAt,
+        updatedAt: baseThread.createdAt,
+      };
+      yield* upsertThreadItem(input);
+      const before = yield* sql`SELECT * FROM thread_items`;
+      const summary = yield* sql`SELECT * FROM threads`;
+      yield* upsertThreadItem({
+        ...input,
+        kind: "tool",
+        status: "running",
+        text: "Wrong kind",
+        turnId: "wrong-turn",
+        updatedAt: "2026-10-18T00:00:00.000Z",
+      });
+      assert.deepStrictEqual(yield* sql`SELECT * FROM thread_items`, before);
+      assert.deepStrictEqual(yield* sql`SELECT * FROM threads`, summary);
+    }),
+  ),
+);
+
 it.effect("createThread is idempotent on the client-chosen id", () =>
   withDb(
     Effect.gen(function* () {
