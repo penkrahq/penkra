@@ -67,6 +67,11 @@ import {
   prepareManagedCodexResume,
 } from "./provider/codexManagedNativeState.ts";
 import { createLogger } from "./logger";
+import {
+  observeProviderProcess,
+  redactProviderProcessOutput,
+  type ProviderProcessDiagnostics,
+} from "./provider/providerProcessDiagnostics.ts";
 import { transcribeVoiceWithChatGptSession } from "./voiceTranscription.ts";
 import {
   CodexAppServerTransportError,
@@ -193,6 +198,7 @@ interface CodexAccountProcess {
   stdoutFramer: CodexJsonlFramer;
   stdinWriter: CodexJsonlWriter;
   stderrTail?: string;
+  diagnostics?: ProviderProcessDiagnostics;
   lastRequestMethod?: string;
   transportFailureHandled?: boolean;
   detachStdout?: () => void;
@@ -445,19 +451,10 @@ export class CodexStderrRecordFramer {
   }
 }
 
-function redactCodexProcessOutput(value: string): string {
-  return value
-    .replace(
-      /((?:authorization|bearer|api[_-]?key|access[_-]?token|refresh[_-]?token|id[_-]?token)\s*[:=]\s*)[^\s,;]+/gi,
-      "$1[redacted]",
-    )
-    .replace(/\b(?:sk|sess|eyJ)[A-Za-z0-9._-]{16,}\b/g, "[redacted]");
-}
-
 function appendCodexStderrTail(transport: CodexAccountProcess, chunk: Buffer): void {
   // Redact after joining so a credential split across stream chunks cannot
   // bypass the diagnostic scrubber.
-  const combined = redactCodexProcessOutput(`${transport.stderrTail ?? ""}${chunk.toString()}`);
+  const combined = redactProviderProcessOutput(`${transport.stderrTail ?? ""}${chunk.toString()}`);
   const bytes = Buffer.from(combined);
   transport.stderrTail =
     bytes.byteLength <= CODEX_STDERR_TAIL_MAX_BYTES
@@ -2757,6 +2754,18 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
       stderrRecordFramer: new CodexStderrRecordFramer(),
     };
     publishTransport(transport);
+    transport.diagnostics = observeProviderProcess(child, {
+      provider: "codex",
+      context: () => ({
+        binaryPath: input.binaryPath,
+        requestedStop: transport.stopping,
+        protocolClosed: transport.protocolClosed,
+        protocolFailure: transport.protocolFailure?.message ?? null,
+        connectionIds: [...transport.connectionIds],
+        threadIds: [...transport.threads].map((context) => context.session.threadId),
+        lastRequestMethod: transport.lastRequestMethod ?? null,
+      }),
+    });
     this.attachProcessListeners(transport);
     try {
       await this.sendRequest(transport, null, "initialize", buildCodexInitializeParams());
@@ -3091,7 +3100,7 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
       category: classified.category,
       level: classified.level,
       target: classified.target,
-      record: redactCodexProcessOutput(classified.record),
+      record: redactProviderProcessOutput(classified.record),
     });
   }
 
@@ -3164,6 +3173,8 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
       return;
     }
     if (this.isServerNotification(parsed)) {
+      if (parsed.method === "turn/started" || parsed.method === "turn/completed")
+        void transport.diagnostics?.sampleMemory();
       const nativeId = this.readProviderConversationId(parsed.params);
       if (parsed.method === "thread/closed" && nativeId !== undefined) {
         transport.pendingCloses.get(nativeId)?.resolve();
