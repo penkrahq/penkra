@@ -40,7 +40,7 @@ import { SessionCredentialService } from "./auth/Services/SessionCredentialServi
 import { deriveAuthClientMetadata } from "./auth/utils";
 import { ServerConfig, type ServerConfigShape } from "./config";
 import { resolveCachedEditorIcon } from "./editorAppIcons";
-import { LOCAL_IMAGE_ROUTE_PATH, resolveAllowedLocalPreviewFile } from "./localImageFiles.ts";
+import { LOCAL_IMAGE_ROUTE_PATH, resolveLocalPreviewFile } from "./localImageFiles.ts";
 import { createLogger } from "./logger";
 import { ProjectFaviconResolver } from "./project/Services/ProjectFaviconResolver";
 import { ThreadReads } from "./cleanCore/ThreadReads";
@@ -855,12 +855,9 @@ export const localImageEffectRouteLayer = HttpRouter.add(
     }
 
     const previewFile = yield* Effect.promise(() =>
-      resolveAllowedLocalPreviewFile({
+      resolveLocalPreviewFile({
         requestedPath: url.searchParams.get("path"),
         cwd: url.searchParams.get("cwd"),
-        stateDir: config.stateDir,
-        allowAbsoluteLocalPreviewFile: true,
-        previewGrant: url.searchParams.get("grant"),
       }).catch(() => null),
     );
     if (!previewFile) {

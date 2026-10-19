@@ -11,10 +11,9 @@ import { DateTime, Effect, Exit, Layer, Scope } from "effect";
 import { HttpRouter } from "effect/unstable/http";
 import { afterEach, describe, expect, it } from "vitest";
 
-import { ServerAuth, type ServerAuthShape } from "./auth/Services/ServerAuth";
+import { AuthError, ServerAuth, type ServerAuthShape } from "./auth/Services/ServerAuth";
 import { resolveDefaultChatWorkspaceRoot, ServerConfig, type ServerConfigShape } from "./config";
 import { attachmentsEffectRouteLayer, localImageEffectRouteLayer } from "./http";
-import { createLocalPreviewGrant } from "./localImageFiles";
 import { ManagedAttachmentRepositoryLive } from "./persistence/Layers/ManagedAttachments";
 import { SqlitePersistenceMemory } from "./persistence/Layers/Sqlite";
 
@@ -113,6 +112,7 @@ async function withEffectServer(
   config: ServerConfigShape,
   routeLayer: typeof localImageEffectRouteLayer | typeof attachmentsEffectRouteLayer,
   run: (origin: string) => Promise<void>,
+  auth: ServerAuthShape = makeFakeServerAuth(),
 ): Promise<void> {
   const scope = await Effect.runPromise(Scope.make("sequential"));
   let nodeServer: http.Server | null = null;
@@ -135,7 +135,7 @@ async function withEffectServer(
           Effect.provide(
             Layer.mergeAll(
               Layer.succeed(ServerConfig, config),
-              Layer.succeed(ServerAuth, makeFakeServerAuth()),
+              Layer.succeed(ServerAuth, auth),
               ManagedAttachmentRepositoryLive.pipe(Layer.provideMerge(SqlitePersistenceMemory)),
               NodeHttpServer.layerHttpServices,
             ),
@@ -156,7 +156,7 @@ async function withEffectServer(
 }
 
 describe("localImageEffectRouteLayer", () => {
-  it("serves an allowlisted workspace image and signals downloads via Content-Disposition", async () => {
+  it("serves a workspace image and signals downloads via Content-Disposition", async () => {
     const workspace = makeTempDir("penkra-effect-image-workspace-");
     writeFileSync(path.join(workspace, ".git"), "gitdir: .git");
     const imagePath = path.join(workspace, "hero.png");
@@ -203,7 +203,7 @@ describe("localImageEffectRouteLayer", () => {
     });
   });
 
-  it("serves an absolute local image outside the workspace for file-panel previews", async () => {
+  it("serves an absolute PDF outside the workspace without a preview grant", async () => {
     const workspace = makeTempDir("penkra-effect-image-workspace-");
     writeFileSync(path.join(workspace, ".git"), "gitdir: .git");
     const externalRoot = makeTempDir("penkra-effect-external-preview-");
@@ -211,21 +211,17 @@ describe("localImageEffectRouteLayer", () => {
     writeFileSync(imagePath, Buffer.from("%PDF-1.7"));
     const config = makeServerConfig({ cwd: workspace });
 
-    const grant = await createLocalPreviewGrant({ requestedPath: imagePath });
-
     await withEffectServer(config, localImageEffectRouteLayer, async (origin) => {
-      const params = new URLSearchParams({ path: imagePath, cwd: workspace, grant: grant.grant });
+      const params = new URLSearchParams({ path: imagePath, cwd: workspace });
       const response = await fetch(`${origin}/api/local-image?${params}`);
       expect(response.status).toBe(200);
       expect(response.headers.get("content-type")).toContain("application/pdf");
 
-      params.delete("grant");
-      const ungrantedResponse = await fetch(`${origin}/api/local-image?${params}`);
-      expect(ungrantedResponse.status).toBe(404);
+      await expect(response.text()).resolves.toBe("%PDF-1.7");
     });
   });
 
-  it("serves an allowlisted workspace PDF and only allows the desktop app origin to read it", async () => {
+  it("serves a workspace PDF and only allows the desktop app origin to read it", async () => {
     const workspace = makeTempDir("penkra-effect-pdf-workspace-");
     writeFileSync(path.join(workspace, ".git"), "gitdir: .git");
     const pdfPath = path.join(workspace, "spec.pdf");
@@ -319,6 +315,29 @@ describe("localImageEffectRouteLayer", () => {
       const response = await fetch(`${origin}/api/local-image?${params}`);
       expect(response.status).toBe(404);
     });
+  });
+
+  it("still rejects unauthenticated external-file requests when server auth is configured", async () => {
+    const root = makeTempDir("penkra-preview-unauthenticated-");
+    const file = path.join(root, "private.pdf");
+    writeFileSync(file, "%PDF-1.7");
+    const auth: ServerAuthShape = {
+      ...makeFakeServerAuth(),
+      authenticateHttpRequest: () =>
+        Effect.fail(new AuthError({ message: "Unauthorized", status: 401 })),
+    };
+    await withEffectServer(
+      makeServerConfig({ authToken: "desktop-secret" }),
+      localImageEffectRouteLayer,
+      async (origin) => {
+        const response = await fetch(
+          `${origin}/api/local-image?${new URLSearchParams({ path: file })}`,
+        );
+        expect(response.status).toBe(401);
+        expect(await response.text()).not.toContain("%PDF");
+      },
+      auth,
+    );
   });
 });
 

@@ -37,14 +37,13 @@ describe("local image URL helpers", () => {
     ).toBe("/api/local-image?path=%2Ftmp%2Fgenerated+image.png&download=1");
   });
 
-  it("includes local preview grants when present", () => {
+  it("builds outside-workspace preview URLs without a grant", () => {
     expect(
       buildLocalImageUrl({
         src: "/Users/me/Downloads/shot.png",
         cwd: undefined,
-        grant: "grant-token",
       }),
-    ).toBe("/api/local-image?path=%2FUsers%2Fme%2FDownloads%2Fshot.png&grant=grant-token");
+    ).toBe("/api/local-image?path=%2FUsers%2Fme%2FDownloads%2Fshot.png");
   });
 
   it("forwards the desktop bridge legacy token so <img> requests stay authenticated", () => {

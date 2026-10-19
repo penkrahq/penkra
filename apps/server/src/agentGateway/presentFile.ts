@@ -22,7 +22,7 @@ import {
   reserveManagedAttachmentUpload,
 } from "../managedAttachmentStore.ts";
 import { ToolInputError, errorText } from "./toolInput.ts";
-import { resolveAllowedLocalPreviewFile } from "../localImageFiles.ts";
+import { resolveLocalPreviewFile } from "../localImageFiles.ts";
 import { ensureDurableThreadWorkspace } from "../scratchWorkspaces.ts";
 
 export function resolvePresentFileCwd(input: {
@@ -64,7 +64,6 @@ export function presentFile(input: {
   readonly threadId: string;
   readonly turnId: string | null;
   readonly attachmentsDir: string;
-  readonly stateDir: string;
   readonly repository: ManagedAttachmentRepositoryShape;
   readonly publisher: ThreadPublisher;
   readonly assertActive: () => Effect.Effect<void, Error>;
@@ -72,32 +71,29 @@ export function presentFile(input: {
   readonly presentationIndex?: number;
 }) {
   return Effect.gen(function* () {
-    const allowed = yield* Effect.promise(() =>
-      resolveAllowedLocalPreviewFile({
+    const file = yield* Effect.promise(() =>
+      resolveLocalPreviewFile({
         requestedPath: input.requestedPath,
         cwd: input.cwd,
-        stateDir: input.stateDir,
-        allowAnyWorkspaceFile: true,
+        allowAnyFile: true,
       }),
     );
-    if (!allowed) {
+    if (!file) {
       return yield* Effect.fail(
-        new ToolInputError(
-          "File is unavailable outside this Thread's workspace or generated-image locations.",
-        ),
+        new ToolInputError("File not found, unreadable, or not a regular file."),
       );
     }
     const source = yield* Effect.tryPromise({
       try: async () => {
-        const info = await fs.stat(allowed.path);
+        const info = await fs.stat(file.path);
         if (!info.isFile() || info.size === 0 || info.size > PROVIDER_SEND_TURN_MAX_FILE_BYTES) {
           throw new ToolInputError("Choose a nonempty regular file within the file size limit.");
         }
-        const bytes = await fs.readFile(allowed.path);
+        const bytes = await fs.readFile(file.path);
         if (bytes.byteLength === 0 || bytes.byteLength > PROVIDER_SEND_TURN_MAX_FILE_BYTES) {
           throw new ToolInputError("File size changed while it was being read.");
         }
-        return { bytes, name: path.basename(allowed.path) };
+        return { bytes, name: path.basename(file.path) };
       },
       catch: (error) => new ToolInputError(`Cannot show file: ${errorText(error)}`),
     });
