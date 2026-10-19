@@ -297,7 +297,12 @@ export function deriveMessagesTimelineRows(input: {
         : row.kind === "boundary" && row.turnId !== null
           ? (input.details?.[row.turnId]?.items[0]?.seq ?? 0)
           : seqById.get(row.id)!;
-    events.push({ seq, priority: 1, rows: [row] });
+    const anchorSequence = row.kind === "work" ? row.entry.anchor?.sequence : undefined;
+    events.push({
+      seq: anchorSequence ?? seq,
+      priority: anchorSequence === undefined ? 1 : -1,
+      rows: [row],
+    });
   }
   for (const [id, turn] of Object.entries(turns)) {
     if (turn.status === "running") {

@@ -38,18 +38,15 @@ export interface ThreadItemActivityData {
   readonly kind: string;
   readonly summary: string;
   readonly payload: unknown;
+  readonly anchor?: { readonly messageId: string };
 }
 
-export function threadItemActivityData(activity: {
-  readonly tone: string;
-  readonly kind: string;
-  readonly summary: string;
-  readonly payload: unknown;
-}): string {
+export function threadItemActivityData(activity: ThreadItemActivityData): string {
   return JSON.stringify({
     tone: activity.tone,
     kind: activity.kind,
     summary: activity.summary,
     payload: activity.payload,
+    ...(activity.anchor === undefined ? {} : { anchor: activity.anchor }),
   } satisfies ThreadItemActivityData);
 }
