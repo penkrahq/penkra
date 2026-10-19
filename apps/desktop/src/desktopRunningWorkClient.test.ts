@@ -1,5 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import { DesktopRunningWorkClient } from "./desktopRunningWorkClient";
+import { createServer } from "node:http";
+import { once } from "node:events";
 
 function source() {
   let controller!: ReadableStreamDefaultController<Uint8Array>;
@@ -23,7 +25,98 @@ function latch() {
 }
 
 describe("DesktopRunningWorkClient", () => {
-  it("decodes split UTF-8/NDJSON states and releases on EOF without a retry", async () => {
+  it("uses the native HTTP stream and cancels it when the backend generation stops", async () => {
+    const server = createServer((request, response) => {
+      expect(request.headers.authorization).toBe("Bearer fixture");
+      response.writeHead(200, { "Content-Type": "application/x-ndjson" });
+      response.write('{"working":["native"]}\n');
+    });
+    server.listen(0, "127.0.0.1");
+    await once(server, "listening");
+    const received = latch();
+    const onError = vi.fn();
+    const client = new DesktopRunningWorkClient({
+      onError,
+      onWorking: (ids) => {
+        if (ids[0] === "native") received.resolve();
+      },
+    });
+    const address = server.address();
+    if (!address || typeof address === "string") throw new Error("Missing listener");
+    const running = client.start({ url: `http://127.0.0.1:${address.port}`, token: "fixture" });
+    try {
+      await received.promise;
+    } finally {
+      client.stop();
+      await running;
+      await new Promise<void>((resolve, reject) =>
+        server.close((error) => (error ? reject(error) : resolve())),
+      );
+    }
+    expect(onError).not.toHaveBeenCalled();
+  });
+  it("keeps work during a successful reopen until its full snapshot arrives", async () => {
+    const first = source();
+    const next = source();
+    const received = latch();
+    const reopened = latch();
+    const replaced = latch();
+    const states: ReadonlyArray<string>[] = [];
+    const fetcher = vi
+      .fn()
+      .mockResolvedValueOnce(first.response)
+      .mockImplementationOnce(async () => {
+        reopened.resolve();
+        return next.response;
+      });
+    const client = new DesktopRunningWorkClient({
+      fetcher,
+      onError: vi.fn(),
+      onWorking: (ids) => {
+        states.push(ids);
+        if (ids[0] === "old") received.resolve();
+        if (ids[0] === "new") replaced.resolve();
+      },
+    });
+    const running = client.start({ url: "http://backend.test", token: "fixture" });
+    first.send('{"working":["old"]}\n');
+    await received.promise;
+    first.controller.close();
+    await reopened.promise;
+    expect(states).toEqual([[], ["old"]]);
+    next.send('{"working":["new"]}\n');
+    await replaced.promise;
+    expect(states).toEqual([[], ["old"], ["new"]]);
+    client.stop();
+    next.controller.close();
+    await running;
+    expect(fetcher).toHaveBeenCalledTimes(2);
+  });
+  it("reopens a dropped stream without clearing work, then stops after a failed reopen", async () => {
+    const input = source();
+    const received = latch();
+    const states: ReadonlyArray<string>[] = [];
+    const fetcher = vi
+      .fn()
+      .mockResolvedValueOnce(input.response)
+      .mockRejectedValueOnce(new Error("offline"));
+    const client = new DesktopRunningWorkClient({
+      fetcher,
+      onError: vi.fn(),
+      onWorking: (ids) => {
+        states.push(ids);
+        if (ids[0] === "active") received.resolve();
+      },
+    });
+    const running = client.start({ url: "http://backend.test", token: "fixture" });
+    input.send('{"working":["active"]}\n');
+    await received.promise;
+    input.controller.close();
+    await running;
+    expect(fetcher).toHaveBeenCalledTimes(2);
+    expect(states).toEqual([[], ["active"], []]);
+  });
+  it("decodes split UTF-8/NDJSON states and reopens once on EOF", async () => {
     const input = source();
     const received = latch();
     const states: ReadonlyArray<string>[] = [];
@@ -48,7 +141,7 @@ describe("DesktopRunningWorkClient", () => {
     expect(states).toContainEqual(["café"]);
     expect(states.at(-1)).toEqual([]);
     expect(onError).not.toHaveBeenCalled();
-    expect(fetcher).toHaveBeenCalledOnce();
+    expect(fetcher).toHaveBeenCalledTimes(2);
     expect(fetcher).toHaveBeenCalledWith(
       "http://backend.test/api/desktop/running-work",
       expect.objectContaining({ headers: { Authorization: "Bearer fixture" } }),
