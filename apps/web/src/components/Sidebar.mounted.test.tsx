@@ -37,7 +37,7 @@ vi.mock("./sidebar/SidebarDnd", async (importOriginal) => ({
 import Sidebar from "./Sidebar";
 import { SidebarProvider } from "./ui/sidebar";
 import { persistSidebarUiState, readSidebarUiState } from "./Sidebar.uiState";
-import { applyThreadRow, resetThreadListForTests } from "../threadListStore";
+import { applyThreadRow, getThreadListById, resetThreadListForTests } from "../threadListStore";
 import { useStore } from "../store";
 import { useSpacesUiStore } from "../spacesUiStore";
 import { useComposerDraftStore } from "../composerDraftStore";
@@ -220,6 +220,63 @@ it("converges with collapsed paging, dismissed statuses and route activation, th
   commits.mockClear();
   await act(async () => render(2));
   expect(commits).toHaveBeenCalledTimes(1);
+});
+
+it("loads twenty folders in parallel after restart, including new and restored threads", async () => {
+  resetThreadListForTests();
+  const folders = Array.from({ length: 20 }, (_, index) => ({
+    ...folder,
+    id: FolderId.makeUnsafe(`restart-folder-${index}`),
+    name: index === 19 ? "Stage" : `Folder ${index}`,
+    cwd: `/restart-${index}`,
+  }));
+  const stage = folders.at(-1)!;
+  const created = {
+    ...row(ThreadId.makeUnsafe("stage-created"), "Stage new chat"),
+    folderId: stage.id,
+  };
+  const restored = {
+    ...row(ThreadId.makeUnsafe("stage-restored"), "Stage restored Claude"),
+    folderId: stage.id,
+    provider: "claudeAgent" as const,
+    model: "claude-sonnet-4-5",
+  };
+  let active = 0;
+  let peakActive = 0;
+  api.listThreads.mockImplementation(({ folderId: requestedFolder }) => {
+    active++;
+    peakActive = Math.max(peakActive, active);
+    return Promise.resolve({
+      threads: requestedFolder === stage.id ? [created, restored] : [],
+      nextCursor: null,
+    }).finally(() => active--);
+  });
+  useStore.setState({ folders });
+  const route = createRootRoute();
+  const threadRoute = createRoute({
+    getParentRoute: () => route,
+    path: "/$threadId",
+    component: MountedSidebar,
+  });
+  const router = createRouter({
+    routeTree: route.addChildren([threadRoute]),
+    history: createMemoryHistory({ initialEntries: [`/${created.id}`] }),
+  });
+  await router.load();
+  await act(async () =>
+    root!.render(
+      <QueryClientProvider client={client}>
+        <RouterProvider router={router} />
+      </QueryClientProvider>,
+    ),
+  );
+  expect(getThreadListById().get(created.id)).toEqual(created);
+  expect(peakActive).toBe(20);
+  expect(getThreadListById().get(restored.id)).toEqual(restored);
+  expect(container.querySelector('[data-thread-item][aria-label="Stage new chat"]')).not.toBeNull();
+  expect(
+    container.querySelector('[data-thread-item][aria-label="Stage restored Claude"]'),
+  ).not.toBeNull();
 });
 
 it("highlights the folder, not the previous thread, while a new draft is open", async () => {

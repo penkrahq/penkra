@@ -326,13 +326,19 @@ export default function Sidebar() {
         title: "Could not load threads",
         description: error instanceof Error ? error.message : String(error),
       });
+    let cancelled = false;
     for (const folder of folders) {
-      if (folder.spaceId !== null && folder.spaceId !== undefined)
-        void loadThreadPage({ spaceId: folder.spaceId, folderId: folder.id }).catch(report);
-      else
-        for (const space of spaces)
-          void loadThreadPage({ spaceId: space.id, folderId: folder.id }).catch(report);
+      const ownerSpaces =
+        folder.spaceId != null ? [folder.spaceId] : spaces.map((space) => space.id);
+      for (const spaceId of ownerSpaces) {
+        void loadThreadPage({ spaceId, folderId: folder.id }).catch((error) => {
+          if (!cancelled) report(error);
+        });
+      }
     }
+    return () => {
+      cancelled = true;
+    };
   }, [spaces, folders]);
   const markThreadVisited = useStore((store) => store.markThreadVisited);
   const persistThreadVisit = useCallback(

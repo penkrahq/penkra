@@ -24,7 +24,7 @@ import {
 } from "@penkra/contracts";
 import { Effect, FileSystem, Layer, Option, Path, Schema, Scope, Stream } from "effect";
 import { Headers, HttpRouter, HttpServerRequest, HttpServerResponse } from "effect/unstable/http";
-import { RpcMiddleware, RpcSchema, RpcSerialization, RpcServer } from "effect/unstable/rpc";
+import { RpcSerialization, RpcServer } from "effect/unstable/rpc";
 import * as SqlClient from "effect/unstable/sql/SqlClient";
 
 import { authErrorResponse, makeEffectAuthRequest } from "./auth/effectHttp";
@@ -85,9 +85,10 @@ import { ThreadPublisher } from "./cleanCore/ThreadPublisher.ts";
 import { sidebarChangeStream, threadChangeStream } from "./cleanCore/threadChangeStream.ts";
 import { recoverMissingFile } from "./missingFileRecovery";
 import { WorkspaceWatcher } from "./workspaceWatcher";
-import { makeWsRequestAdmission } from "./wsRequestAdmission";
 import {
   provideWsConnectionSession,
+  WsConnectionSessionMiddleware,
+  WsConnectionSessionMiddlewareLive,
   WS_CONNECTION_SESSION_HEADER,
   WsConnectionSessions,
   WsConnectionSessionsLive,
@@ -103,32 +104,7 @@ import {} from "./wsSyncAcknowledgements";
 import { wsRpcErrorCode } from "./wsRpcErrorMapping";
 import { findThreadPolicyError } from "./cleanCore/threadErrors.ts";
 
-class WsRequestAdmissionMiddleware extends RpcMiddleware.Service<WsRequestAdmissionMiddleware>()(
-  "penkra/WsRequestAdmissionMiddleware",
-  { error: WsRpcError, requiredForClient: false },
-) {}
-
-const AdmittedWsFeatureRpcGroup = WsFeatureRpcGroup.middleware(WsRequestAdmissionMiddleware);
-
-const wsRequestAdmissionMiddlewareLayer = Layer.effect(
-  WsRequestAdmissionMiddleware,
-  Effect.gen(function* () {
-    const admission = yield* makeWsRequestAdmission;
-    const connectionSessions = yield* WsConnectionSessions;
-    return ((effect, options) => {
-      // Handler fibers descend from the RPC server fiber (forked at layer build),
-      // not from the connection's HTTP upgrade fiber, so connection-scoped
-      // services must be re-provided here from the connection-session registry.
-      const scoped = provideWsConnectionSession(
-        effect,
-        connectionSessions.lookup(Headers.get(options.headers, WS_CONNECTION_SESSION_HEADER)),
-      );
-      return RpcSchema.isStreamSchema(options.rpc.successSchema)
-        ? scoped
-        : admission.guard(options.clientId, options.rpc._tag, scoped);
-    }) satisfies RpcMiddleware.RpcMiddleware<never, WsRpcError, never>;
-  }),
-);
+const SessionScopedWsFeatureRpcGroup = WsFeatureRpcGroup.middleware(WsConnectionSessionMiddleware);
 
 // Relative subdirectories scaffolded under a freshly created chat container workspace root.
 const CHAT_WORKSPACE_SUBDIRECTORIES = ["work", "outputs"] as const;
@@ -155,7 +131,7 @@ const failLiveUiStreamForSnapshotResync = (report: LiveUiStreamDropReport) =>
   );
 
 const makeWsRpcHandlersLayer = () =>
-  AdmittedWsFeatureRpcGroup.toLayer(
+  SessionScopedWsFeatureRpcGroup.toLayer(
     Effect.gen(function* () {
       const config = yield* ServerConfig;
       const fileSystem = yield* FileSystem.FileSystem;
@@ -274,7 +250,7 @@ const makeWsRpcHandlersLayer = () =>
       const rpcEffect = <A, E, R>(effect: Effect.Effect<A, E, R>, fallbackMessage: string) =>
         effect.pipe(Effect.mapError((cause) => toWsRpcError(cause, fallbackMessage)));
 
-      return AdmittedWsFeatureRpcGroup.of({
+      return SessionScopedWsFeatureRpcGroup.of({
         [ORCHESTRATION_WS_METHODS.importThread]: (input) =>
           rpcEffect(importThread(input), "Failed to import thread"),
 
@@ -851,9 +827,9 @@ const makeWsRpcHandlersLayer = () =>
   );
 
 export const makeWsRpcLayer = () =>
-  Layer.merge(makeWsRpcHandlersLayer(), wsRequestAdmissionMiddlewareLayer);
+  Layer.merge(makeWsRpcHandlersLayer(), WsConnectionSessionMiddlewareLive);
 
-const makeRpcWebSocketHttpEffect = RpcServer.toHttpEffectWebsocket(AdmittedWsFeatureRpcGroup, {
+const makeRpcWebSocketHttpEffect = RpcServer.toHttpEffectWebsocket(SessionScopedWsFeatureRpcGroup, {
   spanPrefix: "ws.rpc",
   spanAttributes: {
     "rpc.transport": "websocket",
