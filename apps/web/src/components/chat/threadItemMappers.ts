@@ -251,6 +251,9 @@ export function threadItemsToTimelineEntries(
 ): TimelineEntry[] {
   const ordered = [...items].toSorted((left, right) => left.seq - right.seq);
   const entries: TimelineEntry[] = [];
+  const messagePositions = new Map(
+    ordered.filter((item) => item.kind === "user").map((item) => [item.sourceId, item.seq]),
+  );
   for (const item of ordered) {
     if (item.kind === "user" && !isVisibleThreadMessageItem(item)) continue;
     if (item.kind === "user" || item.kind === "text") {
@@ -262,8 +265,19 @@ export function threadItemsToTimelineEntries(
       });
       continue;
     }
-    const entry = threadItemToWorkLogEntry(item);
+    let entry = threadItemToWorkLogEntry(item);
     if (entry) {
+      const anchor = parseThreadItemData(item.data)?.anchor;
+      if (
+        anchor !== null &&
+        typeof anchor === "object" &&
+        "messageId" in anchor &&
+        typeof anchor.messageId === "string"
+      )
+        entry = {
+          ...entry,
+          anchor: { messageId: anchor.messageId, sequence: messagePositions.get(anchor.messageId) },
+        };
       entries.push({
         id: entry.id,
         kind: "work",

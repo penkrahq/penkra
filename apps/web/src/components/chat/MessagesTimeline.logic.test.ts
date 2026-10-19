@@ -319,6 +319,58 @@ describe("server-defined transcript rows", () => {
     finals: { t1: final },
     hasSteps: { t1: true },
   };
+  it.each([false, true])(
+    "anchors changes above visible or hidden inputs (hidden=%s), without moving stored order",
+    (hidden) => {
+      const message = item(1, "user", {
+        sourceId: "input",
+        data: JSON.stringify({ origin: { _tag: hidden ? "recovery" : "user" }, attachments: [] }),
+      });
+      const notice = item(3, "notice", {
+        turnId: null,
+        data: JSON.stringify({
+          tone: "info",
+          kind: "model-changed",
+          summary: "Model changed to Opus",
+          payload: {},
+          anchor: { messageId: "input" },
+        }),
+      });
+      const timelineEntries = threadItemsToTimelineEntries([message, notice]);
+      const rows = deriveMessagesTimelineRows({
+        ...base,
+        timelineEntries,
+        finals: {},
+        turns: { t1: { ...marker, status: "running" } },
+        isWorking: true,
+        activeTurnId: TurnId.makeUnsafe("t1"),
+        activeTurnStartedAt: marker.createdAt,
+      });
+      expect(rows.map((row) => row.id)).toEqual(
+        hidden
+          ? ["item-3", "working-header-row", "working-indicator-row"]
+          : ["item-3", "input", "working-header-row", "working-indicator-row"],
+      );
+      expect(notice.seq).toBe(3);
+      expect(timelineEntries.find((entry) => entry.id === "item-3")).toMatchObject({
+        entry: { sequence: 3 },
+      });
+      const unloaded = deriveMessagesTimelineRows({
+        ...base,
+        timelineEntries: threadItemsToTimelineEntries([notice]),
+        finals: {},
+        turns: { t1: { ...marker, status: "running" } },
+        isWorking: true,
+        activeTurnId: TurnId.makeUnsafe("t1"),
+        activeTurnStartedAt: marker.createdAt,
+      });
+      expect(unloaded.map((row) => row.id)).toEqual([
+        "working-header-row",
+        "item-3",
+        "working-indicator-row",
+      ]);
+    },
+  );
   it("keeps a summary keyed by its newest step and each opened member as a separate row", () => {
     const steps = (first: number): TimelineEntry[] =>
       Array.from({ length: 202 - first }, (_, index) => {

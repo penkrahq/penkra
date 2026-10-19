@@ -237,6 +237,9 @@ export const makeProviderThreadSwitchCoordinator = Effect.gen(function* () {
             nativeState,
             runtimeMode: input.command.runtimeMode,
             updatedAt: input.command.createdAt,
+            deliveryMessageId: input.command.message.messageId,
+            connectionLabel: selection.connectionLabel,
+            modelLabel: selection.modelLabel,
           }),
         )
         .pipe(

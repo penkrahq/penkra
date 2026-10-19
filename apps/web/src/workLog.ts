@@ -46,6 +46,8 @@ export function isTranscriptSeparatorWorkEntry(entry: Pick<WorkLogEntry, "activi
 }
 
 export interface WorkLogEntry {
+  /** Message position is resolved from loaded canonical rows, including hidden recovery inputs. */
+  anchor?: { messageId: string; sequence: number | undefined };
   id: string;
   createdAt: string;
   /** Durable activity sequence for causal interleaving with transcript messages. */
