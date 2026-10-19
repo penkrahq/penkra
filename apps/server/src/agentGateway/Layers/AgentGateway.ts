@@ -555,7 +555,7 @@ export const makeAgentGateway = Effect.gen(function* () {
       definition: {
         name: "penkra_show_file",
         description:
-          "Present local files at this point in the caller Thread. One image appears inline; multiple images in one call form a switchable gallery. Other files appear as downloadable cards. Penkra stores durable copies, so the display survives source-file deletion and Thread reload. Paths are resolved relative to this Thread's working directory. This operation never sends files to another Thread or external service.",
+          "Present any readable local file at this point in the caller Thread, regardless of folder. One image appears inline; multiple images in one call form a switchable gallery. Other files appear as downloadable cards. Penkra stores durable copies, so the display survives source-file deletion and Thread reload. Relative paths are resolved from this Thread's working directory. This operation never sends files to another Thread or external service.",
         inputSchema: {
           type: "object",
           properties: {
@@ -593,7 +593,6 @@ export const makeAgentGateway = Effect.gen(function* () {
               threadId: caller.id,
               turnId: context.callerTurnId,
               attachmentsDir: serverConfig.attachmentsDir,
-              stateDir: serverConfig.stateDir,
               repository: managedAttachments,
               publisher,
               assertActive: context.assertCallerTurnActive,

@@ -1,8 +1,8 @@
 // FILE: localPreviewFiles.ts
 // Purpose: Single source of truth for the /api/local-image route shape consumed by
-//          both the server (HTTP route + filesystem allowlist) and the web client
+//          both the server (HTTP route + supported file formats) and the web client
 //          (URL builder + markdown image source detection). The route serves every
-//          allowlisted preview file: images (rendered via <img>) and PDFs (rendered
+//          supported preview file: images (rendered via <img>) and PDFs (rendered
 //          by the browser's built-in viewer in an <iframe>).
 // Layer: Shared utility (no runtime dependencies)
 // Exports: route path, preview-file extension allowlists, and helper predicates
