@@ -113,7 +113,7 @@ const ensureTurnAnchor = (threadId: string, turnId: string | null | undefined, a
     const sql = yield* SqlClient.SqlClient;
     yield* sql`INSERT INTO thread_items(thread_id,seq,source_id,turn_id,kind,status,data,created_at,updated_at)
       SELECT ${threadId},COALESCE(MAX(seq),0)+1,${`turn:${turnId}`},${turnId},'turn','running',
-        '{"startedAt":null,"endedAt":null}',${at},${at}
+        json_object('startedAt',${at},'endedAt',NULL),${at},${at}
       FROM thread_items WHERE thread_id=${threadId}
       ON CONFLICT(thread_id,source_id) DO NOTHING`;
   });
@@ -164,7 +164,10 @@ export const upsertThreadItem = (input: ThreadItemInput) =>
             status = excluded.status,
             ${input.text === undefined ? sql`` : sql`text = excluded.text,`}
             turn_id = COALESCE(excluded.turn_id, thread_items.turn_id),
-            data = CASE WHEN ${input.kind} = 'tool'
+            data = CASE WHEN ${input.kind} = 'turn' AND excluded.status = 'running'
+              THEN json_set(COALESCE(thread_items.data, excluded.data, '{}'), '$.startedAt',
+                COALESCE(json_extract(thread_items.data, '$.startedAt'), json_extract(excluded.data, '$.startedAt')))
+              WHEN ${input.kind} = 'tool'
               AND json_type(thread_items.data, '$.payload.data.rawOutput') = 'object'
               AND COALESCE(length(json_extract(excluded.data, '$.payload.data.rawOutput.output')), 0) = 0
               AND COALESCE(length(json_extract(excluded.data, '$.payload.data.rawOutput.stdout')), 0) = 0
