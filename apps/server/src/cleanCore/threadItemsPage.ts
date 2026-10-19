@@ -5,7 +5,12 @@
 // Layer: Server clean core
 // Exports: ThreadItemRecord, ThreadItemsPage, listThreadItemsPage
 
-import type { ThreadId, TurnId, CleanCoreThreadItem } from "@penkra/contracts";
+import type {
+  ThreadId,
+  TurnId,
+  CleanCoreThreadItem,
+  CleanCoreTurnSegment,
+} from "@penkra/contracts";
 import { Effect } from "effect";
 import * as SqlClient from "effect/unstable/sql/SqlClient";
 
@@ -24,7 +29,7 @@ export interface ThreadItemRecord {
 
 export interface ThreadItemsPage extends ThreadItemRecordsPage {
   readonly finals: Readonly<Record<string, ThreadItemRecord>>;
-  readonly hasSteps: Readonly<Record<string, boolean>>;
+  readonly segments: Readonly<Record<string, ReadonlyArray<CleanCoreTurnSegment>>>;
   readonly turns: Readonly<Record<string, ThreadItemRecord>>;
 }
 
@@ -93,35 +98,71 @@ export const listThreadItemsPage = (input: PageInput) =>
     const page = yield* readPage(input, true);
     const turns: Record<string, ThreadItemRecord> = {};
     const finals: Record<string, ThreadItemRecord> = {};
-    const hasSteps: Record<string, boolean> = {};
-    for (const turn of page.items) {
-      if (turn.kind !== "turn" || turn.turnId === null) continue;
-      turns[turn.turnId] = turn;
-      const final = yield* lastTurnText(input.threadId, turn.turnId);
-      if (final) finals[turn.turnId] = final;
+    const segments: Record<string, ReadonlyArray<CleanCoreTurnSegment>> = {};
+    const turnIds = new Set(
+      page.items.flatMap((item) => (item.turnId === null ? [] : [item.turnId])),
+    );
+    for (const turnId of turnIds) {
+      const [turn] =
+        yield* sql<ThreadItemRecord>`SELECT thread_id AS "threadId",seq,source_id AS "sourceId",turn_id AS "turnId",kind,status,text,data,
+        created_at AS "createdAt",updated_at AS "updatedAt" FROM thread_items WHERE thread_id=${input.threadId} AND source_id=${`turn:${turnId}`} AND kind='turn'`;
+      if (turn === undefined) continue;
+      turns[turnId] = turn;
+      const final = yield* lastTurnText(input.threadId, turnId);
+      if (final) finals[turnId] = final;
+      if (turn.status === "running") {
+        segments[turnId] = [];
+        continue;
+      }
       const seq = final?.seq ?? null;
-      const [steps] = yield* sql<{
-        present: number;
-      }>`SELECT EXISTS(SELECT 1 FROM thread_items INDEXED BY idx_thread_items_turn_seq
-      WHERE thread_id=${input.threadId} AND turn_id=${turn.turnId} AND kind NOT IN ('user','question','turn')
-      AND (${seq} IS NULL OR seq<>${seq})) AS present`;
-      hasSteps[turn.turnId] = Boolean(steps!.present);
+      const steers = yield* sql<{
+        seq: number;
+      }>`SELECT seq FROM thread_items INDEXED BY idx_thread_items_turn_seq
+        WHERE thread_id=${input.threadId} AND turn_id=${turnId} AND kind='user' AND json_extract(data,'$.steered')=1 ORDER BY seq`;
+      const boundaries = [0, ...steers.map((row) => row.seq)];
+      const parts: CleanCoreTurnSegment[] = [];
+      for (const [index, fromSeq] of boundaries.entries()) {
+        const toSeq = boundaries[index + 1] ?? null;
+        const within = sql`thread_id=${input.threadId} AND turn_id=${turnId} AND seq>=${fromSeq}
+          ${toSeq === null ? sql`` : sql`AND seq<${toSeq}`} AND kind NOT IN ('user','question','turn')
+          ${seq === null ? sql`` : sql`AND seq<>${seq}`}`;
+        const [steps] = yield* sql<{ startedAt: string | null; endedAt: string | null }>`SELECT
+          (SELECT created_at FROM thread_items INDEXED BY idx_thread_items_turn_seq WHERE ${within} ORDER BY seq ASC LIMIT 1) AS "startedAt",
+          (SELECT updated_at FROM thread_items INDEXED BY idx_thread_items_turn_seq WHERE ${within} ORDER BY seq DESC LIMIT 1) AS "endedAt"`;
+        parts.push({
+          fromSeq,
+          toSeq,
+          hasSteps: steps!.startedAt !== null,
+          startedAt: steps!.startedAt,
+          endedAt: steps!.endedAt,
+        });
+      }
+      segments[turnId] = parts;
     }
-    return { ...page, turns, finals, hasSteps } satisfies ThreadItemsPage;
+    return { ...page, turns, finals, segments } satisfies ThreadItemsPage;
   });
 
-export const listTurnItems = (input: PageInput & { readonly turnId: string }) =>
+export const listTurnItems = (
+  input: PageInput & {
+    readonly turnId: string;
+    readonly fromSeq?: number | undefined;
+    readonly toSeq?: number | null | undefined;
+  },
+) =>
   Effect.gen(function* () {
     const sql = yield* SqlClient.SqlClient;
     const final = yield* lastTurnText(input.threadId, input.turnId);
     const finalSeq = final?.seq ?? null;
     const before = input.beforeSeq ?? null;
     const limit = input.limit ?? THREAD_ITEMS_PAGE_SIZE;
+    const from = input.fromSeq ?? 0;
+    const to = input.toSeq ?? null;
     const rows =
       yield* sql<ThreadItemRecord>`SELECT thread_id AS "threadId",seq,source_id AS "sourceId",turn_id AS "turnId",kind,status,text,data,
     created_at AS "createdAt",updated_at AS "updatedAt" FROM thread_items INDEXED BY idx_thread_items_turn_seq
     WHERE thread_id=${input.threadId} AND turn_id=${input.turnId} AND kind NOT IN ('user','question','turn')
-      AND (${finalSeq} IS NULL OR seq<>${finalSeq}) AND (${before} IS NULL OR seq<${before}) ORDER BY seq DESC LIMIT ${limit}`;
+      AND seq>=${from} ${to === null ? sql`` : sql`AND seq<${to}`}
+      ${finalSeq === null ? sql`` : sql`AND seq<>${finalSeq}`} ${before === null ? sql`` : sql`AND seq<${before}`} ORDER BY seq DESC LIMIT ${limit}`;
     return {
       items: rows,
       nextCursor: rows.length === limit ? rows.at(-1)!.seq : null,

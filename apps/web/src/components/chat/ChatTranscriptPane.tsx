@@ -72,7 +72,7 @@ interface ChatTranscriptPaneProps {
   transcriptPages?: Pick<
     ComponentProps<typeof MessagesTimeline>,
     | "finals"
-    | "hasSteps"
+    | "segments"
     | "details"
     | "outlineCursor"
     | "onExpandedTurnsChange"

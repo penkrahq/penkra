@@ -10,9 +10,15 @@ import {
   type ThreadItemsPage,
   type ThreadItemsState,
   type ItemSequence,
+  turnSegmentKey,
 } from "./threadItemsStore";
 
 type RecordsPage = Pick<ItemSequence, "items" | "nextCursor">;
+export interface TurnItemsRange {
+  readonly turnId: string;
+  readonly fromSeq: number;
+  readonly toSeq: number | null;
+}
 export interface ThreadItemsApi {
   listThreadItemsPage(input: {
     readonly threadId: string;
@@ -21,6 +27,8 @@ export interface ThreadItemsApi {
   listTurnItems(input: {
     readonly threadId: string;
     readonly turnId: string;
+    readonly fromSeq: number;
+    readonly toSeq: number | null;
     readonly beforeSeq?: number;
   }): Promise<RecordsPage>;
   subscribeThread(input: { readonly threadId: string }): Promise<void>;
@@ -30,7 +38,7 @@ export interface ThreadItemsApi {
 export interface ThreadItemsController {
   readonly reload: () => Promise<void>;
   readonly loadOlder: () => Promise<void>;
-  readonly setExpandedTurns: (ids: ReadonlyArray<string>) => void;
+  readonly setExpandedTurns: (ranges: ReadonlyArray<TurnItemsRange>) => void;
   readonly loadOlderTurn: (turnId: string) => Promise<void>;
   readonly dispose: () => void;
   readonly getState: () => ThreadItemsState;
@@ -94,7 +102,7 @@ export function createThreadItemsController(
 ): ThreadItemsController {
   let state = EMPTY_THREAD_ITEMS_STATE;
   let disposed = false;
-  let expanded = new Set<string>();
+  let expanded = new Map<string, TurnItemsRange>();
   const readers = new Map<string, ReturnType<typeof createPageReader<RecordsPage>>>();
   const update = (next: ThreadItemsState) => {
     state = next;
@@ -120,23 +128,28 @@ export function createThreadItemsController(
         older
           ? prependOlderPage(state, page)
           : state.loaded
-            ? mergeItems(state, page.items, page.turns, page.finals, page.hasSteps)
+            ? mergeItems(state, page.items, page.turns, page.finals, page.segments)
             : { ...loadFirstPage(page), details: state.details },
       );
     },
   });
-  const reader = (turnId: string) => {
-    let existing = readers.get(turnId);
+  const reader = (range: TurnItemsRange) => {
+    const key = turnSegmentKey(range.turnId, range.fromSeq, range.toSeq);
+    let existing = readers.get(key);
     if (existing) return existing;
     existing = createPageReader({
       read: (beforeSeq?: number) =>
-        api.listTurnItems({ threadId, turnId, ...(beforeSeq === undefined ? {} : { beforeSeq }) }),
-      cursor: () => state.details[turnId]?.nextCursor ?? null,
+        api.listTurnItems({
+          threadId,
+          ...range,
+          ...(beforeSeq === undefined ? {} : { beforeSeq }),
+        }),
+      cursor: () => state.details[key]?.nextCursor ?? null,
       disposed: () => disposed,
       apply: (page, older) => {
-        const previous = state.details[turnId];
+        const previous = state.details[key];
         const first = previous?.items[0]?.seq ?? Infinity;
-        if (older && page.items.some((item) => item.seq < first)) onBeforePrepend?.(turnId);
+        if (older && page.items.some((item) => item.seq < first)) onBeforePrepend?.(key);
         const min = page.items.length === 0 ? 0 : Math.min(...page.items.map((item) => item.seq));
         const items = older
           ? mergeBySeq(
@@ -149,14 +162,17 @@ export function createThreadItemsController(
           nextCursor: older || !previous?.loaded ? page.nextCursor : previous.nextCursor,
           loaded: true,
         };
-        update({ ...state, details: { ...state.details, [turnId]: detail } });
+        update({ ...state, details: { ...state.details, [key]: detail } });
       },
     });
-    readers.set(turnId, existing);
+    readers.set(key, existing);
     return existing;
   };
   const reload = async () => {
-    await Promise.all([outline.reload(), ...[...expanded].map((id) => reader(id).reload())]);
+    await Promise.all([
+      outline.reload(),
+      ...[...expanded.values()].map((range) => reader(range).reload()),
+    ]);
   };
   const unsubscribe = api.onThreadChange((change) => {
     if (change.threadId === threadId) void reload().catch(report);
@@ -171,12 +187,22 @@ export function createThreadItemsController(
   return {
     reload,
     loadOlder: outline.loadOlder,
-    setExpandedTurns: (ids) => {
+    setExpandedTurns: (nextRanges) => {
       const previous = expanded;
-      expanded = new Set(ids);
-      for (const id of expanded) if (!previous.has(id)) void reader(id).reload().catch(report);
+      expanded = new Map(
+        nextRanges.map((range) => [
+          turnSegmentKey(range.turnId, range.fromSeq, range.toSeq),
+          range,
+        ]),
+      );
+      for (const [key, range] of expanded) {
+        const old = previous.get(key);
+        if (old === undefined || old.toSeq !== range.toSeq)
+          void reader(range).reload().catch(report);
+      }
     },
-    loadOlderTurn: (id) => (expanded.has(id) ? reader(id).loadOlder() : Promise.resolve()),
+    loadOlderTurn: (id) =>
+      expanded.has(id) ? reader(expanded.get(id)!).loadOlder() : Promise.resolve(),
     getState: () => state,
     dispose: () => {
       disposed = true;
@@ -226,7 +252,7 @@ export function useThreadItems(
     void ref.current?.loadOlderTurn(id).catch(setError);
   }, []);
   const setExpandedTurns = useCallback(
-    (ids: ReadonlyArray<string>) => ref.current?.setExpandedTurns(ids),
+    (ranges: ReadonlyArray<TurnItemsRange>) => ref.current?.setExpandedTurns(ranges),
     [],
   );
   const reload = useCallback(() => {

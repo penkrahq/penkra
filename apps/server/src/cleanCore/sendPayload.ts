@@ -148,7 +148,7 @@ export const admitSendingPayload = (
           updatedAt: input.message.queuedAt,
         });
       } else {
-        yield* sql`UPDATE thread_items SET status='sending',admission_plan=${deliveryPlan},send_payload=${payload}
+        yield* sql`UPDATE thread_items SET status='sending',turn_id=NULL,data=json_remove(data,'$.anchor'),admission_plan=${deliveryPlan},send_payload=${payload}
         WHERE thread_id=${input.threadId} AND source_id=${row.sourceId}`;
       }
     }

@@ -24,6 +24,66 @@ const baseThread = {
   createdAt: "2026-10-09T00:00:00.000Z",
 };
 
+it.effect("splits settled work at steer arrivals and reads only the selected segment", () =>
+  withDb(
+    Effect.gen(function* () {
+      yield* runMigrations();
+      yield* seedThreadFolderFixture("core-test-folder", "space-1");
+      yield* createThread(baseThread);
+      const at = baseThread.createdAt;
+      for (const [sourceId, kind, data] of [
+        ["turn:t", "turn", JSON.stringify({ startedAt: at, endedAt: at })],
+        ["step-1", "tool", null],
+        [
+          "steer-1",
+          "user",
+          JSON.stringify({ origin: { _tag: "user" }, attachments: [], steered: true }),
+        ],
+        ["step-2", "tool", null],
+        [
+          "steer-2",
+          "user",
+          JSON.stringify({ origin: { _tag: "user" }, attachments: [], steered: true }),
+        ],
+        ["answer", "text", null],
+      ] as const)
+        yield* upsertThreadItem({
+          threadId: baseThread.id,
+          turnId: "t",
+          sourceId,
+          kind,
+          status: "done",
+          data,
+          text: sourceId,
+          createdAt: at,
+          updatedAt: at,
+        });
+      const page = yield* listThreadItemsPage({ threadId: ThreadId.makeUnsafe(baseThread.id) });
+      assert.deepStrictEqual(page.segments.t, [
+        { fromSeq: 0, toSeq: 3, hasSteps: true, startedAt: at, endedAt: at },
+        { fromSeq: 3, toSeq: 5, hasSteps: true, startedAt: at, endedAt: at },
+        { fromSeq: 5, toSeq: null, hasSteps: false, startedAt: null, endedAt: null },
+      ]);
+      const details = yield* listTurnItems({
+        threadId: ThreadId.makeUnsafe(baseThread.id),
+        turnId: "t",
+        fromSeq: 3,
+        toSeq: 5,
+      });
+      assert.deepStrictEqual(
+        details.items.map((item) => item.sourceId),
+        ["step-2"],
+      );
+      const narrow = yield* listThreadItemsPage({
+        threadId: ThreadId.makeUnsafe(baseThread.id),
+        limit: 1,
+      });
+      assert.equal(narrow.turns.t?.sourceId, "turn:t");
+      assert.deepStrictEqual(narrow.segments.t, page.segments.t);
+    }),
+  ),
+);
+
 it.effect("reads the newest 50 items, then pages older by seq cursor", () =>
   withDb(
     Effect.gen(function* () {
@@ -99,7 +159,7 @@ it.effect(
         assert.equal(page.items.length, 1);
         assert.equal(page.items[0]?.kind, "turn");
         assert.equal(page.finals.long!.text, "part 59");
-        assert.isTrue(page.hasSteps.long);
+        assert.isTrue(page.segments.long![0]!.hasSteps);
         const details = yield* listTurnItems({
           threadId: ThreadId.makeUnsafe("thread-1"),
           turnId: "long",

@@ -67,6 +67,7 @@ export interface ChatMessage {
   mentions?: ProviderMentionReference[];
   origin?: MessageOrigin;
   steered?: true;
+  anchor?: import("@penkra/contracts").ThreadItemAnchor & { sequence: number | undefined };
   delivery?: MessageDelivery;
   /** Persisted clean-core user item status. */
   sendStatus?: "sending" | "sent" | "failed";

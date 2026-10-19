@@ -26,7 +26,7 @@ it("loads the first page oldest-first and records the cursor", () => {
   const state = loadFirstPage({
     turns: {},
     finals: {},
-    hasSteps: {},
+    segments: {},
     items: [item(60), item(59), item(58)],
     nextCursor: 58,
   });
@@ -39,14 +39,14 @@ it("prepends an older page in seq order", () => {
   const first = loadFirstPage({
     turns: {},
     finals: {},
-    hasSteps: {},
+    segments: {},
     items: [item(3), item(2)],
     nextCursor: 2,
   });
   const older = prependOlderPage(first, {
     turns: {},
     finals: {},
-    hasSteps: {},
+    segments: {},
     items: [item(1), item(2)],
     nextCursor: null,
   });
@@ -58,7 +58,7 @@ it("merges a push by seq, replacing the prior copy and adding new items", () => 
   const first = loadFirstPage({
     turns: {},
     finals: {},
-    hasSteps: {},
+    segments: {},
     items: [item(1), item(2, { status: "streaming" })],
     nextCursor: 1,
   });
@@ -85,7 +85,7 @@ it("removes a failed sending row from the authoritative newest range while retai
   const before = loadFirstPage({
     turns: {},
     finals: {},
-    hasSteps: {},
+    segments: {},
     items: [
       item(4, { kind: "user", status: "sending", text: "retry me" }),
       item(3),
@@ -103,7 +103,7 @@ it("clears the transcript when the authoritative newest read is empty", () => {
   const before = loadFirstPage({
     turns: {},
     finals: {},
-    hasSteps: {},
+    segments: {},
     items: [item(1, { kind: "user", status: "sending" })],
     nextCursor: null,
   });
@@ -118,7 +118,9 @@ it("removes deleted turn companions and cached details with an authoritative emp
       items: [marker],
       turns: { native: marker },
       finals: { native: item(2) },
-      hasSteps: { native: true },
+      segments: {
+        native: [{ fromSeq: 0, toSeq: null, hasSteps: true, startedAt: null, endedAt: null }],
+      },
       nextCursor: null,
     }),
     details: { native: { items: [item(3)], nextCursor: null, loaded: true } },
@@ -126,7 +128,7 @@ it("removes deleted turn companions and cached details with an authoritative emp
   const after = mergeItems(before, [], {}, {}, {});
   expect(after.turns).toEqual({});
   expect(after.finals).toEqual({});
-  expect(after.hasSteps).toEqual({});
+  expect(after.segments).toEqual({});
   expect(after.details).toEqual({});
 });
 
@@ -143,14 +145,14 @@ it("retains exact companion timing across older pages and refreshes its settleme
     items: [item(100, { turnId })],
     turns: { native: marker },
     finals: {},
-    hasSteps: {},
+    segments: {},
     nextCursor: 100,
   });
   const older = prependOlderPage(first, {
     items: [item(50, { turnId })],
     turns: { native: marker },
     finals: {},
-    hasSteps: {},
+    segments: {},
     nextCursor: 50,
   });
   const settled = {
@@ -173,14 +175,14 @@ it("an older response cannot overwrite a refreshed row or its turn timing", () =
     items: [item(50, { text: "fresh" })],
     turns: { native: settled },
     finals: {},
-    hasSteps: {},
+    segments: {},
     nextCursor: 50,
   });
   const after = prependOlderPage(state, {
     items: [item(50, { text: "stale" }), item(25)],
     turns: { native: { ...settled, status: "running" } },
     finals: {},
-    hasSteps: {},
+    segments: {},
     nextCursor: 25,
   });
   expect(after.items.map((row) => row.seq)).toEqual([25, 50]);

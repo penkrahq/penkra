@@ -223,7 +223,7 @@ function createThreadItemsPageFromFixtureSnapshot(
 ): CleanCoreListThreadItemsPageResult {
   const thread = getFixtureThread(threadId);
   if (!thread) {
-    return { items: [], turns: {}, finals: {}, hasSteps: {}, nextCursor: null };
+    return { items: [], turns: {}, finals: {}, segments: {}, nextCursor: null };
   }
   const pending: Array<{ at: string; item: Omit<CleanCoreThreadItem, "seq"> }> = [];
   for (const message of thread.messages) {
@@ -302,7 +302,7 @@ function createThreadItemsPageFromFixtureSnapshot(
   const items = pending
     .toSorted((left, right) => left.at.localeCompare(right.at))
     .map((entry, index) => ({ ...entry.item, seq: index + 1 })) as CleanCoreThreadItem[];
-  return { items, turns: {}, finals: {}, hasSteps: {}, nextCursor: null };
+  return { items, turns: {}, finals: {}, segments: {}, nextCursor: null };
 }
 
 /** Push a clean-core thread change so mounted transcripts re-read thread_items. */

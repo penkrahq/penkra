@@ -145,6 +145,25 @@ export function toCleanCoreProviderEvents(
       const payload = event.payload;
       const kind = itemKind(payload.itemType);
       if (kind === null) return [];
+      if (kind === "user") {
+        const admittedTurnId = asRecord(payload.data)?.admittedTurnId;
+        return event.provider === "claudeAgent" &&
+          event.turnId !== undefined &&
+          event.itemId !== undefined &&
+          typeof admittedTurnId === "string" &&
+          admittedTurnId !== event.turnId
+          ? [
+              {
+                type: "user.consumed",
+                threadId: event.threadId,
+                sourceId: event.itemId,
+                admittedTurnId,
+                turnId: event.turnId,
+                at: event.createdAt,
+              },
+            ]
+          : [];
+      }
       return [
         {
           type: "item",

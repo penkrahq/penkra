@@ -2,7 +2,7 @@ import type { CleanCoreThreadItem } from "@penkra/contracts";
 import { expect, it, vi } from "vitest";
 
 import { createThreadItemsController, type ThreadItemsApi } from "./useThreadItems";
-import type { ThreadItemsState } from "./threadItemsStore";
+import { turnSegmentKey, type ThreadItemsState, type ThreadItemsPage } from "./threadItemsStore";
 
 const item = (seq: number, text = `item ${seq}`): CleanCoreThreadItem => ({
   threadId: "thread-1" as CleanCoreThreadItem["threadId"],
@@ -19,7 +19,7 @@ const item = (seq: number, text = `item ${seq}`): CleanCoreThreadItem => ({
 
 it("reads immediately without a subscription marker and does not confuse setup errors with read failures", async () => {
   const { api } = makeApi({
-    first: { items: [item(1)], turns: {}, finals: {}, hasSteps: {}, nextCursor: null },
+    first: { items: [item(1)], turns: {}, finals: {}, segments: {}, nextCursor: null },
   });
   api.subscribeThread = vi.fn(async () => {
     throw new Error("subscription setup failed");
@@ -47,7 +47,7 @@ function makeApi(
       nextCursor: number | null;
       turns: Record<string, CleanCoreThreadItem>;
       finals: Record<string, CleanCoreThreadItem>;
-      hasSteps: Record<string, boolean>;
+      segments: ThreadItemsPage["segments"];
     }
   >,
 ) {
@@ -60,7 +60,7 @@ function makeApi(
         pages[beforeSeq === undefined ? "first" : String(beforeSeq)] ?? {
           turns: {},
           finals: {},
-          hasSteps: {},
+          segments: {},
           items: [],
           nextCursor: null,
         },
@@ -77,9 +77,9 @@ function makeApi(
 
 it("captures each sequence anchor before, and only before, inserting older rows", async () => {
   const { api } = makeApi({
-    first: { items: [item(100)], turns: {}, finals: {}, hasSteps: {}, nextCursor: 100 },
-    "100": { items: [item(50)], turns: {}, finals: {}, hasSteps: {}, nextCursor: 50 },
-    "50": { items: [item(50)], turns: {}, finals: {}, hasSteps: {}, nextCursor: null },
+    first: { items: [item(100)], turns: {}, finals: {}, segments: {}, nextCursor: 100 },
+    "100": { items: [item(50)], turns: {}, finals: {}, segments: {}, nextCursor: 50 },
+    "50": { items: [item(50)], turns: {}, finals: {}, segments: {}, nextCursor: null },
   });
   api.listTurnItems = vi.fn(async ({ beforeSeq }) => ({
     items: [item(beforeSeq === undefined ? 90 : 40)],
@@ -107,14 +107,50 @@ it("captures each sequence anchor before, and only before, inserting older rows"
     await controller.loadOlder();
     await controller.loadOlder();
     expect(anchors).toEqual([{ turnId: null, firstSeq: 100 }]);
-    controller.setExpandedTurns(["turn-a"]);
+    controller.setExpandedTurns([{ turnId: "turn-a", fromSeq: 0, toSeq: null }]);
     await controller.reload();
     expect(anchors).toHaveLength(1);
-    await controller.loadOlderTurn("turn-a");
+    await controller.loadOlderTurn(turnSegmentKey("turn-a", 0));
     expect(anchors).toEqual([
       { turnId: null, firstSeq: 100 },
-      { turnId: "turn-a", firstSeq: 90 },
+      { turnId: turnSegmentKey("turn-a", 0), firstSeq: 90 },
     ]);
+  } finally {
+    controller.dispose();
+  }
+});
+
+it("keeps each segment's range and older-page cursor independent", async () => {
+  const { api } = makeApi({});
+  api.listTurnItems = vi.fn(async ({ fromSeq, beforeSeq }) => ({
+    items: [item(beforeSeq === undefined ? fromSeq + 3 : fromSeq + 2)],
+    nextCursor: beforeSeq === undefined ? fromSeq + 3 : null,
+  }));
+  const controller = createThreadItemsController(
+    api,
+    "thread-1",
+    () => {},
+    (error) => {
+      throw error;
+    },
+  );
+  try {
+    controller.setExpandedTurns([
+      { turnId: "turn-a", fromSeq: 0, toSeq: 5 },
+      { turnId: "turn-a", fromSeq: 5, toSeq: null },
+    ]);
+    await controller.reload();
+    await controller.loadOlderTurn(turnSegmentKey("turn-a", 0, 5));
+    expect(api.listTurnItems).toHaveBeenLastCalledWith({
+      threadId: "thread-1",
+      turnId: "turn-a",
+      fromSeq: 0,
+      toSeq: 5,
+      beforeSeq: 3,
+    });
+    expect(
+      controller.getState().details[turnSegmentKey("turn-a", 5)]?.items.map((row) => row.seq),
+    ).toEqual([8]);
   } finally {
     controller.dispose();
   }
@@ -122,7 +158,7 @@ it("captures each sequence anchor before, and only before, inserting older rows"
 
 it("serializes each expanded turn independently and refreshes it after invalidation", async () => {
   const { api, emitPush } = makeApi({
-    first: { items: [], turns: {}, finals: {}, hasSteps: {}, nextCursor: null },
+    first: { items: [], turns: {}, finals: {}, segments: {}, nextCursor: null },
   });
   let release!: (page: { items: CleanCoreThreadItem[]; nextCursor: number | null }) => void;
   const first = new Promise<{ items: CleanCoreThreadItem[]; nextCursor: number | null }>(
@@ -144,17 +180,19 @@ it("serializes each expanded turn independently and refreshes it after invalidat
     },
   );
   try {
-    controller.setExpandedTurns(["turn-a"]);
+    controller.setExpandedTurns([{ turnId: "turn-a", fromSeq: 0, toSeq: null }]);
     emitPush("thread-1");
     expect(reads).toHaveBeenCalledTimes(1);
     release({ items: [item(5, "old")], nextCursor: 5 });
     await controller.reload();
     expect(reads).toHaveBeenCalledTimes(2);
-    expect(controller.getState().details["turn-a"]?.items[0]?.text).toBe("fresh");
+    expect(controller.getState().details[turnSegmentKey("turn-a", 0)]?.items[0]?.text).toBe(
+      "fresh",
+    );
     controller.setExpandedTurns([]);
     await controller.reload();
     expect(reads).toHaveBeenCalledTimes(2);
-    controller.setExpandedTurns(["turn-a"]);
+    controller.setExpandedTurns([{ turnId: "turn-a", fromSeq: 0, toSeq: null }]);
     await controller.reload();
     expect(reads.mock.calls.length).toBeGreaterThan(2);
   } finally {
@@ -168,14 +206,14 @@ it("coalesces changes during the first read and catches up on a reconnect marker
     items: CleanCoreThreadItem[];
     turns: {};
     finals: {};
-    hasSteps: {};
+    segments: {};
     nextCursor: null;
   }) => void;
   const first = new Promise<{
     items: CleanCoreThreadItem[];
     turns: {};
     finals: {};
-    hasSteps: {};
+    segments: {};
     nextCursor: null;
   }>((resolve) => {
     finishFirst = resolve;
@@ -191,7 +229,7 @@ it("coalesces changes during the first read and catches up on a reconnect marker
       items: [item(1, "newest")],
       turns: {},
       finals: {},
-      hasSteps: {},
+      segments: {},
       nextCursor: null,
     });
   const controller = createThreadItemsController(
@@ -210,7 +248,7 @@ it("coalesces changes during the first read and catches up on a reconnect marker
     emitPush("thread-1");
     emitPush("thread-1");
     expect(api.listThreadItemsPage).toHaveBeenCalledTimes(1);
-    finishFirst({ items: [item(1, "old")], turns: {}, finals: {}, hasSteps: {}, nextCursor: null });
+    finishFirst({ items: [item(1, "old")], turns: {}, finals: {}, segments: {}, nextCursor: null });
     await updated;
     expect(api.listThreadItemsPage).toHaveBeenCalledTimes(2);
     updated = new Promise<void>((resolve) => {
@@ -221,14 +259,14 @@ it("coalesces changes during the first read and catches up on a reconnect marker
     expect(controller.getState().items[0]?.text).toBe("newest");
   } finally {
     controller.dispose();
-    finishFirst({ items: [], turns: {}, finals: {}, hasSteps: {}, nextCursor: null });
+    finishFirst({ items: [], turns: {}, finals: {}, segments: {}, nextCursor: null });
   }
 });
 
 it("loads the first page, loads older on demand, and applies a push", async () => {
   const { api, emitPush, unsubscribe } = makeApi({
-    first: { turns: {}, finals: {}, hasSteps: {}, items: [item(3), item(2)], nextCursor: 2 },
-    "2": { turns: {}, finals: {}, hasSteps: {}, items: [item(1)], nextCursor: null },
+    first: { turns: {}, finals: {}, segments: {}, items: [item(3), item(2)], nextCursor: 2 },
+    "2": { turns: {}, finals: {}, segments: {}, items: [item(1)], nextCursor: null },
   });
   const states: ThreadItemsState[] = [];
   const controller = createThreadItemsController(
@@ -254,7 +292,7 @@ it("loads the first page, loads older on demand, and applies a push", async () =
   api.listThreadItemsPage = vi.fn(async () => ({
     turns: {},
     finals: {},
-    hasSteps: {},
+    segments: {},
     items: [item(3, "item 3 updated")],
     nextCursor: 2,
   }));
@@ -274,7 +312,7 @@ it("loads the first page, loads older on demand, and applies a push", async () =
 
 it("ignores a push for another thread", async () => {
   const { api, emitPush } = makeApi({
-    first: { turns: {}, finals: {}, hasSteps: {}, items: [item(1)], nextCursor: null },
+    first: { turns: {}, finals: {}, segments: {}, items: [item(1)], nextCursor: null },
   });
   const controller = createThreadItemsController(
     api,
@@ -289,7 +327,7 @@ it("ignores a push for another thread", async () => {
   api.listThreadItemsPage = vi.fn(async () => ({
     turns: {},
     finals: {},
-    hasSteps: {},
+    segments: {},
     items: [item(2)],
     nextCursor: null,
   }));
@@ -302,7 +340,7 @@ it("ignores a push for another thread", async () => {
 it("a failure push removes the sending item on the authoritative re-read", async () => {
   const sending = { ...item(2, "retry this"), kind: "user" as const, status: "sending" };
   const { api, emitPush } = makeApi({
-    first: { turns: {}, finals: {}, hasSteps: {}, items: [sending, item(1)], nextCursor: null },
+    first: { turns: {}, finals: {}, segments: {}, items: [sending, item(1)], nextCursor: null },
   });
   const controller = createThreadItemsController(
     api,
@@ -321,7 +359,7 @@ it("a failure push removes the sending item on the authoritative re-read", async
   });
   api.listThreadItemsPage = vi.fn(async () => {
     resolveReread();
-    return { turns: {}, finals: {}, hasSteps: {}, items: [item(1)], nextCursor: null };
+    return { turns: {}, finals: {}, segments: {}, items: [item(1)], nextCursor: null };
   });
   emitPush("thread-1");
   await reread;

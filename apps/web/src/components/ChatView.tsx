@@ -827,6 +827,7 @@ function ChatViewContent({
   const threadItems = useMemo(
     () =>
       mergeBySeq(threadItemsState.items, [
+        ...Object.values(threadItemsState.turns),
         ...Object.values(threadItemsState.finals),
         ...Object.values(threadItemsState.details).flatMap((detail) => detail.items),
         ...(acceptedFirstMessage?.threadId === threadId &&
@@ -6184,7 +6185,7 @@ function ChatViewContent({
                         turns={threadItemsState.turns}
                         transcriptPages={{
                           finals: threadItemsState.finals,
-                          hasSteps: threadItemsState.hasSteps,
+                          segments: threadItemsState.segments,
                           details: threadItemsState.details,
                           outlineCursor: threadItemsState.nextCursor,
                           onExpandedTurnsChange: setExpandedTurns,

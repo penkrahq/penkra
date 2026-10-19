@@ -518,7 +518,7 @@ const fixtureSendStatuses = new Map<MessageId, "sent" | "sending" | "failed">();
 function createThreadItemsPageFromFixtureSnapshot(threadId: ThreadId) {
   const thread = findThreadDetailFromFixtureSnapshot(threadId);
   if (!thread) {
-    return { items: [], turns: {}, finals: {}, hasSteps: {}, nextCursor: null };
+    return { items: [], turns: {}, finals: {}, segments: {}, nextCursor: null };
   }
   const pending: Array<{ at: string; item: Omit<CleanCoreThreadItem, "seq"> }> = [];
   for (const message of thread.messages) {
@@ -637,17 +637,17 @@ function createThreadItemsPageFromFixtureSnapshot(threadId: ThreadId) {
   if (thread.latestTurn && !turns[thread.latestTurn.turnId])
     makeMarker(thread.latestTurn.turnId, thread.latestTurn.startedAt ?? NOW_ISO);
   const finals: Record<string, CleanCoreThreadItem> = {};
-  const hasSteps: Record<string, boolean> = {};
+  const segments: Record<string, boolean> = {};
   for (const item of items)
     if (item.kind === "text" && item.turnId !== null) finals[item.turnId] = item;
   for (const id of Object.keys(turns))
-    hasSteps[id] = items.some(
+    segments[id] = items.some(
       (item) =>
         item.turnId === id &&
         !["user", "question", "turn"].includes(item.kind) &&
         item.sourceId !== finals[id]?.sourceId,
     );
-  return { items, turns, finals, hasSteps, nextCursor: null };
+  return { items, turns, finals, segments, nextCursor: null };
 }
 
 function fixtureOutlinePage(threadId: ThreadId, beforeSeq?: number) {
@@ -672,8 +672,8 @@ function fixtureOutlinePage(threadId: ThreadId, beforeSeq?: number) {
     finals: Object.fromEntries(
       Object.entries(all.finals).filter(([id]) => turnIds.has(id as TurnId)),
     ),
-    hasSteps: Object.fromEntries(
-      Object.entries(all.hasSteps).filter(([id]) => turnIds.has(id as TurnId)),
+    segments: Object.fromEntries(
+      Object.entries(all.segments).filter(([id]) => turnIds.has(id as TurnId)),
     ),
     nextCursor: items.length === 50 ? items.at(-1)!.seq : null,
   };

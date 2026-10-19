@@ -13,7 +13,7 @@ import type {
   SDKMessage,
   SDKUserMessage,
 } from "@anthropic-ai/claude-agent-sdk";
-import { ProviderItemId, ProviderRuntimeEvent, ThreadId } from "@penkra/contracts";
+import { MessageId, ProviderItemId, ProviderRuntimeEvent, ThreadId } from "@penkra/contracts";
 import { assert, describe, it } from "@effect/vitest";
 import { Effect, Exit, Fiber, Layer, Random, Stream } from "effect";
 
@@ -1092,6 +1092,7 @@ describe("ClaudeAdapterLive", () => {
       const steered = yield* adapter.steerTurn({
         threadId: session.threadId,
         input: "Actually, focus on the tests",
+        clientMessageId: MessageId.makeUnsafe("host-steer-message"),
         attachments: [],
       });
 
@@ -1101,6 +1102,8 @@ describe("ClaudeAdapterLive", () => {
       const iterator = createInput?.prompt[Symbol.asyncIterator]();
       const firstPrompt = yield* Effect.promise(() => iterator!.next());
       const secondPrompt = yield* Effect.promise(() => iterator!.next());
+      assert.isString(secondPrompt.value?.uuid);
+      assert.equal(createInput?.options.extraArgs?.["replay-user-messages"], null);
       const promptText = (message: IteratorResult<SDKUserMessage>): string | undefined => {
         if (message.done) {
           return undefined;
@@ -1115,6 +1118,84 @@ describe("ClaudeAdapterLive", () => {
       Effect.provide(harness.layer),
     );
   });
+
+  for (const nextTurn of [false, true]) {
+    it.effect(
+      `matches a steer's replay UUID ${nextTurn ? "after" : "before"} the offered turn ends`,
+      () => {
+        const harness = makeHarness();
+        return Effect.gen(function* () {
+          const adapter = yield* ClaudeAdapter;
+          const eventsFiber = yield* adapter.streamEvents.pipe(
+            Stream.takeUntil(
+              (event) =>
+                event.type === "turn.completed" && (!nextTurn || event.turnId !== offeredTurnId),
+            ),
+            Stream.runCollect,
+            Effect.forkChild,
+          );
+          let offeredTurnId: string | undefined;
+          yield* adapter.startSession({
+            threadId: THREAD_ID,
+            provider: "claudeAgent",
+            runtimeMode: "full-access",
+          });
+          const turn = yield* adapter.sendTurn({
+            threadId: THREAD_ID,
+            input: "Start",
+            attachments: [],
+          });
+          offeredTurnId = turn.turnId;
+          yield* adapter.steerTurn({
+            threadId: THREAD_ID,
+            input: "Steer",
+            attachments: [],
+            clientMessageId: MessageId.makeUnsafe("steer-id"),
+          });
+          const iterator = harness.getLastCreateQueryInput()!.prompt[Symbol.asyncIterator]();
+          yield* Effect.promise(() => iterator.next());
+          const prompt = yield* Effect.promise(() => iterator.next());
+          assert.isString(prompt.value?.uuid);
+          const result = {
+            type: "result",
+            subtype: "success",
+            is_error: false,
+            result: "Done",
+            session_id: "sdk-session-1",
+            uuid: "result",
+          } as unknown as SDKMessage;
+          if (nextTurn) harness.query.emit(result);
+          // A replay from history must not be mistaken for this admitted steer.
+          harness.query.emit({
+            ...prompt.value,
+            uuid: "unrelated-uuid",
+            isReplay: true,
+          } as SDKMessage);
+          harness.query.emit({ ...prompt.value, isReplay: true } as SDKMessage);
+          harness.query.emit({ ...prompt.value, isReplay: true } as SDKMessage);
+          harness.query.emit(result);
+          const events = Array.from(yield* Fiber.join(eventsFiber));
+          const consumed = events.filter(
+            (event) => event.type === "item.updated" && event.payload.itemType === "user_message",
+          );
+          assert.equal(consumed.length, nextTurn ? 1 : 0);
+          if (nextTurn) {
+            const event = consumed[0]!;
+            assert.equal(event.itemId, "steer-id");
+            assert.notEqual(event.turnId, turn.turnId);
+            assert.equal(
+              event.type === "item.updated" &&
+                (event.payload.data as { admittedTurnId: string }).admittedTurnId,
+              turn.turnId,
+            );
+          }
+        }).pipe(
+          Effect.provideService(Random.Random, makeDeterministicRandomService()),
+          Effect.provide(harness.layer),
+        );
+      },
+    );
+  }
 
   it.effect("authorizes a tool request at the instant the Claude prompt is delivered", () => {
     const registry = makeAgentGatewaySessionRegistry();
