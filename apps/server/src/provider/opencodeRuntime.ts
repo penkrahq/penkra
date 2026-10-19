@@ -6,6 +6,10 @@
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
+import {
+  makeProviderProcessDiagnostics,
+  redactProviderProcessOutput,
+} from "./providerProcessDiagnostics.ts";
 
 import type { ChatAttachment, RuntimeMode, ProviderConnectionId } from "@penkra/contracts";
 import {
@@ -949,14 +953,33 @@ const makeOpenCodeRuntime = (options?: OpenCodeRuntimeLiveOptions) =>
                 }),
             ),
           );
+        let requestedStop = false;
+        let exitCause: string | null = null;
+        const diagnostics = makeProviderProcessDiagnostics({
+          provider: "opencode",
+          pid: Number(child.pid),
+          context: () => ({ binaryPath: input.binaryPath, requestedStop, exitCause }),
+        });
+        void diagnostics.sampleMemory();
+        // Observe native completion independently of the stream-reader scope: that
+        // scope is interrupted before its process teardown finalizer runs.
+        void Effect.runPromise(Effect.exit(child.exitCode)).then((exit) => {
+          if (Exit.isSuccess(exit)) diagnostics.recordExit(Number(exit.value), null);
+          else {
+            exitCause = redactProviderProcessOutput(Cause.pretty(exit.cause));
+            diagnostics.recordExit(null, null);
+          }
+        });
         yield* Scope.addFinalizer(
           runtimeScope,
           Effect.tryPromise({
-            try: () =>
-              teardownEffectProcessTree(
+            try: () => {
+              requestedStop = true;
+              return teardownEffectProcessTree(
                 child,
                 options?.teardownProcessTree ?? teardownProviderProcessTree,
-              ),
+              );
+            },
             catch: (cause) =>
               new OpenCodeRuntimeError({
                 operation: "stopOpenCodeServerProcess",
@@ -978,6 +1001,7 @@ const makeOpenCodeRuntime = (options?: OpenCodeRuntimeLiveOptions) =>
               return parsed
                 ? Effect.gen(function* () {
                     yield* Ref.set(serverReadyRef, true);
+                    void diagnostics.sampleMemory();
                     yield* Deferred.succeed(readyDeferred, parsed).pipe(Effect.ignore);
                   })
                 : Effect.void;
@@ -991,6 +1015,7 @@ const makeOpenCodeRuntime = (options?: OpenCodeRuntimeLiveOptions) =>
           Effect.forkIn(runtimeScope),
         );
         const stderrFiber = yield* child.stderr.pipe(
+          Stream.tap((chunk) => Effect.sync(() => diagnostics.appendStderr(Buffer.from(chunk)))),
           Stream.decodeText(),
           Stream.splitLines,
           Stream.runForEach((record) =>

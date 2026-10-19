@@ -8,6 +8,10 @@
  */
 
 import { spawn as spawnChildProcess } from "node:child_process";
+import {
+  observeProviderProcess,
+  type ProviderProcessDiagnostics,
+} from "../providerProcessDiagnostics.ts";
 import { watch } from "node:fs";
 import type {
   AgentInfo,
@@ -414,6 +418,7 @@ interface ClaudeQueryRuntime extends AsyncIterable<ClaudeRuntimeMessage> {
 }
 
 export type ClaudeOwnedProcess = ClaudeSpawnedProcess & ProcessExitHandle;
+const claudeProcessDiagnostics = new WeakMap<ClaudeOwnedProcess, ProviderProcessDiagnostics>();
 
 interface ClaudeProcessOwner {
   process?: ClaudeOwnedProcess;
@@ -424,15 +429,26 @@ function spawnOwnedClaudeCodeProcess(options: ClaudeSpawnOptions): ClaudeOwnedPr
     cwd: options.cwd,
     env: options.env,
   });
-  return spawnChildProcess(prepared.command, prepared.args, {
+  const child = spawnChildProcess(prepared.command, prepared.args, {
     ...(options.cwd ? { cwd: options.cwd } : {}),
     env: options.env,
     signal: options.signal,
     shell: prepared.shell,
     ...(prepared.windowsVerbatimArguments ? { windowsVerbatimArguments: true } : {}),
-    stdio: ["pipe", "pipe", "inherit"],
+    stdio: ["pipe", "pipe", "pipe"],
     windowsHide: true,
-  }) as unknown as ClaudeOwnedProcess;
+  });
+  // Preserve inherited stderr output while also retaining the bounded diagnostic tail.
+  child.stderr.on("data", (chunk: Buffer) => process.stderr.write(chunk));
+  const owned = child as unknown as ClaudeOwnedProcess;
+  claudeProcessDiagnostics.set(
+    owned,
+    observeProviderProcess(child, {
+      provider: "claudeAgent",
+      context: () => ({ binaryPath: options.command }),
+    }),
+  );
+  return owned;
 }
 
 export interface ClaudeAdapterLiveOptions {
@@ -3915,6 +3931,8 @@ function makeClaudeAdapter(options?: ClaudeAdapterLiveOptions) {
       message: ClaudeRuntimeMessage,
     ): Effect.Effect<void> =>
       Effect.gen(function* () {
+        if ((message.type === "user" || message.type === "result") && context.processOwner.process)
+          void claudeProcessDiagnostics.get(context.processOwner.process)?.sampleMemory();
         if (
           message.type === "result" &&
           context.subagentRefs === undefined &&
