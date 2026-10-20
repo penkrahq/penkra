@@ -169,6 +169,7 @@ export const ExternalLinkIcon = adaptIcon(IconExternalLink);
 export const EyeIcon = adaptIcon(IconEye);
 export const PaperclipIcon = adaptIcon(IconPaperclip);
 export const ArchiveIcon = adaptIcon(IconArchive);
+export const BookmarkIcon = centralIconWrapper("bookmark");
 export const BrainIcon = adaptIcon(IconBrain);
 export const FileIcon = adaptIcon(IconFile);
 export const FlagIcon = adaptIcon(IconFlag);

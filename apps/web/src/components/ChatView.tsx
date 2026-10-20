@@ -316,6 +316,8 @@ import {
 } from "./chat/ComposerLocalDirectoryMenu";
 
 import { ComposerExtrasMenu } from "./chat/ComposerExtrasMenu";
+import { ComposerSavedPrompts } from "./chat/ComposerSavedPrompts";
+import { useComposerSavedPromptsDesignPreview } from "./chat/composerSavedPromptsDesignPreview";
 import { ComposerPendingUserInputPanel } from "./middle-panel/composer-user-question/ComposerPendingUserInputPanel";
 import { ButtonSend } from "./middle-panel/button-send/ButtonSend";
 import { ComposerActions } from "./middle-panel/composer-actions/ComposerActions";
@@ -4847,6 +4849,8 @@ function ChatViewContent({
     },
     [runQueuedActionWhilePending, setThreadError, threadId, scheduleComposerFocus],
   );
+  // P24: replaced by the thread's saved list, restore and delete when wired.
+  const savedPromptsPreview = useComposerSavedPromptsDesignPreview();
 
   const setPromptFromTraits = useCallback(
     (nextPrompt: string) => {
@@ -5759,6 +5763,9 @@ function ChatViewContent({
     <>
       <span className="inline-flex shrink-0" data-pencil-action="attach">
         <ComposerExtrasMenu onAddAttachments={addComposerAttachments} />
+      </span>
+      <span className="inline-flex shrink-0" data-pencil-action="saved">
+        <ComposerSavedPrompts {...savedPromptsPreview} />
       </span>
     </>
   );
