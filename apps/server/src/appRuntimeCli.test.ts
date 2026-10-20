@@ -626,7 +626,7 @@ describe("penkra_exec_command discovery", () => {
       async () => [],
     );
     expect(screenshotHelp).toContain("FOLDER_NOT_OPEN");
-    expect(screenshotHelp).toContain("USER_IN_FOLDER_TABS");
+    expect(screenshotHelp).not.toContain("USER_IN_FOLDER_TABS");
     expect(screenshotHelp).toContain("use the page snapshot instead");
     expect(screenshotHelp).not.toContain("TAB_FOLDER_NOT_AVAILABLE");
     expect(help).toContain("`penkra tabs snapshot`");

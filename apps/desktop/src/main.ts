@@ -522,12 +522,14 @@ function appTabRoutingWindows() {
 
 function routeAppTab(
   descriptor: Pick<DesktopAppTabOpened, "threadId" | "folderId" | "spaceId" | "initiator">,
+  preserveUserSelection = false,
 ) {
   return routeAppTabOpened({
     descriptor,
     windows: appTabRoutingWindows(),
     home: threadHomeWindow,
     panelFocus: panelFocusState,
+    preserveUserSelection,
   });
 }
 function appTabAgentPresentation(
@@ -541,7 +543,7 @@ function appTabAgentPresentation(
   return {
     state:
       candidate &&
-      canUseAppTabWindow(candidate, { ...tab, initiator: "agent" }, panelFocusState) &&
+      canUseAppTabWindow(candidate, { ...tab, initiator: "agent" }) &&
       tabs.isVisible(tab.id)
         ? "active"
         : "background",
@@ -561,7 +563,7 @@ async function activateAppTabForAgent(
     tab.folderId,
   );
   if (!folderTabs) throw new Error("The folder is not available.");
-  if (!window) throw appTabFolderUnavailable(folderTabs.folderTitle, route.folderShown);
+  if (!window) throw appTabFolderUnavailable(folderTabs.folderTitle);
   if (
     desktopAppRuntime!.appTabs.ownerWindowId(tab.id) !== window.webContents.id ||
     !desktopAppRuntime!.appTabs.isVisible(tab.id)
@@ -726,7 +728,7 @@ async function announceAppTabOpened(
   descriptor: DesktopAppTabOpened,
   folderTabs: import("@penkra/contracts").CleanCoreFolderAppTabsResult,
 ): Promise<void> {
-  const route = routeAppTab(descriptor);
+  const route = routeAppTab(descriptor, true);
   const windowId = route.targetWindowId ?? route.backgroundWindowId;
   const window = shellWindows().find((candidate) => candidate.id === windowId);
   if (!window) return;
@@ -735,7 +737,7 @@ async function announceAppTabOpened(
       descriptor.id,
       window.webContents.id,
       new AbortController().signal,
-      () => routeAppTab(descriptor).targetWindowId === window.id,
+      () => routeAppTab(descriptor, true).targetWindowId === window.id,
       (request) => {
         window.webContents.send(IPC.appTabs.activationRequested, {
           requestId: request.requestId,
@@ -8230,7 +8232,7 @@ async function bootstrap(): Promise<void> {
           isPresented: () => {
             const route = routeAppTab({ ...descriptor, initiator: "agent" });
             if (route.targetWindowId === null && unavailableFolder)
-              throw appTabFolderUnavailable(unavailableFolder.folderTitle, route.folderShown);
+              throw appTabFolderUnavailable(unavailableFolder.folderTitle);
             if (surfaceId === undefined)
               return appTabAgentPresentation(descriptor, descriptor.threadId).state === "active";
             if (surfaceId === null) return false;
@@ -8240,11 +8242,7 @@ async function bootstrap(): Promise<void> {
               !!window &&
               !window.isDestroyed() &&
               !!candidate &&
-              canUseAppTabWindow(
-                candidate,
-                { ...descriptor, initiator: "agent" },
-                panelFocusState,
-              ) &&
+              canUseAppTabWindow(candidate, { ...descriptor, initiator: "agent" }) &&
               desktopAppRuntime!.appTabs.ownerWindowId(tabId) === surfaceId &&
               desktopAppRuntime!.appTabs.isVisible(tabId)
             );

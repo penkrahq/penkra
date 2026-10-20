@@ -585,18 +585,18 @@ describe("AppCommandPipeServer", () => {
     expect(activate).toHaveBeenCalledTimes(2);
     activate.mockRejectedValueOnce(
       Object.assign(
-        new Error('The user is working in folder "Work"\'s tabs right now. Try again later.'),
-        { code: "USER_IN_FOLDER_TABS", dispatched: false },
+        new Error('Folder "Work" is not open.'),
+        { code: "FOLDER_NOT_OPEN", dispatched: false },
       ),
     );
     await expect(
       send(path, {
-        id: "busy-screenshot",
+        id: "unavailable-folder-screenshot",
         token: "secret",
         method: "tabs.screenshot",
         params: { spaceId: "personal", folderId: "folder-1", threadId: "thread-1", tabId: "tab-1" },
       }),
-    ).resolves.toMatchObject({ ok: false, error: { code: "USER_IN_FOLDER_TABS" } });
+    ).resolves.toMatchObject({ ok: false, error: { code: "FOLDER_NOT_OPEN" } });
     expect(screenshot).toHaveBeenCalledOnce();
 
     await expect(

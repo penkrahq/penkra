@@ -213,7 +213,7 @@ const TAB_OPERATIONS: Readonly<Record<string, HostOperationDeclaration>> = {
     summary:
       "Select an existing tab in the caller's folder and confirm it is ready for interaction.",
     instructions:
-      "Activate before pointer or keyboard interaction, then take a fresh snapshot. This does not focus the Mac application. FOLDER_NOT_OPEN means the folder isn't open right now; continue without its tabs, or tell the user you need it open. USER_IN_FOLDER_TABS means the user is working in its tabs; try again later.",
+      "Activate before pointer or keyboard interaction, then take a fresh snapshot. This does not focus the Mac application. FOLDER_NOT_OPEN means the folder isn't open right now; continue without its tabs, or tell the user you need it open.",
     input: {
       type: "object",
       properties: { tabId: TAB_ID },
@@ -314,7 +314,7 @@ const TAB_OPERATIONS: Readonly<Record<string, HostOperationDeclaration>> = {
     command: "penkra tabs screenshot",
     summary: "Capture current on-screen pixels of an App-tab document.",
     instructions:
-      "Choose d1 or d2. filename writes a PNG to the caller Thread workspace. FOLDER_NOT_OPEN means the folder isn't open right now; continue without its tabs, or tell the user you need it open. USER_IN_FOLDER_TABS means the user is working in its tabs; try again later. An undrawn page has no current pixels; use the page snapshot instead, or try again later.",
+      "Choose d1 or d2. filename writes a PNG to the caller Thread workspace. FOLDER_NOT_OPEN means the folder isn't open right now; continue without its tabs, or tell the user you need it open. An undrawn page has no current pixels; use the page snapshot instead, or try again later.",
     input: {
       type: "object",
       properties: { tabId: TAB_ID, document: DOCUMENT, filename: { type: "string", minLength: 1 } },

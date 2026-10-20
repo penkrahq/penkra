@@ -30,24 +30,30 @@ const setup = () => {
   home.view(2, "thread-b", "folder-a", true);
   const panelFocus = new PanelFocusState();
   const route = (windows: AppTabRoutingWindow[]) =>
-    announceAppTabOpened({ descriptor, windows, home, panelFocus });
+    announceAppTabOpened({ descriptor, windows, home, panelFocus, preserveUserSelection: true });
   return { home, panelFocus, route };
 };
 describe("folder App-tab routing", () => {
+  it("allows activation in the user's panel, including hidden or minimized windows", () => {
+    const { home, panelFocus } = setup();
+    panelFocus.recordInteraction(1, true);
+    for (const patch of [{}, { visible: false }, { minimized: true }]) {
+      const candidate = window(1, { focused: true, ...patch });
+      expect(canUseAppTabWindow(candidate, descriptor)).toBe(true);
+      expect(
+        announceAppTabOpened({ descriptor, windows: [candidate], home, panelFocus }).targetWindowId,
+      ).toBe(1);
+    }
+  });
   it("uses the same candidate permission for actions without requiring the home window", () => {
     const { panelFocus } = setup();
-    expect(canUseAppTabWindow(window(2), descriptor, panelFocus)).toBe(true);
-    for (const patch of [
-      { visible: false },
-      { minimized: true },
-      { folderId: "other" },
-      { spaceId: "other" },
-    ]) {
-      expect(canUseAppTabWindow(window(2, patch), descriptor, panelFocus)).toBe(false);
+    expect(canUseAppTabWindow(window(2), descriptor)).toBe(true);
+    for (const patch of [{ folderId: "other" }, { spaceId: "other" }]) {
+      expect(canUseAppTabWindow(window(2, patch), descriptor)).toBe(false);
     }
     panelFocus.recordInteraction(2, true);
-    expect(canUseAppTabWindow(window(2, { focused: true }), descriptor, panelFocus)).toBe(false);
-    expect(canUseAppTabWindow(window(2), descriptor, panelFocus)).toBe(true);
+    expect(canUseAppTabWindow(window(2, { focused: true }), descriptor)).toBe(true);
+    expect(canUseAppTabWindow(window(2), descriptor)).toBe(true);
   });
   it("chooses the idle home window ahead of focus order", () => {
     const { route } = setup();
@@ -74,16 +80,11 @@ describe("folder App-tab routing", () => {
       backgroundWindowId: 1,
       folderShown: true,
     });
-    expect(appTabFolderUnavailable("Work", true)).toMatchObject({
-      code: "USER_IN_FOLDER_TABS",
-    });
   });
   it("opens in the background when no visible window shows the folder", () => {
     const { route } = setup();
     for (const windows of [
       [],
-      [window(1, { visible: false })],
-      [window(1, { minimized: true })],
       [window(1, { spaceId: "elsewhere" })],
       [window(1, { folderId: "elsewhere" })],
     ])
@@ -92,7 +93,7 @@ describe("folder App-tab routing", () => {
         backgroundWindowId: null,
         folderShown: false,
       });
-    expect(appTabFolderUnavailable("Work", false)).toMatchObject({
+    expect(appTabFolderUnavailable("Work")).toMatchObject({
       code: "FOLDER_NOT_OPEN",
     });
   });
@@ -119,9 +120,6 @@ describe("folder App-tab routing", () => {
       backgroundWindowId: 2,
       folderShown: true,
     });
-    expect(appTabFolderUnavailable("Work", true).message).toBe(
-      'The user is working in folder "Work"\'s tabs right now. Try again later.',
-    );
   });
   it("keeps explicit user opening available in a busy home window", () => {
     const { home, panelFocus } = setup();
@@ -134,7 +132,7 @@ describe("folder App-tab routing", () => {
         windows: [window(1, { focused: true })],
       }).targetWindowId,
     ).toBe(1);
-    expect(appTabFolderUnavailable("Work", false).message).toBe(
+    expect(appTabFolderUnavailable("Work").message).toBe(
       'Folder "Work" isn\'t open right now, so its tabs can\'t be used. Continue without the tab, or tell the user you need folder "Work" open.',
     );
   });
@@ -148,7 +146,7 @@ describe("folder App-tab routing", () => {
       route(
         order.order([
           window(1, { folderId: "elsewhere" }),
-          window(2, { visible: false }),
+          window(2, { folderId: "elsewhere" }),
           window(3),
         ]),
       ).targetWindowId,
