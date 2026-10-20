@@ -38,24 +38,14 @@ export function appTabWindowShowsFolder(
   window: AppTabRoutingWindow,
   descriptor: Pick<DesktopAppTabOpened, "spaceId" | "folderId">,
 ): boolean {
-  return (
-    window.visible &&
-    !window.minimized &&
-    window.spaceId === descriptor.spaceId &&
-    window.folderId === descriptor.folderId
-  );
+  return window.spaceId === descriptor.spaceId && window.folderId === descriptor.folderId;
 }
 
 export function canUseAppTabWindow(
   window: AppTabRoutingWindow,
   descriptor: Pick<DesktopAppTabOpened, "spaceId" | "folderId" | "initiator">,
-  panelFocus: PanelFocusState,
 ): boolean {
-  return (
-    appTabWindowShowsFolder(window, descriptor) &&
-    (descriptor.initiator !== "agent" ||
-      !panelFocus.shouldPreserveAgentOpen(window.id, window.focused))
-  );
+  return appTabWindowShowsFolder(window, descriptor);
 }
 
 /** Windows arrive in focus order; the home window has priority when eligible. */
@@ -64,10 +54,16 @@ export function announceAppTabOpened(input: {
   windows: readonly AppTabRoutingWindow[];
   home: ThreadHomeWindow;
   panelFocus: PanelFocusState;
+  preserveUserSelection?: boolean;
 }): { targetWindowId: number | null; backgroundWindowId: number | null; folderShown: boolean } {
   const { descriptor, home, panelFocus } = input;
   const showing = input.windows.filter((window) => appTabWindowShowsFolder(window, descriptor));
-  const eligible = showing.filter((window) => canUseAppTabWindow(window, descriptor, panelFocus));
+  const eligible = showing.filter(
+    (window) =>
+      !input.preserveUserSelection ||
+      descriptor.initiator !== "agent" ||
+      !panelFocus.shouldPreserveAgentOpen(window.id, window.focused),
+  );
   const targetWindowId =
     eligible.length === 0
       ? null
@@ -85,14 +81,11 @@ export function announceAppTabOpened(input: {
 
 export function appTabFolderUnavailable(
   folderTitle: string,
-  folderShown: boolean,
 ): Error & { code: string; dispatched: boolean } {
   return Object.assign(
     new Error(
-      folderShown
-        ? `The user is working in folder "${folderTitle}"'s tabs right now. Try again later.`
-        : `Folder "${folderTitle}" isn't open right now, so its tabs can't be used. Continue without the tab, or tell the user you need folder "${folderTitle}" open.`,
+      `Folder "${folderTitle}" isn't open right now, so its tabs can't be used. Continue without the tab, or tell the user you need folder "${folderTitle}" open.`,
     ),
-    { code: folderShown ? "USER_IN_FOLDER_TABS" : "FOLDER_NOT_OPEN", dispatched: false },
+    { code: "FOLDER_NOT_OPEN", dispatched: false },
   );
 }
