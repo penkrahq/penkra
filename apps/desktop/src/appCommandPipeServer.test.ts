@@ -584,10 +584,10 @@ describe("AppCommandPipeServer", () => {
     expect(screenshot).toHaveBeenCalledWith("tab-1", "d1", undefined);
     expect(activate).toHaveBeenCalledTimes(2);
     activate.mockRejectedValueOnce(
-      Object.assign(
-        new Error('Folder "Work" is not open.'),
-        { code: "FOLDER_NOT_OPEN", dispatched: false },
-      ),
+      Object.assign(new Error('Folder "Work" is not open.'), {
+        code: "FOLDER_NOT_OPEN",
+        dispatched: false,
+      }),
     );
     await expect(
       send(path, {
