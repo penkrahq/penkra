@@ -131,6 +131,7 @@ export async function startDesktopAppRuntime(input: {
     folderTabs: CleanCoreFolderAppTabsResult,
   ) => void | Promise<void>;
   onTabRouteChanged: (descriptor: DesktopAppTabDescriptor) => Promise<void>;
+  onTabPresentationChanged: (descriptor: DesktopAppTabDescriptor) => Promise<void>;
   onCloseTab: (descriptor: DesktopAppTabDescriptor) => Promise<void>;
   onTabState: (descriptor: DesktopAppTabDescriptor) => void;
   onTabClosed: (descriptor: DesktopAppTabClosed) => void;
@@ -408,6 +409,7 @@ export async function startDesktopAppRuntime(input: {
     onBeforeOpened: input.onBeforeTabOpened,
     onOpened: input.onTabOpened,
     onRouteChanged: input.onTabRouteChanged,
+    onPresentationChanged: input.onTabPresentationChanged,
     onCloseTab: input.onCloseTab,
     onState: input.onTabState,
     onClosed: input.onTabClosed,

@@ -293,6 +293,9 @@ export const CleanCoreFolderAppPane = Schema.Struct({
   appSlug: Schema.String,
   appName: Schema.String,
   appRoute: Schema.String,
+  appState: Schema.optionalKey(Schema.Json),
+  title: Schema.optionalKey(Schema.String),
+  lastVisibleAt: Schema.optionalKey(IsoDateTime),
 });
 export type CleanCoreFolderAppPane = typeof CleanCoreFolderAppPane.Type;
 export const CleanCoreFolderAppTabs = Schema.Struct({
@@ -321,6 +324,17 @@ export const CleanCoreUpdateFolderAppTabsInput = Schema.Struct({
       action: Schema.Literal("navigate"),
       paneId: Schema.String,
       appRoute: Schema.String,
+      appState: Schema.optionalKey(Schema.Json),
+    }),
+    Schema.Struct({
+      action: Schema.Literal("present"),
+      paneId: Schema.String,
+      title: Schema.optionalKey(Schema.String),
+    }),
+    Schema.Struct({
+      action: Schema.Literal("stamp"),
+      paneIds: Schema.Array(Schema.String),
+      at: IsoDateTime,
     }),
   ]),
 });

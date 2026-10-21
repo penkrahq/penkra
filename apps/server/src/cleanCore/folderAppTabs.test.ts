@@ -25,6 +25,40 @@ const fixture = Effect.gen(function* () {
   yield* runMigrations();
   yield* seedThreadFolderFixture(folderId, "space-1");
 });
+it.effect("round-trips route state and titles, explicitly clears them, and stamps visibility", () =>
+  withDb(
+    Effect.gen(function* () {
+      yield* fixture;
+      const write = (update: Parameters<typeof updateFolderAppTabs>[0]["update"]) =>
+        updateFolderAppTabs({ folderId, updatedAt, update });
+      yield* write({ action: "open", pane });
+      yield* write({
+        action: "navigate",
+        paneId: pane.id,
+        appRoute: "/open",
+        appState: { url: "https://example.com", location: { path: "/tmp" } },
+      });
+      yield* write({ action: "present", paneId: pane.id, title: "Example" });
+      yield* write({ action: "stamp", paneIds: [pane.id], at: updatedAt });
+      const stored = (yield* getFolderAppTabs({ folderId }))!.tabs.panes[0]!;
+      assert.deepStrictEqual(stored.appState, {
+        url: "https://example.com",
+        location: { path: "/tmp" },
+      });
+      assert.equal(stored.title, "Example");
+      assert.equal(stored.lastVisibleAt, updatedAt);
+      const reopened = yield* write({ action: "open", pane: { ...pane, appRoute: "/open" } });
+      assert.deepStrictEqual(reopened.tabs.panes[0]!.appState, stored.appState);
+      assert.equal(reopened.tabs.panes[0]!.title, "Example");
+      yield* write({ action: "navigate", paneId: pane.id, appRoute: "/" });
+      yield* write({ action: "present", paneId: pane.id });
+      const cleared = (yield* getFolderAppTabs({ folderId }))!.tabs.panes[0]!;
+      assert.equal("appState" in cleared, false);
+      assert.equal("title" in cleared, false);
+      assert.equal(cleared.lastVisibleAt, updatedAt);
+    }),
+  ),
+);
 const withDb = <A, E>(
   program: Effect.Effect<
     A,

@@ -11,7 +11,7 @@ export interface RightDockPane {
   appSpaceId: string;
   appSlug: string;
   appName: string;
-  // Runtime-only presentation data. This state lives in memory.
+  // Native view data lives in memory; the title is projected from the shared tab record.
   appIconDataUrl?: string | null;
   appPresentationTitle?: string | null;
   appPresentationIconUrl?: string | null;
@@ -74,6 +74,8 @@ export function applyFolderAppTabsInState(
       appStatus: "unloaded",
       ...runtimeById[pane.id],
       ...pane,
+      appState: pane.appState,
+      appPresentationTitle: pane.title ?? null,
     })),
   };
 }

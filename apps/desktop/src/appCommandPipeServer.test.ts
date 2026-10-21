@@ -20,6 +20,62 @@ afterEach(async () => {
 });
 
 describe("AppCommandPipeServer", () => {
+  it("lists an unloaded tab's saved title and URL without opening its renderer", async () => {
+    if (process.platform === "win32") return;
+    const directory = FS.mkdtempSync(Path.join(OS.tmpdir(), "penkra-app-command-retained-"));
+    const path = Path.join(directory, "command.sock");
+    const readFolderTabs = vi.fn(async () => [
+      {
+        id: "saved-tab",
+        kind: "app" as const,
+        appId: "example.browser",
+        appSpaceId: "personal",
+        appSlug: "browser",
+        appName: "Browser",
+        appRoute: "/",
+        appState: { url: "https://example.com" },
+        title: "Saved example",
+      },
+    ]);
+    const hostedPageState = vi.fn();
+    const server = new AppCommandPipeServer({
+      path,
+      token: "secret",
+      readFolderTabs,
+      catalog: {} as never,
+      broker: {} as never,
+      observer: {} as never,
+      providerCredentialVault: {} as never,
+      tabs: { list: () => [], hostedPageState, current: () => null, close: vi.fn() },
+      presentation: () => ({ state: "background" }),
+    });
+    await server.start();
+    disposers.push(async () => {
+      await server.dispose();
+      FS.rmSync(directory, { recursive: true, force: true });
+    });
+    await expect(
+      send(path, {
+        id: "read-saved",
+        token: "secret",
+        method: "tabs.list",
+        params: { spaceId: "personal", folderId: "folder-1", threadId: "thread-1" },
+      }),
+    ).resolves.toMatchObject({
+      ok: true,
+      result: [
+        {
+          tabId: "saved-tab",
+          title: "Saved example",
+          url: "https://example.com",
+          status: "unloaded",
+          visible: false,
+        },
+      ],
+    });
+    expect(hostedPageState).not.toHaveBeenCalled();
+    expect(readFolderTabs).toHaveBeenCalledWith("folder-1");
+  });
   it("preserves failed-step outcomes across the command bridge", () => {
     const error = Object.assign(new Error("Activate this tab"), {
       code: "TAB_NOT_ACTIVE",
@@ -173,6 +229,17 @@ describe("AppCommandPipeServer", () => {
       path,
       token: "secret",
       adminToken: "admin-secret",
+      readFolderTabs: async () =>
+        [current, secondTab, otherThreadTab, soleSalesTab, soleCanvasTab].map((tab) => ({
+          id: tab.id,
+          kind: "app" as const,
+          appId: tab.appId,
+          appSpaceId: tab.spaceId,
+          appSlug: tab.slug,
+          appName: tab.name,
+          appRoute: tab.route,
+          ...(tab.presentationTitle === null ? {} : { title: tab.presentationTitle }),
+        })),
       catalog: {
         list: vi.fn(() => [
           { slug: "linear", operations: [{ key: "issues.create", input: { type: "object" } }] },
@@ -807,6 +874,7 @@ describe("AppCommandPipeServer", () => {
     const server = new AppCommandPipeServer({
       path,
       token: "secret",
+      readFolderTabs: async () => [],
       catalog: {} as never,
       broker: { invoke } as never,
       tabs: {

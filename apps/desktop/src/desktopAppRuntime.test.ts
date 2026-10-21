@@ -72,6 +72,7 @@ describe("desktop App runtime composition", () => {
         onTabRouteChanged: async () => {
           throw new Error("This startup fixture does not navigate tabs.");
         },
+        onTabPresentationChanged: async () => {},
         onCloseTab: async () => {
           throw new Error("This startup fixture does not close tabs.");
         },

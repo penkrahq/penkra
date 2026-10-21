@@ -9,6 +9,7 @@ import { EventEmitter } from "node:events";
 import * as FS from "node:fs";
 import * as OS from "node:os";
 import * as Path from "node:path";
+import { Schema } from "effect";
 // Electron-only builtin that sees app.asar as a real file instead of a virtual
 // directory — required to stat the archive itself for swap detection.
 import * as OriginalFS from "original-fs";
@@ -718,6 +719,11 @@ async function commitAppTabOpened(descriptor: DesktopAppTabOpened) {
           appSlug: descriptor.slug,
           appName: descriptor.name,
           appRoute: descriptor.route,
+          ...(descriptor.state === undefined
+            ? {}
+            : { appState: Schema.decodeUnknownSync(Schema.Json)(descriptor.state) }),
+          ...(descriptor.presentationTitle == null ? {} : { title: descriptor.presentationTitle }),
+          lastVisibleAt: new Date().toISOString(),
         },
       },
     },
@@ -5777,13 +5783,13 @@ function registerIpcHandlers(): void {
   ipcMain.handle(IPC.appRuntime.tabSetPresentation, async (event, input: unknown) => {
     const { runtime, identity } = requireAppRenderer(event.sender.id);
     if (!identity.tabId) throw new Error("This App renderer is not attached to a tab.");
-    runtime.appTabs.setPresentation(identity.tabId, parseAppTabPresentationRequest(input));
+    await runtime.appTabs.setPresentation(identity.tabId, parseAppTabPresentationRequest(input));
   });
   ipcMain.removeHandler(IPC.appRuntime.tabResetPresentation);
   ipcMain.handle(IPC.appRuntime.tabResetPresentation, async (event) => {
     const { runtime, identity } = requireAppRenderer(event.sender.id);
     if (!identity.tabId) throw new Error("This App renderer is not attached to a tab.");
-    runtime.appTabs.resetPresentation(identity.tabId);
+    await runtime.appTabs.resetPresentation(identity.tabId);
   });
   ipcMain.removeHandler(IPC.appRuntime.tabOpenSibling);
   ipcMain.handle(IPC.appRuntime.tabOpenSibling, async (event, input: unknown) => {
@@ -8030,7 +8036,31 @@ async function bootstrap(): Promise<void> {
         {
           folderId: FolderId.makeUnsafe(descriptor.folderId),
           updatedAt: new Date().toISOString(),
-          update: { action: "navigate", paneId: descriptor.id, appRoute: descriptor.route },
+          update: {
+            action: "navigate",
+            paneId: descriptor.id,
+            appRoute: descriptor.route,
+            ...(descriptor.state === undefined
+              ? {}
+              : { appState: Schema.decodeUnknownSync(Schema.Json)(descriptor.state) }),
+          },
+        },
+      );
+    },
+    onTabPresentationChanged: async (descriptor) => {
+      if (!backendHttpUrl) throw new Error("The backend is not ready.");
+      await updateDesktopFolderAppTabs(
+        { url: backendHttpUrl, token: DESKTOP_BACKEND_SHUTDOWN_TOKEN },
+        {
+          folderId: FolderId.makeUnsafe(descriptor.folderId),
+          updatedAt: new Date().toISOString(),
+          update: {
+            action: "present",
+            paneId: descriptor.id,
+            ...(descriptor.presentationTitle == null
+              ? {}
+              : { title: descriptor.presentationTitle }),
+          },
         },
       );
     },
@@ -8291,6 +8321,15 @@ async function bootstrap(): Promise<void> {
     token: Crypto.randomBytes(32).toString("hex"),
     adminToken: Crypto.randomBytes(32).toString("hex"),
     catalog: desktopAppRuntime.operationCatalog,
+    readFolderTabs: async (folderId) => {
+      if (!backendHttpUrl) throw new Error("The backend is not ready.");
+      const result = await readDesktopFolderAppTabs(
+        { url: backendHttpUrl, token: DESKTOP_BACKEND_SHUTDOWN_TOKEN },
+        folderId,
+      );
+      if (!result) throw new Error("The folder is not available.");
+      return result.tabs.panes;
+    },
     broker: desktopAppRuntime.broker,
     tabs: desktopAppRuntime.appTabs,
     runOnThread: runAgentThreadOperation,

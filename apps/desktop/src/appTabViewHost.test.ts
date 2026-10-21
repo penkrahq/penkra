@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 
 import {
+  assertAppTabStateSize,
   detachedHostPlatformPolicy,
   detachedHostLayoutBounds,
   hasRegisteredShellWindow,
@@ -12,6 +13,14 @@ import {
   shouldKeepNativeAppViewVisible,
   shouldKeepPresentationAnimation,
 } from "./appTabViewHost";
+
+it("enforces the existing inline byte budget on route state before a write", () => {
+  expect(() => assertAppTabStateSize(undefined)).not.toThrow();
+  expect(() => assertAppTabStateSize(null)).not.toThrow();
+  expect(() => assertAppTabStateSize("x".repeat(9998))).not.toThrow();
+  expect(() => assertAppTabStateSize("x".repeat(9999))).toThrow("Tab state is larger than 10 KB.");
+  expect(() => assertAppTabStateSize("😀".repeat(2500))).toThrow("Tab state is larger than 10 KB.");
+});
 
 describe("restoreShellFocusAfterHide", () => {
   it("refocuses the shell only while its owning OS window is focused", () => {

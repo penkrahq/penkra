@@ -70,8 +70,22 @@ it("receives runtime data without writing the shared row", () => {
   expect(useRightDockStore.getState().dockStateByFolderId[folderId]).toMatchObject({
     activePaneId: pane.id,
     width: 640,
-    panes: [{ appRendererId: -42, appStatus: "ready", appState: { secret: "runtime" } }],
+    panes: [{ appRendererId: -42, appStatus: "ready", appState: undefined }],
   });
+});
+
+it("restores shared state and title and removes them when the shared record clears them", () => {
+  applyFolderAppTabs({
+    ...row("2026-10-11T00:00:02.000Z"),
+    tabs: { panes: [{ ...pane, title: "Folder", appState: { location: "/tmp" } }] },
+  });
+  let restored = useRightDockStore.getState().dockStateByFolderId[folderId]!.panes[0]!;
+  expect(restored.appState).toEqual({ location: "/tmp" });
+  expect(restored.appPresentationTitle).toBe("Folder");
+  applyFolderAppTabs(row("2026-10-11T00:00:03.000Z"));
+  restored = useRightDockStore.getState().dockStateByFolderId[folderId]!.panes[0]!;
+  expect(restored.appState).toBeUndefined();
+  expect(restored.appPresentationTitle).toBeNull();
 });
 
 it("shows a tab-list write failure without changing window selection", async () => {
