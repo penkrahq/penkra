@@ -10,6 +10,20 @@ import {
 } from "./codexAppServerTransport.ts";
 
 describe("Codex app-server transport", () => {
+  it("identifies an oversized response by its numeric request id without retaining its payload", () => {
+    const frame = JSON.stringify({ id: 17, result: { id: 99, output: "private".repeat(100) } });
+    for (const split of [1, 8, 100]) {
+      const framer = new CodexJsonlFramer(256);
+      framer.push(frame.slice(0, split));
+      expect(() => framer.push(frame.slice(split) + "\n")).toThrowError(
+        expect.objectContaining({ reason: "frame-too-large", requestId: 17 }),
+      );
+    }
+    const framer = new CodexJsonlFramer(256);
+    expect(() =>
+      framer.push(JSON.stringify({ id: "private", result: "x".repeat(512) }) + "\n"),
+    ).toThrowError(expect.objectContaining({ requestId: undefined }));
+  });
   it("frames split UTF-8 and rejects invalid, oversize, or unterminated input", () => {
     const framer = new CodexJsonlFramer(64);
     const encoded = Buffer.from('{"text":"A😀B"}\r\n{"id":2}\n', "utf8");

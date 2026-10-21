@@ -51,6 +51,7 @@ export class CodexAppServerTransportError extends Error {
   readonly observedBytes: number;
   readonly protocolMethod: string | undefined;
   readonly protocolTypes: ReadonlyArray<string>;
+  readonly requestId: number | undefined;
 
   constructor(input: {
     readonly reason: CodexAppServerTransportErrorReason;
@@ -58,6 +59,7 @@ export class CodexAppServerTransportError extends Error {
     readonly observedBytes: number;
     readonly protocolMethod?: string;
     readonly protocolTypes?: ReadonlyArray<string>;
+    readonly requestId?: number;
     readonly cause?: unknown;
   }) {
     super(transportErrorMessage(input), {
@@ -69,6 +71,7 @@ export class CodexAppServerTransportError extends Error {
     this.observedBytes = input.observedBytes;
     this.protocolMethod = input.protocolMethod;
     this.protocolTypes = input.protocolTypes ?? [];
+    this.requestId = input.requestId;
   }
 }
 
@@ -366,6 +369,7 @@ function oversizedNotificationEligibility(
 function summarizeOversizedProtocolCandidate(envelope: JsonTopLevelEnvelopeScanner | undefined): {
   readonly protocolMethod?: string;
   readonly protocolTypes: ReadonlyArray<string>;
+  readonly requestId?: number;
 } {
   const protocolMethod = envelope?.method;
   const protocolTypes = [
@@ -374,6 +378,7 @@ function summarizeOversizedProtocolCandidate(envelope: JsonTopLevelEnvelopeScann
     envelope?.legacyItemType,
   ].filter((value): value is string => value !== undefined && SAFE_CODEX_PROTOCOL_TYPES.has(value));
   return {
+    ...(envelope?.requestId !== undefined ? { requestId: envelope.requestId } : {}),
     ...(protocolMethod && SAFE_CODEX_PROTOCOL_METHODS.has(protocolMethod)
       ? { protocolMethod }
       : {}),
@@ -407,6 +412,7 @@ type JsonContainerState = {
 
 class JsonTopLevelEnvelopeScanner {
   method: string | undefined;
+  requestId: number | undefined;
   hasId = false;
   modernItemType: string | undefined;
   legacyMessageType: string | undefined;
@@ -603,7 +609,15 @@ class JsonTopLevelEnvelopeScanner {
     this.primitiveBytes = undefined;
     if (!/^(?:true|false|null|-?(?:0|[1-9]\d*)(?:\.\d+)?(?:[eE][+-]?\d+)?)$/.test(value)) {
       this.invalidStructure = true;
+      return;
     }
+    const context = this.containers.at(-1);
+    if (
+      context?.label === "root" &&
+      context.valueKey === "id" &&
+      Number.isSafeInteger(Number(value))
+    )
+      this.requestId = Number(value);
   }
 
   private decodeString(): string | undefined {

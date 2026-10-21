@@ -3031,6 +3031,22 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
     transport.protocolClosed = true;
     transport.protocolFailure =
       cause instanceof Error ? cause : new Error("Codex app-server transport failed", { cause });
+    const frameError = cause instanceof CodexAppServerTransportError ? cause : undefined;
+    const request =
+      frameError?.requestId === undefined
+        ? undefined
+        : transport.pending.get(String(frameError.requestId));
+    log.error("Codex transport failed", {
+      pid: transport.child.pid,
+      reason: frameError?.reason,
+      observedBytes: frameError?.observedBytes,
+      maxBytes: frameError?.maxBytes,
+      protocolMethod: frameError?.protocolMethod,
+      protocolTypes: frameError?.protocolTypes,
+      requestId: frameError?.requestId,
+      requestMethod: request?.method,
+      threadId: request?.ownerThreadId,
+    });
     // Existing requests receive the single final stderr/exit error, rather than
     // a timer or a write failure racing the native close notification.
     for (const pending of transport.pending.values()) clearTimeout(pending.timeout);
@@ -3841,6 +3857,12 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
     const id = transport.nextRequestId;
     transport.nextRequestId += 1;
     transport.lastRequestMethod = method;
+    log.debug("Codex request issued", {
+      pid: transport.child.pid,
+      requestId: id,
+      method,
+      ownerThreadId,
+    });
 
     const result = await new Promise<unknown>((resolve, reject) => {
       const cleanup = () => {

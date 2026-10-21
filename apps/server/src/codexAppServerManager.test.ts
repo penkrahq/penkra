@@ -47,7 +47,11 @@ import {
   formatInaccessibleCodexWorkingDirectoryError,
   formatMissingCodexWorkingDirectoryError,
 } from "./codexWorkingDirectory";
-import { CodexJsonlFramer, CodexJsonlWriter } from "./codexAppServerTransport";
+import {
+  CodexAppServerTransportError,
+  CodexJsonlFramer,
+  CodexJsonlWriter,
+} from "./codexAppServerTransport";
 import { ensureDurableThreadWorkspace } from "./scratchWorkspaces";
 import { acquireAgentGatewaySessionLease } from "./agentGateway/sessionLease.ts";
 
@@ -69,6 +73,37 @@ const approvalRequiredTurnOverrides = {
 } as const;
 
 describe("Codex capability preflight logging", () => {
+  it("correlates a failed response with its request instead of guessing from the last issued method", () => {
+    const manager = new CodexAppServerManager() as unknown as {
+      handleTransportFailure(transport: unknown, cause: unknown): void;
+      terminateAccountProcess(transport: unknown): Promise<void>;
+    };
+    const terminate = vi.spyOn(manager, "terminateAccountProcess").mockResolvedValue(undefined);
+    const error = vi.spyOn(console, "error").mockImplementation(() => {});
+    try {
+      manager.handleTransportFailure(
+        {
+          child: { pid: 42 },
+          lastRequestMethod: "plugin/list",
+          pending: new Map([["17", { method: "thread/read", ownerThreadId: "thread-a" }]]),
+        },
+        new CodexAppServerTransportError({
+          reason: "frame-too-large",
+          maxBytes: 256,
+          observedBytes: 512,
+          requestId: 17,
+        }),
+      );
+      expect(error).toHaveBeenCalledExactlyOnceWith(
+        expect.stringContaining('requestMethod="thread/read"'),
+      );
+      expect(error.mock.calls[0]![0]).not.toContain("plugin/list");
+      expect(terminate).toHaveBeenCalledOnce();
+    } finally {
+      error.mockRestore();
+      terminate.mockRestore();
+    }
+  });
   it("ignores an intentional session stop but warns about unexpected failures", () => {
     const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
     try {
@@ -2683,6 +2718,7 @@ describe("startSession", () => {
     const manager = new CodexAppServerManager();
     const controller = new AbortController();
     const context = {
+      child: { pid: 42 },
       nextRequestId: 1,
       pending: new Map(),
       stdinWriter: { write: vi.fn().mockResolvedValue(undefined) },
@@ -2959,6 +2995,7 @@ describe("sendTurn", () => {
   it("preserves structured protocol JSON-RPC error evidence", async () => {
     const manager = new CodexAppServerManager();
     const context = {
+      child: { pid: 42 },
       nextRequestId: 1,
       lastRequestMethod: undefined as string | undefined,
       pending: new Map(),

@@ -7,11 +7,35 @@ import { afterEach, expect, it, vi } from "vitest";
 import { RotatingFileSink } from "@penkra/shared/logging";
 
 import { makeServerFileLogger } from "./serverLogger";
+import { createLogger, setFileLogSink } from "./logger";
+import { makeProviderProcessDiagnostics } from "./provider/providerProcessDiagnostics";
 
 const directories: string[] = [];
 afterEach(() => {
+  setFileLogSink(undefined);
   for (const directory of directories.splice(0))
     fs.rmSync(directory, { recursive: true, force: true });
+});
+
+it("persists native provider exit diagnostics in the same server log", () => {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), "penkra-server-log-"));
+  directories.push(directory);
+  const filePath = path.join(directory, "server.log");
+  makeServerFileLogger(filePath);
+  const consoleLog = vi.spyOn(console, "log").mockImplementation(() => {});
+  try {
+    const diagnostics = makeProviderProcessDiagnostics({ provider: "codex", pid: 42 });
+    diagnostics.appendStderr("native failure");
+    diagnostics.recordExit(7, null);
+    createLogger("codex").info("request sent", { method: "model/list" });
+    const contents = fs.readFileSync(filePath, "utf8");
+    expect(contents.match(/provider.process.lifecycle/g)).toHaveLength(1);
+    expect(contents).toContain('stderr="native failure"');
+    expect(contents).toContain('method="model/list"');
+    expect(consoleLog).toHaveBeenCalledTimes(2);
+  } finally {
+    consoleLog.mockRestore();
+  }
 });
 
 it("appends formatted server lines to server.log", async () => {
