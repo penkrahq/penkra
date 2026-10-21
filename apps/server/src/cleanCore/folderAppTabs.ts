@@ -4,6 +4,8 @@ import {
   type CleanCoreFolderAppTabsResult,
   type CleanCoreGetFolderAppTabsInput,
   type CleanCoreUpdateFolderAppTabsInput,
+  CleanCoreListFolderAppTabsInput,
+  THREADS_PAGE_SIZE,
 } from "@penkra/contracts";
 import { Effect, Schema } from "effect";
 import * as SqlClient from "effect/unstable/sql/SqlClient";
@@ -54,7 +56,15 @@ export const updateFolderAppTabs = (input: CleanCoreUpdateFolderAppTabsInput) =>
             break;
           }
           case "close": {
-            next = { panes: tabs.panes.filter((pane) => pane.id !== update.paneId) };
+            next = {
+              panes: tabs.panes.filter(
+                (pane) =>
+                  pane.id !== update.paneId ||
+                  (update.inactiveBefore !== undefined &&
+                    (pane.lastVisibleAt === undefined ||
+                      pane.lastVisibleAt >= update.inactiveBefore)),
+              ),
+            };
             break;
           }
           case "reorder": {
@@ -106,7 +116,10 @@ export const updateFolderAppTabs = (input: CleanCoreUpdateFolderAppTabsInput) =>
             next = {
               ...tabs,
               panes: tabs.panes.map((pane) =>
-                ids.has(pane.id) ? { ...pane, lastVisibleAt: update.at } : pane,
+                ids.has(pane.id) &&
+                (pane.lastVisibleAt === undefined || pane.lastVisibleAt < update.at)
+                  ? { ...pane, lastVisibleAt: update.at }
+                  : pane,
               ),
             };
             break;
@@ -128,4 +141,19 @@ export const updateFolderAppTabs = (input: CleanCoreUpdateFolderAppTabsInput) =>
     );
     if (changed) publisher.publishSidebar({ kind: "folder.appTabs", ...result });
     return result;
+  });
+
+export const listFolderAppTabs = (input: typeof CleanCoreListFolderAppTabsInput.Type) =>
+  Effect.gen(function* () {
+    const sql = yield* SqlClient.SqlClient;
+    const ids = yield* sql<{
+      folderId: import("@penkra/contracts").FolderId;
+    }>`SELECT folder_id AS "folderId" FROM projection_folders
+    WHERE deleted_at IS NULL AND folder_id > ${input.afterFolderId ?? ""} ORDER BY folder_id LIMIT ${THREADS_PAGE_SIZE}`;
+    const folders = [];
+    for (const row of ids) {
+      const folder = yield* getFolderAppTabs({ folderId: row.folderId });
+      if (folder) folders.push(folder);
+    }
+    return { folders, nextCursor: ids.length === THREADS_PAGE_SIZE ? ids.at(-1)!.folderId : null };
   });

@@ -185,7 +185,16 @@ import { registerDesktopVoiceTranscriptionHandler } from "./voiceTranscription";
 import { ShellWindowRegistry } from "./shellWindowRegistry";
 import { panelFocusState } from "./panelFocus";
 import { ThreadHomeWindow } from "./threadHomeWindow";
-import { readDesktopFolderAppTabs, updateDesktopFolderAppTabs } from "./desktopFolderAppTabsClient";
+import {
+  readDesktopFolderAppTabs,
+  updateDesktopFolderAppTabs,
+  listDesktopFolderAppTabs,
+} from "./desktopFolderAppTabsClient";
+import {
+  runAppTabIdleSweep,
+  APP_TAB_IDLE_SWEEP_INITIAL_DELAY_MS,
+  APP_TAB_IDLE_SWEEP_INTERVAL_MS,
+} from "./appTabIdleRetention";
 import { executeDesktopThreadCommand } from "./desktopThreadClient";
 import {
   announceAppTabOpened as routeAppTabOpened,
@@ -1565,6 +1574,77 @@ const updateInstallPreparation = makeUpdateInstallPreparationCoordinator();
 let desktopShutdownPromise: Promise<void> | null = null;
 let desktopStartupBlockedForMigrationRecovery = false;
 let desktopShutdownComplete = false;
+let appTabIdleInitialTimer: ReturnType<typeof setTimeout> | null = null;
+let appTabIdleInterval: ReturnType<typeof setInterval> | null = null;
+let appTabIdleSweepInFlight: Promise<void> | null = null;
+const visibleAppTabs = new Map<string, string>();
+
+async function stampAppTabs(folderId: string, tabIds: string[], at: string): Promise<void> {
+  if (!backendHttpUrl) throw new Error("The backend is not ready.");
+  await updateDesktopFolderAppTabs(
+    { url: backendHttpUrl, token: DESKTOP_BACKEND_SHUTDOWN_TOKEN },
+    {
+      folderId: FolderId.makeUnsafe(folderId),
+      updatedAt: at,
+      update: { action: "stamp", paneIds: tabIds, at },
+    },
+  );
+}
+
+function recordAppTabVisibility(): void {
+  const tabs = desktopAppRuntime?.appTabs;
+  if (!tabs) return;
+  const next = new Map(
+    tabs
+      .list()
+      .filter((tab) => tabs.isVisible(tab.id))
+      .map((tab) => [tab.id, tab.folderId]),
+  );
+  for (const [tabId, folderId] of next) {
+    if (!visibleAppTabs.has(tabId))
+      void stampAppTabs(folderId, [tabId], new Date().toISOString()).catch((error) =>
+        console.error("[app-tab-visibility] Could not stamp selected tab", {
+          tabId,
+          folderId,
+          error,
+        }),
+      );
+  }
+  for (const [tabId, folderId] of visibleAppTabs) {
+    if (!next.has(tabId))
+      void stampAppTabs(folderId, [tabId], new Date().toISOString()).catch((error) =>
+        console.error("[app-tab-visibility] Could not stamp hidden tab", {
+          tabId,
+          folderId,
+          error,
+        }),
+      );
+  }
+  visibleAppTabs.clear();
+  for (const [tabId, folderId] of next) visibleAppTabs.set(tabId, folderId);
+}
+
+function startAppTabIdleRetention(): void {
+  const sweep = () => {
+    if (isQuitting || appTabIdleSweepInFlight || !backendHttpUrl || !desktopAppRuntime) return;
+    const runtime = desktopAppRuntime;
+    const backend = { url: backendHttpUrl, token: DESKTOP_BACKEND_SHUTDOWN_TOKEN };
+    appTabIdleSweepInFlight = runAppTabIdleSweep(new Date().toISOString(), {
+      readPage: (after) => listDesktopFolderAppTabs(backend, after),
+      isVisible: (tabId) => runtime.appTabs.has(tabId) && runtime.appTabs.isVisible(tabId),
+      stamp: stampAppTabs,
+      close: (folderId, tabId, cutoff) => runtime.appTabs.closeIfIdle(tabId, folderId, cutoff),
+    })
+      .then((result) => console.info("[app-tab-idle-sweep]", result))
+      .catch((error) => console.error("[app-tab-idle-sweep] Failed", error))
+      .finally(() => {
+        appTabIdleSweepInFlight = null;
+      });
+  };
+  // P23: explicit operator-chosen initial delay and periodic retention schedule.
+  appTabIdleInitialTimer = setTimeout(sweep, APP_TAB_IDLE_SWEEP_INITIAL_DELAY_MS);
+  appTabIdleInterval = setInterval(sweep, APP_TAB_IDLE_SWEEP_INTERVAL_MS);
+}
 // Latched before internal quit/relaunch paths so `before-quit` can distinguish
 // a deliberate product transition from an unclassified user/OS/external request.
 let desktopQuitInitiator: string | null = null;
@@ -4939,6 +5019,24 @@ async function stopAppRuntimeAndBackend(backendShutdownOptions?: {
   timeoutMs?: number;
 }): Promise<void> {
   const failures: unknown[] = [];
+  if (appTabIdleInitialTimer) clearTimeout(appTabIdleInitialTimer);
+  if (appTabIdleInterval) clearInterval(appTabIdleInterval);
+  appTabIdleInitialTimer = null;
+  appTabIdleInterval = null;
+  await appTabIdleSweepInFlight;
+  try {
+    const folders = new Map<string, string[]>();
+    for (const tab of desktopAppRuntime?.appTabs.list() ?? []) {
+      if (!desktopAppRuntime!.appTabs.isVisible(tab.id)) continue;
+      const ids = folders.get(tab.folderId) ?? [];
+      ids.push(tab.id);
+      folders.set(tab.folderId, ids);
+    }
+    const at = new Date().toISOString();
+    for (const [folderId, tabIds] of folders) await stampAppTabs(folderId, tabIds, at);
+  } catch (error) {
+    failures.push(error);
+  }
   try {
     controllerSubscriptions.closeAll();
     await runtimeV2FileWrites.abortAll();
@@ -6727,15 +6825,7 @@ function registerIpcHandlers(): void {
     if (tabs.has(tabId) && tabs.list().find((tab) => tab.id === tabId)?.folderId !== input.folderId)
       throw new Error("The App tab belongs to a different folder.");
     if (!backendHttpUrl) throw new Error("The backend is not ready.");
-    await updateDesktopFolderAppTabs(
-      { url: backendHttpUrl, token: DESKTOP_BACKEND_SHUTDOWN_TOKEN },
-      {
-        folderId: FolderId.makeUnsafe(input.folderId),
-        updatedAt: new Date().toISOString(),
-        update: { action: "close", paneId: tabId },
-      },
-    );
-    tabs.retireRenderer(tabId, "tab-closed");
+    await tabs.close(tabId, input.folderId);
   });
 
   const parseOpenWithInput = (input: unknown) => {
@@ -8066,14 +8156,22 @@ async function bootstrap(): Promise<void> {
     },
     onCloseTab: async (descriptor) => {
       if (!backendHttpUrl) throw new Error("The backend is not ready.");
-      await updateDesktopFolderAppTabs(
-        { url: backendHttpUrl, token: DESKTOP_BACKEND_SHUTDOWN_TOKEN },
-        {
-          folderId: FolderId.makeUnsafe(descriptor.folderId),
-          updatedAt: new Date().toISOString(),
-          update: { action: "close", paneId: descriptor.id },
+      const write = {
+        folderId: FolderId.makeUnsafe(descriptor.folderId),
+        updatedAt: new Date().toISOString(),
+        update: {
+          action: "close" as const,
+          paneId: descriptor.id,
+          ...(descriptor.inactiveBefore === undefined
+            ? {}
+            : { inactiveBefore: descriptor.inactiveBefore }),
         },
-      );
+      };
+      const backend = { url: backendHttpUrl, token: DESKTOP_BACKEND_SHUTDOWN_TOKEN };
+      const result = descriptor.authorize
+        ? await updateDesktopFolderAppTabs(backend, write, descriptor.authorize)
+        : await updateDesktopFolderAppTabs(backend, write);
+      return result !== null && !result.tabs.panes.some((pane) => pane.id === descriptor.id);
     },
     onTabState: (descriptor) => {
       announceAppTabState(descriptor);
@@ -8082,6 +8180,7 @@ async function bootstrap(): Promise<void> {
       announceAppTabClosed(descriptor);
     },
     onTabPresentation: (windowId, presentation) => {
+      recordAppTabVisibility();
       appTabPresentationEvents.emit(presentation.tabId);
       shellWindowRegistry
         .windowForWebContentsId(windowId)
@@ -8381,6 +8480,7 @@ async function bootstrap(): Promise<void> {
     },
   });
   await appCommandPipeServer.start();
+  startAppTabIdleRetention();
   startBackend();
   writeDesktopLogHeader("bootstrap backend start requested");
 

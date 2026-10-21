@@ -69,7 +69,7 @@ void runHostPhase("electron-ready", () => app.whenReady())
         }),
         onTabRouteChanged: async () => undefined,
         onTabPresentationChanged: async () => undefined,
-        onCloseTab: async () => undefined,
+        onCloseTab: async () => true,
         onTabOpened: () => undefined,
         onTabState: () => undefined,
         onTabClosed: () => undefined,

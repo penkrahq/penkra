@@ -5,6 +5,7 @@ import {
   CleanCoreFolderAppTabsResult,
   type CleanCoreUpdateFolderAppTabsInput,
   FolderId,
+  CleanCoreListFolderAppTabsResult,
 } from "@penkra/contracts";
 import { Schema } from "effect";
 
@@ -14,8 +15,9 @@ const FolderAppTabs = Schema.Struct({
 });
 type FolderAppTabs = typeof FolderAppTabs.Type;
 type Backend = { url: string; token: string; fetcher?: typeof fetch };
+const folderWrites = new Map<string, Promise<void>>();
 
-async function request(backend: Backend, input: unknown): Promise<FolderAppTabs | null> {
+async function request(backend: Backend, input: unknown): Promise<unknown> {
   const response = await (backend.fetcher ?? fetch)(`${backend.url}/api/desktop/folder-app-tabs`, {
     method: "POST",
     headers: { Authorization: `Bearer ${backend.token}`, "Content-Type": "application/json" },
@@ -26,21 +28,61 @@ async function request(backend: Backend, input: unknown): Promise<FolderAppTabs 
     throw new Error(
       typeof body.message === "string" ? body.message : "Folder App-tab operation failed.",
     );
-  return Schema.decodeUnknownSync(Schema.NullOr(FolderAppTabs))(body.result);
+  return body.result;
 }
 
-export function readDesktopFolderAppTabs(
+export async function readDesktopFolderAppTabs(
   backend: Backend,
   folderId: string,
 ): Promise<FolderAppTabs | null> {
-  return request(backend, { action: "get", folderId: FolderId.makeUnsafe(folderId) });
+  return Schema.decodeUnknownSync(Schema.NullOr(FolderAppTabs))(
+    await request(backend, { action: "get", folderId: FolderId.makeUnsafe(folderId) }),
+  );
 }
 
+export function updateDesktopFolderAppTabs(
+  backend: Backend,
+  input: CleanCoreUpdateFolderAppTabsInput,
+): Promise<FolderAppTabs>;
+export function updateDesktopFolderAppTabs(
+  backend: Backend,
+  input: CleanCoreUpdateFolderAppTabsInput,
+  authorize: () => boolean,
+): Promise<FolderAppTabs | null>;
 export async function updateDesktopFolderAppTabs(
   backend: Backend,
   input: CleanCoreUpdateFolderAppTabsInput,
-): Promise<FolderAppTabs> {
-  const result = await request(backend, { action: "update", ...input });
-  if (result === null) throw new Error("The folder is not available.");
-  return result;
+  authorize?: () => boolean,
+): Promise<FolderAppTabs | null> {
+  const key = JSON.stringify([backend.url, input.folderId]);
+  const previous = folderWrites.get(key);
+  const write = (previous === undefined ? Promise.resolve() : previous.catch(() => undefined)).then(
+    async () => {
+      if (authorize && !authorize()) return null;
+      const result = Schema.decodeUnknownSync(Schema.NullOr(FolderAppTabs))(
+        await request(backend, { action: "update", ...input }),
+      );
+      if (result === null) throw new Error("The folder is not available.");
+      return result;
+    },
+  );
+  const completion = write.then(
+    () => undefined,
+    () => undefined,
+  );
+  folderWrites.set(key, completion);
+  try {
+    return await write;
+  } finally {
+    if (folderWrites.get(key) === completion) folderWrites.delete(key);
+  }
+}
+
+export async function listDesktopFolderAppTabs(backend: Backend, afterFolderId?: string) {
+  return Schema.decodeUnknownSync(CleanCoreListFolderAppTabsResult)(
+    await request(backend, {
+      action: "list",
+      ...(afterFolderId === undefined ? {} : { afterFolderId: FolderId.makeUnsafe(afterFolderId) }),
+    }),
+  );
 }
