@@ -31,6 +31,7 @@ import type {
 
 import type { AppInstallationService } from "./appInstallationService";
 import { AppBrowserExtensions } from "./appBrowserExtensions";
+import { AppTabIdleClose } from "./appTabIdleClose";
 import { resolveInstalledAppIconDataUrl } from "./appIconDataUrl";
 import { getInstalledAppPackage, type InstalledAppPackage } from "./appInstallationState";
 import type {
@@ -80,6 +81,11 @@ export interface AppTabLogicalOwner {
   threadId: string;
   tabId: string;
 }
+
+export type AppTabCloseInput = Pick<DesktopAppTabDescriptor, "id" | "folderId"> & {
+  inactiveBefore?: string;
+  authorize?: () => boolean;
+};
 
 export interface AppTabAuthority {
   /** Synchronously detaches authority belonging to one exact App renderer generation. */
@@ -317,6 +323,7 @@ function traceAppTabHost(event: string, details: Record<string, unknown> = {}): 
 }
 
 export class AppTabViewHost implements AppTabHost {
+  readonly #idleClose = new AppTabIdleClose();
   readonly #installations: AppInstallationService;
   readonly #sessions: Pick<AppSessionManager, "get">;
   readonly #broker: Pick<AppOperationBroker, "registerTab">;
@@ -340,7 +347,7 @@ export class AppTabViewHost implements AppTabHost {
   ) => void | Promise<void>;
   readonly #onRouteChanged: (descriptor: DesktopAppTabDescriptor) => Promise<void>;
   readonly #onPresentationChanged: (descriptor: DesktopAppTabDescriptor) => Promise<void>;
-  readonly #onCloseTab: (descriptor: DesktopAppTabDescriptor) => Promise<void>;
+  readonly #onCloseTab: (descriptor: AppTabCloseInput) => Promise<boolean>;
   readonly #state: ProtectedPublisher<DesktopAppTabDescriptor>;
   readonly #closed: ProtectedPublisher<DesktopAppTabClosed>;
   readonly #registerRendererIdentity: (input: {
@@ -389,7 +396,7 @@ export class AppTabViewHost implements AppTabHost {
     ) => void | Promise<void>;
     onRouteChanged: (descriptor: DesktopAppTabDescriptor) => Promise<void>;
     onPresentationChanged: (descriptor: DesktopAppTabDescriptor) => Promise<void>;
-    onCloseTab: (descriptor: DesktopAppTabDescriptor) => Promise<void>;
+    onCloseTab: (descriptor: AppTabCloseInput) => Promise<boolean>;
     onState: (descriptor: DesktopAppTabDescriptor) => void;
     onClosed?: (descriptor: DesktopAppTabClosed) => void;
     onPresentation?: (windowId: number, state: DesktopAppTabPresentation) => void;
@@ -650,6 +657,8 @@ export class AppTabViewHost implements AppTabHost {
     animate?: boolean;
     animationStartedAtEpochMs?: number;
   }): Promise<void> {
+    const closing = this.#idleClose.select(input.tabId);
+    if (closing) await closing;
     const record = this.#require(input.tabId);
     const window = this.#windowById(input.windowId);
     traceAppTabHost("present-started", {
@@ -1556,11 +1565,40 @@ export class AppTabViewHost implements AppTabHost {
     }
   }
 
-  async close(tabId: string): Promise<void> {
+  async close(tabId: string, folderId?: string): Promise<void> {
+    await this.#close(tabId, folderId);
+  }
+
+  async closeIfIdle(tabId: string, folderId: string, inactiveBefore: string): Promise<boolean> {
+    return this.#idleClose.close(tabId, (authorize) =>
+      this.#close(
+        tabId,
+        folderId,
+        inactiveBefore,
+        () => !(this.has(tabId) && this.isVisible(tabId)) && authorize(),
+      ),
+    );
+  }
+
+  async #close(
+    tabId: string,
+    folderId?: string,
+    inactiveBefore?: string,
+    authorize?: () => boolean,
+  ): Promise<boolean> {
     const record = this.#records.get(tabId);
-    if (!record) return;
-    await this.#onCloseTab(record.descriptor);
-    this.retireRenderer(tabId, "tab-closed");
+    if (record && folderId !== undefined && record.descriptor.folderId !== folderId)
+      throw new Error("The App tab belongs to a different folder.");
+    const ownerFolder = record?.descriptor.folderId ?? folderId;
+    if (ownerFolder === undefined) return false;
+    const removed = await this.#onCloseTab({
+      id: tabId,
+      folderId: ownerFolder,
+      ...(inactiveBefore === undefined ? {} : { inactiveBefore }),
+      ...(authorize === undefined ? {} : { authorize }),
+    });
+    if (removed) this.retireRenderer(tabId, "tab-closed");
+    return removed;
   }
 
   retireRenderer(tabId: string, reason: OperationCancellationCode): void {

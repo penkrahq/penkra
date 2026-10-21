@@ -310,6 +310,13 @@ export const CleanCoreFolderAppTabsResult = Schema.Struct({
   updatedAt: IsoDateTime,
 });
 export type CleanCoreFolderAppTabsResult = typeof CleanCoreFolderAppTabsResult.Type;
+export const CleanCoreListFolderAppTabsInput = Schema.Struct({
+  afterFolderId: Schema.optionalKey(FolderId),
+});
+export const CleanCoreListFolderAppTabsResult = Schema.Struct({
+  folders: Schema.Array(CleanCoreFolderAppTabsResult),
+  nextCursor: Schema.NullOr(FolderId),
+});
 export const CleanCoreUpdateFolderAppTabsInput = Schema.Struct({
   folderId: FolderId,
   updatedAt: IsoDateTime,
@@ -318,7 +325,11 @@ export const CleanCoreUpdateFolderAppTabsInput = Schema.Struct({
       action: Schema.Literal("open"),
       pane: CleanCoreFolderAppPane,
     }),
-    Schema.Struct({ action: Schema.Literal("close"), paneId: Schema.String }),
+    Schema.Struct({
+      action: Schema.Literal("close"),
+      paneId: Schema.String,
+      inactiveBefore: Schema.optionalKey(IsoDateTime),
+    }),
     Schema.Struct({ action: Schema.Literal("reorder"), paneIds: Schema.Array(Schema.String) }),
     Schema.Struct({
       action: Schema.Literal("navigate"),

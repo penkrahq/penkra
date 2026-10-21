@@ -74,6 +74,17 @@ it.effect(
         };
         const written = yield* send("private", update);
         assert.equal(written.status, 200);
+        const listed = yield* send("private", { action: "list" });
+        assert.equal(listed.status, 200);
+        const page = Schema.decodeUnknownSync(
+          Schema.Struct({
+            result: Schema.Struct({ folders: Schema.Array(CleanCoreFolderAppTabsResult) }),
+          }),
+        )(listed.body);
+        assert.deepStrictEqual(
+          page.result.folders.find((entry) => entry.folderId === "folder")?.tabs.panes,
+          [update.update.pane],
+        );
         assert.deepStrictEqual(
           Schema.decodeUnknownSync(Schema.Struct({ result: CleanCoreFolderAppTabsResult }))(
             written.body,

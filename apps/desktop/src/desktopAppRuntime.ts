@@ -47,7 +47,12 @@ import { AppDataVault } from "./appDataVault";
 import { ProviderCredentialVault } from "./providerCredentialVault";
 import { DeferredAppTabHost } from "./deferredAppTabHost";
 import { ElectronAppControllerProcessFactory } from "./electronAppControllerProcess";
-import { AppTabViewHost, type AppTabAuthority, type AppUpdateTabSnapshot } from "./appTabViewHost";
+import {
+  AppTabViewHost,
+  type AppTabAuthority,
+  type AppUpdateTabSnapshot,
+  type AppTabCloseInput,
+} from "./appTabViewHost";
 import {
   AppUpdateJournal,
   resolveAppUpdateJournalPath,
@@ -132,7 +137,7 @@ export async function startDesktopAppRuntime(input: {
   ) => void | Promise<void>;
   onTabRouteChanged: (descriptor: DesktopAppTabDescriptor) => Promise<void>;
   onTabPresentationChanged: (descriptor: DesktopAppTabDescriptor) => Promise<void>;
-  onCloseTab: (descriptor: DesktopAppTabDescriptor) => Promise<void>;
+  onCloseTab: (descriptor: AppTabCloseInput) => Promise<boolean>;
   onTabState: (descriptor: DesktopAppTabDescriptor) => void;
   onTabClosed: (descriptor: DesktopAppTabClosed) => void;
   onTabPresentation?: (windowId: number, state: DesktopAppTabPresentation) => void;

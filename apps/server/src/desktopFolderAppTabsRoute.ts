@@ -4,14 +4,20 @@
 import {
   CleanCoreGetFolderAppTabsInput,
   CleanCoreUpdateFolderAppTabsInput,
+  CleanCoreListFolderAppTabsInput,
 } from "@penkra/contracts";
 import { Effect, Schema } from "effect";
 import { HttpRouter, HttpServerRequest, HttpServerResponse } from "effect/unstable/http";
-import { getFolderAppTabs, updateFolderAppTabs } from "./cleanCore/folderAppTabs.ts";
+import {
+  getFolderAppTabs,
+  updateFolderAppTabs,
+  listFolderAppTabs,
+} from "./cleanCore/folderAppTabs.ts";
 import { ServerConfig } from "./config";
 import { authorizeDesktopShutdown } from "./serverShutdown";
 
 const Request = Schema.Union([
+  Schema.Struct({ action: Schema.Literal("list"), ...CleanCoreListFolderAppTabsInput.fields }),
   Schema.Struct({ action: Schema.Literal("get"), ...CleanCoreGetFolderAppTabsInput.fields }),
   Schema.Struct({ action: Schema.Literal("update"), ...CleanCoreUpdateFolderAppTabsInput.fields }),
 ]);
@@ -34,6 +40,7 @@ export const desktopFolderAppTabsRouteLayer = HttpRouter.add(
       );
     const result = yield* Effect.gen(function* () {
       const input = yield* Schema.decodeUnknownEffect(Request)(yield* request.json);
+      if (input.action === "list") return yield* listFolderAppTabs(input);
       return input.action === "get"
         ? yield* getFolderAppTabs(input)
         : yield* updateFolderAppTabs(input);
