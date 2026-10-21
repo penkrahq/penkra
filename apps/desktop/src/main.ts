@@ -532,14 +532,11 @@ function appTabRoutingWindows() {
 
 function routeAppTab(
   descriptor: Pick<DesktopAppTabOpened, "threadId" | "folderId" | "spaceId" | "initiator">,
-  preserveUserSelection = false,
 ) {
   return routeAppTabOpened({
     descriptor,
     windows: appTabRoutingWindows(),
     home: threadHomeWindow,
-    panelFocus: panelFocusState,
-    preserveUserSelection,
   });
 }
 function appTabAgentPresentation(
@@ -743,8 +740,8 @@ async function announceAppTabOpened(
   descriptor: DesktopAppTabOpened,
   folderTabs: import("@penkra/contracts").CleanCoreFolderAppTabsResult,
 ): Promise<void> {
-  const route = routeAppTab(descriptor, true);
-  const windowId = route.targetWindowId ?? route.backgroundWindowId;
+  const route = routeAppTab(descriptor);
+  const windowId = route.targetWindowId;
   const window = shellWindows().find((candidate) => candidate.id === windowId);
   if (!window) return;
   if (descriptor.selection === "activate" && route.targetWindowId !== null) {
@@ -752,7 +749,7 @@ async function announceAppTabOpened(
       descriptor.id,
       window.webContents.id,
       new AbortController().signal,
-      () => routeAppTab(descriptor, true).targetWindowId === window.id,
+      () => routeAppTab(descriptor).targetWindowId === window.id,
       (request) => {
         window.webContents.send(IPC.appTabs.activationRequested, {
           requestId: request.requestId,
@@ -761,8 +758,6 @@ async function announceAppTabOpened(
         });
       },
     );
-  } else {
-    window.webContents.send(IPC.appTabs.opened, { ...descriptor, selection: "preserve" });
   }
 }
 function announceAppTabState(descriptor: DesktopAppTabDescriptor): void {

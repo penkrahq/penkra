@@ -30,19 +30,24 @@ const setup = () => {
   home.view(2, "thread-b", "folder-a", true);
   const panelFocus = new PanelFocusState();
   const route = (windows: AppTabRoutingWindow[]) =>
-    announceAppTabOpened({ descriptor, windows, home, panelFocus, preserveUserSelection: true });
+    announceAppTabOpened({ descriptor, windows, home });
   return { home, panelFocus, route };
 };
 describe("folder App-tab routing", () => {
+  it("activates an agent-opened tab in its home window even after panel interaction", () => {
+    const { panelFocus, route } = setup();
+    panelFocus.recordInteraction(1, true);
+    expect(route([window(1, { focused: true }), window(2)]).targetWindowId).toBe(1);
+  });
   it("allows activation in the user's panel, including hidden or minimized windows", () => {
     const { home, panelFocus } = setup();
     panelFocus.recordInteraction(1, true);
     for (const patch of [{}, { visible: false }, { minimized: true }]) {
       const candidate = window(1, { focused: true, ...patch });
       expect(canUseAppTabWindow(candidate, descriptor)).toBe(true);
-      expect(
-        announceAppTabOpened({ descriptor, windows: [candidate], home, panelFocus }).targetWindowId,
-      ).toBe(1);
+      expect(announceAppTabOpened({ descriptor, windows: [candidate], home }).targetWindowId).toBe(
+        1,
+      );
     }
   });
   it("uses the same candidate permission for actions without requiring the home window", () => {
@@ -55,33 +60,23 @@ describe("folder App-tab routing", () => {
     expect(canUseAppTabWindow(window(2, { focused: true }), descriptor)).toBe(true);
     expect(canUseAppTabWindow(window(2), descriptor)).toBe(true);
   });
-  it("chooses the idle home window ahead of focus order", () => {
+  it("chooses the home window ahead of focus order", () => {
     const { route } = setup();
     expect(route([window(2), window(1)]).targetWindowId).toBe(1);
-  });
-  it("chooses idle B without selecting anything in busy A", () => {
-    const { panelFocus, route } = setup();
-    panelFocus.recordInteraction(1, true);
-    expect(route([window(1, { focused: true }), window(2)])).toEqual({
-      targetWindowId: 2,
-      backgroundWindowId: null,
-      folderShown: true,
-    });
   });
   it("uses another window when home shows a different folder", () => {
     const { route } = setup();
     expect(route([window(1, { folderId: "elsewhere" }), window(2)]).targetWindowId).toBe(2);
   });
-  it("opens in the background while the only showing window is busy", () => {
+  it("activates in the only showing window even after panel interaction", () => {
     const { panelFocus, route } = setup();
     panelFocus.recordInteraction(1, true);
     expect(route([window(1, { focused: true })])).toEqual({
-      targetWindowId: null,
-      backgroundWindowId: 1,
+      targetWindowId: 1,
       folderShown: true,
     });
   });
-  it("opens in the background when no visible window shows the folder", () => {
+  it("has no activation target when no window shows the folder", () => {
     const { route } = setup();
     for (const windows of [
       [],
@@ -90,14 +85,13 @@ describe("folder App-tab routing", () => {
     ])
       expect(route(windows)).toEqual({
         targetWindowId: null,
-        backgroundWindowId: null,
         folderShown: false,
       });
     expect(appTabFolderUnavailable("Work")).toMatchObject({
       code: "FOLDER_NOT_OPEN",
     });
   });
-  it("does not treat an unfocused panel as busy", () => {
+  it("can activate in an unfocused window", () => {
     const { panelFocus, route } = setup();
     panelFocus.recordInteraction(1, true);
     expect(route([window(1)]).targetWindowId).toBe(1);
@@ -111,16 +105,6 @@ describe("folder App-tab routing", () => {
     order.close(1);
     expect(order.order([window(1), window(2)]).map((w) => w.id)).toEqual([2, 1]);
   });
-  it("uses focus order for background opening when every showing window is busy", () => {
-    const { panelFocus, route } = setup();
-    panelFocus.recordInteraction(1, true);
-    panelFocus.recordInteraction(2, true);
-    expect(route([window(2, { focused: true }), window(1, { focused: true })])).toEqual({
-      targetWindowId: null,
-      backgroundWindowId: 2,
-      folderShown: true,
-    });
-  });
   it("keeps explicit user opening available in a busy home window", () => {
     const { home, panelFocus } = setup();
     panelFocus.recordInteraction(1, true);
@@ -128,7 +112,6 @@ describe("folder App-tab routing", () => {
       announceAppTabOpened({
         descriptor: { ...descriptor, initiator: "user" },
         home,
-        panelFocus,
         windows: [window(1, { focused: true })],
       }).targetWindowId,
     ).toBe(1);
