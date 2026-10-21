@@ -10,14 +10,6 @@ export class PanelFocusState {
     this.#byWindow.set(windowId, insidePanel);
   }
 
-  shouldPreserveAgentOpen(windowId: number, windowIsFocused: boolean): boolean {
-    return windowIsFocused && this.get(windowId);
-  }
-
-  agentSwitchedPanel(windowId: number, windowIsFocused: boolean): void {
-    if (!windowIsFocused) this.#byWindow.set(windowId, false);
-  }
-
   delete(windowId: number): void {
     this.#byWindow.delete(windowId);
   }

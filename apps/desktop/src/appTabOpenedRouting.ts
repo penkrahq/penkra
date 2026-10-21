@@ -1,8 +1,7 @@
 // FILE: appTabOpenedRouting.ts
-// Purpose: Choose one window on the folder without disturbing a busy right panel.
+// Purpose: Choose the home window among windows showing the tab's folder.
 
 import type { DesktopAppTabOpened } from "@penkra/contracts";
-import type { PanelFocusState } from "./panelFocus";
 import type { ThreadHomeWindow } from "./threadHomeWindow";
 
 export interface AppTabRoutingWindow {
@@ -53,28 +52,19 @@ export function announceAppTabOpened(input: {
   descriptor: Pick<DesktopAppTabOpened, "threadId" | "folderId" | "spaceId" | "initiator">;
   windows: readonly AppTabRoutingWindow[];
   home: ThreadHomeWindow;
-  panelFocus: PanelFocusState;
-  preserveUserSelection?: boolean;
-}): { targetWindowId: number | null; backgroundWindowId: number | null; folderShown: boolean } {
-  const { descriptor, home, panelFocus } = input;
+}): { targetWindowId: number | null; folderShown: boolean } {
+  const { descriptor, home } = input;
   const showing = input.windows.filter((window) => appTabWindowShowsFolder(window, descriptor));
-  const eligible = showing.filter(
-    (window) =>
-      !input.preserveUserSelection ||
-      descriptor.initiator !== "agent" ||
-      !panelFocus.shouldPreserveAgentOpen(window.id, window.focused),
-  );
   const targetWindowId =
-    eligible.length === 0
+    showing.length === 0
       ? null
       : home.presentingWindow(
           descriptor.threadId,
           descriptor.folderId,
-          eligible.map((window) => window.id),
+          showing.map((window) => window.id),
         );
   return {
     targetWindowId,
-    backgroundWindowId: targetWindowId === null ? (showing[0]?.id ?? null) : null,
     folderShown: showing.length > 0,
   };
 }
