@@ -10,6 +10,7 @@ import * as Path from "node:path";
 import type {
   AppRuntimeBridgeError,
   AppRuntimeFailureDto,
+  CleanCoreFolderAppPane,
   DesktopAppTabDescriptor,
 } from "@penkra/contracts";
 
@@ -161,6 +162,7 @@ export class AppCommandPipeServer {
   readonly #token: string;
   readonly #adminToken: string;
   readonly #catalog: AppOperationCatalog;
+  readonly #readFolderTabs: (folderId: string) => Promise<ReadonlyArray<CleanCoreFolderAppPane>>;
   readonly #broker: AppOperationBroker;
   readonly #tabs: {
     list(): ReadonlyArray<DesktopAppTabDescriptor>;
@@ -224,6 +226,7 @@ export class AppCommandPipeServer {
     token: string;
     adminToken?: string;
     catalog: AppOperationCatalog;
+    readFolderTabs: (folderId: string) => Promise<ReadonlyArray<CleanCoreFolderAppPane>>;
     broker: AppOperationBroker;
     tabs: {
       list(): ReadonlyArray<DesktopAppTabDescriptor>;
@@ -282,6 +285,7 @@ export class AppCommandPipeServer {
     this.#token = input.token;
     this.#adminToken = input.adminToken ?? Crypto.randomBytes(32).toString("hex");
     this.#catalog = input.catalog;
+    this.#readFolderTabs = input.readFolderTabs;
     this.#broker = input.broker;
     this.#tabs = input.tabs;
     this.#runOnThread = input.runOnThread ?? null;
@@ -457,23 +461,41 @@ export class AppCommandPipeServer {
       case "providers.credentials.remove":
         await this.#providerCredentialVault.remove(requiredString(params.reference, "reference"));
         return { ok: true, id: request.id, result: {} };
-      case "tabs.list":
+      case "tabs.list": {
+        const scope = this.#scope(params);
+        const stored = await this.#readFolderTabs(scope.folderId);
+        const live = new Map(this.#scopedTabs(params).map((tab) => [tab.id, tab]));
         return {
           ok: true,
           id: request.id,
-          result: this.#scopedTabs(params).map((tab) => {
-            const page = this.#tabs.hostedPageState(tab.id).page;
-            return {
-              tabId: tab.id,
-              appId: tab.appId,
-              appName: tab.name,
-              title: tab.presentationTitle ?? tab.name,
-              status: tab.status,
-              visible: this.#presentation(tab, this.#scope(params).threadId).state === "active",
-              ...(page ? { url: page.url } : {}),
-            };
-          }),
+          result: stored
+            .filter((pane) => pane.appSpaceId === scope.spaceId)
+            .map((pane) => {
+              const tab = live.get(pane.id);
+              const page = tab ? this.#tabs.hostedPageState(tab.id).page : null;
+              const state = pane.appState;
+              const storedUrl =
+                state !== null &&
+                typeof state === "object" &&
+                !Array.isArray(state) &&
+                "url" in state &&
+                typeof state.url === "string"
+                  ? state.url
+                  : undefined;
+              const url = page ? page.url : storedUrl;
+              return {
+                tabId: pane.id,
+                appId: pane.appId,
+                appName: pane.appName,
+                title: tab?.presentationTitle ?? pane.title ?? pane.appName,
+                status: tab?.status ?? "unloaded",
+                visible:
+                  tab !== undefined && this.#presentation(tab, scope.threadId).state === "active",
+                ...(url === undefined ? {} : { url }),
+              };
+            }),
         };
+      }
       case "tabs.activate": {
         const tab = this.#tab(params);
         if (!this.#activate) throw new Error("Tab activation is unavailable.");

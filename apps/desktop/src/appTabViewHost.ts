@@ -3,6 +3,7 @@
 // Layer: Trusted desktop App runtime
 
 import { randomUUID } from "node:crypto";
+import { INLINE_TOOL_RESULT_BYTES } from "@penkra/shared/toolResults";
 
 import {
   BrowserWindow,
@@ -85,6 +86,14 @@ export interface AppTabAuthority {
   retireGeneration(owner: AppTabGenerationOwner): void;
   /** Retires resources owned by the stable logical tab after it is actually closed. */
   retireTab(owner: AppTabLogicalOwner): void;
+}
+
+export function assertAppTabStateSize(state: unknown): void {
+  if (
+    state !== undefined &&
+    Buffer.byteLength(JSON.stringify(state), "utf8") > INLINE_TOOL_RESULT_BYTES
+  )
+    throw new Error("Tab state is larger than 10 KB.");
 }
 
 export function restoreShellFocusAfterHide(
@@ -330,6 +339,7 @@ export class AppTabViewHost implements AppTabHost {
     folderTabs: CleanCoreFolderAppTabsResult,
   ) => void | Promise<void>;
   readonly #onRouteChanged: (descriptor: DesktopAppTabDescriptor) => Promise<void>;
+  readonly #onPresentationChanged: (descriptor: DesktopAppTabDescriptor) => Promise<void>;
   readonly #onCloseTab: (descriptor: DesktopAppTabDescriptor) => Promise<void>;
   readonly #state: ProtectedPublisher<DesktopAppTabDescriptor>;
   readonly #closed: ProtectedPublisher<DesktopAppTabClosed>;
@@ -378,6 +388,7 @@ export class AppTabViewHost implements AppTabHost {
       folderTabs: CleanCoreFolderAppTabsResult,
     ) => void | Promise<void>;
     onRouteChanged: (descriptor: DesktopAppTabDescriptor) => Promise<void>;
+    onPresentationChanged: (descriptor: DesktopAppTabDescriptor) => Promise<void>;
     onCloseTab: (descriptor: DesktopAppTabDescriptor) => Promise<void>;
     onState: (descriptor: DesktopAppTabDescriptor) => void;
     onClosed?: (descriptor: DesktopAppTabClosed) => void;
@@ -425,6 +436,7 @@ export class AppTabViewHost implements AppTabHost {
     this.#onBeforeOpened = input.onBeforeOpened;
     this.#onOpened = input.onOpened;
     this.#onRouteChanged = input.onRouteChanged;
+    this.#onPresentationChanged = input.onPresentationChanged;
     this.#onCloseTab = input.onCloseTab;
     this.#state = new ProtectedPublisher(onNotificationError);
     this.#state.subscribe(input.onState);
@@ -1384,6 +1396,7 @@ export class AppTabViewHost implements AppTabHost {
 
   async setRoute(tabId: string, input: { route: string; state?: unknown }): Promise<void> {
     const record = this.#require(tabId);
+    assertAppTabStateSize(input.state);
     const descriptor = {
       ...record.descriptor,
       route: input.route,
@@ -1394,7 +1407,7 @@ export class AppTabViewHost implements AppTabHost {
       route: input.route,
       ...(input.state === undefined ? {} : { state: input.state }),
     };
-    record.descriptor = descriptor;
+    record.descriptor = { ...record.descriptor, route: descriptor.route, state: descriptor.state };
     this.#state.publish(record.descriptor);
     this.#diagnostics.publish({
       kind: "tab-navigation-recorded",
@@ -1405,25 +1418,33 @@ export class AppTabViewHost implements AppTabHost {
     });
   }
 
-  setPresentation(
+  async setPresentation(
     tabId: string,
     input: { title?: string; icon?: "hosted-page" | { dataUrl: string } },
-  ): void {
+  ): Promise<void> {
     const record = this.#require(tabId);
-    record.presentationIconSource = input.icon ?? null;
-    record.descriptor = {
+    const presentationIconSource = input.icon ?? null;
+    const descriptor = {
       ...record.descriptor,
       presentationTitle: input.title ?? null,
       presentationIconUrl:
-        record.presentationIconSource === "hosted-page"
+        presentationIconSource === "hosted-page"
           ? (record.page?.state.faviconUrl ?? null)
-          : (record.presentationIconSource?.dataUrl ?? null),
+          : (presentationIconSource?.dataUrl ?? null),
+    };
+    if (descriptor.presentationTitle !== record.descriptor.presentationTitle)
+      await this.#onPresentationChanged(descriptor);
+    record.presentationIconSource = presentationIconSource;
+    record.descriptor = {
+      ...record.descriptor,
+      presentationTitle: descriptor.presentationTitle,
+      presentationIconUrl: descriptor.presentationIconUrl,
     };
     this.#state.publish(record.descriptor);
   }
 
-  resetPresentation(tabId: string): void {
-    this.setPresentation(tabId, {});
+  async resetPresentation(tabId: string): Promise<void> {
+    await this.setPresentation(tabId, {});
   }
 
   setContext(tabId: string, input: { folderId: string; threadId: string }): void {

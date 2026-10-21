@@ -46,7 +46,9 @@ export const updateFolderAppTabs = (input: CleanCoreUpdateFolderAppTabsInput) =>
           case "open": {
             const exists = tabs.panes.some((pane) => pane.id === update.pane.id);
             const panes = exists
-              ? tabs.panes.map((pane) => (pane.id === update.pane.id ? update.pane : pane))
+              ? tabs.panes.map((pane) =>
+                  pane.id === update.pane.id ? { ...pane, ...update.pane } : pane,
+                )
               : [...tabs.panes, update.pane];
             next = { panes };
             break;
@@ -74,10 +76,41 @@ export const updateFolderAppTabs = (input: CleanCoreUpdateFolderAppTabsInput) =>
             next = {
               ...tabs,
               panes: tabs.panes.map((pane) =>
-                pane.id === update.paneId ? { ...pane, appRoute: update.appRoute } : pane,
+                pane.id === update.paneId
+                  ? (() => {
+                      const { appState: _previousState, ...rest } = pane;
+                      return {
+                        ...rest,
+                        appRoute: update.appRoute,
+                        ...(update.appState === undefined ? {} : { appState: update.appState }),
+                      };
+                    })()
+                  : pane,
               ),
             };
             break;
+          case "present":
+            if (!tabs.panes.some((pane) => pane.id === update.paneId))
+              return yield* Effect.fail(new Error("The App tab is not open in this folder."));
+            next = {
+              ...tabs,
+              panes: tabs.panes.map((pane) => {
+                if (pane.id !== update.paneId) return pane;
+                const { title: _previousTitle, ...rest } = pane;
+                return { ...rest, ...(update.title === undefined ? {} : { title: update.title }) };
+              }),
+            };
+            break;
+          case "stamp": {
+            const ids = new Set(update.paneIds);
+            next = {
+              ...tabs,
+              panes: tabs.panes.map((pane) =>
+                ids.has(pane.id) ? { ...pane, lastVisibleAt: update.at } : pane,
+              ),
+            };
+            break;
+          }
         }
         if (JSON.stringify(next) === JSON.stringify(tabs))
           return { result: previous, changed: false };
