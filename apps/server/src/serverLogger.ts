@@ -3,10 +3,12 @@ import * as Layer from "effect/Layer";
 import { ProcessLogFile } from "@penkra/shared/logging";
 
 import { ServerConfig } from "./config";
+import { setFileLogSink } from "./logger";
 import { ensurePrivateDirectorySync, ensurePrivateFileSync } from "./privatePathPermissions";
 
 export function makeServerFileLogger(serverLogPath: string): Logger.Logger<unknown, void> {
   const sink = new ProcessLogFile(serverLogPath);
+  setFileLogSink(sink);
   return Logger.map(Logger.formatSimple, (line) => sink.write(`${line}\n`));
 }
 

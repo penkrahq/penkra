@@ -4,6 +4,13 @@ type LogLevel = "debug" | "info" | "warn" | "error" | "event";
 
 type LogContext = Record<string, unknown>;
 
+let fileLogSink: { write(line: string): void } | undefined;
+
+/** The server installs its one process log sink before starting provider services. */
+export function setFileLogSink(sink: typeof fileLogSink): void {
+  fileLogSink = sink;
+}
+
 const ANSI = {
   reset: "\u001b[0m",
   dim: "\u001b[2m",
@@ -38,7 +45,7 @@ function colorize(value: string, color: string, enabled: boolean) {
 }
 
 function timeStamp() {
-  return new Date().toISOString().slice(11, 23);
+  return new Date().toISOString();
 }
 
 function formatValue(value: unknown) {
@@ -71,10 +78,14 @@ function formatContext(context: LogContext | undefined) {
 
 function write(level: LogLevel, scope: string, message: string, context?: LogContext) {
   const colorEnabled = useColors();
-  const ts = colorize(timeStamp(), ANSI.dim, colorEnabled);
+  const timestamp = timeStamp();
+  const ts = colorize(timestamp, ANSI.dim, colorEnabled);
   const levelLabel = colorize(LEVEL_LABEL[level], LEVEL_COLOR[level], colorEnabled);
   const contextText = formatContext(context);
   const line = `${ts} ${levelLabel} [${scope}] ${message}${contextText ? ` ${contextText}` : ""}`;
+  fileLogSink?.write(
+    `${timestamp} ${LEVEL_LABEL[level]} [${scope}] ${message}${contextText ? ` ${contextText}` : ""}\n`,
+  );
 
   if (level === "warn") {
     console.warn(line);
