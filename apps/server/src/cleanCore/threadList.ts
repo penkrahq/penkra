@@ -35,6 +35,7 @@ export interface ThreadSummaryRecord {
   readonly latestTurn: CleanCoreLatestTurn | null;
   readonly lastError: string | null;
   readonly queue: string;
+  readonly saved: string;
   readonly createdBy: string;
   readonly createdByThreadId: ThreadId | null;
   readonly sidebarSortOrder: number | null;
@@ -88,6 +89,7 @@ export const THREAD_SUMMARY_COLUMNS = `
           ORDER BY item.seq DESC LIMIT 1) AS "latestTurnJson",
         last_error AS "lastError",
         queue,
+        saved,
         created_by AS "createdBy",
         created_by_thread_id AS "createdByThreadId",
         sidebar_sort_order AS "sidebarSortOrder",

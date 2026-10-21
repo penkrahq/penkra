@@ -15,6 +15,7 @@ const STATIC_KEYBINDING_COMMANDS = [
   "space.jump.8",
   "space.jump.9",
   "composer.focus.toggle",
+  "composer.saveForLater",
   "modelPicker.toggle",
   "model.next",
   "model.previous",

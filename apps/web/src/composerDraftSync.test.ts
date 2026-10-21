@@ -61,6 +61,47 @@ describe("shouldApplyRemoteDraft", () => {
 });
 
 describe("createComposerDraftSync", () => {
+  it("a second flush waits for a draft write already in flight", async () => {
+    const api = makeApi({ draft: null, updatedAt: null });
+    let entered!: () => void;
+    let release!: () => void;
+    const started = new Promise<void>((resolve) => {
+      entered = resolve;
+    });
+    const held = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const write = api.setThreadDraft;
+    api.setThreadDraft = async (input) => {
+      entered();
+      await held;
+      return write(input);
+    };
+    const sync = createComposerDraftSync({
+      api,
+      threadId: THREAD_ID,
+      applyServerDraft: vi.fn(),
+      serialize,
+      deserialize,
+      now: () => "2026-10-20T12:00:00.000Z",
+    });
+    await sync.start();
+    sync.setLocalDraft({ ...createEmptyThreadDraft(), prompt: "Save this" });
+    const first = sync.flush();
+    await started;
+    let settled = false;
+    const second = sync.flush().then(() => {
+      settled = true;
+    });
+    // Drain independent promise jobs, not a timer or polling loop.
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(settled).toBe(false);
+    release();
+    await Promise.all([first, second]);
+    expect(sync.draftUpdatedAt()).toBe("2026-10-20T12:00:00.000Z");
+    sync.stop();
+  });
   it("applies a newer server draft on start", async () => {
     const api = makeApi({
       draft: JSON.stringify({ prompt: "from the server" }),

@@ -19,6 +19,11 @@ describe("buildShortcutSheetSections", () => {
     expect(sections[0]?.entries.some((entry) => entry.id === "shortcuts.show")).toBe(true);
     expect(
       sections[0]?.entries.some(
+        (entry) => entry.id === "composer.saveForLater" && entry.shortcutLabel === "⌘S",
+      ),
+    ).toBe(true);
+    expect(
+      sections[0]?.entries.some(
         (entry) => entry.id === "thread.jump.1" && entry.shortcutLabel === "⌘1",
       ),
     ).toBe(true);

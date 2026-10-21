@@ -91,6 +91,7 @@ export async function deserializeComposerThreadDraft(
 }
 
 export interface ComposerDraftSync {
+  readonly threadId: ThreadId;
   /** Timestamp of the draft read or committed by this controller. */
   draftUpdatedAt(): string | null;
   /** Load the server draft and subscribe to pushes. */
@@ -132,6 +133,8 @@ export function createComposerDraftSync(input: {
   // The latest local payload awaiting a debounced save (`undefined` = nothing).
   let pendingPayload: string | null | undefined;
   let pendingTimer: ReturnType<typeof setTimeout> | null = null;
+  let writing: Promise<void> = Promise.resolve();
+  let writeInFlight = false;
 
   const applyRemote = async (payload: string | null, updatedAt: string | null) => {
     appliedUpdatedAt = updatedAt;
@@ -150,7 +153,7 @@ export function createComposerDraftSync(input: {
       input.applyServerDraft(draft);
   };
 
-  const flush = async (): Promise<void> => {
+  const writePending = async (): Promise<void> => {
     if (pendingTimer !== null) {
       clearTimer(pendingTimer);
       pendingTimer = null;
@@ -160,6 +163,7 @@ export function createComposerDraftSync(input: {
     pendingPayload = undefined;
     knownPayload = payload;
     const updatedAt = now();
+    writeInFlight = true;
     try {
       const saved = await input.api.setThreadDraft({
         threadId: input.threadId,
@@ -169,11 +173,17 @@ export function createComposerDraftSync(input: {
       if (!disposed) appliedUpdatedAt = saved.draftUpdatedAt ?? updatedAt;
     } catch {
       // A failed save keeps the draft local; the next edit retries.
+    } finally {
+      writeInFlight = false;
     }
+  };
+  const flush = (): Promise<void> => {
+    writing = writing.then(writePending);
+    return writing;
   };
 
   const load = async () => {
-    if (pendingPayload !== undefined) await flush();
+    if (pendingPayload !== undefined || writeInFlight) await flush();
     const remote = await input.api.getThreadDraft({ threadId: input.threadId });
     if (disposed) return;
     // Input composed while this read was pending wins over its earlier snapshot.
@@ -194,6 +204,7 @@ export function createComposerDraftSync(input: {
   });
 
   return {
+    threadId: input.threadId,
     start: load,
     draftUpdatedAt: () => appliedUpdatedAt,
     setLocalDraft: (draft) => {
@@ -227,7 +238,11 @@ export function useComposerDraftSync(input: {
   readonly threadId: ThreadId | null;
   readonly draft: ComposerThreadDraftState;
   readonly applyServerDraft: (threadId: ThreadId, draft: ComposerThreadDraftState) => void;
-}): { refresh: () => Promise<void>; draftUpdatedAt: () => string | null } {
+}): {
+  refresh: () => Promise<void>;
+  draftUpdatedAt: () => string | null;
+  flush: (draft: ComposerThreadDraftState, threadId: ThreadId) => Promise<string | null>;
+} {
   const controllerRef = useRef<ComposerDraftSync | null>(null);
   const applyRef = useRef(input.applyServerDraft);
   applyRef.current = input.applyServerDraft;
@@ -256,5 +271,13 @@ export function useComposerDraftSync(input: {
     await controllerRef.current?.start();
   }, []);
   const draftUpdatedAt = useCallback(() => controllerRef.current?.draftUpdatedAt() ?? null, []);
-  return { refresh, draftUpdatedAt };
+  const flush = useCallback(async (draft: ComposerThreadDraftState, expectedThreadId: ThreadId) => {
+    const controller = controllerRef.current;
+    if (!controller) return null;
+    if (controller.threadId !== expectedThreadId) throw new Error("The draft changed. Try again.");
+    controller.setLocalDraft(draft);
+    await controller.flush();
+    return controller.draftUpdatedAt();
+  }, []);
+  return { refresh, draftUpdatedAt, flush };
 }

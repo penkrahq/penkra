@@ -103,6 +103,8 @@ import {
   CleanCoreQueuedMessageInput,
   CleanCoreQueuedMessageResult,
   CleanCoreEditQueuedMessageInput,
+  CleanCoreSavePromptInput,
+  SavedRestoreDraftNotEmptyError,
   QueuedEditDraftNotEmptyError,
   CleanCoreGetThreadShellInput,
   CleanCoreGetNavigationResult,
@@ -437,6 +439,21 @@ export const WsCleanCoreEditQueuedMessageRpc = Rpc.make(WS_METHODS.cleanCoreEdit
   success: CleanCoreQueuedMessageResult,
   error: Schema.Union([WsRpcError, QueuedEditDraftNotEmptyError]),
 });
+export const WsCleanCoreSavePromptRpc = Rpc.make(WS_METHODS.cleanCoreSavePrompt, {
+  payload: CleanCoreSavePromptInput,
+  success: CleanCoreQueuedMessageResult,
+  error: WsRpcError,
+});
+export const WsCleanCoreRestoreSavedPromptRpc = Rpc.make(WS_METHODS.cleanCoreRestoreSavedPrompt, {
+  payload: CleanCoreEditQueuedMessageInput,
+  success: CleanCoreQueuedMessageResult,
+  error: Schema.Union([WsRpcError, SavedRestoreDraftNotEmptyError]),
+});
+export const WsCleanCoreDeleteSavedPromptRpc = Rpc.make(WS_METHODS.cleanCoreDeleteSavedPrompt, {
+  payload: CleanCoreQueuedMessageInput,
+  success: CleanCoreQueuedMessageResult,
+  error: WsRpcError,
+});
 export const WsCleanCoreGetNavigationRpc = Rpc.make(WS_METHODS.cleanCoreGetNavigation, {
   payload: Schema.Struct({}),
   success: CleanCoreGetNavigationResult,
@@ -577,6 +594,9 @@ export const WsFeatureRpcGroup = RpcGroup.make(
   WsCleanCoreSteerQueuedRpc,
   WsCleanCoreCancelQueuedMessageRpc,
   WsCleanCoreEditQueuedMessageRpc,
+  WsCleanCoreSavePromptRpc,
+  WsCleanCoreRestoreSavedPromptRpc,
+  WsCleanCoreDeleteSavedPromptRpc,
   WsCleanCoreCreateThreadRpc,
   WsCleanCoreGetFolderAppTabsRpc,
   WsCleanCoreUpdateFolderAppTabsRpc,

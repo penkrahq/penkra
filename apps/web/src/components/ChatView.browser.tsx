@@ -17,6 +17,7 @@ import {
   type CleanCoreThreadItem,
   type CleanCoreOpenQuestion,
   type CleanCoreQueuedMessage,
+  type CleanCoreSavedPrompt,
   type CleanCoreCreateThreadInput,
   type CleanCoreThreadUpdate,
   type OrchestrationThread as ContractThread,
@@ -1517,6 +1518,7 @@ function recordSpaceCreateUpdate(command: unknown): boolean {
 }
 
 const fixtureOpenQuestions = new Map<ThreadId, CleanCoreOpenQuestion>();
+const fixtureSavedPrompts = new Map<ThreadId, CleanCoreSavedPrompt[]>();
 
 function summarizeFixtureThread(
   thread: OrchestrationThread,
@@ -1550,6 +1552,7 @@ function summarizeFixtureThread(
           }
         : null,
     lastError: thread.session?.lastError ?? null,
+    saved: JSON.stringify(fixtureSavedPrompts.get(thread.id) ?? []),
     queue: JSON.stringify(
       (thread.messages ?? [])
         .filter((message) => thread.queuedMessageIds?.includes(message.id))
@@ -1606,6 +1609,38 @@ function resolveWsRpc(body: WsRequestEnvelope["body"]): unknown {
       _tag: WS_METHODS.cleanCoreSendMessage,
     });
     return { ...created, sendResult };
+  }
+  if (tag === WS_METHODS.cleanCoreSavePrompt) {
+    const input = body as unknown as import("@penkra/contracts").CleanCoreSavePromptInput;
+    if ((fixtureDrafts.get(input.threadId)?.draftUpdatedAt ?? null) !== input.draftUpdatedAt)
+      throw new Error("Stale draft fixture");
+    fixtureSavedPrompts.set(input.threadId, [
+      ...(fixtureSavedPrompts.get(input.threadId) ?? []),
+      { ...input.message, savedAt: new Date().toISOString() },
+    ]);
+    fixtureDrafts.set(input.threadId, { draft: null, draftUpdatedAt: new Date().toISOString() });
+    pushCleanCoreThreadChange(input.threadId);
+    return { threadId: input.threadId, messageId: input.message.messageId, removed: true };
+  }
+  if (
+    tag === WS_METHODS.cleanCoreRestoreSavedPrompt ||
+    tag === WS_METHODS.cleanCoreDeleteSavedPrompt
+  ) {
+    const threadId = body.threadId as ThreadId;
+    const saved = fixtureSavedPrompts.get(threadId) ?? [];
+    const entry = saved.find((item) => item.messageId === body.messageId);
+    if (!entry) return { threadId, messageId: body.messageId, removed: false };
+    if (tag === WS_METHODS.cleanCoreRestoreSavedPrompt)
+      fixtureDrafts.set(threadId, {
+        draft: JSON.stringify({ prompt: entry.text, attachments: [], files: [] }),
+        draftUpdatedAt: new Date().toISOString(),
+      });
+    fixtureSavedPrompts.set(
+      threadId,
+      saved.filter((item) => item !== entry),
+    );
+    pushCleanCoreThreadChange(threadId);
+    return { threadId, messageId: body.messageId, removed: true };
   }
   if (tag === WS_METHODS.cleanCoreCreateThread) {
     const input = body as unknown as CleanCoreCreateThreadInput;
@@ -3550,6 +3585,7 @@ describe("ChatView timeline estimator parity (full app)", () => {
 
   beforeEach(async () => {
     fixtureDrafts.clear();
+    fixtureSavedPrompts.clear();
     unsubscribeCoreFixtureStore?.();
     cleanCoreSidebarChangeEmitters.clear();
     cleanCoreNavigationChangeEmitters.clear();
@@ -3629,6 +3665,37 @@ describe("ChatView timeline estimator parity (full app)", () => {
     unsubscribeCoreFixtureStore?.();
     unsubscribeCoreFixtureStore = undefined;
     document.body.innerHTML = "";
+  });
+
+  it("saves the composer with its shortcut and restores it without starting a provider", async () => {
+    const mounted = await mountChatView({
+      viewport: DEFAULT_VIEWPORT,
+      snapshot: createSnapshotForTargetUser({
+        targetMessageId: MessageId.makeUnsafe("saved-prompt-history"),
+        targetText: "Earlier message",
+      }),
+    });
+    try {
+      const editor = await waitForComposerEditor();
+      await userEvent.type(editor, "A prompt for later");
+      dispatchConfiguredShortcut(editor, { key: "s" });
+      await expect.poll(() => fixtureSavedPrompts.get(THREAD_ID)?.length).toBe(1);
+      await expect.poll(() => editor.textContent).toBe("");
+      await expect.element(page.getByTestId("composer-saved-prompts-badge")).toHaveTextContent("1");
+      expect(
+        wsRequests.some(
+          (request) =>
+            request._tag === WS_METHODS.cleanCoreSendMessage ||
+            request._tag === WS_METHODS.cleanCoreCreateAndSendThread,
+        ),
+      ).toBe(false);
+      await page.getByTestId("composer-saved-prompts").click();
+      await page.getByRole("option").click();
+      await expect.poll(() => editor.textContent).toBe("A prompt for later");
+      await expect.poll(() => fixtureSavedPrompts.get(THREAD_ID)?.length).toBe(0);
+    } finally {
+      await mounted.cleanup();
+    }
   });
 
   it("renders a folder as one full-height thread-tab row with lifecycle status and safe dividers", async () => {

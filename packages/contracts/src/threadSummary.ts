@@ -42,6 +42,7 @@ export const CleanCoreThreadSummary = Schema.Struct({
   latestTurn: Schema.NullOr(CleanCoreLatestTurn),
   lastError: Schema.NullOr(Schema.String),
   queue: Schema.String,
+  saved: Schema.String,
   createdBy: Schema.String,
   createdByThreadId: Schema.NullOr(ThreadId),
   sidebarSortOrder: Schema.NullOr(Schema.Number),

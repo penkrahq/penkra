@@ -7,8 +7,7 @@ import {
   MessageId,
   ThreadId,
   CleanCoreThreadRuntime,
-  QUEUED_MESSAGE_EDIT_NONEMPTY_DRAFT_ERROR,
-  QueuedEditDraftNotEmptyError,
+  type CleanCoreSavePromptInput,
   type CleanCoreInterruptResult,
   type CleanCoreSendAdmission,
   ProviderConnectionId,
@@ -26,7 +25,7 @@ import {
 } from "../managedAttachmentPrincipal.ts";
 import { ThreadPublisher } from "./ThreadPublisher.ts";
 import { ThreadLanes } from "./ThreadLanes.ts";
-import { nextCommittedDraftTimestamp } from "./threadDraftTimestamp.ts";
+import { savePrompt, moveIntoDraft, deleteSavedPrompt } from "./savedPrompts.ts";
 import { resolveDraftSendSelection } from "./threadDraft.ts";
 import {
   deliverMessage,
@@ -64,6 +63,18 @@ export class ThreadSender extends ServiceMap.Service<
       messageId: string;
     }) => Effect.Effect<{ threadId: ThreadId; messageId: string; removed: boolean }, Error>;
     readonly getRuntime: (threadId: ThreadId) => Effect.Effect<CleanCoreThreadRuntime, Error>;
+    readonly savePrompt: (
+      input: CleanCoreSavePromptInput,
+    ) => Effect.Effect<{ threadId: ThreadId; messageId: string; removed: boolean }, Error>;
+    readonly restoreSavedPrompt: (input: {
+      threadId: ThreadId;
+      messageId: string;
+      updatedAt: string;
+    }) => Effect.Effect<{ threadId: ThreadId; messageId: string; removed: boolean }, Error>;
+    readonly deleteSavedPrompt: (input: {
+      threadId: ThreadId;
+      messageId: string;
+    }) => Effect.Effect<{ threadId: ThreadId; messageId: string; removed: boolean }, Error>;
     readonly interrupt: (threadId: ThreadId) => Effect.Effect<CleanCoreInterruptResult, Error>;
   }
 >()("penkra/cleanCore/ThreadSender") {}
@@ -78,13 +89,6 @@ export const makeThreadSender = Effect.gen(function* () {
   const provider = yield* ProviderService;
   const directory = yield* ProviderSessionDirectory;
   const managedAttachments = yield* ManagedAttachmentRepository;
-  const decodeDraftContent = Schema.decodeUnknownSync(
-    Schema.Struct({
-      prompt: Schema.String,
-      attachments: Schema.Array(Schema.Unknown),
-      files: Schema.Array(Schema.Unknown),
-    }),
-  );
   const decodeQueue = Schema.decodeUnknownSync(Schema.Array(QueuedMessage));
   const attachmentPrincipal = (input: Parameters<SendDriver["dispatch"]>[0]) =>
     Effect.gen(function* () {
@@ -274,10 +278,7 @@ export const makeThreadSender = Effect.gen(function* () {
     ),
     Effect.forkIn(scope),
   );
-  const removeQueued = (
-    input: { threadId: ThreadId; messageId: string },
-    draftUpdatedAt: string | null,
-  ) =>
+  const removeQueued = (input: { threadId: ThreadId; messageId: string }) =>
     withLane(
       input.threadId,
       Effect.gen(function* () {
@@ -286,7 +287,6 @@ export const makeThreadSender = Effect.gen(function* () {
             const queue = yield* readThreadQueue(input.threadId);
             const message = queue.find((message) => message.messageId === input.messageId);
             if (message === undefined) {
-              if (draftUpdatedAt !== null) return null;
               const deleted = yield* sql`DELETE FROM thread_items WHERE thread_id=${input.threadId}
                 AND source_id=${input.messageId} AND kind='user' AND status='failed' RETURNING seq`;
               if (deleted.length === 0) return null;
@@ -297,46 +297,7 @@ export const makeThreadSender = Effect.gen(function* () {
               return { wasHead: false };
             }
             const remaining = queue.filter((message) => message.messageId !== input.messageId);
-            if (draftUpdatedAt === null)
-              yield* sql`UPDATE threads SET queue = ${JSON.stringify(remaining)}, updated_at = ${new Date().toISOString()} WHERE id = ${input.threadId}`;
-            else {
-              const stored = yield* sql<{
-                draft: string | null;
-                draftUpdatedAt: string | null;
-              }>`SELECT draft,draft_updated_at AS "draftUpdatedAt" FROM threads WHERE id = ${input.threadId}`;
-              if (stored[0]!.draft !== null) {
-                const content = decodeDraftContent(JSON.parse(stored[0]!.draft));
-                if (
-                  content.prompt.length > 0 ||
-                  content.attachments.length > 0 ||
-                  content.files.length > 0
-                )
-                  return yield* Effect.fail(
-                    new QueuedEditDraftNotEmptyError({
-                      message: QUEUED_MESSAGE_EDIT_NONEMPTY_DRAFT_ERROR,
-                    }),
-                  );
-              }
-              const reference = (attachment: { id: string; name: string; mimeType: string }) => ({
-                id: attachment.id,
-                name: attachment.name,
-                mimeType: attachment.mimeType,
-              });
-              const draft = JSON.stringify({
-                ...(stored[0]!.draft === null ? {} : JSON.parse(stored[0]!.draft)),
-                prompt: message.text,
-                attachments: message.attachments.filter((a) => a.type === "image").map(reference),
-                files: message.attachments.filter((a) => a.type === "file").map(reference),
-                assistantSelections: message.attachments.filter(
-                  (a) => a.type === "assistant-selection",
-                ),
-              });
-              const committedAt = nextCommittedDraftTimestamp(
-                stored[0]!.draftUpdatedAt,
-                draftUpdatedAt,
-              );
-              yield* sql`UPDATE threads SET queue = ${JSON.stringify(remaining)}, draft = ${draft}, draft_updated_at = ${committedAt}, updated_at = ${committedAt} WHERE id = ${input.threadId}`;
-            }
+            yield* sql`UPDATE threads SET queue = ${JSON.stringify(remaining)}, updated_at = ${new Date().toISOString()} WHERE id = ${input.threadId}`;
             return { wasHead: queue[0]?.messageId === input.messageId };
           }),
         );
@@ -400,9 +361,51 @@ export const makeThreadSender = Effect.gen(function* () {
           after = page[page.length - 1]!.id;
         }
       }),
-    cancelQueued: (input: { threadId: ThreadId; messageId: string }) => removeQueued(input, null),
+    cancelQueued: (input: { threadId: ThreadId; messageId: string }) => removeQueued(input),
     editQueued: (input: { threadId: ThreadId; messageId: string; updatedAt: string }) =>
-      removeQueued({ threadId: input.threadId, messageId: input.messageId }, input.updatedAt),
+      withLane(
+        input.threadId,
+        Effect.gen(function* () {
+          const result = yield* moveIntoDraft("queue", input);
+          if (result.removed) {
+            publisher.publish({ threadId: input.threadId });
+            if (result.wasHead) yield* Effect.forkIn(deliverHead(input.threadId, true), scope);
+          }
+          return result;
+        }).pipe(Effect.provideService(SqlClient.SqlClient, sql)),
+      ),
+    savePrompt: (input: CleanCoreSavePromptInput) =>
+      withLane(
+        input.threadId,
+        savePrompt(input, driver.claimAttachments).pipe(
+          Effect.tap(() => Effect.sync(() => publisher.publish({ threadId: input.threadId }))),
+          Effect.provideService(SqlClient.SqlClient, sql),
+        ),
+      ),
+    restoreSavedPrompt: (input: { threadId: ThreadId; messageId: string; updatedAt: string }) =>
+      withLane(
+        input.threadId,
+        moveIntoDraft("saved", input).pipe(
+          Effect.tap((result) =>
+            Effect.sync(() => {
+              if (result.removed) publisher.publish({ threadId: input.threadId });
+            }),
+          ),
+          Effect.provideService(SqlClient.SqlClient, sql),
+        ),
+      ),
+    deleteSavedPrompt: (input: { threadId: ThreadId; messageId: string }) =>
+      withLane(
+        input.threadId,
+        deleteSavedPrompt(input).pipe(
+          Effect.tap((result) =>
+            Effect.sync(() => {
+              if (result.removed) publisher.publish({ threadId: input.threadId });
+            }),
+          ),
+          Effect.provideService(SqlClient.SqlClient, sql),
+        ),
+      ),
     getRuntime,
     interrupt: (threadId: ThreadId) =>
       withLane(

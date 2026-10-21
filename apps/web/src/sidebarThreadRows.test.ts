@@ -27,6 +27,7 @@ function row(queue: string, updatedAt: string): CleanCoreThreadSummary {
     activeTurnId: null,
     lastError: null,
     queue,
+    saved: "[]",
     createdBy: "user",
     createdByThreadId: null,
     sidebarSortOrder: null,

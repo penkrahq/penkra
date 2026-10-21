@@ -156,6 +156,27 @@ export const CleanCoreQueuedMessage = Schema.Struct({
   queuedAt: IsoDateTime,
 });
 export type CleanCoreQueuedMessage = typeof CleanCoreQueuedMessage.Type;
+export const CleanCoreSavedPrompt = Schema.Struct({
+  messageId: MessageId,
+  text: Schema.String,
+  attachments: Schema.Array(ChatAttachment),
+  skills: UserItemData.fields.skills,
+  mentions: UserItemData.fields.mentions,
+  savedAt: IsoDateTime,
+});
+export type CleanCoreSavedPrompt = typeof CleanCoreSavedPrompt.Type;
+export const CleanCoreSavePromptInput = Schema.Struct({
+  threadId: ThreadId,
+  draftUpdatedAt: Schema.NullOr(IsoDateTime),
+  message: Schema.Struct({
+    messageId: MessageId,
+    text: Schema.String,
+    attachments: Schema.Array(ChatAttachment),
+    skills: UserItemData.fields.skills,
+    mentions: UserItemData.fields.mentions,
+  }),
+});
+export type CleanCoreSavePromptInput = typeof CleanCoreSavePromptInput.Type;
 export const CleanCoreSendMessageInput = Schema.Struct({
   threadId: ThreadId,
   draftUpdatedAt: Schema.optional(Schema.NullOr(IsoDateTime)),
@@ -568,6 +589,12 @@ export type CleanCoreInterruptResult = typeof CleanCoreInterruptResult.Type;
 
 export const QUEUED_MESSAGE_EDIT_NONEMPTY_DRAFT_ERROR =
   "Clear or send your message before editing a queued one.";
+export const SAVED_PROMPT_RESTORE_NONEMPTY_DRAFT_ERROR =
+  "Clear or send your message before restoring a saved one.";
+export class SavedRestoreDraftNotEmptyError extends Schema.TaggedErrorClass<SavedRestoreDraftNotEmptyError>()(
+  "SavedRestoreDraftNotEmptyError",
+  { message: Schema.String },
+) {}
 
 export class QueuedEditDraftNotEmptyError extends Schema.TaggedErrorClass<QueuedEditDraftNotEmptyError>()(
   "QueuedEditDraftNotEmptyError",
