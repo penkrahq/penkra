@@ -139,6 +139,11 @@ const AVAILABLE_NOW_DEFINITIONS: readonly ShortcutDefinition[] = [
     description: "Focus or blur the chat prompt composer.",
   },
   {
+    command: "composer.saveForLater",
+    label: "Save for later",
+    description: "Save the composer's content to this thread's Saved list.",
+  },
+  {
     command: "chat.visible.previous",
     label: "Previous visible thread",
     description: "Cycle to the previous thread that is currently visible in the sidebar.",

@@ -83,6 +83,7 @@ function row(id: ThreadId, title: string): CleanCoreThreadSummary {
     activeTurnId: null,
     lastError: null,
     queue: "[]",
+    saved: "[]",
     createdBy: "user",
     createdByThreadId: null,
     sidebarSortOrder: null,

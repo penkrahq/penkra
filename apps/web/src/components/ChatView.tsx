@@ -5,6 +5,9 @@ import { useThreadStop } from "../hooks/useThreadStop";
 import { useAttachmentPreviewHandoffs } from "../hooks/useAttachmentPreviewHandoffs";
 import {
   CleanCoreQueuedMessage,
+  CleanCoreSavedPrompt,
+  SavedRestoreDraftNotEmptyError,
+  SAVED_PROMPT_RESTORE_NONEMPTY_DRAFT_ERROR,
   QUEUED_MESSAGE_EDIT_NONEMPTY_DRAFT_ERROR,
   QueuedEditDraftNotEmptyError,
   type CleanCoreThreadSummary,
@@ -203,7 +206,7 @@ import { cn, isMacPlatform, randomUUID } from "~/lib/utils";
 import { toastManager } from "./ui/toast";
 import { newCommandId, newMessageId } from "~/lib/utils";
 import { readNativeApi, ensureNativeApi } from "~/nativeApi";
-import { applyThreadCreationResponse } from "~/lib/threadCreatePromotion";
+import { applyThreadCreationResponse, promoteThreadCreate } from "~/lib/threadCreatePromotion";
 import {} from "~/lib/threadBootstrap";
 import { readFavoriteModelSlugs } from "~/lib/modelFavorites";
 import {
@@ -317,7 +320,6 @@ import {
 
 import { ComposerExtrasMenu } from "./chat/ComposerExtrasMenu";
 import { ComposerSavedPrompts } from "./chat/ComposerSavedPrompts";
-import { useComposerSavedPromptsDesignPreview } from "./chat/composerSavedPromptsDesignPreview";
 import { ComposerPendingUserInputPanel } from "./middle-panel/composer-user-question/ComposerPendingUserInputPanel";
 import { ButtonSend } from "./middle-panel/button-send/ButtonSend";
 import { ComposerActions } from "./middle-panel/composer-actions/ComposerActions";
@@ -731,12 +733,15 @@ function ChatViewContent({
   const setComposerDraftPrompt = useComposerDraftStore((store) => store.setPrompt);
   // Keep the one per-thread composer draft on the clean core (0.14.4 design 2.6).
   const applyServerThreadDraft = useComposerDraftStore((store) => store.applyServerThreadDraft);
-  const { refresh: refreshCommittedDraft, draftUpdatedAt: readDraftUpdatedAt } =
-    useComposerDraftSync({
-      threadId: canonicalThread === null ? null : threadId,
-      draft: composerDraft,
-      applyServerDraft: applyServerThreadDraft,
-    });
+  const {
+    refresh: refreshCommittedDraft,
+    draftUpdatedAt: readDraftUpdatedAt,
+    flush: flushCommittedDraft,
+  } = useComposerDraftSync({
+    threadId: canonicalThread === null ? null : threadId,
+    draft: composerDraft,
+    applyServerDraft: applyServerThreadDraft,
+  });
   const setComposerDraftPromptHistorySavedDraft = useComposerDraftStore(
     (store) => store.setPromptHistorySavedDraft,
   );
@@ -2200,7 +2205,7 @@ function ChatViewContent({
   >(() => new Set());
   const runQueuedActionWhilePending = useCallback(
     <A,>(
-      queuedTurn: CleanCoreQueuedMessage,
+      queuedTurn: Pick<CleanCoreQueuedMessage, "messageId">,
       _action: "steer" | "delete" | "edit",
       operation: () => Promise<A>,
     ): Promise<A | undefined> => {
@@ -3981,6 +3986,7 @@ function ChatViewContent({
       queuedTurn?: ComposerSubmission,
     ) => Promise<boolean>
   >(async () => false);
+  const savePromptRef = useRef<() => Promise<boolean>>(async () => false);
 
   const cancelQueuedMessage = useCallback(
     async (message: Pick<CleanCoreQueuedMessage, "messageId">) => {
@@ -4022,15 +4028,17 @@ function ChatViewContent({
   // handler does not capture later-declared bindings and bail out React Compiler.
   const lateComposerSendHandlersRef = useRef<LateComposerSendHandlers | null>(null);
 
-  const onSend = async (
+  const submitComposer = async (
+    intent: "send" | "save",
     e?: { preventDefault: () => void },
     dispatchMode: "queue" | "steer" = "queue",
   ): Promise<boolean> => {
+    const saving = intent === "save";
     e?.preventDefault();
     const api = readNativeApi();
     const lateSendHandlers = lateComposerSendHandlersRef.current;
     if (!api || !lateSendHandlers || !activeThread || isVoiceTranscribing) return false;
-    if (activePendingProgress) {
+    if (activePendingProgress && !saving) {
       const activeQuestion = activePendingProgress.activeQuestion;
       const liveComposerSnapshot = composerEditorRef.current?.readSnapshot() ?? null;
       const livePendingAnswerText = liveComposerSnapshot?.value ?? promptRef.current;
@@ -4097,6 +4105,30 @@ function ChatViewContent({
         useComposerDraftStore.getState().draftsByThreadId[threadIdForSend] ?? composerDraft;
       const sentDraftUpdatedAt = readDraftUpdatedAt();
       sentComposerDraft = { ...capturedDraft, prompt: promptForSend };
+      const capturedSavedPayload = JSON.stringify(
+        captureComposerPromptHistorySavedDraft({
+          threadId: threadIdForSend,
+          draft: capturedDraft,
+          prompt: promptForSend,
+        }),
+      );
+      const matchesSavedSnapshot = () => {
+        const latest = useComposerDraftStore.getState().draftsByThreadId[threadIdForSend];
+        if (!latest) return false;
+        const livePrompt =
+          promptRefThreadId.current === threadIdForSend
+            ? (composerEditorRef.current?.readSnapshot()?.value ?? promptRef.current)
+            : latest.prompt;
+        return (
+          JSON.stringify(
+            captureComposerPromptHistorySavedDraft({
+              threadId: threadIdForSend,
+              draft: latest,
+              prompt: livePrompt,
+            }),
+          ) === capturedSavedPayload
+        );
+      };
       const pendingBlobAttachments = findPendingBlobComposerAttachments({
         persistedAttachments: capturedDraft.persistedAttachments,
         images: composerImagesForSend,
@@ -4119,7 +4151,7 @@ function ChatViewContent({
         initialSendState.sendableTerminalContexts.length === 0 &&
         initialSendState.sendablePastedTexts.length === 0 &&
         selectedComposerMentionsForSend.length === 0;
-      if (initialHasNoStructuredComposerContext) {
+      if (initialHasNoStructuredComposerContext && !saving) {
         if (initialSendState.trimmedPrompt.startsWith("/")) {
           let slashCommandFailed = false;
           const handledSlashCommand = await lateSendHandlers
@@ -4151,22 +4183,24 @@ function ChatViewContent({
         return false;
       }
 
-      cancelPendingPromptPersistence();
-      composerEditorRef.current?.clear();
-      clearComposerDraftContent(threadIdForSend, {
-        preservePreviewUrls: true,
-        preservePersistedAssets: true,
-      });
-      promptRef.current = "";
-      setComposerCursor(0);
-      setComposerTrigger(null);
-      composerCleared = true;
+      if (!saving) {
+        cancelPendingPromptPersistence();
+        composerEditorRef.current?.clear();
+        clearComposerDraftContent(threadIdForSend, {
+          preservePreviewUrls: true,
+          preservePersistedAssets: true,
+        });
+        promptRef.current = "";
+        setComposerCursor(0);
+        setComposerTrigger(null);
+        composerCleared = true;
+      }
 
       if (pendingBlobAttachments.length > 0) {
         const hydrated = await hydratePendingBlobComposerAttachments(pendingBlobAttachments);
         composerImagesForSend = [...composerImagesForSend, ...hydrated];
       }
-      if (selectedConnectionIdForSend === undefined) {
+      if (selectedConnectionIdForSend === undefined && !saving) {
         // A managed login may complete while Settings is closing or unmounted,
         // before its cache invalidation reaches this already-mounted composer.
         // Re-read the authoritative Space snapshot at the admission boundary;
@@ -4224,7 +4258,7 @@ function ChatViewContent({
       // A first turn may omit the Connection and let the server resolve the
       // Space's persisted default (or declared anonymous route). Once a harness
       // has started, however, the exact durable binding remains mandatory.
-      if (selectedConnectionIdForSend === undefined && hasThreadStarted) {
+      if (selectedConnectionIdForSend === undefined && hasThreadStarted && !saving) {
         setThreadError(activeThread.id, "Choose a Connection before sending this message.");
         return false;
       }
@@ -4263,7 +4297,7 @@ function ChatViewContent({
         return false;
       }
 
-      window.desktopBridge?.threadHome?.send({ threadId: threadIdForSend });
+      if (!saving) window.desktopBridge?.threadHome?.send({ threadId: threadIdForSend });
       const messageIdForSend = newMessageId();
       const messageCreatedAt = new Date().toISOString();
       let firstComposerImageNameForTitle: string | null = null;
@@ -4341,13 +4375,14 @@ function ChatViewContent({
         assistantSelections: composerAssistantSelectionsSnapshot,
       });
 
-      handoffAttachmentPreviews(
-        messageIdForSend,
-        composerImagesSnapshot
-          .map((image) => image.previewUrl)
-          .filter((url) => url.startsWith("blob:")),
-      );
-      armTranscriptAutoFollow(threadIdForSend);
+      if (!saving)
+        handoffAttachmentPreviews(
+          messageIdForSend,
+          composerImagesSnapshot
+            .map((image) => image.previewUrl)
+            .filter((url) => url.startsWith("blob:")),
+        );
+      if (!saving) armTranscriptAutoFollow(threadIdForSend);
       setThreadError(threadIdForSend, null);
       if (expiredTerminalContextCount > 0) {
         const copy = buildExpiredTerminalContextToastCopy(expiredTerminalContextCount, "omitted");
@@ -4362,11 +4397,12 @@ function ChatViewContent({
         selectedModelSelectionForSend.options,
       );
 
-      rememberCustomBinaryPathForDispatch({
-        threadId: threadIdForSend,
-        provider: selectedModelSelectionForSend.provider,
-        providerOptions: providerOptionsForDispatchForSend,
-      });
+      if (!saving)
+        rememberCustomBinaryPathForDispatch({
+          threadId: threadIdForSend,
+          provider: selectedModelSelectionForSend.provider,
+          providerOptions: providerOptionsForDispatchForSend,
+        });
       await stagedTurnAttachments.runWithDispatch(async (attachments) => {
         const send: Omit<CleanCoreUserSendMessageInput, "threadId"> = {
           draftUpdatedAt: sentDraftUpdatedAt,
@@ -4397,6 +4433,57 @@ function ChatViewContent({
             : { connectionId: selectedConnectionIdForSend }),
           dispatchMode,
         };
+        if (saving) {
+          if (isLocalDraftThread) {
+            const promoted = await promoteThreadCreate(
+              {
+                creator: { kind: "user" },
+                connection:
+                  selectedConnectionIdForSend === undefined
+                    ? { kind: "default" }
+                    : { kind: "selected", connectionId: selectedConnectionIdForSend },
+                threadId: threadIdForSend,
+                folderId: targetFolderIdForSend,
+                title,
+                modelSelection: threadCreateModelSelection,
+                runtimeMode: nextRuntimeModeForSend,
+                createdAt: activeThread.createdAt,
+              },
+              api,
+            );
+            if (promoted === "unavailable") failChatOperation("The app is not connected.");
+          }
+          if (!matchesSavedSnapshot()) failChatOperation("The draft changed. Try again.");
+          const savedDraftUpdatedAt = await flushCommittedDraft(
+            sentComposerDraft!,
+            threadIdForSend,
+          );
+          if (!matchesSavedSnapshot()) failChatOperation("The draft changed. Try again.");
+          const result = await api.cleanCore.savePrompt({
+            threadId: threadIdForSend,
+            draftUpdatedAt: savedDraftUpdatedAt,
+            message: {
+              messageId: send.message.messageId,
+              text: send.message.text,
+              attachments: send.message.attachments,
+              ...(send.skills === undefined ? {} : { skills: send.skills }),
+              ...(send.mentions === undefined ? {} : { mentions: send.mentions }),
+            },
+          });
+          // A later local edit is a new draft, not part of the saved snapshot.
+          if (matchesSavedSnapshot()) {
+            cancelPendingPromptPersistence();
+            clearComposerDraftContent(threadIdForSend);
+            if (promptRefThreadId.current === threadIdForSend) {
+              composerEditorRef.current?.clear();
+              promptRef.current = "";
+              setComposerCursor(0);
+              setComposerTrigger(null);
+              await refreshCommittedDraft();
+            }
+          }
+          return result;
+        }
         if (!isLocalDraftThread)
           return api.cleanCore.sendMessage({ ...send, threadId: threadIdForSend });
         setAcceptedFirstMessage({
@@ -4432,7 +4519,7 @@ function ChatViewContent({
       });
 
       // Re-read the committed compare-and-clear through the draft controller.
-      if (promptRefThreadId.current === threadIdForSend) await refreshCommittedDraft();
+      if (!saving && promptRefThreadId.current === threadIdForSend) await refreshCommittedDraft();
       if (promptRefThreadId.current === threadIdForSend) scheduleComposerFocus();
       return true;
     })()
@@ -4470,6 +4557,31 @@ function ChatViewContent({
         setAdmittingThreadIds(new Set(admittingThreadsRef.current));
       });
   };
+
+  const onSend = (e?: { preventDefault: () => void }, dispatchMode: "queue" | "steer" = "queue") =>
+    submitComposer("send", e, dispatchMode);
+
+  useEffect(() => {
+    const handler = (event: globalThis.KeyboardEvent) => {
+      if (
+        event.defaultPrevented ||
+        resolveShortcutCommand(event, keybindings, { context: {} }) !== "composer.saveForLater"
+      )
+        return;
+      const target = event.target;
+      const transcript = transcriptListRef.current?.getScrollableNode?.();
+      if (
+        !eventTargetsComposer(event, composerFormRef.current) &&
+        !(target instanceof Node && transcript?.contains(target))
+      )
+        return;
+      event.preventDefault();
+      event.stopPropagation();
+      void savePromptRef.current();
+    };
+    window.addEventListener("keydown", handler, { capture: true });
+    return () => window.removeEventListener("keydown", handler, { capture: true });
+  }, [keybindings]);
 
   const onRespondToUserInput = useCallback(
     async (requestId: string, answers: ProviderUserInputAnswers, lifecycleGeneration?: string) => {
@@ -4669,6 +4781,7 @@ function ChatViewContent({
   // Keep event-time sends current with the latest callbacks after each commit.
   useLayoutEffect(() => {
     onSendRef.current = onSend;
+    savePromptRef.current = () => submitComposer("save");
   });
 
   useLayoutEffect(
@@ -4792,18 +4905,25 @@ function ChatViewContent({
     },
     [runQueuedActionWhilePending, setThreadError, threadId],
   );
-  const editQueuedMessage = useCallback(
-    (message: CleanCoreQueuedMessage) => {
+  const moveMessageIntoComposer = useCallback(
+    (source: "queue" | "saved", message: CleanCoreQueuedMessage | CleanCoreSavedPrompt) => {
       const draft = useComposerDraftStore.getState().draftsByThreadId[threadId];
       if (
         draft !== undefined &&
         (draft.prompt.length > 0 ||
           draft.images.length > 0 ||
           draft.persistedAttachments.length > 0 ||
-          draft.files.length > 0)
+          draft.files.length > 0 ||
+          draft.assistantSelections.length > 0)
       ) {
-        toastManager.add({ type: "error", title: QUEUED_MESSAGE_EDIT_NONEMPTY_DRAFT_ERROR });
-        return;
+        toastManager.add({
+          type: "error",
+          title:
+            source === "queue"
+              ? QUEUED_MESSAGE_EDIT_NONEMPTY_DRAFT_ERROR
+              : SAVED_PROMPT_RESTORE_NONEMPTY_DRAFT_ERROR,
+        });
+        return false;
       }
       void runQueuedActionWhilePending(message, "edit", async () => {
         const api = readNativeApi();
@@ -4827,7 +4947,9 @@ function ChatViewContent({
                 });
               }),
           );
-          const result = await api.cleanCore.editQueuedMessage({
+          const result = await (
+            source === "queue" ? api.cleanCore.editQueuedMessage : api.cleanCore.restoreSavedPrompt
+          )({
             threadId,
             messageId: message.messageId,
             updatedAt: new Date().toISOString(),
@@ -4838,19 +4960,74 @@ function ChatViewContent({
         } catch (error) {
           const description =
             error instanceof Error ? error.message : "Failed to edit the queued message.";
-          if (Schema.is(QueuedEditDraftNotEmptyError)(error)) {
-            toastManager.add({ type: "error", title: QUEUED_MESSAGE_EDIT_NONEMPTY_DRAFT_ERROR });
+          if (
+            Schema.is(QueuedEditDraftNotEmptyError)(error) ||
+            Schema.is(SavedRestoreDraftNotEmptyError)(error)
+          ) {
+            toastManager.add({
+              type: "error",
+              title:
+                source === "queue"
+                  ? QUEUED_MESSAGE_EDIT_NONEMPTY_DRAFT_ERROR
+                  : SAVED_PROMPT_RESTORE_NONEMPTY_DRAFT_ERROR,
+            });
             return;
           }
           setThreadError(threadId, description);
-          toastManager.add({ type: "error", title: "Couldn't edit queued message", description });
+          toastManager.add({
+            type: "error",
+            title:
+              source === "queue" ? "Couldn't edit queued message" : "Couldn't restore saved prompt",
+            description,
+          });
         }
       });
+      return true;
     },
     [runQueuedActionWhilePending, setThreadError, threadId, scheduleComposerFocus],
   );
-  // P24: replaced by the thread's saved list, restore and delete when wired.
-  const savedPromptsPreview = useComposerSavedPromptsDesignPreview();
+  const editQueuedMessage = useCallback(
+    (message: CleanCoreQueuedMessage) => {
+      moveMessageIntoComposer("queue", message);
+    },
+    [moveMessageIntoComposer],
+  );
+  const savedPrompts = useMemo(
+    () =>
+      canonicalThread === null
+        ? []
+        : Schema.decodeUnknownSync(Schema.Array(CleanCoreSavedPrompt))(
+            JSON.parse(canonicalThread.saved),
+          ).toSorted((a, b) => b.savedAt.localeCompare(a.savedAt)),
+    [canonicalThread],
+  );
+  const restoreSavedPrompt = useCallback(
+    (messageId: string) => {
+      const message = savedPrompts.find((entry) => entry.messageId === messageId);
+      return message ? moveMessageIntoComposer("saved", message) : false;
+    },
+    [savedPrompts, moveMessageIntoComposer],
+  );
+  const deleteSaved = useCallback(
+    (messageId: string) => {
+      const message = savedPrompts.find((entry) => entry.messageId === messageId);
+      if (!message) return;
+      void runQueuedActionWhilePending(message, "delete", async () => {
+        const api = readNativeApi();
+        if (!api) return;
+        try {
+          await api.cleanCore.deleteSavedPrompt({ threadId, messageId: message.messageId });
+        } catch (error) {
+          toastManager.add({
+            type: "error",
+            title: "Couldn't delete saved prompt",
+            description: error instanceof Error ? error.message : String(error),
+          });
+        }
+      });
+    },
+    [savedPrompts, runQueuedActionWhilePending, threadId],
+  );
 
   const setPromptFromTraits = useCallback(
     (nextPrompt: string) => {
@@ -5765,7 +5942,19 @@ function ChatViewContent({
         <ComposerExtrasMenu onAddAttachments={addComposerAttachments} />
       </span>
       <span className="inline-flex shrink-0" data-pencil-action="saved">
-        <ComposerSavedPrompts {...savedPromptsPreview} />
+        <ComposerSavedPrompts
+          prompts={savedPrompts.map((entry) => ({
+            messageId: entry.messageId,
+            text: entry.text,
+            savedAt: entry.savedAt,
+            attachments: entry.attachments.map((attachment) => ({
+              name: attachment.type === "assistant-selection" ? attachment.text : attachment.name,
+            })),
+          }))}
+          onRestore={restoreSavedPrompt}
+          onDelete={deleteSaved}
+          shortcutLabel={shortcutLabelForCommand(keybindings, "composer.saveForLater")}
+        />
       </span>
     </>
   );

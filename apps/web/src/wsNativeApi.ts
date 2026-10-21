@@ -486,6 +486,10 @@ export function createWsNativeApi(): NativeApi {
       cancelQueuedMessage: (input) =>
         transport.request(WS_METHODS.cleanCoreCancelQueuedMessage, input),
       editQueuedMessage: (input) => transport.request(WS_METHODS.cleanCoreEditQueuedMessage, input),
+      savePrompt: (input) => transport.request(WS_METHODS.cleanCoreSavePrompt, input),
+      restoreSavedPrompt: (input) =>
+        transport.request(WS_METHODS.cleanCoreRestoreSavedPrompt, input),
+      deleteSavedPrompt: (input) => transport.request(WS_METHODS.cleanCoreDeleteSavedPrompt, input),
       getThreadShell: (input) => transport.request(WS_METHODS.cleanCoreGetThreadShell, input),
       getFolderAppTabs: (input) => transport.request(WS_METHODS.cleanCoreGetFolderAppTabs, input),
       updateFolderAppTabs: (input) =>

@@ -45,6 +45,7 @@ export const DEFAULT_KEYBINDINGS: ReadonlyArray<KeybindingRule> = [
   { key: "mod+alt+8", command: "space.jump.8" },
   { key: "mod+alt+9", command: "space.jump.9" },
   { key: "cmd+l", command: "composer.focus.toggle" },
+  { key: "mod+s", command: "composer.saveForLater" },
   { key: "mod+shift+m", command: "modelPicker.toggle" },
   // Cycle models within the active provider (favorites first, then remaining list).
   { key: "alt+]", command: "model.next" },

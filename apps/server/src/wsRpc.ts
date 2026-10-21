@@ -10,6 +10,7 @@ import { createAndSendThread } from "./cleanCore/createAndSendThread.ts";
 import { createThreadFromClient, ThreadLifecycle } from "./cleanCore/threadLifecycle.ts";
 import { ThreadSender } from "./cleanCore/ThreadSender.ts";
 
+import { SavedRestoreDraftNotEmptyError } from "@penkra/contracts";
 import {
   ORCHESTRATION_WS_METHODS,
   WS_BOOTSTRAP_METHOD,
@@ -340,6 +341,31 @@ const makeWsRpcHandlersLayer = () =>
           ),
         [WS_METHODS.cleanCoreGetBootstrap]: () =>
           rpcEffect(getBootstrap, "Failed to load startup state"),
+        [WS_METHODS.cleanCoreSavePrompt]: (input) =>
+          rpcEffect(
+            Effect.flatMap(Effect.service(ThreadSender), (sender) => sender.savePrompt(input)).pipe(
+              Effect.map((result) => ({ ...result, messageId: input.message.messageId })),
+            ),
+            "Failed to save prompt",
+          ),
+        [WS_METHODS.cleanCoreDeleteSavedPrompt]: (input) =>
+          rpcEffect(
+            Effect.flatMap(Effect.service(ThreadSender), (sender) =>
+              sender.deleteSavedPrompt(input),
+            ).pipe(Effect.map((result) => ({ ...result, messageId: input.messageId }))),
+            "Failed to delete saved prompt",
+          ),
+        [WS_METHODS.cleanCoreRestoreSavedPrompt]: (input) =>
+          Effect.flatMap(Effect.service(ThreadSender), (sender) =>
+            sender.restoreSavedPrompt(input),
+          ).pipe(
+            Effect.map((result) => ({ ...result, messageId: input.messageId })),
+            Effect.mapError((error) =>
+              Schema.is(SavedRestoreDraftNotEmptyError)(error)
+                ? error
+                : toWsRpcError(error, "Failed to restore saved prompt"),
+            ),
+          ),
         [WS_METHODS.cleanCoreGetNavigation]: () =>
           rpcEffect(getNavigation, "Failed to read navigation"),
         [WS_METHODS.cleanCoreUpdateNavigation]: (input) =>

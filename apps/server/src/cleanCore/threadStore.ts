@@ -257,7 +257,7 @@ const updateThreadLifecycleColumn = (
       column === "archived_at"
         ? yield* sql`UPDATE threads SET archived_at = ${value}, updated_at = ${updatedAt} WHERE id = ${id} AND deleted_at IS NULL AND ((archived_at IS NULL AND ${value} IS NOT NULL) OR (archived_at IS NOT NULL AND ${value} IS NULL)) RETURNING id`
         : column === "deleted_at"
-          ? yield* sql`UPDATE threads SET deleted_at = ${value}, updated_at = ${updatedAt} WHERE id = ${id} AND deleted_at IS NULL RETURNING id`
+          ? yield* sql`UPDATE threads SET deleted_at = ${value}, saved = '[]', updated_at = ${updatedAt} WHERE id = ${id} AND deleted_at IS NULL RETURNING id`
           : yield* sql`UPDATE threads SET title = ${value}, updated_at = ${updatedAt} WHERE id = ${id} AND deleted_at IS NULL AND title IS NOT ${value} RETURNING id`;
     return rows.length !== 0;
   });

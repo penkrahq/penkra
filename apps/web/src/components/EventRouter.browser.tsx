@@ -338,6 +338,7 @@ function summarizeFixtureThread(
     state: thread.session?.status === "running" ? "running" : "idle",
     activeTurnId: thread.session?.activeTurnId ?? null,
     lastError: thread.session?.lastError ?? null,
+    saved: "[]",
     queue: JSON.stringify(
       (thread.messages ?? [])
         .filter((message) => thread.queuedMessageIds?.includes(message.id))

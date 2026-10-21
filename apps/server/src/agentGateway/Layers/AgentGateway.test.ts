@@ -372,6 +372,7 @@ function makeHarnessLayer(
         : thread.session.activeTurnId,
     lastError: null,
     queue: "[]",
+    saved: "[]",
     createdBy: thread.creationSource === "penkra_mcp" ? "agent" : "user",
     createdByThreadId: thread.sourceThreadId === undefined ? null : thread.sourceThreadId,
     sidebarSortOrder: null,
@@ -977,6 +978,9 @@ function makeHarnessLayer(
   ).pipe(
     Layer.provide(
       Layer.succeed(ThreadSender, {
+        savePrompt: () => Effect.die("Gateway cannot save operator drafts"),
+        restoreSavedPrompt: () => Effect.die("Gateway cannot restore operator drafts"),
+        deleteSavedPrompt: () => Effect.die("Gateway cannot delete operator drafts"),
         resumeQueuedForConnection: () => Effect.void,
         steerQueued: () => Effect.die("unused queued steer"),
         runExclusive: (_threadId, action) => action,

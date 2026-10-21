@@ -1052,6 +1052,15 @@ export interface NativeApi {
     editQueuedMessage: (
       input: CleanCoreEditQueuedMessageInput,
     ) => Promise<CleanCoreQueuedMessageResult>;
+    savePrompt: (
+      input: import("./cleanCore").CleanCoreSavePromptInput,
+    ) => Promise<CleanCoreQueuedMessageResult>;
+    restoreSavedPrompt: (
+      input: CleanCoreEditQueuedMessageInput,
+    ) => Promise<CleanCoreQueuedMessageResult>;
+    deleteSavedPrompt: (
+      input: CleanCoreQueuedMessageInput,
+    ) => Promise<CleanCoreQueuedMessageResult>;
     getThreadRuntime: (input: CleanCoreThreadRuntimeInput) => Promise<CleanCoreThreadRuntime>;
     interruptThread: (input: CleanCoreThreadRuntimeInput) => Promise<CleanCoreInterruptResult>;
     getThreadShell: (
