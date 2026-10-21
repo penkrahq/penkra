@@ -1185,90 +1185,96 @@ export const attachmentsEffectRouteLayer = HttpRouter.add(
     if (!url) return HttpServerResponse.text("Bad Request", { status: 400 });
 
     const config = yield* ServerConfig;
-    // Desktop image tags cannot attach Authorization headers; preserve the same
-    // startup token rule that the WebSocket route already accepts.
-    if (!isLegacyTokenAuthorized({ config, url })) {
-      yield* requireAuthenticatedRequest;
-    }
+    const corsHeaders = localPreviewCorsHeaders({ config, request, url });
+    return yield* Effect.gen(function* () {
+      // Desktop image tags cannot attach Authorization headers; preserve the same
+      // startup token rule that the WebSocket route already accepts.
+      if (!isLegacyTokenAuthorized({ config, url })) {
+        yield* requireAuthenticatedRequest;
+      }
 
-    const rawRelativePath = url.pathname.slice(ATTACHMENTS_ROUTE_PREFIX.length);
-    const normalizedRelativePath = normalizeAttachmentRelativePath(rawRelativePath);
-    if (!normalizedRelativePath) {
-      return HttpServerResponse.text("Invalid attachment path", { status: 400 });
-    }
-    if (
-      normalizedRelativePath.startsWith("objects/") ||
-      normalizedRelativePath.startsWith(".staging/")
-    ) {
-      return HttpServerResponse.text("Not Found", { status: 404 });
-    }
+      const rawRelativePath = url.pathname.slice(ATTACHMENTS_ROUTE_PREFIX.length);
+      const normalizedRelativePath = normalizeAttachmentRelativePath(rawRelativePath);
+      if (!normalizedRelativePath) {
+        return HttpServerResponse.text("Invalid attachment path", { status: 400 });
+      }
+      if (
+        normalizedRelativePath.startsWith("objects/") ||
+        normalizedRelativePath.startsWith(".staging/")
+      ) {
+        return HttpServerResponse.text("Not Found", { status: 404 });
+      }
 
-    const isIdLookup =
-      !normalizedRelativePath.includes("/") && !normalizedRelativePath.includes(".");
-    const managedBlob =
-      isIdLookup && normalizedRelativePath.startsWith("att_v2_")
-        ? yield* (yield* ManagedAttachmentRepository).findClaimedById({
-            attachmentId: normalizedRelativePath,
-          })
-        : Option.none();
-    const filePath = Option.isSome(managedBlob)
-      ? resolveAttachmentRelativePath({
-          attachmentsDir: config.attachmentsDir,
-          relativePath: managedBlob.value.relativePath,
-        })
-      : isIdLookup && !normalizedRelativePath.startsWith("att_v2_")
-        ? resolveAttachmentPathById({
-            attachmentsDir: config.attachmentsDir,
-            attachmentId: normalizedRelativePath,
-          })
-        : !isIdLookup
-          ? resolveAttachmentRelativePath({
-              attachmentsDir: config.attachmentsDir,
-              relativePath: normalizedRelativePath,
+      const isIdLookup =
+        !normalizedRelativePath.includes("/") && !normalizedRelativePath.includes(".");
+      const managedBlob =
+        isIdLookup && normalizedRelativePath.startsWith("att_v2_")
+          ? yield* (yield* ManagedAttachmentRepository).findClaimedById({
+              attachmentId: normalizedRelativePath,
             })
-          : null;
-    if (!filePath) {
-      return HttpServerResponse.text(isIdLookup ? "Not Found" : "Invalid attachment path", {
-        status: isIdLookup ? 404 : 400,
+          : Option.none();
+      const filePath = Option.isSome(managedBlob)
+        ? resolveAttachmentRelativePath({
+            attachmentsDir: config.attachmentsDir,
+            relativePath: managedBlob.value.relativePath,
+          })
+        : isIdLookup && !normalizedRelativePath.startsWith("att_v2_")
+          ? resolveAttachmentPathById({
+              attachmentsDir: config.attachmentsDir,
+              attachmentId: normalizedRelativePath,
+            })
+          : !isIdLookup
+            ? resolveAttachmentRelativePath({
+                attachmentsDir: config.attachmentsDir,
+                relativePath: normalizedRelativePath,
+              })
+            : null;
+      if (!filePath) {
+        return HttpServerResponse.text(isIdLookup ? "Not Found" : "Invalid attachment path", {
+          status: isIdLookup ? 404 : 400,
+        });
+      }
+
+      const fileSystem = yield* FileSystem.FileSystem;
+      const fileInfo = yield* recoverMissingFile(fileSystem.stat(filePath));
+      if (!fileInfo || fileInfo.type !== "File") {
+        return HttpServerResponse.text("Not Found", { status: 404 });
+      }
+      if (
+        Option.isSome(managedBlob) &&
+        managedBlob.value.sizeBytes !== null &&
+        Number(fileInfo.size) !== managedBlob.value.sizeBytes
+      ) {
+        return HttpServerResponse.text("Not Found", { status: 404 });
+      }
+
+      // Mirror local-image serving instead of using HttpServerResponse.file; the Effect
+      // route stack used by the desktop server can miss that helper's file services.
+      return streamedFileResponse({
+        fileSystem,
+        path: filePath,
+        sizeBytes: Number(fileInfo.size),
+        // Attachment access is session/token gated and attachments are mutable
+        // lifecycle resources: deletion or session revocation must take effect on
+        // the next request, including when a shared proxy is present.
+        headers: {
+          "Cache-Control": "private, no-store",
+          Pragma: "no-cache",
+          "X-Content-Type-Options": "nosniff",
+          ...(Option.isSome(managedBlob) &&
+          managedBlob.value.ownerKind === "presented-media" &&
+          managedBlob.value.kind === "file"
+            ? {
+                "Content-Disposition": `attachment; filename*=UTF-8''${encodeURIComponent(managedBlob.value.originalName)}`,
+              }
+            : {}),
+        },
       });
-    }
-
-    const fileSystem = yield* FileSystem.FileSystem;
-    const fileInfo = yield* recoverMissingFile(fileSystem.stat(filePath));
-    if (!fileInfo || fileInfo.type !== "File") {
-      return HttpServerResponse.text("Not Found", { status: 404 });
-    }
-    if (
-      Option.isSome(managedBlob) &&
-      managedBlob.value.sizeBytes !== null &&
-      Number(fileInfo.size) !== managedBlob.value.sizeBytes
-    ) {
-      return HttpServerResponse.text("Not Found", { status: 404 });
-    }
-
-    // Mirror local-image serving instead of using HttpServerResponse.file; the Effect
-    // route stack used by the desktop server can miss that helper's file services.
-    return streamedFileResponse({
-      fileSystem,
-      path: filePath,
-      sizeBytes: Number(fileInfo.size),
-      // Attachment access is session/token gated and attachments are mutable
-      // lifecycle resources: deletion or session revocation must take effect on
-      // the next request, including when a shared proxy is present.
-      headers: {
-        "Cache-Control": "private, no-store",
-        Pragma: "no-cache",
-        "X-Content-Type-Options": "nosniff",
-        ...(Option.isSome(managedBlob) &&
-        managedBlob.value.ownerKind === "presented-media" &&
-        managedBlob.value.kind === "file"
-          ? {
-              "Content-Disposition": `attachment; filename*=UTF-8''${encodeURIComponent(managedBlob.value.originalName)}`,
-            }
-          : {}),
-      },
-    });
-  }).pipe(Effect.catchTag("AuthError", (error) => Effect.succeed(authErrorResponse(error)))),
+    }).pipe(
+      Effect.catchTag("AuthError", (error) => Effect.succeed(authErrorResponse(error))),
+      Effect.map((response) => HttpServerResponse.setHeaders(response, corsHeaders)),
+    );
+  }),
 );
 
 export const staticAndDevEffectRouteLayer = HttpRouter.add(

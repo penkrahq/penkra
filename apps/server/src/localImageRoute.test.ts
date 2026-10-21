@@ -342,6 +342,46 @@ describe("localImageEffectRouteLayer", () => {
 });
 
 describe("attachmentsEffectRouteLayer", () => {
+  it("exposes attachment errors only to existing trusted origins without bypassing auth", async () => {
+    const config = makeServerConfig({
+      authToken: "desktop-secret",
+      devUrl: new URL("http://localhost:5733"),
+    });
+    const auth: ServerAuthShape = {
+      ...makeFakeServerAuth(),
+      authenticateHttpRequest: () =>
+        Effect.fail(new AuthError({ message: "Unauthorized", status: 401 })),
+    };
+    await withEffectServer(
+      config,
+      attachmentsEffectRouteLayer,
+      async (origin) => {
+        for (const requestOrigin of [
+          "penkra://app",
+          "http://localhost:5733",
+          "https://untrusted.example",
+          "null",
+        ]) {
+          const allowed =
+            requestOrigin === "penkra://app" || requestOrigin === "http://localhost:5733";
+          for (const authorized of [false, true]) {
+            const response = await fetch(
+              `${origin}/attachments/missing${authorized ? "?token=desktop-secret" : ""}`,
+              { headers: { Origin: requestOrigin } },
+            );
+            expect(response.status).toBe(authorized ? 404 : 401);
+            expect(response.headers.get("access-control-allow-origin")).toBe(
+              allowed ? requestOrigin : null,
+            );
+            expect(response.headers.get("vary")).toBe(allowed ? "Origin" : null);
+            await response.text();
+          }
+        }
+      },
+      auth,
+    );
+  });
+
   it("serves persisted image attachments by id without the file response helper", async () => {
     const config = makeServerConfig({ authToken: "desktop-secret" });
     mkdirSync(config.attachmentsDir, { recursive: true });
@@ -353,12 +393,14 @@ describe("attachmentsEffectRouteLayer", () => {
     await withEffectServer(config, attachmentsEffectRouteLayer, async (origin) => {
       const response = await fetch(
         `${origin}/attachments/thread-1-6ec544e7-9130-4a8b-993d-9635297d04d3?token=desktop-secret`,
+        { headers: { Origin: "penkra://app" } },
       );
 
       expect(response.status).toBe(200);
       expect(response.headers.get("content-type")).toContain("image/png");
       expect(response.headers.get("cache-control")).toBe("private, no-store");
       expect(response.headers.get("pragma")).toBe("no-cache");
+      expect(response.headers.get("access-control-allow-origin")).toBe("penkra://app");
       await expect(response.arrayBuffer()).resolves.toHaveProperty("byteLength", 4);
     });
   });
