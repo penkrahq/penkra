@@ -9,6 +9,9 @@
  */
 import type {
   ProviderComposerCapabilities,
+  ProviderCatalogScope,
+  ProviderCatalogKind,
+  ProviderCatalogData,
   ProviderConnectionId,
   ProviderKind,
   ProviderListAgentsInput,
@@ -246,6 +249,15 @@ export interface ProviderAdapterShape<TError> {
   readonly getCapabilityHealth?: (
     input: ProviderGetCapabilityHealthInput,
   ) => Effect.Effect<ProviderGetCapabilityHealthResult, TError>;
+
+  /** One native discovery load, authorized by the selected Connection rather than a thread. */
+  readonly loadCatalog?: (input: {
+    readonly scope: ProviderCatalogScope;
+    readonly kinds: ReadonlyArray<ProviderCatalogKind>;
+    readonly cwd: string;
+    readonly managedLaunch: ProviderManagedLaunchContext;
+    readonly internalProviderId: string | null;
+  }) => Effect.Effect<ProviderCatalogData, TError>;
 
   /**
    * List skills available for a given cwd.

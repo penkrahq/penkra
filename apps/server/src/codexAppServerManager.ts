@@ -9,6 +9,8 @@ import {
   EventId,
   MessageId,
   type ProviderComposerCapabilities,
+  type ProviderCatalogData,
+  type ProviderCatalogKind,
   ProviderItemId,
   type ProviderListModelsResult,
   type ProviderListPluginsResult,
@@ -2237,6 +2239,69 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
       cached: false,
     };
     return result;
+  }
+
+  /** Discovery uses the selected account process, without creating or requiring a thread. */
+  async loadCatalog(input: {
+    readonly cwd: string;
+    readonly managedLaunch: ProviderManagedLaunchContext;
+    readonly kinds: ReadonlyArray<ProviderCatalogKind>;
+  }): Promise<ProviderCatalogData> {
+    const supported = input.kinds.filter(
+      (kind) => kind === "models" || kind === "skills" || kind === "plugins",
+    );
+    if (supported.length === 0) return {};
+    const transport = await this.getOrCreateManagedProcess(input.cwd, input.managedLaunch);
+    const data: { -readonly [K in keyof ProviderCatalogData]: ProviderCatalogData[K] } = {};
+    await Promise.all(
+      [...new Set(supported)].map(async (kind) => {
+        if (kind === "models") {
+          const models: ProviderListModelsResult["models"][number][] = [];
+          const seenCursors = new Set<string>();
+          let cursor: string | null = null;
+          do {
+            const response: Record<string, unknown> = await this.sendRequest(
+              transport,
+              null,
+              "model/list",
+              { cursor, includeHidden: false },
+            );
+            models.push(...parseCodexModelListResponse(response));
+            const nextCursor = asString(response.nextCursor) ?? null;
+            if (nextCursor !== null && seenCursors.has(nextCursor)) {
+              throw new Error("Codex model/list repeated a pagination cursor.");
+            }
+            if (nextCursor !== null) seenCursors.add(nextCursor);
+            cursor = nextCursor;
+          } while (cursor !== null);
+          data.models = models;
+        } else if (kind === "skills") {
+          const response = await this.sendRequest<Record<string, unknown>>(
+            transport,
+            null,
+            "skills/list",
+            { cwds: [input.cwd] },
+          );
+          data.skills = parseCodexSkillsListResponse(response, input.cwd);
+        } else {
+          const response = await this.sendRequest<Record<string, unknown>>(
+            transport,
+            null,
+            "plugin/installed",
+            { cwds: [input.cwd] },
+          );
+          const parsed = parseCodexPluginListResponse(response);
+          if (parsed.marketplaceLoadErrors.length > 0) {
+            throw new Error(parsed.marketplaceLoadErrors.map((error) => error.message).join("\n"));
+          }
+          data.plugins = parsed.marketplaces.map((marketplace) => ({
+            ...marketplace,
+            plugins: marketplace.plugins.filter((plugin) => plugin.installed),
+          }));
+        }
+      }),
+    );
+    return data;
   }
 
   async listPlugins(input: CodexPluginListInput): Promise<ProviderListPluginsResult> {

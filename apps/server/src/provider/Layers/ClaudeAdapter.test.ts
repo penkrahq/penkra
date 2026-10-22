@@ -13,7 +13,14 @@ import type {
   SDKMessage,
   SDKUserMessage,
 } from "@anthropic-ai/claude-agent-sdk";
-import { MessageId, ProviderItemId, ProviderRuntimeEvent, ThreadId } from "@penkra/contracts";
+import {
+  FolderId,
+  ProviderConnectionId,
+  MessageId,
+  ProviderItemId,
+  ProviderRuntimeEvent,
+  ThreadId,
+} from "@penkra/contracts";
 import { assert, describe, it } from "@effect/vitest";
 import { Effect, Exit, Fiber, Layer, Random, Stream } from "effect";
 
@@ -45,6 +52,88 @@ import {
   type ClaudeAdapterLiveOptions,
   type ClaudeOwnedProcess,
 } from "./ClaudeAdapter.ts";
+
+it.effect("loads a Claude folder catalog in one selected managed query and closes it", () => {
+  const query = new FakeClaudeQuery();
+  const inputs: Parameters<NonNullable<ClaudeAdapterLiveOptions["createQuery"]>>[0][] = [];
+  const layer = makeClaudeAdapterLive({
+    createQuery: (input) => {
+      inputs.push(input);
+      return query;
+    },
+  }).pipe(
+    Layer.provideMerge(ServerConfig.layerTest("/tmp/claude-catalog-test", "/tmp")),
+    Layer.provideMerge(NodeServices.layer),
+  );
+  return Effect.gen(function* () {
+    const adapter = yield* ClaudeAdapter;
+    assert.ok(adapter.loadCatalog);
+    const result = yield* adapter.loadCatalog({
+      scope: {
+        provider: "claudeAgent",
+        connectionId: ProviderConnectionId.makeUnsafe("selected"),
+        folderId: FolderId.makeUnsafe("folder"),
+      },
+      cwd: "/folder/selected",
+      kinds: ["commands", "agents", "plugins"],
+      internalProviderId: null,
+      managedLaunch: {
+        binaryPath: "/managed/claude",
+        isolationKey: "selected",
+        profileRoot: "/profile",
+        nativeStateRoot: "/native",
+        childEnvironment: () => ({ CLAUDE_CODE_OAUTH_TOKEN: "selected-only" }),
+      },
+    });
+    assert.deepEqual(result, { commands: [], agents: [] });
+    assert.equal(inputs.length, 1);
+    assert.equal(inputs[0]?.options.cwd, "/folder/selected");
+    assert.equal(inputs[0]?.options.pathToClaudeCodeExecutable, "/managed/claude");
+    assert.equal(inputs[0]?.options.env?.CLAUDE_CODE_OAUTH_TOKEN, "selected-only");
+    assert.equal(inputs[0]?.options.persistSession, false);
+    assert.equal(query.closeCalls, 1);
+    assert.deepEqual(yield* adapter.listSessions(), []);
+  }).pipe(Effect.provide(layer));
+});
+
+it.effect("a Claude catalog metadata failure closes only its discovery query", () => {
+  const query = new FakeClaudeQuery();
+  Object.defineProperty(query, "supportedCommands", {
+    value: async () => {
+      throw new Error("catalog denied");
+    },
+  });
+  const layer = makeClaudeAdapterLive({ createQuery: () => query }).pipe(
+    Layer.provideMerge(ServerConfig.layerTest("/tmp/claude-catalog-error", "/tmp")),
+    Layer.provideMerge(NodeServices.layer),
+  );
+  return Effect.gen(function* () {
+    const adapter = yield* ClaudeAdapter;
+    assert.ok(adapter.loadCatalog);
+    const error = yield* Effect.flip(
+      adapter.loadCatalog({
+        scope: {
+          provider: "claudeAgent",
+          connectionId: ProviderConnectionId.makeUnsafe("selected"),
+          folderId: FolderId.makeUnsafe("folder"),
+        },
+        cwd: "/folder",
+        kinds: ["commands"],
+        internalProviderId: null,
+        managedLaunch: {
+          binaryPath: "/managed/claude",
+          isolationKey: "selected",
+          profileRoot: "/profile",
+          nativeStateRoot: "/native",
+          childEnvironment: () => ({}),
+        },
+      }),
+    );
+    assert.equal(error._tag, "ProviderAdapterRequestError");
+    assert.equal(query.closeCalls, 1);
+    assert.deepEqual(yield* adapter.listSessions(), []);
+  }).pipe(Effect.provide(layer));
+});
 
 function makeClaudeAdapterLive(options?: ClaudeAdapterLiveOptions) {
   const gateway = makeGatewayCredentialsHarness();
