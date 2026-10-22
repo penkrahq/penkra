@@ -1,4 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import path from "node:path";
 import { CatalogPathWatches } from "./catalogPathWatches.ts";
 
 function harness() {
@@ -37,6 +40,21 @@ function harness() {
 }
 
 describe("catalog path watches", () => {
+  it("checks every missing ancestor before choosing an existing watch root", () => {
+    const root = mkdtempSync(path.join(tmpdir(), "catalog-watch-ancestors-"));
+    const opened = vi.fn(() => ({ close: vi.fn(), on: vi.fn() }));
+    const pool = new CatalogPathWatches(undefined, opened);
+    try {
+      pool.add([path.join(root, "missing", ".agents", "skills")], vi.fn(), vi.fn());
+      expect(opened).toHaveBeenCalledExactlyOnceWith(
+        { path: root, recursive: false },
+        expect.any(Function),
+      );
+    } finally {
+      pool.close();
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
   it("shares a source watch and closes it only after the final scope releases it", () => {
     const { pool, handles } = harness();
     const a = vi.fn(),

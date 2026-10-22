@@ -98,6 +98,7 @@ const make = Effect.gen(function* () {
   const sql = yield* SqlClient.SqlClient;
   const publisher = yield* ThreadPublisher;
   const lifetime = yield* Scope.Scope;
+  const runPromise = Effect.runPromiseWith(yield* Effect.services<never>());
   const controller = new AbortController();
   yield* Effect.addFinalizer(() => Effect.sync(() => controller.abort()));
   const changes = makeInvalidationHub<ProviderCatalogChanged>((event) =>
@@ -118,7 +119,7 @@ const make = Effect.gen(function* () {
       const source: AppSkillSource = { controller, ready: Promise.resolve() };
       appSkillSource = source;
       const notify = () => {
-        void Effect.runPromise(
+        void runPromise(
           invalidate(() => true, ["skills"]),
           { signal: controller.signal },
         ).catch((error) => {
@@ -206,7 +207,7 @@ const make = Effect.gen(function* () {
     watched.delete(key);
     if (canonicalRoots.length === 0) return;
     const notify = () => {
-      void Effect.runPromise(
+      void runPromise(
         invalidate((candidate) => scopeKey(candidate) === key, ["commands", "skills", "agents"]),
         { signal: controller.signal },
       ).catch((error) => {
@@ -349,7 +350,7 @@ const make = Effect.gen(function* () {
 
   const catalog = new ProviderCatalog((scope, kinds) => {
     const startedAt = performance.now();
-    return Effect.runPromise(
+    return runPromise(
       load(scope, kinds).pipe(
         Effect.tap((data) =>
           Effect.logInfo("provider.catalog.load", {
