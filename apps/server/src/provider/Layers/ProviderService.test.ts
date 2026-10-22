@@ -30,6 +30,7 @@ import * as SqlClient from "effect/unstable/sql/SqlClient";
 
 import {
   ProviderAdapterSessionNotFoundError,
+  ProviderAdapterProcessError,
   ProviderSessionDirectoryPersistenceError,
   ProviderUnsupportedError,
   ProviderValidationError,
@@ -4421,6 +4422,66 @@ validation.layer("ProviderServiceLive validation", (it) => {
 const boundedFanout = makeProviderServiceLayer({
   runtimeEventBufferCapacity: 1,
 });
+const shutdownOwnership = makeProviderServiceLayer();
+shutdownOwnership.layer("ProviderServiceLive shutdown ownership", (it) => {
+  it.effect(
+    "closes every provider despite one thread cleanup failure and does not rewrite stopped history",
+    () =>
+      Effect.gen(function* () {
+        const provider = yield* ProviderService;
+        const directory = yield* ProviderSessionDirectory;
+        const stopped = asThreadId("already-stopped-history");
+        yield* directory.upsert({ threadId: stopped, provider: "codex", status: "stopped" });
+        const codex = asThreadId("shutdown-codex-failure");
+        const claude = asThreadId("shutdown-claude-peer");
+        yield* provider.ensure(codex, {
+          threadId: codex,
+          provider: "codex",
+          runtimeMode: "full-access",
+        });
+        yield* provider.ensure(claude, {
+          threadId: claude,
+          provider: "claudeAgent",
+          runtimeMode: "full-access",
+        });
+        const writes = vi.spyOn(directory, "upsert");
+        shutdownOwnership.codex.stopSession.mockImplementationOnce(() =>
+          Effect.fail(
+            new ProviderAdapterProcessError({
+              provider: "codex",
+              threadId: codex,
+              detail: "Controlled session cleanup failure",
+            }),
+          ),
+        );
+        let stoppedWrites = -1;
+        yield* provider.closeRuntimeEvents.pipe(
+          Effect.tap(() =>
+            Effect.sync(() => {
+              stoppedWrites = writes.mock.calls.filter(
+                ([binding]) => binding.threadId === stopped,
+              ).length;
+            }),
+          ),
+          Effect.ensuring(Effect.sync(() => writes.mockRestore())),
+        );
+        assert.equal(stoppedWrites, 0);
+        assert.equal(shutdownOwnership.codex.stopAll.mock.calls.length, 1);
+        assert.equal(shutdownOwnership.claude.stopAll.mock.calls.length, 1);
+        assert.equal((yield* shutdownOwnership.codex.listSessions()).length, 0);
+        assert.equal((yield* shutdownOwnership.claude.listSessions()).length, 0);
+        const result = yield* Effect.result(
+          provider.ensure(asThreadId("after-shutdown"), {
+            threadId: asThreadId("after-shutdown"),
+            provider: "codex",
+            runtimeMode: "full-access",
+          }),
+        );
+        assert.equal(result._tag, "Failure");
+      }),
+  );
+});
+
 const shutdownDrain = makeProviderServiceLayer();
 shutdownDrain.layer("ProviderServiceLive shutdown drain", (it) => {
   it.effect("drains adapter events before closing their consumers", () =>

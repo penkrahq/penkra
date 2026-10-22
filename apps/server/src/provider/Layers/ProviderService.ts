@@ -52,6 +52,7 @@ import { nonEmptyTrimmed } from "@penkra/shared/text";
 
 import {
   ProviderValidationError,
+  type ProviderServiceError,
   type ProviderSessionDirectoryPersistenceError,
 } from "../Errors.ts";
 import { PENDING_INTERACTION_NOT_FOUND_FAILURE_CODE } from "@penkra/shared/threadSummary";
@@ -634,6 +635,7 @@ const makeProviderService = (options?: ProviderServiceLiveOptions) =>
     const markThreadStopped = (
       threadId: ThreadId,
       stoppedAt: string,
+      lifecycleGeneration: string,
       session?: ProviderSession,
     ): Effect.Effect<void, ProviderSessionDirectoryWriteError> =>
       session
@@ -642,11 +644,13 @@ const makeProviderService = (options?: ProviderServiceLiveOptions) =>
             provider: session.provider,
             runtimeMode: session.runtimeMode,
             status: "stopped",
+            lifecycleGeneration,
             ...(session.resumeCursor !== undefined ? { resumeCursor: session.resumeCursor } : {}),
             runtimePayload: {
               ...toRuntimePayloadFromSession(session, {
                 lastRuntimeEvent: "provider.stopAll",
                 lastRuntimeEventAt: stoppedAt,
+                lifecycleGeneration,
               }),
               activeTurnId: null,
             },
@@ -657,10 +661,12 @@ const makeProviderService = (options?: ProviderServiceLiveOptions) =>
                 threadId,
                 provider,
                 status: "stopped",
+                lifecycleGeneration,
                 runtimePayload: {
                   activeTurnId: null,
                   lastRuntimeEvent: "provider.stopAll",
                   lastRuntimeEventAt: stoppedAt,
+                  lifecycleGeneration,
                 },
               }),
             ),
@@ -2300,24 +2306,62 @@ const makeProviderService = (options?: ProviderServiceLiveOptions) =>
 
     const runStopAll = () =>
       Effect.gen(function* () {
+        const ownedThreadIds = yield* lifecycle.beginShutdown;
         const stoppedAt = new Date().toISOString();
-        const threadIds = yield* directory.listThreadIds();
+        const bindings = new Map(
+          (yield* directory.listBindings()).map((binding) => [binding.threadId, binding]),
+        );
         const activeSessionByThreadId = new Map(
           (yield* Effect.forEach(adapters, (adapter) => adapter.listSessions()))
             .flatMap((sessions) => sessions)
             .map((session) => [session.threadId, session] as const),
         );
-        yield* Effect.forEach(
-          new Set([...threadIds, ...activeSessionByThreadId.keys()]),
+        const threadIds = new Set([
+          ...[...bindings.values()]
+            .filter((binding) => binding.status !== "stopped")
+            .map((binding) => binding.threadId),
+          ...activeSessionByThreadId.keys(),
+          ...ownedThreadIds,
+        ]);
+        const exits = yield* Effect.forEach(
+          threadIds,
           (threadId) =>
-            markThreadStopped(threadId, stoppedAt, activeSessionByThreadId.get(threadId)),
+            Effect.exit(
+              lifecycle.stop(threadId, "app-quit", (lease) =>
+                Effect.gen(function* () {
+                  const binding = bindings.get(threadId);
+                  const session = activeSessionByThreadId.get(threadId);
+                  const provider =
+                    session?.provider ?? binding?.provider ?? lifecycle.providerFor(threadId);
+                  if (
+                    provider !== undefined &&
+                    (binding || session || lifecycle.state(threadId) !== "none")
+                  ) {
+                    const adapter = yield* registry.getByProvider(provider);
+                    yield* lifecycle.dispose(adapter, threadId, "app-quit");
+                  }
+                  if (binding || session) {
+                    yield* markThreadStopped(threadId, stoppedAt, lease.generation, session);
+                    lease.commit();
+                  } else lease.retire();
+                }),
+              ),
+            ),
+          { concurrency: "unbounded" },
         );
-        yield* Effect.forEach(adapters, (adapter) => adapter.stopAll());
+        // A bad thread must not prevent the other Connections' processes from
+        // closing. Attempt all owners, then all process owners, before reporting.
+        const processes = yield* Effect.exit(lifecycle.closeProcesses(adapters));
         yield* Effect.forEach(adapters, (adapter) => adapter.drainRuntimeEvents);
         yield* analytics.record("provider.sessions.stopped_all", {
-          sessionCount: threadIds.length,
+          sessionCount: activeSessionByThreadId.size,
         });
         yield* analytics.flush;
+        let failure: Cause.Cause<ProviderServiceError> | undefined;
+        for (const exit of [...exits, processes])
+          if (Exit.isFailure(exit))
+            failure = failure === undefined ? exit.cause : Cause.combine(failure, exit.cause);
+        if (failure !== undefined) return yield* Effect.failCause(failure);
       });
 
     const awaitRuntimeEventFanoutDrained: Effect.Effect<void> = Effect.suspend(() =>
