@@ -37,6 +37,25 @@ async function fixture() {
 }
 
 describe("managed Codex native state", () => {
+  it("uses the native-reported path without adopting another matching file", async () => {
+    const state = await fixture();
+    try {
+      const actual = Path.join(state.profileRoot, "codex-home", RELATIVE_ROLLOUT);
+      await mkdir(Path.dirname(actual), { recursive: true });
+      await writeFile(actual, "other location\n");
+      const reported = Path.join(
+        state.profileRoot,
+        "codex-home",
+        "sessions",
+        `rollout-reported-${THREAD_ID}.jsonl`,
+      );
+      await expect(
+        adoptManagedCodexRollout(state.launch, THREAD_ID, reported),
+      ).rejects.toMatchObject({ code: "ENOENT" });
+    } finally {
+      await rm(state.root, { recursive: true, force: true });
+    }
+  });
   it("adopts a new profile rollout as the generation-owned inode", async () => {
     const state = await fixture();
     try {
@@ -44,7 +63,7 @@ describe("managed Codex native state", () => {
       await mkdir(Path.dirname(profileRollout), { recursive: true });
       await writeFile(profileRollout, "first\n");
 
-      await adoptManagedCodexRollout(state.launch, THREAD_ID);
+      await adoptManagedCodexRollout(state.launch, THREAD_ID, profileRollout);
       const generationRollout = Path.join(
         state.nativeStateRoot,
         "codex-rollouts",

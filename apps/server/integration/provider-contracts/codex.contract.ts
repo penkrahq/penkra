@@ -304,7 +304,15 @@ it("reports native completion, rollout path, steer, questions, interrupt and loc
     });
     const interruptThread = await create();
     const interruptedTurn = await start(interruptThread, "BLOCK_CONTRACT");
+    assert(
+      (await stat(interruptThread.path!)).isFile(),
+      "The reported rollout must exist at first-turn acceptance.",
+    );
     await blocked;
+    assert(
+      (await stat(interruptThread.path!)).isFile(),
+      "The reported rollout must exist while the accepted first turn is still blocked upstream.",
+    );
     await rpc.request("turn/interrupt", {
       threadId: interruptThread.id,
       turnId: interruptedTurn.id,

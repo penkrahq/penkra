@@ -45,6 +45,10 @@ const asEventId = (value: string): EventId => EventId.makeUnsafe(value);
 const asItemId = (value: string): ProviderItemId => ProviderItemId.makeUnsafe(value);
 
 class FakeCodexManager extends CodexAppServerManager {
+  public nativeThreadPath = "";
+  override getNativeThreadPath(_threadId: ThreadId): string {
+    return this.nativeThreadPath;
+  }
   public startSessionImpl = vi.fn(
     async (
       input: CodexAppServerStartSessionInput,
@@ -206,6 +210,7 @@ validationLayer("CodexAdapterLive validation", (it) => {
         `rollout-2026-08-09T12-00-00-${nativeThreadId}.jsonl`,
       );
       const profileRollout = path.join(profileRoot, "codex-home", relativeRollout);
+      validationManager.nativeThreadPath = profileRollout;
       const generationRollout = path.join(nativeStateRoot, "codex-rollouts", relativeRollout);
       const threadId = asThreadId("managed-first-turn-adoption");
 

@@ -218,6 +218,7 @@ interface CodexSessionContext {
   lifecycleGeneration?: string;
   pendingGatewayTurnStart?: { turnId?: TurnId; registered: boolean };
   nativeTurnStartTail?: Promise<void>;
+  nativeRolloutPath?: string;
   pendingUserInputs: Map<string, PendingUserInputRequest>;
   collabReceiverTurns: Map<string, TurnId>;
   collabReceiverParents: Map<string, string>;
@@ -1262,6 +1263,7 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
       }
 
       const threadOpenRecord = this.readObject(threadOpenResponse);
+      this.rememberNativeThreadPath(context, threadOpenResponse);
       const threadIdRaw =
         this.readString(this.readObject(threadOpenRecord, "thread"), "id") ??
         this.readString(threadOpenRecord, "threadId");
@@ -1708,6 +1710,17 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
     });
   }
 
+  getNativeThreadPath(threadId: ThreadId): string {
+    const path = this.requireSession(threadId).nativeRolloutPath;
+    if (path === undefined) throw new Error("Codex did not report the conversation file path.");
+    return path;
+  }
+
+  private rememberNativeThreadPath(context: CodexSessionContext, payload: unknown): void {
+    const path = this.readString(this.readObject(this.readObject(payload), "thread"), "path");
+    if (path !== undefined) context.nativeRolloutPath = path;
+  }
+
   async readThread(threadId: ThreadId): Promise<CodexThreadSnapshot> {
     const context = this.requireSession(threadId);
     const providerThreadId = readResumeThreadId({
@@ -1728,6 +1741,7 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
         includeTurns: true,
       },
     );
+    this.rememberNativeThreadPath(context, response);
     return this.parseThreadSnapshot("thread/read", response);
   }
 
@@ -3124,6 +3138,8 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
     ) {
       return;
     }
+    if (!isChildConversation && notification.method === "thread/started")
+      this.rememberNativeThreadPath(context, notification.params);
     const isTerminalTurn =
       rawRoute.turnId !== undefined && context.terminalTurnIds.has(rawRoute.turnId);
     if (notification.method === "turn/started" && !isChildConversation && isTerminalTurn) {
