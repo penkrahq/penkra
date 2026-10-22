@@ -798,3 +798,22 @@ remains opt-in. The pinned Codex 0.163.0 native contract passed, including the
 actual `skills/extraRoots/set` call with a fixture root. Formatting, lint (869
 warnings, zero errors), and workspace typecheck passed. Production was not
 changed.
+
+## 24. Missing-executable classification uses launch error fields
+
+Two probe assertions failed before the change: a Node error carrying
+`code: ENOENT` without that word in its message was not recognized, and a
+PlatformError carrying `PermissionDenied` was mistaken for a missing executable
+when its diagnostic mentioned ENOENT. The probe now checks the platform reason
+or Node error code, never prose. Ordinary error text mentioning ENOENT/NotFound
+remains a failure.
+
+The Codex version gate uses the same classifier instead of its separate text
+matcher. Existing Windows shell-result translation now carries an explicit
+ENOENT code; the Windows shell-result detector itself is unchanged. This does
+not claim completion of the separate auth-status parsing audit.
+
+The changed probe and manager tests passed 138 cases, with the manager's
+pre-existing real-account test remaining opt-in. Formatting, lint (869
+warnings, zero errors), and workspace typecheck passed. Production was not
+changed.

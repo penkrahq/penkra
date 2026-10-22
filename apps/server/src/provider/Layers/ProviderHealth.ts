@@ -462,7 +462,7 @@ const runCodexCommand = (
   runProviderCommand(executable, args, env).pipe(
     Effect.flatMap((result) =>
       isWindowsShellCommandMissingResult({ code: result.code, stderr: result.stderr })
-        ? Effect.fail(new Error(`spawn ${executable} ENOENT`))
+        ? Effect.fail(Object.assign(new Error(`spawn ${executable} ENOENT`), { code: "ENOENT" }))
         : Effect.succeed(result),
     ),
   );
@@ -475,7 +475,7 @@ const runClaudeCommand = (
   runProviderCommand(executable, args, env).pipe(
     Effect.flatMap((result) =>
       isWindowsShellCommandMissingResult({ code: result.code, stderr: result.stderr })
-        ? Effect.fail(new Error(`spawn ${executable} ENOENT`))
+        ? Effect.fail(Object.assign(new Error(`spawn ${executable} ENOENT`), { code: "ENOENT" }))
         : Effect.succeed(result),
     ),
   );
@@ -484,7 +484,7 @@ const runOpenCodeCommand = (args: ReadonlyArray<string>, executable = "opencode"
   runProviderCommand(executable, args, providerCommandEnv(OPENCODE_PROVIDER)).pipe(
     Effect.flatMap((result) =>
       isWindowsShellCommandMissingResult({ code: result.code, stderr: result.stderr })
-        ? Effect.fail(new Error(`spawn ${executable} ENOENT`))
+        ? Effect.fail(Object.assign(new Error(`spawn ${executable} ENOENT`), { code: "ENOENT" }))
         : Effect.succeed(result),
     ),
   );
