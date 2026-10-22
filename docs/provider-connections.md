@@ -4,6 +4,13 @@ Penkra owns the provider executable, each Connection's credential scope,
 and each Thread's native provider state. A Connection is an account or key. An
 anonymous model route, such as an OpenCode Zen free model, is not a Connection.
 
+Provider CLI and SDK versions are pinned per Penkra release in `providerRuntimes.json`.
+Startup verifies/reuses or installs those exact managed generations before accepting new work;
+activation is deferred while that provider has active work. No hourly updater, latest-version
+lookup, automatic process restart for an upgrade, or provider-update notification is involved.
+Rolling back Penkra selects its previous committed pins. A CLI upgrade is tested locally and
+ships with a desktop update; see [Provider runtimes](release.md#provider-runtimes).
+
 ## Invariants
 
 1. Managed ChatGPT (Codex runtime), Claude, and OpenCode launches use only Penkra's verified

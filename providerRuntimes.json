@@ -32,6 +32,32 @@
           "metadataUrl": "https://api.github.com/repos/openai/codex/releases/tags/rust-v0.163.0",
           "source": "github-release"
         },
+        "win32-arm64": {
+          "provider": "codex",
+          "version": "0.163.0",
+          "platform": "win32",
+          "architecture": "arm64",
+          "url": "https://github.com/openai/codex/releases/download/rust-v0.163.0/codex-package-aarch64-pc-windows-msvc.tar.gz",
+          "sha256": "6bbada389cd1ce26783e837fd9ba4711fb4542f432044f7955139e27e27acfde",
+          "assetName": "codex-package-aarch64-pc-windows-msvc.tar.gz",
+          "archive": "tar.gz",
+          "executableRelativePath": "bin/codex.exe",
+          "metadataUrl": "https://api.github.com/repos/openai/codex/releases/tags/rust-v0.163.0",
+          "source": "github-release"
+        },
+        "win32-x64": {
+          "provider": "codex",
+          "version": "0.163.0",
+          "platform": "win32",
+          "architecture": "x64",
+          "url": "https://github.com/openai/codex/releases/download/rust-v0.163.0/codex-package-x86_64-pc-windows-msvc.tar.gz",
+          "sha256": "901028b285614a9974f431f9d9f6534b3e5ed8d62eba4ba64f4762c00f040522",
+          "assetName": "codex-package-x86_64-pc-windows-msvc.tar.gz",
+          "archive": "tar.gz",
+          "executableRelativePath": "bin/codex.exe",
+          "metadataUrl": "https://api.github.com/repos/openai/codex/releases/tags/rust-v0.163.0",
+          "source": "github-release"
+        },
         "linux-arm64-glibc": {
           "provider": "codex",
           "version": "0.163.0",
@@ -83,38 +109,11 @@
           "executableRelativePath": "bin/codex",
           "metadataUrl": "https://api.github.com/repos/openai/codex/releases/tags/rust-v0.163.0",
           "source": "github-release"
-        },
-        "win32-arm64": {
-          "provider": "codex",
-          "version": "0.163.0",
-          "platform": "win32",
-          "architecture": "arm64",
-          "url": "https://github.com/openai/codex/releases/download/rust-v0.163.0/codex-package-aarch64-pc-windows-msvc.tar.gz",
-          "sha256": "6bbada389cd1ce26783e837fd9ba4711fb4542f432044f7955139e27e27acfde",
-          "assetName": "codex-package-aarch64-pc-windows-msvc.tar.gz",
-          "archive": "tar.gz",
-          "executableRelativePath": "bin/codex.exe",
-          "metadataUrl": "https://api.github.com/repos/openai/codex/releases/tags/rust-v0.163.0",
-          "source": "github-release"
-        },
-        "win32-x64": {
-          "provider": "codex",
-          "version": "0.163.0",
-          "platform": "win32",
-          "architecture": "x64",
-          "url": "https://github.com/openai/codex/releases/download/rust-v0.163.0/codex-package-x86_64-pc-windows-msvc.tar.gz",
-          "sha256": "901028b285614a9974f431f9d9f6534b3e5ed8d62eba4ba64f4762c00f040522",
-          "assetName": "codex-package-x86_64-pc-windows-msvc.tar.gz",
-          "archive": "tar.gz",
-          "executableRelativePath": "bin/codex.exe",
-          "metadataUrl": "https://api.github.com/repos/openai/codex/releases/tags/rust-v0.163.0",
-          "source": "github-release"
         }
       }
     },
     "claudeAgent": {
       "version": "2.1.307",
-      "sdkVersion": "0.3.307",
       "adapterVersion": "1",
       "protocolVersion": "claude-agent-sdk-0.3",
       "artifacts": {
@@ -141,6 +140,32 @@
           "assetName": "claude",
           "archive": "raw",
           "executableRelativePath": "claude",
+          "metadataUrl": "https://downloads.claude.ai/claude-code-releases/2.1.307/manifest.json",
+          "source": "anthropic-release-manifest"
+        },
+        "win32-arm64": {
+          "provider": "claudeAgent",
+          "version": "2.1.307",
+          "platform": "win32",
+          "architecture": "arm64",
+          "url": "https://downloads.claude.ai/claude-code-releases/2.1.307/win32-arm64/claude.exe",
+          "sha256": "75293206f795325fbef0ead9d6cfd97e50b19cac9b7af75696d8a9619171e3ea",
+          "assetName": "claude.exe",
+          "archive": "raw",
+          "executableRelativePath": "claude.exe",
+          "metadataUrl": "https://downloads.claude.ai/claude-code-releases/2.1.307/manifest.json",
+          "source": "anthropic-release-manifest"
+        },
+        "win32-x64": {
+          "provider": "claudeAgent",
+          "version": "2.1.307",
+          "platform": "win32",
+          "architecture": "x64",
+          "url": "https://downloads.claude.ai/claude-code-releases/2.1.307/win32-x64/claude.exe",
+          "sha256": "9537b37daacedc5a21f0f35e04d4fa6759c0bd969ddf2e56052810f63b27c918",
+          "assetName": "claude.exe",
+          "archive": "raw",
+          "executableRelativePath": "claude.exe",
           "metadataUrl": "https://downloads.claude.ai/claude-code-releases/2.1.307/manifest.json",
           "source": "anthropic-release-manifest"
         },
@@ -195,38 +220,12 @@
           "executableRelativePath": "claude",
           "metadataUrl": "https://downloads.claude.ai/claude-code-releases/2.1.307/manifest.json",
           "source": "anthropic-release-manifest"
-        },
-        "win32-arm64": {
-          "provider": "claudeAgent",
-          "version": "2.1.307",
-          "platform": "win32",
-          "architecture": "arm64",
-          "url": "https://downloads.claude.ai/claude-code-releases/2.1.307/win32-arm64/claude.exe",
-          "sha256": "75293206f795325fbef0ead9d6cfd97e50b19cac9b7af75696d8a9619171e3ea",
-          "assetName": "claude.exe",
-          "archive": "raw",
-          "executableRelativePath": "claude.exe",
-          "metadataUrl": "https://downloads.claude.ai/claude-code-releases/2.1.307/manifest.json",
-          "source": "anthropic-release-manifest"
-        },
-        "win32-x64": {
-          "provider": "claudeAgent",
-          "version": "2.1.307",
-          "platform": "win32",
-          "architecture": "x64",
-          "url": "https://downloads.claude.ai/claude-code-releases/2.1.307/win32-x64/claude.exe",
-          "sha256": "9537b37daacedc5a21f0f35e04d4fa6759c0bd969ddf2e56052810f63b27c918",
-          "assetName": "claude.exe",
-          "archive": "raw",
-          "executableRelativePath": "claude.exe",
-          "metadataUrl": "https://downloads.claude.ai/claude-code-releases/2.1.307/manifest.json",
-          "source": "anthropic-release-manifest"
         }
-      }
+      },
+      "sdkVersion": "0.3.307"
     },
     "opencode": {
       "version": "1.19.3",
-      "sdkVersion": "1.19.3",
       "adapterVersion": "1",
       "protocolVersion": "opencode-http-v1",
       "artifacts": {
@@ -253,6 +252,32 @@
           "assetName": "opencode-darwin-x64-baseline.zip",
           "archive": "zip",
           "executableRelativePath": "opencode",
+          "metadataUrl": "https://api.github.com/repos/anomalyco/opencode/releases/tags/v1.19.3",
+          "source": "github-release"
+        },
+        "win32-arm64": {
+          "provider": "opencode",
+          "version": "1.19.3",
+          "platform": "win32",
+          "architecture": "arm64",
+          "url": "https://github.com/anomalyco/opencode/releases/download/v1.19.3/opencode-windows-arm64.zip",
+          "sha256": "c1b9daf18c97564b2d171703279621f7edc3613e70750d796ef78db87257ad89",
+          "assetName": "opencode-windows-arm64.zip",
+          "archive": "zip",
+          "executableRelativePath": "opencode.exe",
+          "metadataUrl": "https://api.github.com/repos/anomalyco/opencode/releases/tags/v1.19.3",
+          "source": "github-release"
+        },
+        "win32-x64": {
+          "provider": "opencode",
+          "version": "1.19.3",
+          "platform": "win32",
+          "architecture": "x64",
+          "url": "https://github.com/anomalyco/opencode/releases/download/v1.19.3/opencode-windows-x64-baseline.zip",
+          "sha256": "0d59113484bfe8d6dc146fc981f5c33faa8318303c183711b7a9387060b289e8",
+          "assetName": "opencode-windows-x64-baseline.zip",
+          "archive": "zip",
+          "executableRelativePath": "opencode.exe",
           "metadataUrl": "https://api.github.com/repos/anomalyco/opencode/releases/tags/v1.19.3",
           "source": "github-release"
         },
@@ -307,34 +332,9 @@
           "executableRelativePath": "opencode",
           "metadataUrl": "https://api.github.com/repos/anomalyco/opencode/releases/tags/v1.19.3",
           "source": "github-release"
-        },
-        "win32-arm64": {
-          "provider": "opencode",
-          "version": "1.19.3",
-          "platform": "win32",
-          "architecture": "arm64",
-          "url": "https://github.com/anomalyco/opencode/releases/download/v1.19.3/opencode-windows-arm64.zip",
-          "sha256": "c1b9daf18c97564b2d171703279621f7edc3613e70750d796ef78db87257ad89",
-          "assetName": "opencode-windows-arm64.zip",
-          "archive": "zip",
-          "executableRelativePath": "opencode.exe",
-          "metadataUrl": "https://api.github.com/repos/anomalyco/opencode/releases/tags/v1.19.3",
-          "source": "github-release"
-        },
-        "win32-x64": {
-          "provider": "opencode",
-          "version": "1.19.3",
-          "platform": "win32",
-          "architecture": "x64",
-          "url": "https://github.com/anomalyco/opencode/releases/download/v1.19.3/opencode-windows-x64-baseline.zip",
-          "sha256": "0d59113484bfe8d6dc146fc981f5c33faa8318303c183711b7a9387060b289e8",
-          "assetName": "opencode-windows-x64-baseline.zip",
-          "archive": "zip",
-          "executableRelativePath": "opencode.exe",
-          "metadataUrl": "https://api.github.com/repos/anomalyco/opencode/releases/tags/v1.19.3",
-          "source": "github-release"
         }
-      }
+      },
+      "sdkVersion": "1.19.3"
     }
   }
 }

@@ -37,6 +37,7 @@ import { startThreadRetentionJob } from "./threadRetention.ts";
 import { ThreadReads } from "./cleanCore/ThreadReads";
 import { ThreadPublisherLive } from "./cleanCore/ThreadPublisher.ts";
 import { ensurePinnedProviderRuntimes } from "./provider/ensurePinnedProviderRuntimes";
+import { ProviderAdapterRegistry } from "./provider/Services/ProviderAdapterRegistry";
 import { ProviderInstallationRepository } from "./persistence/Services/ProviderInstallations";
 import { ProviderConnectionLoginCoordinator } from "./provider/Services/ProviderConnectionLoginCoordinator";
 import { Server } from "./effectServer";
@@ -393,12 +394,17 @@ const makeServerProgram = (input: CliInput) => {
     }
 
     yield* serverSettings.start;
+    const providerAdapters = yield* ProviderAdapterRegistry;
     yield* runStartupStage(
       "provider-runtimes.ensure-pinned",
       ensurePinnedProviderRuntimes({
         stateDir: config.stateDir,
         settings: yield* serverSettings.getSettings,
-        threadReads: yield* ThreadReads,
+        hasActiveProviderSession: (provider) =>
+          providerAdapters.getByProvider(provider).pipe(
+            Effect.flatMap((adapter) => adapter.listSessions()),
+            Effect.map((sessions) => sessions.length > 0),
+          ),
         installations: installationRepository,
       }),
     );

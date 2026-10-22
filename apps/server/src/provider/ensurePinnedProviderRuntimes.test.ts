@@ -55,15 +55,15 @@ function fixture() {
       artifact: { ...artifact, integrity: "verified" },
     } satisfies ManagedProviderGenerationManifest);
   });
-  const hasActiveProviderThread = vi.fn(() => Effect.succeed(false));
-  return { settings, install, activate, deactivate, readManifest, hasActiveProviderThread };
+  const hasActiveProviderSession = vi.fn(() => Effect.succeed(false));
+  return { settings, install, activate, deactivate, readManifest, hasActiveProviderSession };
 }
 function run(f: ReturnType<typeof fixture>) {
   return Effect.runPromise(
     ensurePinnedProviderRuntimes({
       stateDir: "/unused-pinned-fixture",
       settings: f.settings,
-      threadReads: f,
+      hasActiveProviderSession: f.hasActiveProviderSession,
       installations: f,
       install: f.install,
       deactivate: f.deactivate,
@@ -109,7 +109,7 @@ describe("pinned runtime startup", () => {
   });
   it("defers an active provider without stopping it or blocking other providers", async () => {
     const f = fixture();
-    f.hasActiveProviderThread.mockReturnValueOnce(Effect.succeed(true));
+    f.hasActiveProviderSession.mockReturnValueOnce(Effect.succeed(true));
     await run(f);
     expect(f.install.mock.calls.map(([input]) => input.artifact.provider)).toEqual([
       "claudeAgent",
