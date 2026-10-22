@@ -1,8 +1,11 @@
 import assert from "node:assert/strict";
+import { execFile } from "node:child_process";
+import { createHash } from "node:crypto";
 import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import http from "node:http";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
+import { promisify } from "node:util";
 import { it } from "vitest";
 import { ThreadId } from "@penkra/contracts";
 import type { Part } from "@opencode-ai/sdk/v2";
@@ -26,9 +29,12 @@ import {
 interface NativeSession {
   id: string;
   directory: string;
+  projectID?: string;
 }
 interface NativePart {
   type: string;
+  snapshot?: string;
+  hash?: string;
   tool?: string;
   url?: string;
   text?: string;
@@ -40,7 +46,7 @@ interface NativePart {
   };
 }
 interface NativeMessage {
-  info: { role: string; path?: { cwd: string } };
+  info: { id?: string; role: string; path?: { cwd: string } };
   parts: NativePart[];
 }
 interface ExportedSession {
@@ -179,9 +185,10 @@ it("routes simultaneous sessions by native sessionID/directory and preserves too
     await mkdir(path.dirname(plugin), { recursive: true });
     await writeFile(
       plugin,
-      `import {appendFile} from 'node:fs/promises';
+      `import {appendFile,writeFile} from 'node:fs/promises';
+import path from 'node:path';
 import {tool} from '@opencode-ai/plugin';
-export const Proof = async () => ({tool:{proof:{description:'Return the native session and directory.',args:{marker:tool.schema.string().optional()},async execute(args,context){const row={sessionID:context.sessionID,directory:context.directory};await appendFile(${JSON.stringify(calls)},JSON.stringify(row)+'\\n');return JSON.stringify(row)+'\\n'+'NATIVE_SPILL_PROOF\\n'.repeat(4000);}}}});
+export const Proof = async () => ({tool:{proof:{description:'Return the native session and directory.',args:{marker:tool.schema.string().optional()},async execute(args,context){const row={sessionID:context.sessionID,directory:context.directory};await writeFile(path.join(context.directory,'proof.txt'),'changed by native tool\\n');await appendFile(${JSON.stringify(calls)},JSON.stringify(row)+'\\n');return JSON.stringify(row)+'\\n'+'NATIVE_SPILL_PROOF\\n'.repeat(4000);}}}});
 `,
     );
     const gatewayPlugin = path.join(path.dirname(plugin), "gateway.js");
@@ -197,6 +204,7 @@ export const Proof = async () => ({tool:{proof:{description:'Return the native s
     );
     const env = fixture.environment("source", {
       OPENCODE_CONFIG_CONTENT: JSON.stringify({
+        snapshot: true,
         plugin: [pathToFileURL(plugin).href, pathToFileURL(gatewayPlugin).href],
         model: "contract/contract",
         small_model: "contract/contract",
@@ -236,6 +244,29 @@ export const Proof = async () => ({tool:{proof:{description:'Return the native s
       ["a", "b"].map(async (name) => {
         const directory = path.join(fixture.root, name);
         await mkdir(directory);
+        await writeFile(path.join(directory, "proof.txt"), "original\n");
+        await promisify(execFile)("git", ["init", "--quiet", directory], {
+          signal: fixture.signal,
+        });
+        await promisify(execFile)("git", ["-C", directory, "add", "proof.txt"], {
+          signal: fixture.signal,
+        });
+        await promisify(execFile)(
+          "git",
+          [
+            "-C",
+            directory,
+            "-c",
+            "user.name=Contract",
+            "-c",
+            "user.email=contract@example.invalid",
+            "commit",
+            "--quiet",
+            "-m",
+            "fixture",
+          ],
+          { signal: fixture.signal },
+        );
         const session = await api<NativeSession>("/session", directory, {
           title: `Contract ${name}`,
         });
@@ -351,6 +382,29 @@ export const Proof = async () => ({tool:{proof:{description:'Return the native s
       ),
     );
     const file = path.join(fixture.root, "export.json");
+    const snapshotHashes = exported.messages
+      .flatMap((message) => message.parts)
+      .flatMap((part) =>
+        part.snapshot !== undefined
+          ? [part.snapshot]
+          : part.type === "patch" && part.hash !== undefined
+            ? [part.hash]
+            : [],
+      );
+    assert(snapshotHashes.length > 0, "The git-workspace turn must produce native snapshots.");
+    assert.equal(typeof exported.info.projectID, "string");
+    const snapshotRelative = path.join(
+      "snapshot",
+      exported.info.projectID!,
+      createHash("sha1").update(source.directory).digest("hex"),
+    );
+    const sourceSnapshot = path.join(env.XDG_DATA_HOME!, "opencode", snapshotRelative);
+    for (const hash of snapshotHashes)
+      await promisify(execFile)(
+        "git",
+        ["--git-dir", sourceSnapshot, "cat-file", "-e", `${hash}^{tree}`],
+        { signal: fixture.signal },
+      );
     const proofPart = exported.messages
       .flatMap((message) => message.parts)
       .find((part) => part.type === "tool" && part.tool === "proof");
@@ -460,9 +514,26 @@ export const Proof = async () => ({tool:{proof:{description:'Return the native s
       ),
     };
     await writeFile(file, JSON.stringify(preserved));
-    await fixture.command(["import", file], target, preservedEnv);
+    await fixture.command(["import", file], source.directory, preservedEnv);
+    const targetSnapshot = path.join(preservedEnv.XDG_DATA_HOME!, "opencode", snapshotRelative);
+    await mkdir(path.dirname(targetSnapshot), { recursive: true });
+    await promisify(execFile)("git", ["init", "--bare", "--quiet", targetSnapshot], {
+      signal: fixture.signal,
+    });
+    await promisify(execFile)(
+      "git",
+      [
+        "--git-dir",
+        targetSnapshot,
+        "fetch",
+        "--no-write-fetch-head",
+        sourceSnapshot,
+        ...new Set(snapshotHashes),
+      ],
+      { signal: fixture.signal },
+    );
     const preservedRoundtrip = JSON.parse(
-      (await fixture.command(["export", source.session.id], target, preservedEnv)).stdout,
+      (await fixture.command(["export", source.session.id], source.directory, preservedEnv)).stdout,
     ) as ExportedSession;
     assert.deepEqual(preservedRoundtrip.messages, preserved.messages);
     const preservedPart = preservedRoundtrip.messages
@@ -481,6 +552,33 @@ export const Proof = async () => ({tool:{proof:{description:'Return the native s
     await rm(path.join(fixture.root, "source"), { recursive: true, force: true });
     await assert.rejects(readFile(spillPath), { code: "ENOENT" });
     assert((await readFile(preservedPath as string, "utf8")).includes("NATIVE_SPILL_PROOF"));
+    for (const hash of snapshotHashes)
+      await promisify(execFile)(
+        "git",
+        ["--git-dir", targetSnapshot, "cat-file", "-e", `${hash}^{tree}`],
+        { signal: fixture.signal },
+      );
+    const preservedServer = await fixture.startServer(
+      ["serve", "--port", "0", "--hostname", "127.0.0.1"],
+      source.directory,
+      preservedEnv,
+      /opencode server listening on (http:\/\/[^\s]+)/,
+    );
+    assert.equal(
+      await readFile(path.join(source.directory, "proof.txt"), "utf8"),
+      "changed by native tool\n",
+    );
+    const firstUser = exported.messages.find((message) => message.info.role === "user");
+    assert(firstUser?.info.id);
+    await nativeJson(
+      preservedServer.origin,
+      `/session/${source.session.id}/revert`,
+      source.directory,
+      fixture.signal,
+      { messageID: firstUser.info.id },
+    );
+    assert.equal(await readFile(path.join(source.directory, "proof.txt"), "utf8"), "original\n");
+    await fixture.stop(preservedServer.child);
   } finally {
     release();
     model.closeAllConnections();
