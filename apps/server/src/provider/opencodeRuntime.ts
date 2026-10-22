@@ -39,7 +39,7 @@ import {
   Scope,
   Stream,
 } from "effect";
-import * as Semaphore from "effect/Semaphore";
+import { makeKeyedRuntimeLock } from "./keyedRuntimeLock.ts";
 import { ChildProcess, ChildProcessSpawner } from "effect/unstable/process";
 
 import { prepareWindowsSafeProcess } from "@penkra/shared/windowsProcess";
@@ -88,6 +88,13 @@ export interface OpenCodeServerConnection {
   readonly url: string;
   readonly exitCode: Effect.Effect<number, never> | null;
   readonly external: boolean;
+  readonly gatewayProcessToken?: string;
+}
+
+export interface OpenCodeGatewayProcessCredential {
+  readonly url: string;
+  readonly issue: () => string;
+  readonly revoke: (token: string) => void;
 }
 
 interface PooledOpenCodeServer {
@@ -95,6 +102,7 @@ interface PooledOpenCodeServer {
   readonly server: OpenCodeServerProcess;
   readonly scope: Scope.Closeable;
   readonly connectionIds: Set<ProviderConnectionId>;
+  readonly gatewayProcessToken?: string;
   refCount: number;
   exitWatchFiber: Fiber.Fiber<void, never> | null;
 }
@@ -203,6 +211,7 @@ export interface OpenCodeRuntimeShape {
     readonly poolIsolationKey?: string;
     readonly connectionId?: ProviderConnectionId;
     readonly profileRoot?: string;
+    readonly gateway?: OpenCodeGatewayProcessCredential;
   }) => Effect.Effect<OpenCodeServerConnection, OpenCodeRuntimeError, Scope.Scope>;
   readonly stopAccount: (
     connectionId: ProviderConnectionId,
@@ -304,6 +313,12 @@ function pooledOpenCodeServerKey(input: {
   readonly experimentalWebSockets?: boolean;
   readonly poolIsolationKey?: string;
 }): string {
+  if (input.poolIsolationKey !== undefined) {
+    return JSON.stringify({
+      binaryPath: input.binaryPath,
+      poolIsolationKey: input.poolIsolationKey,
+    });
+  }
   const cliSpec = input.cliSpec ?? OPENCODE_CLI_SPEC;
   return JSON.stringify({
     binaryPath: input.binaryPath,
@@ -504,7 +519,13 @@ const makeOpenCodeRuntime = (options?: OpenCodeRuntimeLiveOptions) =>
     const pooledServerScope = yield* Effect.acquireRelease(Scope.make(), (scope) =>
       Scope.close(scope, Exit.void),
     );
-    const pooledServerMutex = yield* Semaphore.make(1);
+    const withPoolLock = makeKeyedRuntimeLock<string>();
+    const pendingServers = new Map<
+      string,
+      { connectionId: ProviderConnectionId | undefined; profileRoot: string | undefined }
+    >();
+    let stoppingAll = 0;
+    let disposed = false;
     const pooledServers = new Map<string, PooledOpenCodeServer>();
     const closedProfileRoots = new Set<string>();
 
@@ -794,7 +815,7 @@ const makeOpenCodeRuntime = (options?: OpenCodeRuntimeLiveOptions) =>
       pooledServer: PooledOpenCodeServer,
     ) {
       // Keep the pool entry authoritative while scope finalization proves the server tree exited.
-      // Acquirers serialize on pooledServerMutex and cannot observe a replacement before proof.
+      // Acquirers serialize only on this process key until exit proof settles.
 
       const exitWatchFiber = pooledServer.exitWatchFiber;
       pooledServer.exitWatchFiber = null;
@@ -811,7 +832,8 @@ const makeOpenCodeRuntime = (options?: OpenCodeRuntimeLiveOptions) =>
     ) {
       const exitWatchFiber = yield* pooledServer.server.exitCode.pipe(
         Effect.flatMap(() =>
-          pooledServerMutex.withPermit(
+          withPoolLock(
+            pooledServer.key,
             Effect.gen(function* () {
               if (pooledServers.get(pooledServer.key) !== pooledServer) {
                 return;
@@ -839,10 +861,22 @@ const makeOpenCodeRuntime = (options?: OpenCodeRuntimeLiveOptions) =>
       readonly poolIsolationKey?: string;
       readonly connectionId?: ProviderConnectionId;
       readonly profileRoot?: string;
+      readonly gateway?: OpenCodeGatewayProcessCredential;
       readonly processEnv?: NodeJS.ProcessEnv;
     }) =>
-      pooledServerMutex.withPermit(
+      withPoolLock(
+        pooledOpenCodeServerKey(input),
         Effect.gen(function* () {
+          if (disposed || stoppingAll > 0)
+            return yield* new OpenCodeRuntimeError({
+              operation: "connectToOpenCodeServer",
+              detail: "Provider process admission is closed during shutdown.",
+            });
+          if (input.connectionId !== undefined && input.profileRoot === undefined)
+            return yield* new OpenCodeRuntimeError({
+              operation: "connectToOpenCodeServer",
+              detail: "A Connection-owned process requires its immutable credential profile.",
+            });
           if (input.profileRoot !== undefined && closedProfileRoots.has(input.profileRoot)) {
             return yield* new OpenCodeRuntimeError({
               operation: "connectToOpenCodeServer",
@@ -852,18 +886,46 @@ const makeOpenCodeRuntime = (options?: OpenCodeRuntimeLiveOptions) =>
           const key = pooledOpenCodeServerKey(input);
           const existing = pooledServers.get(key);
           if (existing) {
+            if (input.gateway !== undefined && existing.gatewayProcessToken === undefined) {
+              return yield* new OpenCodeRuntimeError({
+                operation: "connectToOpenCodeServer",
+                detail: "The existing provider process has no gateway ownership.",
+              });
+            }
             if (input.connectionId !== undefined) existing.connectionIds.add(input.connectionId);
             existing.refCount += 1;
             return existing;
           }
 
           // Start lazily and keep the shared program until quit, removal or update.
+          pendingServers.set(key, {
+            connectionId: input.connectionId,
+            profileRoot: input.profileRoot,
+          });
           return yield* Effect.uninterruptibleMask((restore) =>
             Effect.gen(function* () {
               const serverScope = yield* Scope.make();
+              const gatewayProcessToken = input.gateway?.issue();
+              if (gatewayProcessToken !== undefined) {
+                yield* Scope.addFinalizer(
+                  serverScope,
+                  Effect.sync(() => input.gateway!.revoke(gatewayProcessToken)),
+                );
+              }
+              const processInput =
+                gatewayProcessToken === undefined
+                  ? input
+                  : {
+                      ...input,
+                      processEnv: {
+                        ...input.processEnv,
+                        PENKRA_GATEWAY_URL: input.gateway!.url,
+                        PENKRA_GATEWAY_PROCESS_TOKEN: gatewayProcessToken,
+                      },
+                    };
               const startedExit = yield* Effect.exit(
                 restore(
-                  startOpenCodeServerProcess(input).pipe(
+                  startOpenCodeServerProcess(processInput).pipe(
                     Effect.provideService(Scope.Scope, serverScope),
                   ),
                 ),
@@ -881,6 +943,7 @@ const makeOpenCodeRuntime = (options?: OpenCodeRuntimeLiveOptions) =>
                 connectionIds: new Set(
                   input.connectionId === undefined ? [] : [input.connectionId],
                 ),
+                ...(gatewayProcessToken === undefined ? {} : { gatewayProcessToken }),
                 refCount: 1,
                 exitWatchFiber: null,
               };
@@ -888,36 +951,77 @@ const makeOpenCodeRuntime = (options?: OpenCodeRuntimeLiveOptions) =>
               yield* watchPooledServerExit(pooledServer);
               return pooledServer;
             }),
-          );
+          ).pipe(Effect.ensuring(Effect.sync(() => pendingServers.delete(key))));
         }),
       );
 
     const releasePooledServer = (pooledServer: PooledOpenCodeServer) =>
-      pooledServerMutex.withPermit(
+      withPoolLock(
+        pooledServer.key,
         Effect.sync(() => {
           if (pooledServers.get(pooledServer.key) !== pooledServer) return;
           pooledServer.refCount = Math.max(0, pooledServer.refCount - 1);
         }),
       );
 
+    const closeProcessKeys = (keys: ReadonlySet<string>) =>
+      Effect.gen(function* () {
+        const exits = yield* Effect.forEach(
+          [...keys],
+          (key) =>
+            Effect.exit(
+              withPoolLock(
+                key,
+                Effect.suspend(() => {
+                  const server = pooledServers.get(key);
+                  return server ? closePooledServer(server) : Effect.void;
+                }),
+              ),
+            ),
+          { concurrency: "unbounded" },
+        );
+        const failed = exits.filter(Exit.isFailure);
+        if (failed.length)
+          return yield* new OpenCodeRuntimeError({
+            operation: "stopOpenCodeServerProcess",
+            detail: "Could not close every owned provider process.",
+            cause: failed.map((exit) => exit.cause),
+          });
+      });
     const stopAll: OpenCodeRuntimeShape["stopAll"] = () =>
-      pooledServerMutex.withPermit(
-        Effect.gen(function* () {
-          for (const pooledServer of Array.from(pooledServers.values()))
-            yield* closePooledServer(pooledServer);
+      Effect.uninterruptible(
+        Effect.suspend(() => {
+          stoppingAll++;
+          return closeProcessKeys(
+            new Set([...pendingServers.keys(), ...pooledServers.keys()]),
+          ).pipe(
+            Effect.ensuring(
+              Effect.sync(() => {
+                stoppingAll--;
+              }),
+            ),
+          );
         }),
       );
     const stopAccount: OpenCodeRuntimeShape["stopAccount"] = (connectionId, profileRoot) =>
-      pooledServerMutex.withPermit(
-        Effect.gen(function* () {
+      Effect.uninterruptible(
+        Effect.suspend(() => {
           closedProfileRoots.add(profileRoot);
-          for (const pooledServer of Array.from(pooledServers.values())) {
-            if (pooledServer.connectionIds.has(connectionId))
-              yield* closePooledServer(pooledServer);
-          }
+          const keys = new Set<string>();
+          for (const [key, pending] of pendingServers)
+            if (pending.connectionId === connectionId || pending.profileRoot === profileRoot)
+              keys.add(key);
+          for (const [key, server] of pooledServers)
+            if (server.connectionIds.has(connectionId)) keys.add(key);
+          return closeProcessKeys(keys);
         }),
       );
-    yield* Effect.addFinalizer(() => stopAll().pipe(Effect.orDie));
+    yield* Effect.addFinalizer(() =>
+      Effect.suspend(() => {
+        disposed = true;
+        return stopAll().pipe(Effect.orDie);
+      }),
+    );
 
     const connectToOpenCodeServer: OpenCodeRuntimeShape["connectToOpenCodeServer"] = (input) => {
       const serverUrl = input.serverUrl?.trim();
@@ -953,12 +1057,16 @@ const makeOpenCodeRuntime = (options?: OpenCodeRuntimeLiveOptions) =>
           ...(input.processEnv !== undefined ? { processEnv: input.processEnv } : {}),
           ...(input.connectionId !== undefined ? { connectionId: input.connectionId } : {}),
           ...(input.profileRoot !== undefined ? { profileRoot: input.profileRoot } : {}),
+          ...(input.gateway !== undefined ? { gateway: input.gateway } : {}),
         });
         yield* Scope.addFinalizer(callerScope, releasePooledServer(pooledServer));
         return {
           url: pooledServer.server.url,
           exitCode: pooledServer.server.exitCode,
           external: false,
+          ...(pooledServer.gatewayProcessToken === undefined
+            ? {}
+            : { gatewayProcessToken: pooledServer.gatewayProcessToken }),
         };
       });
     };

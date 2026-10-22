@@ -319,6 +319,41 @@ export const Proof = async () => ({tool:{proof:{description:'Return the native s
     ) as ExportedSession;
     assert.deepEqual(roundtrip.messages, exported.messages);
     assert.equal(roundtrip.info.directory, target);
+    const targetServer = await fixture.startServer(
+      ["serve", "--port", "0", "--hostname", "127.0.0.1"],
+      target,
+      targetEnv,
+      /opencode server listening on (http:\/\/[^\s]+)/,
+    );
+    await nativeJson<NativeMessage[]>(
+      targetServer.origin,
+      `/session/${source.session.id}/message`,
+      target,
+      fixture.signal,
+    );
+    // Returning to a previously used Connection must copy the latest conversation,
+    // not retain its older version or duplicate already-imported messages.
+    await api(`/session/${source.session.id}/message`, source.directory, {
+      noReply: true,
+      parts: [{ type: "text", text: "A newer message after the first copy." }],
+    });
+    const updated = JSON.parse(
+      (await fixture.command(["export", source.session.id], source.directory, env)).stdout,
+    ) as ExportedSession;
+    await writeFile(file, JSON.stringify(updated));
+    await fixture.command(["import", file], target, targetEnv);
+    const replaced = JSON.parse(
+      (await fixture.command(["export", source.session.id], target, targetEnv)).stdout,
+    ) as ExportedSession;
+    assert.deepEqual(replaced.messages, updated.messages);
+    const liveTarget = await nativeJson<NativeMessage[]>(
+      targetServer.origin,
+      `/session/${source.session.id}/message`,
+      target,
+      fixture.signal,
+    );
+    assert.deepEqual(liveTarget, updated.messages);
+    await fixture.stop(targetServer.child);
     assert.equal(
       await api(`/session/${source.session.id}`, source.directory, undefined, "DELETE"),
       true,

@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 
 import type { ThreadId } from "@penkra/contracts";
 import { Effect } from "effect";
-import * as Semaphore from "effect/Semaphore";
+import { makeKeyedRuntimeLock } from "./keyedRuntimeLock.ts";
 
 export interface ProviderLifecycleLease {
   readonly generation: string;
@@ -40,39 +40,8 @@ export interface ProviderLifecycleCoordinator {
 
 /** Serializes provider lifecycle mutations per thread and gives each mutation a unique epoch. */
 export function makeProviderLifecycleCoordinator(): ProviderLifecycleCoordinator {
-  const locks = new Map<ThreadId, { readonly semaphore: Semaphore.Semaphore; users: number }>();
+  const withThreadLock = makeKeyedRuntimeLock<ThreadId>();
   const currentGenerations = new Map<ThreadId, string>();
-
-  type LockEntry = { readonly semaphore: Semaphore.Semaphore; users: number };
-
-  const referenceEntry = (threadId: ThreadId): LockEntry => {
-    let entry = locks.get(threadId);
-    if (entry === undefined) {
-      entry = { semaphore: Semaphore.makeUnsafe(1), users: 0 };
-      locks.set(threadId, entry);
-    }
-    entry.users += 1;
-    return entry;
-  };
-
-  const releaseEntry = (threadId: ThreadId, entry: LockEntry) =>
-    Effect.sync(() => {
-      entry.users -= 1;
-      if (entry.users === 0 && locks.get(threadId) === entry) {
-        locks.delete(threadId);
-      }
-    });
-
-  const withThreadLock = <A, E, R>(
-    threadId: ThreadId,
-    effect: Effect.Effect<A, E, R>,
-  ): Effect.Effect<A, E, R> =>
-    Effect.suspend(() => {
-      const entry = referenceEntry(threadId);
-      return entry.semaphore
-        .withPermits(1)(effect)
-        .pipe(Effect.ensuring(releaseEntry(threadId, entry)));
-    });
 
   const run: ProviderLifecycleCoordinator["run"] = (threadId, operation) =>
     withThreadLock(
