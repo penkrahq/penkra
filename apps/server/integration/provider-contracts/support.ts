@@ -54,15 +54,20 @@ export async function contractFixture(provider: PinnedProviderKind) {
     await rm(root, { recursive: true, force: true });
     throw error;
   }
+  const startProcess = (args: string[], cwd: string, env: NodeJS.ProcessEnv) => {
+    const child = spawn(binary, args, { cwd, env, stdio: "pipe" });
+    children.add(child);
+    return child;
+  };
   return {
     binary,
     root,
     signal,
     environment,
     command,
+    startProcess,
     async startServer(args: string[], cwd: string, env: NodeJS.ProcessEnv, ready: RegExp) {
-      const child = spawn(binary, args, { cwd, env, stdio: "pipe" });
-      children.add(child);
+      const child = startProcess(args, cwd, env);
       let diagnostic = "";
       child.stderr.on("data", (chunk: Buffer) => {
         diagnostic = (diagnostic + chunk.toString()).slice(-4000);
