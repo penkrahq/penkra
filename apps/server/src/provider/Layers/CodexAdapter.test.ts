@@ -100,6 +100,7 @@ class FakeCodexManager extends CodexAppServerManager {
   );
 
   public stopAllImpl = vi.fn(() => undefined);
+  public stopSessionImpl = vi.fn(async (_threadId: ThreadId): Promise<void> => undefined);
   public loadCatalogImpl = vi.fn(
     async (
       _input: Parameters<CodexAppServerManager["loadCatalog"]>[0],
@@ -143,7 +144,9 @@ class FakeCodexManager extends CodexAppServerManager {
     return this.respondToUserInputImpl(threadId, requestId, answers);
   }
 
-  override async stopSession(_threadId: ThreadId): Promise<void> {}
+  override stopSession(threadId: ThreadId): Promise<void> {
+    return this.stopSessionImpl(threadId);
+  }
 
   override listSessions(): ProviderSession[] {
     return [];
@@ -359,6 +362,118 @@ validationLayer("CodexAdapterLive validation", (it) => {
       assert.equal(validationManager.startSessionImpl.mock.calls.length, 1);
       assert.equal(observedSignal?.aborted, true);
       validationManager.startSessionImpl.mockClear();
+    }),
+  );
+
+  it.effect("holds startup ownership until native abort cleanup has settled", () =>
+    Effect.gen(function* () {
+      let entered!: () => void;
+      const starting = new Promise<void>((resolve) => {
+        entered = resolve;
+      });
+      let aborted!: () => void;
+      const abortSeen = new Promise<void>((resolve) => {
+        aborted = resolve;
+      });
+      let release!: () => void;
+      const cleanup = new Promise<void>((resolve) => {
+        release = resolve;
+      });
+      let cleaned = false;
+      validationManager.startSessionImpl.mockImplementationOnce((_input, signal) => {
+        entered();
+        return new Promise<ProviderSession>((_resolve, reject) => {
+          signal?.addEventListener(
+            "abort",
+            () => {
+              aborted();
+              void cleanup.then(() => {
+                cleaned = true;
+                reject(new Error("native startup cancelled after cleanup"));
+              });
+            },
+            { once: true },
+          );
+        });
+      });
+      const adapter = yield* CodexAdapter;
+      const start = yield* adapter
+        .startSession({
+          provider: "codex",
+          threadId: asThreadId("thread-cancel-cleanup"),
+          runtimeMode: "full-access",
+        })
+        .pipe(Effect.forkChild);
+      yield* Effect.promise(() => starting);
+      const cancelling = yield* Fiber.interrupt(start).pipe(Effect.forkChild);
+      yield* Effect.gen(function* () {
+        yield* Effect.promise(() => abortSeen);
+        yield* Effect.yieldNow;
+        assert.equal(cleaned, false);
+        assert.equal(
+          cancelling.pollUnsafe(),
+          undefined,
+          "Cancellation must not release ownership while native cleanup is blocked.",
+        );
+      }).pipe(Effect.ensuring(Effect.sync(release)));
+      yield* Fiber.join(cancelling);
+      assert.equal(cleaned, true);
+    }),
+  );
+
+  it.effect("retires a native session that becomes ready after startup was cancelled", () =>
+    Effect.gen(function* () {
+      const threadId = asThreadId("thread-cancel-ready-race");
+      let entered!: () => void;
+      const starting = new Promise<void>((resolve) => {
+        entered = resolve;
+      });
+      let release!: () => void;
+      const cleanup = new Promise<void>((resolve) => {
+        release = resolve;
+      });
+      let stopping!: () => void;
+      const stopEntered = new Promise<void>((resolve) => {
+        stopping = resolve;
+      });
+      validationManager.startSessionImpl.mockImplementationOnce((input, signal) => {
+        entered();
+        return new Promise<ProviderSession>((resolve) => {
+          signal?.addEventListener(
+            "abort",
+            () =>
+              resolve({
+                provider: "codex",
+                status: "ready",
+                runtimeMode: input.runtimeMode,
+                threadId: input.threadId,
+                createdAt: "2026-10-22T00:00:00Z",
+                updatedAt: "2026-10-22T00:00:00Z",
+              }),
+            { once: true },
+          );
+        });
+      });
+      validationManager.stopSessionImpl.mockImplementationOnce(async (stoppedThreadId) => {
+        assert.equal(stoppedThreadId, threadId);
+        stopping();
+        await cleanup;
+      });
+      const adapter = yield* CodexAdapter;
+      const start = yield* adapter
+        .startSession({
+          provider: "codex",
+          threadId,
+          runtimeMode: "full-access",
+        })
+        .pipe(Effect.forkChild);
+      yield* Effect.promise(() => starting);
+      const cancelling = yield* Fiber.interrupt(start).pipe(Effect.forkChild);
+      yield* Effect.gen(function* () {
+        yield* Effect.promise(() => stopEntered);
+        assert.equal(cancelling.pollUnsafe(), undefined);
+      }).pipe(Effect.ensuring(Effect.sync(release)));
+      yield* Fiber.join(cancelling);
     }),
   );
 });
