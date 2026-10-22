@@ -31,6 +31,7 @@ import {
   type AgentGatewayCredentialsShape,
 } from "../../agentGateway/Services/AgentGatewayCredentials.ts";
 import { OpenCodeRuntimeError, type OpenCodeRuntimeShape } from "../opencodeRuntime.ts";
+import { decodeOpenCodeConversationExport } from "../openCodeConversationTransfer.ts";
 import { OpenCodeAdapter } from "../Services/OpenCodeAdapter.ts";
 import {
   makeOpenCodeAdapterLive as makeOpenCodeAdapterLiveBase,
@@ -329,6 +330,28 @@ function createMockOpenCodeRuntime(options?: {
         };
       }),
     runOpenCodeCommand: options?.runCommand ?? (() => unexpectedOperation("runOpenCodeCommand")),
+    exportConversation: (input) =>
+      options?.runCommand
+        ? options.runCommand({ ...input, args: ["--pure", "export", input.sessionID] }).pipe(
+            Effect.flatMap((result) =>
+              Effect.try({
+                try: () => {
+                  if (result.code !== 0) throw new Error(`Native export exited ${result.code}`);
+                  return decodeOpenCodeConversationExport(
+                    JSON.parse(result.stdout),
+                    input.sessionID,
+                  );
+                },
+                catch: (cause) =>
+                  new OpenCodeRuntimeError({
+                    operation: "storage.export",
+                    detail: String(cause),
+                    cause,
+                  }),
+              }),
+            ),
+          )
+        : unexpectedOperation("exportConversation"),
     createOpenCodeSdkClient,
     loadOpenCodeProviderList: () =>
       options?.inventoryError

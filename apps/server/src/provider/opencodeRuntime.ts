@@ -4,6 +4,12 @@
 // Exports: OpenCodeRuntime, OpenCodeRuntimeLive, model/auth parsers, SDK helpers
 
 import { readFile } from "node:fs/promises";
+import {
+  exportOpenCodeConversation,
+  type OpenCodeExportOwner,
+  type OpenCodeFileExportInput,
+} from "./openCodeFileExport.ts";
+import type { OpenCodeConversationExport } from "./openCodeConversationTransfer.ts";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
 import {
@@ -216,6 +222,9 @@ export interface OpenCodeRuntimeShape {
     readonly cwd?: string;
     readonly processEnv?: NodeJS.ProcessEnv;
   }) => Effect.Effect<OpenCodeCommandResult, OpenCodeRuntimeError>;
+  readonly exportConversation: (
+    input: Omit<OpenCodeFileExportInput, "signal">,
+  ) => Effect.Effect<OpenCodeConversationExport, OpenCodeRuntimeError>;
   readonly createOpenCodeSdkClient: (input: {
     readonly baseUrl: string;
     readonly directory: string;
@@ -515,6 +524,49 @@ const makeOpenCodeRuntime = (options?: OpenCodeRuntimeLiveOptions) =>
     let stoppingAll = 0;
     let disposed = false;
     const pooledServers = new Map<string, PooledOpenCodeServer>();
+    const exportOwners = new Set<OpenCodeExportOwner>();
+    const stopExports = () =>
+      Effect.tryPromise({
+        try: async () => {
+          const outcomes = await Promise.allSettled([...exportOwners].map((owner) => owner.stop()));
+          const failures = outcomes.flatMap((outcome) =>
+            outcome.status === "rejected" ? [outcome.reason] : [],
+          );
+          if (failures.length)
+            throw new AggregateError(failures, "OpenCode export owners did not prove exit.");
+        },
+        catch: (cause) =>
+          new OpenCodeRuntimeError({
+            operation: "storage.export.stop",
+            detail: "OpenCode export owners did not prove exit.",
+            cause,
+          }),
+      });
+    yield* Effect.addFinalizer(() => stopExports().pipe(Effect.orDie));
+
+    const exportConversation: OpenCodeRuntimeShape["exportConversation"] = (input) =>
+      Effect.tryPromise({
+        try: (signal) => {
+          if (disposed || stoppingAll > 0) throw new Error("OpenCode runtime is stopping.");
+          return exportOpenCodeConversation(
+            { ...input, signal },
+            {
+              registerOwner: (owner) => {
+                exportOwners.add(owner);
+                return () => {
+                  exportOwners.delete(owner);
+                };
+              },
+            },
+          );
+        },
+        catch: (cause) =>
+          new OpenCodeRuntimeError({
+            operation: "storage.export",
+            detail: cause instanceof Error ? cause.message : "OpenCode export failed.",
+            cause,
+          }),
+      });
 
     const runOpenCodeCommand: OpenCodeRuntimeShape["runOpenCodeCommand"] = (input) =>
       Effect.gen(function* () {
@@ -990,6 +1042,7 @@ const makeOpenCodeRuntime = (options?: OpenCodeRuntimeLiveOptions) =>
           return closeProcessKeys(
             new Set([...pendingServers.keys(), ...pooledServers.keys()]),
           ).pipe(
+            Effect.onExit(() => stopExports()),
             Effect.ensuring(
               Effect.sync(() => {
                 stoppingAll--;
@@ -1148,6 +1201,7 @@ const makeOpenCodeRuntime = (options?: OpenCodeRuntimeLiveOptions) =>
       stopAccount,
       stopAll,
       runOpenCodeCommand,
+      exportConversation,
       createOpenCodeSdkClient,
       loadOpenCodeProviderList,
       loadOpenCodeCredentialProviderIDs,
