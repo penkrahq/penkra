@@ -69,10 +69,18 @@ export async function contractFixture(provider: PinnedProviderKind) {
       });
       const origin = await new Promise<string>((resolve, reject) => {
         let output = "";
-        const onAbort = () => reject(signal.reason);
-        const onError = (error: Error) => reject(error);
-        const onExit = (code: number | null) =>
+        const onAbort = () => {
+          clean();
+          reject(signal.reason);
+        };
+        const onError = (error: Error) => {
+          clean();
+          reject(error);
+        };
+        const onExit = (code: number | null) => {
+          clean();
           reject(new Error(`Native server exited ${code}: ${diagnostic}`));
+        };
         const clean = () => {
           signal.removeEventListener("abort", onAbort);
           child.off("error", onError);
