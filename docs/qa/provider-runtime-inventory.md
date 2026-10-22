@@ -499,3 +499,31 @@ At this checkpoint, 385 tests across the changed gateway/adapter fixtures passed
 as did the expanded real-binary contract and formatting/lint/typechecking. These
 primitives are not yet wired into the Production OpenCode pool or its storage
 migration and do not establish that integration's completion.
+
+## 12. OpenCode pool lifecycle evidence (2026-10-22)
+
+A held native ready acknowledgement reproduced cross-Connection blocking: the
+global pool mutex prevented the second Connection's spawner from being called.
+The pool now locks by process identity, sharing the same keyed-lock primitive as
+thread generation ownership. The reproduction passes without releasing the first
+Connection's ready barrier. This demonstrates that mechanism, not attribution of
+every historical stall to it.
+
+Pending starts remain explicit pool members until settlement. Disconnect waits
+for a matching pending start, closes its process and revokes its gateway credential
+before returning; shutdown includes pending keys as well as ready processes.
+Managed pool keys omit working-directory identity. One gateway credential belongs
+to the actual process across folders and is revoked at process close, not the last
+thread lease release. Atomic plugin installation prevents concurrent preparations
+from exposing partially written declarations.
+
+The pool, generation and owner suites passed 41 tests. Formatting, lint (873
+existing warnings, no errors), workspace and server typechecking also passed.
+The plugin installer passed its separate four-test subset. Adapter/storage wiring
+and Production QA remain distinct from these pool-level checks.
+
+The expanded real-binary transfer contract also imported an updated conversation
+back into a target that already held its earlier version. Both export and the
+already-running target server's message read returned the exact updated messages,
+without duplication. This covers returning to a previously used Connection and
+guards against relying on a stale warm-server view during account switching.

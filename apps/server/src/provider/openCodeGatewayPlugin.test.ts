@@ -1,13 +1,42 @@
 import { describe, expect, it } from "vitest";
 import { z } from "zod";
+import { mkdir, mkdtemp, readFile, readdir, rm } from "node:fs/promises";
+import path from "node:path";
 import { MODEL_SELECTION_INPUT_SCHEMA } from "../agentGateway/toolInput.ts";
 import { PENKRA_EXEC_COMMAND_INPUT_SCHEMA } from "../agentGateway/hostToolContract.ts";
-import { openCodeGatewayPluginSource, openCodeSchemaExpression } from "./openCodeGatewayPlugin.ts";
+import {
+  ensureOpenCodeGatewayPlugin,
+  openCodeGatewayPluginSource,
+  openCodeSchemaExpression,
+} from "./openCodeGatewayPlugin.ts";
 
 const compile = (schema: Record<string, unknown>): z.ZodType =>
   new Function("s", `return ${openCodeSchemaExpression(schema)}`)(z);
 
 describe("OpenCode canonical gateway declarations", () => {
+  it("atomically installs one declaration file under concurrent preparations", async () => {
+    const scratch = path.resolve(
+      import.meta.dirname,
+      "../../../..",
+      ".penkra/scratch/opencode-gateway-plugin",
+    );
+    await mkdir(scratch, { recursive: true });
+    const profile = await mkdtemp(path.join(scratch, "profile-"));
+    try {
+      const definitions = [
+        { name: "test", description: "Test", inputSchema: { type: "object", properties: {} } },
+      ];
+      const files = await Promise.all([
+        ensureOpenCodeGatewayPlugin(profile, definitions),
+        ensureOpenCodeGatewayPlugin(profile, definitions),
+      ]);
+      expect(files[0]).toBe(files[1]);
+      expect(await readFile(files[0]!, "utf8")).toBe(openCodeGatewayPluginSource(definitions));
+      expect(await readdir(path.dirname(files[0]!))).toEqual(["penkra-gateway.js"]);
+    } finally {
+      await rm(profile, { recursive: true, force: true });
+    }
+  });
   it("preserves canonical model selection and command fields without a second schema", () => {
     const selection = compile(MODEL_SELECTION_INPUT_SCHEMA);
     expect(

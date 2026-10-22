@@ -4,7 +4,7 @@ import { ProviderConnectionId } from "@penkra/contracts";
 // Layer: Provider runtime tests
 // Exports: Vitest suites for opencodeRuntime.ts
 
-import { Effect, Exit, Fiber, Layer, Scope, Sink, Stream } from "effect";
+import { Deferred, Effect, Exit, Fiber, Layer, Scope, Sink, Stream } from "effect";
 import { ChildProcessSpawner } from "effect/unstable/process";
 import type { ChatAttachment } from "@penkra/contracts";
 import { describe, expect, it } from "vitest";
@@ -35,6 +35,7 @@ function mockOpenCodeServerHandle(input: {
   pid?: number;
   exitCode?: Effect.Effect<ChildProcessSpawner.ExitCode, never>;
   kill?: () => Effect.Effect<void, never>;
+  ready?: Effect.Effect<void>;
 }) {
   return ChildProcessSpawner.makeHandle({
     pid: ChildProcessSpawner.ProcessId(input.pid ?? 1),
@@ -42,7 +43,9 @@ function mockOpenCodeServerHandle(input: {
     isRunning: Effect.succeed(true),
     kill: input.kill ?? (() => Effect.void),
     stdin: Sink.drain,
-    stdout: Stream.make(encoder.encode(input.stdout)),
+    stdout: Stream.fromEffect(input.ready ?? Effect.void).pipe(
+      Stream.flatMap(() => Stream.make(encoder.encode(input.stdout))),
+    ),
     stderr: Stream.make(encoder.encode(input.stderr)),
     all: Stream.empty,
     getInputFd: () => Sink.drain,
@@ -301,6 +304,165 @@ describe("OpenCodeRuntime startup diagnostics", () => {
 });
 
 describe("OpenCodeRuntime local server pool", () => {
+  it("disconnect waits for a pending native start and closes its process credential before returning", async () => {
+    await Effect.runPromise(
+      Effect.scoped(
+        Effect.gen(function* () {
+          const entered = yield* Deferred.make<void>();
+          const release = yield* Deferred.make<void>();
+          const revoked: string[] = [];
+          const spawner = Layer.succeed(
+            ChildProcessSpawner.ChildProcessSpawner,
+            ChildProcessSpawner.make(() =>
+              Deferred.succeed(entered, undefined).pipe(
+                Effect.as(
+                  mockOpenCodeServerHandle({
+                    stdout: "opencode server listening on http://127.0.0.1:59000\n",
+                    stderr: "",
+                    ready: Deferred.await(release),
+                  }),
+                ),
+              ),
+            ),
+          );
+          const layer = makeOpenCodeRuntimeLive({
+            teardownProcessTree: async () => ({ escalated: false, signalErrors: [] }),
+          }).pipe(Layer.provide(spawner));
+          yield* Effect.gen(function* () {
+            const runtime = yield* OpenCodeRuntime;
+            const input = {
+              binaryPath: "opencode",
+              poolIsolationKey: "pending-profile",
+              profileRoot: "/pending-profile",
+              connectionId: ProviderConnectionId.makeUnsafe("pending-account"),
+              gateway: {
+                url: "http://gateway/mcp",
+                issue: () => "pending-token",
+                revoke: (token: string) => {
+                  revoked.push(token);
+                },
+              },
+            };
+            const starting = yield* runtime
+              .connectToOpenCodeServer(input)
+              .pipe(Effect.forkChild({ startImmediately: true }));
+            yield* Deferred.await(entered);
+            const stopping = yield* runtime
+              .stopAccount(input.connectionId, input.profileRoot)
+              .pipe(Effect.forkChild({ startImmediately: true }));
+            yield* Effect.sync(() => expect(stopping.pollUnsafe()).toBeUndefined()).pipe(
+              Effect.ensuring(Deferred.succeed(release, undefined)),
+            );
+            yield* Fiber.join(starting);
+            yield* Fiber.join(stopping);
+            expect(revoked).toEqual(["pending-token"]);
+            expect((yield* Effect.result(runtime.connectToOpenCodeServer(input)))._tag).toBe(
+              "Failure",
+            );
+          }).pipe(Effect.provide(layer));
+        }),
+      ),
+    );
+  });
+  it("does not hold another Connection's startup behind a pending ready acknowledgement", async () => {
+    await Effect.runPromise(
+      Effect.scoped(
+        Effect.gen(function* () {
+          const entered = yield* Deferred.make<void>();
+          const release = yield* Deferred.make<void>();
+          let peerSpawned = false;
+          const spawner = Layer.succeed(
+            ChildProcessSpawner.ChildProcessSpawner,
+            ChildProcessSpawner.make((command) =>
+              Effect.gen(function* () {
+                const cwd = (command as unknown as { options: { cwd: string } }).options.cwd;
+                const blocked = cwd === "/blocked";
+                if (blocked) yield* Deferred.succeed(entered, undefined);
+                else peerSpawned = true;
+                return mockOpenCodeServerHandle({
+                  stdout: `opencode server listening on http://127.0.0.1:${blocked ? 59000 : 59001}\n`,
+                  stderr: "",
+                  ready: blocked ? Deferred.await(release) : Effect.void,
+                });
+              }),
+            ),
+          );
+          const layer = makeOpenCodeRuntimeLive({
+            teardownProcessTree: async () => ({ escalated: false, signalErrors: [] }),
+          }).pipe(Layer.provide(spawner));
+          yield* Effect.gen(function* () {
+            const runtime = yield* OpenCodeRuntime;
+            const first = yield* runtime
+              .connectToOpenCodeServer({
+                binaryPath: "opencode",
+                cwd: "/blocked",
+                poolIsolationKey: "account-a",
+              })
+              .pipe(Effect.forkChild({ startImmediately: true }));
+            yield* Deferred.await(entered);
+            const second = yield* runtime
+              .connectToOpenCodeServer({
+                binaryPath: "opencode",
+                cwd: "/peer",
+                poolIsolationKey: "account-b",
+              })
+              .pipe(Effect.forkChild({ startImmediately: true }));
+            yield* Effect.yieldNow;
+            yield* Effect.sync(() => expect(peerSpawned).toBe(true)).pipe(
+              Effect.ensuring(Deferred.succeed(release, undefined)),
+            );
+            yield* Fiber.join(first);
+            yield* Fiber.join(second);
+          }).pipe(Effect.provide(layer));
+        }),
+      ),
+    );
+  });
+  it("owns one gateway credential across folders on a Connection and revokes it only at process close", async () => {
+    const state = { spawnUrls: [] as string[], killUrls: [] as string[] };
+    let issued = 0;
+    const revoked: string[] = [];
+    const gateway = {
+      url: "http://gateway/mcp",
+      issue: () => `process-${++issued}`,
+      revoke: (token: string) => {
+        revoked.push(token);
+      },
+    };
+    await Effect.runPromise(
+      Effect.scoped(
+        Effect.gen(function* () {
+          const runtime = yield* OpenCodeRuntime;
+          const first = yield* runtime.connectToOpenCodeServer({
+            binaryPath: "opencode",
+            cwd: "/repo/a",
+            poolIsolationKey: "installation:profile-a",
+            profileRoot: "/profile/a",
+            connectionId: ProviderConnectionId.makeUnsafe("a"),
+            gateway,
+          });
+          const second = yield* runtime.connectToOpenCodeServer({
+            binaryPath: "opencode",
+            cwd: "/repo/b",
+            poolIsolationKey: "installation:profile-a",
+            profileRoot: "/profile/a",
+            connectionId: ProviderConnectionId.makeUnsafe("a"),
+            gateway,
+          });
+          expect(first.url).toBe(second.url);
+          expect(first.gatewayProcessToken).toBe("process-1");
+          expect(second.gatewayProcessToken).toBe(first.gatewayProcessToken);
+          expect(issued).toBe(1);
+          expect(state.spawnUrls).toHaveLength(1);
+          expect(revoked).toEqual([]);
+          yield* runtime.stopAccount(ProviderConnectionId.makeUnsafe("a"), "/profile/a");
+          expect(revoked).toEqual(["process-1"]);
+          expect(state.killUrls).toEqual(state.spawnUrls);
+        }),
+      ).pipe(Effect.provide(openCodeRuntimePoolTestLayer(state))),
+    );
+    expect(revoked).toEqual(["process-1"]);
+  });
   it("keeps server scope closure pending until process-tree exit is proven", async () => {
     let proveExit: (() => void) | undefined;
     const exitProof = new Promise<void>((resolve) => {
@@ -400,6 +562,7 @@ describe("OpenCodeRuntime local server pool", () => {
               cwd: "/repo",
               poolIsolationKey: "penkra-thread-a",
               connectionId: ProviderConnectionId.makeUnsafe("account-a"),
+              profileRoot: "/profiles/a",
             })
             .pipe(Effect.provideService(Scope.Scope, firstScope));
           const second = yield* runtime
@@ -408,6 +571,7 @@ describe("OpenCodeRuntime local server pool", () => {
               cwd: "/repo",
               poolIsolationKey: "penkra-thread-b",
               connectionId: ProviderConnectionId.makeUnsafe("account-b"),
+              profileRoot: "/profiles/b",
             })
             .pipe(Effect.provideService(Scope.Scope, secondScope));
 
@@ -433,6 +597,7 @@ describe("OpenCodeRuntime local server pool", () => {
             cwd: "/repo",
             poolIsolationKey: "penkra-thread-b",
             connectionId: ProviderConnectionId.makeUnsafe("account-b"),
+            profileRoot: "/profiles/b",
           });
           expect(sameAccount.url).toBe(second.url);
           yield* Scope.close(secondScope, Exit.void);

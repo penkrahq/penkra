@@ -2,6 +2,9 @@
 // Unsupported schema changes fail generation, rather than dropping validation.
 import type { McpToolDefinition } from "../agentGateway/protocol.ts";
 import { MCP_DEFAULT_PROTOCOL_VERSION } from "../agentGateway/protocol.ts";
+import { randomUUID } from "node:crypto";
+import { mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
+import path from "node:path";
 
 const keywords = new Set([
   "$schema",
@@ -119,6 +122,7 @@ async function request(method,params,context){
   if(!response.ok||body.error)throw new Error(body.error?.message||'Penkra gateway request failed ('+response.status+').');
   return body.result;
 }
+
 async function invoke(name,args,context){
   const result=await request('tools/call',{name,arguments:args},context);
   const body={result};
@@ -146,4 +150,27 @@ export const PenkraGateway=async()=>({
   }
 });
 `;
+}
+
+/** Atomic installation in the managed profile's native plugin/dependency tree. */
+export async function ensureOpenCodeGatewayPlugin(
+  profileRoot: string,
+  definitions: ReadonlyArray<McpToolDefinition>,
+): Promise<string> {
+  const target = path.join(profileRoot, "xdg-config", "opencode", "plugins", "penkra-gateway.js");
+  const source = openCodeGatewayPluginSource(definitions);
+  const previous = await readFile(target, "utf8").catch((cause: NodeJS.ErrnoException) => {
+    if (cause.code === "ENOENT") return null;
+    throw cause;
+  });
+  if (previous === source) return target;
+  await mkdir(path.dirname(target), { recursive: true, mode: 0o700 });
+  const temporary = `${target}.${randomUUID()}.tmp`;
+  try {
+    await writeFile(temporary, source, { mode: 0o600 });
+    await rename(temporary, target);
+  } finally {
+    await rm(temporary, { force: true });
+  }
+  return target;
 }
