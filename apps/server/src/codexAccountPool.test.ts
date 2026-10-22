@@ -10,16 +10,14 @@ import { createServer } from "node:http";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
-  DEFAULT_SERVER_SETTINGS,
   FolderId,
   ProviderInstallationId,
   ProviderConnectionId,
   ThreadId,
   type OrchestrationThreadShell,
-  type ServerProviderStatus,
 } from "@penkra/contracts";
 import * as NodeServices from "@effect/platform-node/NodeServices";
-import { Deferred, Effect, Layer, Option, Sink, Stream } from "effect";
+import { Effect, Layer, Option, Sink, Stream } from "effect";
 import { ChildProcessSpawner } from "effect/unstable/process";
 import type { OpencodeClient } from "@opencode-ai/sdk/v2";
 import * as SqlClient from "effect/unstable/sql/SqlClient";
@@ -45,16 +43,11 @@ import { ProviderInstallationRepository } from "./persistence/Services/ProviderI
 import { ProviderCredentialBroker } from "./provider/providerCredentialBroker";
 import { ProviderSessionDirectoryLive } from "./provider/Layers/ProviderSessionDirectory";
 import { AnalyticsService } from "./telemetry/Services/AnalyticsService";
-import { runAutomaticProviderUpdateCycle } from "./provider/providerUpdateCoordinator";
-import type { ProviderHealthShape } from "./provider/Services/ProviderHealth";
-import type { ServerSettingsShape } from "./serverSettings";
 import * as NodeSqliteClient from "./persistence/NodeSqliteClient";
 import { SqlitePersistenceMemory } from "./persistence/Layers/Sqlite";
 import { runMigrations } from "./persistence/Migrations";
 import { createThreadFixture } from "./cleanCore/threadFixtures";
 import { makeThreadPublisher } from "./cleanCore/threadStore";
-import { applyProviderEvent } from "./cleanCore/providerStreamConsumer";
-import { toCleanCoreProviderEvents } from "./cleanCore/providerEventBridge";
 import { makeThreadLifecycle } from "./cleanCore/threadLifecycle";
 import { ThreadPublisher } from "./cleanCore/ThreadPublisher";
 import { ThreadSender } from "./cleanCore/ThreadSender";
@@ -445,138 +438,6 @@ it("ThreadLifecycle removes native files only after thread/closed", () =>
           (yield* sql`SELECT deleted_at FROM threads WHERE id = ${a.threadId}`)[0]!.deleted_at,
         ).toBe(at);
       }).pipe(Effect.provide(NodeSqliteClient.layerMemory()), Effect.scoped),
-    );
-  }));
-
-it("a turn started after the update admission check receives a persisted cut-off notice", () =>
-  withPool(async (f) => {
-    const input = await f.input("a");
-    await f.manager.startSession(input);
-    const status: ServerProviderStatus = {
-      provider: "codex",
-      status: "ready",
-      available: true,
-      authStatus: "authenticated",
-      version: "1.0.0",
-      checkedAt: at,
-      versionAdvisory: {
-        status: "behind_latest",
-        currentVersion: "1.0.0",
-        latestVersion: "1.1.0",
-        updateCommand: null,
-        canUpdate: true,
-        checkedAt: at,
-        message: "Update available",
-      },
-    };
-    await Effect.runPromise(
-      Effect.gen(function* () {
-        yield* runMigrations();
-        yield* seedCanonicalThread(input.threadId);
-        const sql = yield* SqlClient.SqlClient;
-        const adapter = yield* CodexAdapter;
-        const exited = yield* Deferred.make<void>();
-        const publisher = makeThreadPublisher();
-        yield* adapter.streamEvents.pipe(
-          Stream.runForEach((event) =>
-            Effect.gen(function* () {
-              for (const cleanEvent of toCleanCoreProviderEvents(event))
-                yield* applyProviderEvent(publisher, cleanEvent);
-              if (event.type === "session.exited") yield* Deferred.succeed(exited, undefined);
-            }),
-          ),
-          Effect.forkScoped,
-        );
-        let refreshes = 0;
-        let admissionChecked = false;
-        yield* runAutomaticProviderUpdateCycle({
-          config: { stateDir: f.root },
-          providerHealth: {
-            getStatuses: Effect.succeed([status]),
-            refresh: Effect.sync(() =>
-              ++refreshes === 1
-                ? [status]
-                : [
-                    {
-                      ...status,
-                      version: "1.1.0",
-                      versionAdvisory: {
-                        ...status.versionAdvisory!,
-                        status: "up_to_date",
-                        currentVersion: "1.1.0",
-                      },
-                    },
-                  ],
-            ),
-            streamChanges: Stream.empty,
-          } as unknown as ProviderHealthShape,
-          projectionSnapshotQuery: {
-            hasActiveProviderThread: () =>
-              Effect.sync(() => {
-                admissionChecked = true;
-                return false;
-              }),
-          } as unknown as ThreadReadsShape,
-          serverSettings: {
-            getSettings: Effect.succeed(DEFAULT_SERVER_SETTINGS),
-          } as unknown as ServerSettingsShape,
-          installationRepository: {
-            activate: () => Effect.succeed({} as never),
-            changes: Stream.empty,
-            getActiveRecord: () => Effect.die("not expected"),
-            list: () => Effect.succeed([]),
-            getRecord: () => Effect.succeed(Option.none()),
-            reactivate: () => Effect.die("not expected"),
-          },
-          resolveManagedArtifact: () =>
-            Effect.succeed({
-              provider: "codex",
-              version: "1.1.0",
-              platform: "darwin",
-              architecture: "arm64",
-              url: "https://example.invalid/codex",
-              sha256: "a".repeat(64),
-              assetName: "codex",
-              archive: "raw",
-              executableRelativePath: "codex",
-              metadataUrl: "https://example.invalid/release",
-              source: "github-release",
-            }),
-          installManagedArtifact: () =>
-            Effect.gen(function* () {
-              expect(admissionChecked).toBe(true);
-              yield* Effect.tryPromise(() =>
-                f.manager.sendTurn({
-                  threadId: input.threadId,
-                  input: "Started in the update window",
-                }),
-              );
-              return {
-                binaryPath: "/managed/codex",
-                installationId: "updated-codex",
-                version: "1.1.0",
-                reused: false,
-              };
-            }),
-          onProviderInstalled: () => adapter.stopAll(),
-        });
-        yield* Deferred.await(exited);
-        expect(
-          (yield* sql`SELECT state, active_turn_id FROM threads WHERE id = ${input.threadId}`)[0],
-        ).toEqual({ state: "idle", active_turn_id: null });
-        const notices =
-          yield* sql`SELECT text FROM thread_items WHERE thread_id = ${input.threadId} AND kind = 'notice'`;
-        expect(notices.map((row) => row.text)).toContain("ChatGPT stopped before finishing");
-      }).pipe(
-        Effect.provide(makeCodexAdapterLive({ manager: f.manager })),
-        Effect.provide(NodeServices.layer),
-        Effect.provideService(ServerConfig, {
-          stateDir: f.root,
-          baseDir: f.root,
-        } as typeof ServerConfig.Service),
-        Effect.provide(NodeSqliteClient.layerMemory()),
-        Effect.scoped,
-      ),
     );
   }));
 

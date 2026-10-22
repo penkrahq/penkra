@@ -36,9 +36,7 @@ import { makeServerApplicationLayers } from "./serverLayers";
 import { startThreadRetentionJob } from "./threadRetention.ts";
 import { ThreadReads } from "./cleanCore/ThreadReads";
 import { ThreadPublisherLive } from "./cleanCore/ThreadPublisher.ts";
-import { ProviderHealth } from "./provider/Services/ProviderHealth";
-import { ProviderAdapterRegistry } from "./provider/Services/ProviderAdapterRegistry";
-import { startAutomaticProviderUpdates } from "./provider/providerUpdateCoordinator";
+import { ensurePinnedProviderRuntimes } from "./provider/ensurePinnedProviderRuntimes";
 import { ProviderInstallationRepository } from "./persistence/Services/ProviderInstallations";
 import { ProviderConnectionLoginCoordinator } from "./provider/Services/ProviderConnectionLoginCoordinator";
 import { Server } from "./effectServer";
@@ -371,7 +369,6 @@ const makeServerProgram = (input: CliInput) => {
     const openDeps = yield* Open;
     const serverAuth = yield* ServerAuth;
     const serverSettings = yield* ServerSettingsService;
-    const providerHealth = yield* ProviderHealth;
     const installationRepository = yield* ProviderInstallationRepository;
     const providerConnectionLoginCoordinator = yield* ProviderConnectionLoginCoordinator;
     yield* cliConfig.fixPath;
@@ -395,6 +392,16 @@ const makeServerProgram = (input: CliInput) => {
       );
     }
 
+    yield* serverSettings.start;
+    yield* runStartupStage(
+      "provider-runtimes.ensure-pinned",
+      ensurePinnedProviderRuntimes({
+        stateDir: config.stateDir,
+        settings: yield* serverSettings.getSettings,
+        threadReads: yield* ThreadReads,
+        installations: installationRepository,
+      }),
+    );
     yield* runStartupStage(
       "provider-connection-login.initialize",
       providerConnectionLoginCoordinator.initialize,
@@ -422,19 +429,6 @@ const makeServerProgram = (input: CliInput) => {
           )
         : undefined;
 
-    const projectionSnapshotQuery = yield* ThreadReads;
-    const providerAdapters = yield* ProviderAdapterRegistry;
-    yield* startAutomaticProviderUpdates({
-      providerHealth,
-      projectionSnapshotQuery,
-      serverSettings,
-      config,
-      installationRepository,
-      onProviderInstalled: (provider) =>
-        providerAdapters
-          .getByProvider(provider)
-          .pipe(Effect.flatMap((adapter) => adapter.stopAll())),
-    });
     yield* Effect.forkChild(recordStartupHeartbeat);
     yield* Effect.logInfo("Penkra running", makeServerStartupLogData(config));
     if (startupPairingUrl) {
