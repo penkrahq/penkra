@@ -1113,10 +1113,6 @@ function turnStatusFromResult(result: SDKResultMessage): ProviderRuntimeTurnStat
   return "failed";
 }
 
-function streamKindFromDeltaType(deltaType: string): ClaudeTextStreamKind {
-  return deltaType.includes("thinking") ? "reasoning_text" : "assistant_text";
-}
-
 function nativeProviderRefs(
   context: ClaudeSessionContext,
   options?: {
@@ -2636,7 +2632,8 @@ function makeClaudeAdapter(options?: ClaudeAdapterLiveOptions) {
             if (deltaText.length === 0) {
               return;
             }
-            const streamKind = streamKindFromDeltaType(event.delta.type);
+            const streamKind: ClaudeTextStreamKind =
+              event.delta.type === "thinking_delta" ? "reasoning_text" : "assistant_text";
             const assistantBlockEntry =
               event.delta.type === "text_delta"
                 ? yield* ensureAssistantTextBlock(context, event.index)
