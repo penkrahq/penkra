@@ -670,3 +670,30 @@ append-through-hard-link and exact resume tests remain intact. The adapter's
 first-turn test and the manager's path-retention test pass. Final focused run:
 184 passed, one pre-existing opt-in real-account test not run. Formatting,
 workspace typecheck and lint (872 warnings, zero errors) passed.
+
+## 18. Claude usage failure is read-local
+
+The controlled reproduction holds a native usage response, expires the request
+deadline, completes another turn, then releases the response and completes a
+third turn. Before the change the session never called the usage API again;
+the reproduction failed with one call instead of two. Afterwards future reads
+remain enabled. While the native response is outstanding, calls share its
+Promise rather than accumulating more pending SDK control requests. A settled
+response clears that in-flight reference on either success or failure.
+
+The one-second deadline and its permanent-disable mutation are removed. The
+read uses the approved 20-second non-turn native request category, logs a
+correlated timeout, and returns unavailable for that read. The primary-context
+capability flag is readonly; subagent contexts retain their existing exclusion.
+
+The native worker entry points now inherit the adapter's Effect services through
+`runForkWith`. Previously their standalone `runFork` discarded the injected
+test clock, so a controlled 20-second expiry actually waited 20 wall-clock
+seconds. With the inherited service runtime the reproduction runs in virtual
+time (89 ms in the initial focused run). Worker ownership and teardown remain
+with the existing session context; no detached retry or timer was introduced.
+
+The entire changed ClaudeAdapter test file passed 120 tests. The real pinned
+Claude 2.1.307/SDK 0.3.307 contract passed independently, including native context
+usage and interruption. Formatting and lint passed; the fixture's missing
+required `apiUsage` field was corrected before the final typecheck.

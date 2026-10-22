@@ -350,7 +350,8 @@ interface ClaudeSessionContext {
   currentUltracode: boolean;
   currentFastMode: boolean;
   lastKnownAutoCompactThreshold: number | undefined;
-  contextUsageControlEnabled: boolean;
+  readonly contextUsageControlEnabled: boolean;
+  contextUsageRead?: Promise<SDKControlGetContextUsageResponse> | undefined;
   lastKnownTokenUsage: ThreadTokenUsageSnapshot | undefined;
   lastThreadStartedId: string | undefined;
   // One semantic compaction survives the SDK's repeated `status: compacting`
@@ -933,7 +934,8 @@ const CLAUDE_SETTING_SOURCES = [
   "project",
   "local",
 ] as const satisfies ReadonlyArray<SettingSource>;
-const CLAUDE_CONTEXT_USAGE_TIMEOUT_MS = 1_000;
+// Non-turn native control request deadline; timing out never disables later reads.
+const CLAUDE_CONTEXT_USAGE_REQUEST_TIMEOUT_MS = 20_000;
 // Result or exit normally settles the probe; a live, silent process has no completion event.
 const CLAUDE_CONNECTIVITY_PROBE_DEADLINE_MS = 20_000;
 // The SDK's interrupt resolves only once the CLI acknowledges it; a wedged CLI
@@ -1511,6 +1513,7 @@ function subagentRunForTask(
 
 function makeClaudeAdapter(options?: ClaudeAdapterLiveOptions) {
   return Effect.gen(function* () {
+    const runFork = Effect.runForkWith(yield* Effect.services<never>());
     const fileSystem = yield* FileSystem.FileSystem;
     const serverConfig = yield* ServerConfig;
     // Optional so adapter tests can run without the gateway layer; when
@@ -2157,18 +2160,30 @@ function makeClaudeAdapter(options?: ClaudeAdapterLiveOptions) {
         return Effect.succeed(undefined);
       }
       return Effect.tryPromise({
-        try: () => context.query.getContextUsage(),
+        try: () => {
+          if (context.contextUsageRead !== undefined) return context.contextUsageRead;
+          const request = context.query.getContextUsage();
+          context.contextUsageRead = request;
+          const clear = () => {
+            if (context.contextUsageRead === request) context.contextUsageRead = undefined;
+          };
+          void request.then(clear, clear);
+          return request;
+        },
         catch: (cause) => toError(cause, "Failed to read Claude context usage."),
       }).pipe(
-        Effect.timeoutOption(CLAUDE_CONTEXT_USAGE_TIMEOUT_MS),
-        Effect.map(
+        Effect.timeoutOption(CLAUDE_CONTEXT_USAGE_REQUEST_TIMEOUT_MS),
+        Effect.flatMap(
           Option.match({
-            onNone: () => {
-              // A missing control response otherwise blocks every future turn.
-              context.contextUsageControlEnabled = false;
-              return undefined;
-            },
-            onSome: (usage) => usage,
+            onNone: () =>
+              Effect.logWarning("provider.request.failed", {
+                provider: PROVIDER,
+                threadId: context.session.threadId,
+                method: "getContextUsage",
+                outcome: "timeout",
+                deadlineMs: CLAUDE_CONTEXT_USAGE_REQUEST_TIMEOUT_MS,
+              }).pipe(Effect.as(undefined)),
+            onSome: Effect.succeed,
           }),
         ),
         Effect.catch(() => Effect.succeed(undefined)),
@@ -3353,7 +3368,7 @@ function makeClaudeAdapter(options?: ClaudeAdapterLiveOptions) {
           }),
         ),
       );
-      const fiber = Effect.runFork(loop);
+      const fiber = runFork(loop);
       context.workflowRuntimePollers.set(taskId, fiber);
       fiber.addObserver(() => {
         if (context.workflowRuntimePollers.get(taskId) === fiber) {
@@ -4362,7 +4377,7 @@ function makeClaudeAdapter(options?: ClaudeAdapterLiveOptions) {
               }
               aborted = true;
               pendingUserInputs.delete(requestId);
-              Effect.runFork(Deferred.succeed(answersDeferred, {} as ProviderUserInputAnswers));
+              runFork(Deferred.succeed(answersDeferred, {} as ProviderUserInputAnswers));
             };
             callbackOptions.signal.addEventListener("abort", onAbort, {
               once: true,
@@ -4834,7 +4849,7 @@ function makeClaudeAdapter(options?: ClaudeAdapterLiveOptions) {
               providerRefs: {},
             });
 
-            const streamFiber = Effect.runFork(runSdkStream(context));
+            const streamFiber = runFork(runSdkStream(context));
             context.streamFiber = streamFiber;
             void enableClaudeComputerUse(context);
             streamFiber.addObserver((exit) => {
@@ -4844,7 +4859,7 @@ function makeClaudeAdapter(options?: ClaudeAdapterLiveOptions) {
               if (context.streamFiber === streamFiber) {
                 context.streamFiber = undefined;
               }
-              Effect.runFork(handleStreamExit(context, exit));
+              runFork(handleStreamExit(context, exit));
             });
           });
 
