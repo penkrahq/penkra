@@ -5,6 +5,8 @@ import path from "node:path";
 import { pathToFileURL } from "node:url";
 import { it } from "vitest";
 import { ThreadId } from "@penkra/contracts";
+import type { Part } from "@opencode-ai/sdk/v2";
+import { relocateOpenCodeToolOutputFiles } from "../../src/provider/openCodeToolOutputFiles.ts";
 import { makeAgentGatewaySessionRegistry } from "../../src/agentGateway/Layers/AgentGatewaySessionRegistry.ts";
 import {
   PENKRA_EXEC_COMMAND_DESCRIPTION,
@@ -443,10 +445,42 @@ export const Proof = async () => ({tool:{proof:{description:'Return the native s
     await journal.close();
     journal = undefined;
     await fixture.stop(server.child);
+    const preservedEnv = fixture.environment("preserved");
+    const preserved = {
+      ...exported,
+      messages: await Promise.all(
+        exported.messages.map(async (message) => ({
+          ...message,
+          parts: await relocateOpenCodeToolOutputFiles(
+            message.parts as Part[],
+            path.join(fixture.root, "source"),
+            path.join(preservedEnv.XDG_DATA_HOME!, "opencode"),
+          ),
+        })),
+      ),
+    };
+    await writeFile(file, JSON.stringify(preserved));
+    await fixture.command(["import", file], target, preservedEnv);
+    const preservedRoundtrip = JSON.parse(
+      (await fixture.command(["export", source.session.id], target, preservedEnv)).stdout,
+    ) as ExportedSession;
+    assert.deepEqual(preservedRoundtrip.messages, preserved.messages);
+    const preservedPart = preservedRoundtrip.messages
+      .flatMap((message) => message.parts)
+      .find(
+        (part): part is Extract<Part, { type: "tool" }> =>
+          part.type === "tool" && part.tool === "proof",
+      );
+    const preservedPath =
+      preservedPart?.state.status === "completed"
+        ? preservedPart.state.metadata.outputPath
+        : undefined;
+    assert.equal(typeof preservedPath, "string");
     // Native export/import preserves an absolute spill reference, not its file.
     // Removing the old isolated data root therefore invalidates that reference.
     await rm(path.join(fixture.root, "source"), { recursive: true, force: true });
     await assert.rejects(readFile(spillPath), { code: "ENOENT" });
+    assert((await readFile(preservedPath as string, "utf8")).includes("NATIVE_SPILL_PROOF"));
   } finally {
     release();
     model.closeAllConnections();

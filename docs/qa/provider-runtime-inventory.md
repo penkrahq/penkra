@@ -817,3 +817,32 @@ The changed probe and manager tests passed 138 cases, with the manager's
 pre-existing real-account test remaining opt-in. Formatting, lint (869
 warnings, zero errors), and workspace typecheck passed. Production was not
 changed.
+
+## 25. Native OpenCode tool-output preservation proof
+
+The operator approved preserving files and updating native references before
+the old data root is removed (2026-10-22). The tool-output relocation primitive
+copies the pinned completed-tool `state.metadata.outputPath` into the target
+data root. It verifies SHA-256 before atomic publication and verifies an
+existing destination before reuse. It changes that metadata field and its
+exact path occurrences in the same tool's output, not arbitrary transcript
+text. A missing owned file, an escaping symlink or a corrupt destination fails
+the operation without deleting the source.
+
+The native 1.19.3 contract still reproduces the upstream limitation: after old
+root removal the unmodified imported outputPath is unreadable. A second import
+using the relocation primitive round-trips the rewritten message parts exactly,
+and its full tool output remains readable after that same removal. The native
+contract passed (20.47 seconds); three focused filesystem tests passed, covering
+repeatability, source deletion, missing files, external references, unchanged
+transcript text, corrupt destinations and escaping links. Formatting, lint
+(870 warnings, zero errors) and workspace typecheck passed after correcting a
+test-only Part discriminant narrowing error.
+
+This is a tested migration building block, not a completed shared-storage
+cutover. No Production storage was moved. Snapshot and other native artifact
+preservation still require their own native evidence before old-root deletion.
+Pinned source confirms that import inserts conversation records rather than
+moving the snapshot store:
+[import](https://github.com/anomalyco/opencode/blob/v1.19.3/packages/opencode/src/cli/cmd/import.ts),
+[snapshot](https://github.com/anomalyco/opencode/blob/v1.19.3/packages/opencode/src/snapshot/index.ts).
