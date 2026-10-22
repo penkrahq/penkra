@@ -13,6 +13,7 @@ import {
   type ProviderComposerCapabilities,
   type ProviderEvent,
   type ProviderSendTurnInput,
+  type ProviderSession,
   type ProviderRuntimeEvent,
   type ServerVoiceTranscriptionResult,
   type ThreadTokenUsageSnapshot,
@@ -1624,12 +1625,15 @@ const makeCodexAdapter = (options?: CodexAdapterLiveOptions) =>
         ...codexModelSelectionOverrides(input.modelSelection),
       };
 
-      return Effect.tryPromise({
-        try: async (signal) => {
+      return Effect.callback<ProviderSession, ProviderAdapterProcessError>((resume, signal) => {
+        let nativeStartEntered = false;
+        const starting = (async () => {
           const resumeThreadId = codexResumeThreadId(input.resumeCursor);
           if (input.managedLaunch !== undefined && resumeThreadId !== null) {
             await prepareManagedCodexResume(input.managedLaunch, resumeThreadId);
           }
+          signal.throwIfAborted();
+          nativeStartEntered = true;
           const session = await manager.startSession(managerInput, signal);
           const nativeThreadId = codexResumeThreadId(session.resumeCursor);
           if (input.managedLaunch !== undefined) {
@@ -1644,15 +1648,30 @@ const makeCodexAdapter = (options?: CodexAdapterLiveOptions) =>
             }
           }
           return session;
-        },
-        catch: (cause) =>
-          new ProviderAdapterProcessError({
-            provider: PROVIDER,
-            threadId: input.threadId,
-            detail: toMessage(cause, "Failed to start Codex adapter session."),
-            cause,
-          }),
-      }).pipe(Effect.map((session) => session));
+        })();
+        const settled = starting.then(
+          (session) => resume(Effect.succeed(session)),
+          (cause) =>
+            resume(
+              Effect.fail(
+                new ProviderAdapterProcessError({
+                  provider: PROVIDER,
+                  threadId: input.threadId,
+                  detail: toMessage(cause, "Failed to start Codex adapter session."),
+                  cause,
+                }),
+              ),
+            ),
+        );
+        // Effect.tryPromise sends abort but does not await the promise's
+        // cleanup. Ownership must survive that cleanup, including a native
+        // start which won its race with abort and returned a live session.
+        return Effect.promise(async () => {
+          await settled;
+          if (nativeStartEntered) await manager.stopSession(input.threadId);
+          pendingManagedRolloutAdoptions.delete(input.threadId);
+        });
+      });
     };
 
     const sendTurn: CodexAdapterShape["sendTurn"] = (input) =>
