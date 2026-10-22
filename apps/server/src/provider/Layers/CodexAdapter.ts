@@ -91,25 +91,6 @@ import { makeInvalidationHub } from "../../cleanCore/invalidationHub.ts";
 import type { ProviderCatalogInvalidation } from "../Services/ProviderAdapter.ts";
 
 const PROVIDER = "codex" as const;
-const CODEX_ROLLOUT_ADOPTION_ATTEMPTS = 50;
-const CODEX_ROLLOUT_ADOPTION_RETRY_MS = 20;
-
-async function adoptManagedCodexRolloutAfterTurn(
-  launch: ProviderManagedLaunchContext,
-  nativeThreadId: string,
-): Promise<void> {
-  for (let attempt = 1; attempt <= CODEX_ROLLOUT_ADOPTION_ATTEMPTS; attempt += 1) {
-    try {
-      await adoptManagedCodexRollout(launch, nativeThreadId);
-      return;
-    } catch (cause) {
-      const retryable =
-        cause instanceof Error && cause.message === "The exact Codex rollout is unavailable.";
-      if (!retryable || attempt === CODEX_ROLLOUT_ADOPTION_ATTEMPTS) throw cause;
-      await new Promise((resolve) => setTimeout(resolve, CODEX_ROLLOUT_ADOPTION_RETRY_MS));
-    }
-  }
-}
 
 function codexResumeThreadId(cursor: unknown): string | null {
   if (cursor === null || typeof cursor !== "object" || Array.isArray(cursor)) return null;
@@ -1683,9 +1664,10 @@ const makeCodexAdapter = (options?: CodexAdapterLiveOptions) =>
             const result = await manager.sendTurn(managerInput);
             const pendingAdoption = pendingManagedRolloutAdoptions.get(input.threadId);
             if (pendingAdoption !== undefined) {
-              await adoptManagedCodexRolloutAfterTurn(
+              await adoptManagedCodexRollout(
                 pendingAdoption.launch,
                 pendingAdoption.nativeThreadId,
+                manager.getNativeThreadPath(input.threadId),
               );
               pendingManagedRolloutAdoptions.delete(input.threadId);
             }

@@ -3739,6 +3739,16 @@ describe("CodexAppServerManager discovery", () => {
 });
 
 describe("provider thread control", () => {
+  it("retains the exact native rollout path from thread/read", async () => {
+    const { manager, sendRequest } = createThreadControlHarness();
+    sendRequest.mockResolvedValueOnce({
+      thread: { id: "thread_1", path: "/profile/sessions/exact.jsonl", turns: [] },
+    });
+    await manager.readThread(asThreadId("thread_1"));
+    expect(manager.getNativeThreadPath(asThreadId("thread_1"))).toBe(
+      "/profile/sessions/exact.jsonl",
+    );
+  });
   it("reads thread turns from thread/read", async () => {
     const { manager, context, requireSession, sendRequest } = createThreadControlHarness();
     sendRequest.mockResolvedValue({

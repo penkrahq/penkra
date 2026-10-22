@@ -87,12 +87,23 @@ const generationRolloutHome = (launch: ProviderManagedLaunchContext): string =>
 export async function adoptManagedCodexRollout(
   launch: ProviderManagedLaunchContext,
   nativeThreadIdValue: string,
+  reportedRolloutPath: string,
 ): Promise<void> {
   const nativeThreadId = requireNativeThreadId(nativeThreadIdValue);
   const profileHome = profileCodexHome(launch);
-  const profileRollout = await requireOneExactCodexRollout(profileHome, nativeThreadId);
+  if (
+    !Path.isAbsolute(reportedRolloutPath) ||
+    !isExactRollout(Path.basename(reportedRolloutPath), nativeThreadId)
+  ) {
+    throw new Error("Codex did not report a valid exact rollout path.");
+  }
+  const profileRollout = reportedRolloutPath;
   const relativePath = Path.relative(profileHome, profileRollout);
-  if (relativePath.startsWith("..") || Path.isAbsolute(relativePath)) {
+  if (
+    relativePath.startsWith("..") ||
+    Path.isAbsolute(relativePath) ||
+    !CODEX_ROLLOUT_COLLECTIONS.some((collection) => relativePath.startsWith(collection + Path.sep))
+  ) {
     throw new Error("The exact Codex rollout escaped its Connection profile.");
   }
   const generationRollout = Path.join(generationRolloutHome(launch), relativePath);

@@ -647,3 +647,26 @@ events. This establishes the terminal file-availability boundary for subsequent
 rollout adoption work; the adapter's old adoption loop is not changed by this
 checkpoint. The separate real-account resume test is pre-existing and remains
 opt-in; the pinned contract uses isolated credentials and a local model fixture.
+
+## 17. Codex rollout adoption uses the reported file once
+
+The real pinned contract additionally stats `Thread.path` immediately after the
+first `turn/start` acknowledgement, before awaiting the held upstream request.
+The file exists while that first turn remains unfinished, as well as after its
+interrupted terminal event. The experiment passed; no sleep or file retry was
+used to reach that boundary.
+
+The manager retains the exact path from native thread start/read/started
+payloads. After first-turn admission, the adapter links that reported file once
+into the thread's native-state generation. Its 50-attempt/20 ms retry loop and
+error-message equality test are deleted. Adoption validates the reported
+absolute path, exact native-thread filename and Connection-profile collection.
+It does not recursively search for another candidate or select a fallback file.
+
+The controlled path test failed before the change: a different matching file
+was adopted despite the supplied native-reported path being absent. Afterwards
+it returns the actual `ENOENT` without adopting the other file. Existing inode,
+append-through-hard-link and exact resume tests remain intact. The adapter's
+first-turn test and the manager's path-retention test pass. Final focused run:
+184 passed, one pre-existing opt-in real-account test not run. Formatting,
+workspace typecheck and lint (872 warnings, zero errors) passed.
