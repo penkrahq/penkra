@@ -22,7 +22,8 @@ import {
   ThreadId,
 } from "@penkra/contracts";
 import { assert, describe, it } from "@effect/vitest";
-import { Effect, Exit, Fiber, Layer, Random, Stream } from "effect";
+import { Duration, Effect, Exit, Fiber, Layer, Random, Stream } from "effect";
+import { TestClock } from "effect/testing";
 
 import { attachmentRelativePath } from "../../attachmentStore.ts";
 import {
@@ -203,6 +204,7 @@ class FakeClaudeQuery implements AsyncIterable<SDKMessage> {
   public onGetContextUsage?: () => void;
   private contextUsageResponse: SDKControlGetContextUsageResponse | undefined;
   private contextUsageNeverResolves = false;
+  private releaseContextUsage?: (response: SDKControlGetContextUsageResponse) => void;
   public closeCalls = 0;
 
   emit(message: SDKMessage): void {
@@ -270,6 +272,8 @@ class FakeClaudeQuery implements AsyncIterable<SDKMessage> {
 
   setContextUsageResponse(response: SDKControlGetContextUsageResponse): void {
     this.contextUsageResponse = response;
+    this.contextUsageNeverResolves = false;
+    this.releaseContextUsage?.(response);
   }
 
   setContextUsageNeverResolves(): void {
@@ -280,7 +284,9 @@ class FakeClaudeQuery implements AsyncIterable<SDKMessage> {
     this.getContextUsageCalls += 1;
     this.onGetContextUsage?.();
     if (this.contextUsageNeverResolves) {
-      return new Promise<SDKControlGetContextUsageResponse>(() => {});
+      return new Promise<SDKControlGetContextUsageResponse>((resolve) => {
+        this.releaseContextUsage = resolve;
+      });
     }
     if (!this.contextUsageResponse) {
       throw new Error("Context usage unavailable in this test.");
@@ -8026,9 +8032,12 @@ await agent("Draft the spec", { label: "delta-agent", phase: "Two" });
     );
   });
 
-  it.effect("completes turns when the Claude context-usage control request hangs", () => {
+  it.effect("keeps later usage reads available after one request times out", () => {
     const harness = makeHarness();
     harness.query.setContextUsageNeverResolves();
+    const entered = new Promise<void>((resolve) => {
+      harness.query.onGetContextUsage = resolve;
+    });
 
     return Effect.gen(function* () {
       const adapter = yield* ClaudeAdapter;
@@ -8055,13 +8064,70 @@ await agent("Draft the spec", { label: "delta-agent", phase: "Two" });
         session_id: "sdk-session-context-timeout",
         uuid: "result-context-timeout",
       } as unknown as SDKMessage);
-
+      yield* Effect.promise(() => entered);
+      yield* TestClock.adjust(Duration.seconds(20));
       const completed = yield* Fiber.join(completedFiber);
       assert.equal(completed._tag, "Some");
       assert.equal(harness.query.getContextUsageCalls, 1);
+      const stillPending = yield* Stream.filter(
+        adapter.streamEvents,
+        (event) => event.type === "turn.completed",
+      ).pipe(Stream.runHead, Effect.forkChild);
+      yield* adapter.sendTurn({
+        threadId: session.threadId,
+        input: "while usage remains pending",
+        attachments: [],
+      });
+      harness.query.emit({
+        type: "result",
+        subtype: "success",
+        is_error: false,
+        errors: [],
+        session_id: "sdk-session-context-timeout",
+        uuid: "result-still-pending",
+      } as unknown as SDKMessage);
+      yield* TestClock.adjust(Duration.seconds(20));
+      assert.equal((yield* Fiber.join(stillPending))._tag, "Some");
+      assert.equal(harness.query.getContextUsageCalls, 1);
+      harness.query.setContextUsageResponse({
+        categories: [],
+        totalTokens: 1234,
+        maxTokens: 200000,
+        rawMaxTokens: 200000,
+        percentage: 1,
+        gridRows: [],
+        model: "claude-sonnet-5",
+        memoryFiles: [],
+        mcpTools: [],
+        agents: [],
+        autoCompactThreshold: 160000,
+        isAutoCompactEnabled: true,
+        apiUsage: {
+          input_tokens: 1234,
+          output_tokens: 0,
+          cache_creation_input_tokens: 0,
+          cache_read_input_tokens: 0,
+        },
+      });
+      const completedAgain = yield* Stream.filter(
+        adapter.streamEvents,
+        (event) => event.type === "turn.completed",
+      ).pipe(Stream.runHead, Effect.forkChild);
+      yield* adapter.sendTurn({ threadId: session.threadId, input: "next", attachments: [] });
+      harness.query.emit({
+        type: "result",
+        subtype: "success",
+        is_error: false,
+        errors: [],
+        session_id: "sdk-session-context-timeout",
+        uuid: "result-after-timeout",
+      } as unknown as SDKMessage);
+      const updated = yield* Fiber.join(completedAgain);
+      assert.equal(updated._tag, "Some");
+      assert.equal(harness.query.getContextUsageCalls, 2);
     }).pipe(
       Effect.provideService(Random.Random, makeDeterministicRandomService()),
-      Effect.provide(harness.layer),
+      Effect.provide(harness.layer.pipe(Layer.provideMerge(TestClock.layer()))),
     );
   });
 
