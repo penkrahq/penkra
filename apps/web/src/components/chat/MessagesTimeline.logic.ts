@@ -383,7 +383,7 @@ export function deriveMessagesTimelineRows(input: {
         );
       }
       events.push({
-        seq: segment.toSeq ?? final?.seq ?? segment.fromSeq,
+        seq: segment.toSeq ?? final?.seq ?? Math.max(turn.seq, segment.fromSeq),
         priority: segment.toSeq === null ? 1 : 0,
         rows: block,
       });

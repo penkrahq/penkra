@@ -15,6 +15,7 @@ import "../index.css";
 import {
   QueuedEditDraftNotEmptyError,
   type CleanCoreThreadItem,
+  type CleanCoreTurnSegment,
   type CleanCoreOpenQuestion,
   type CleanCoreQueuedMessage,
   type CleanCoreSavedPrompt,
@@ -638,16 +639,44 @@ function createThreadItemsPageFromFixtureSnapshot(threadId: ThreadId) {
   if (thread.latestTurn && !turns[thread.latestTurn.turnId])
     makeMarker(thread.latestTurn.turnId, thread.latestTurn.startedAt ?? NOW_ISO);
   const finals: Record<string, CleanCoreThreadItem> = {};
-  const segments: Record<string, boolean> = {};
+  const segments: Record<string, Array<CleanCoreTurnSegment>> = {};
   for (const item of items)
     if (item.kind === "text" && item.turnId !== null) finals[item.turnId] = item;
-  for (const id of Object.keys(turns))
-    segments[id] = items.some(
-      (item) =>
-        item.turnId === id &&
-        !["user", "question", "turn"].includes(item.kind) &&
-        item.sourceId !== finals[id]?.sourceId,
-    );
+  for (const id of Object.keys(turns)) {
+    if (turns[id]!.status === "running") {
+      segments[id] = [];
+      continue;
+    }
+    const boundaries = [
+      0,
+      ...items
+        .filter(
+          (item) =>
+            item.turnId === id &&
+            item.kind === "user" &&
+            JSON.parse(item.data ?? "{}").steered === true,
+        )
+        .map((item) => item.seq),
+    ];
+    segments[id] = boundaries.map((fromSeq, index) => {
+      const toSeq = boundaries[index + 1] ?? null;
+      const steps = items.filter(
+        (item) =>
+          item.turnId === id &&
+          item.seq >= fromSeq &&
+          (toSeq === null || item.seq < toSeq) &&
+          !["user", "question", "turn"].includes(item.kind) &&
+          item.sourceId !== finals[id]?.sourceId,
+      );
+      return {
+        fromSeq,
+        toSeq,
+        hasSteps: steps.length > 0,
+        startedAt: steps[0]?.createdAt ?? null,
+        endedAt: steps.at(-1)?.updatedAt ?? null,
+      };
+    });
+  }
   return { items, turns, finals, segments, nextCursor: null };
 }
 
@@ -3295,11 +3324,18 @@ describe("ChatView timeline estimator parity (full app)", () => {
         { timeout: 8_000, interval: 16 },
       );
 
-      const settledTrigger = Array.from(
-        document.querySelectorAll<HTMLButtonElement>("button"),
-      ).find((element) => element.textContent?.includes("Worked for"));
-      expect(settledTrigger).not.toBeUndefined();
-      settledTrigger!.click();
+      await vi.waitFor(
+        () => {
+          expect(
+            document.querySelector('[data-timeline-row-kind="turn-header"] button'),
+          ).not.toBeNull();
+        },
+        { timeout: 8_000 },
+      );
+      const settledTrigger = document.querySelector<HTMLButtonElement>(
+        '[data-timeline-row-kind="turn-header"] button',
+      )!;
+      settledTrigger.click();
       await vi.waitFor(
         () => {
           expect(document.body.textContent).toContain("Cancelled sleep 45");
@@ -7183,7 +7219,7 @@ describe("ChatView timeline estimator parity (full app)", () => {
         activities: Array.from({ length: 70 }, (_, index) => ({
           ...thread.activities[0]!,
           id: EventId.makeUnsafe(`cold-tool-${index}`),
-          createdAt: new Date(Date.parse(startedAt) + 240_000 + index).toISOString(),
+          createdAt: new Date(Date.parse(startedAt) + (300_000 * index) / 69).toISOString(),
         })),
         messages: thread.messages.map((message) =>
           message.role === "assistant"
@@ -7201,12 +7237,7 @@ describe("ChatView timeline estimator parity (full app)", () => {
         cleanCore: {
           ...api.cleanCore,
           listThreadItemsPage: async (input: { threadId: ThreadId; beforeSeq?: number }) => {
-            const page = createThreadItemsPageFromFixtureSnapshot(input.threadId);
-            const items = page.items
-              .filter((item) => input.beforeSeq === undefined || item.seq < input.beforeSeq)
-              .slice(-50)
-              .toReversed();
-            return { ...page, items, nextCursor: items.length === 50 ? items.at(-1)!.seq : null };
+            return fixtureOutlinePage(input.threadId, input.beforeSeq);
           },
         },
       },

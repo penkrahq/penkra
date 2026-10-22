@@ -3,6 +3,7 @@ import { EventEmitter } from "node:events";
 import { PassThrough } from "node:stream";
 import { ThreadId, type ProviderEvent } from "@penkra/contracts";
 import { expect, it, vi } from "vitest";
+import { Effect } from "effect";
 import {
   CodexAppServerManager,
   CodexStderrLineFramer,
@@ -51,6 +52,7 @@ function fixture(
     pendingCloses: new Map(),
     stopping: false,
     protocolClosed: false,
+    protocolFailure: undefined as Error | undefined,
     child,
     account: { type: "unknown", planType: null, sparkEnabled: true },
     stdoutFramer: new CodexJsonlFramer(),
@@ -204,18 +206,22 @@ it("reports failed tree proof without claiming exit and retries proof before res
   expect(f.child.listenerCount("close")).toBe(0);
   const replacement = { key: "replacement" };
   const spawn = vi.spyOn(f.internals, "startAccountProcess").mockResolvedValue(replacement);
-  const restarting = f.internals.getOrCreateAccountProcess({
+  const admission = {
+    assertCurrentCredentials: Effect.void,
     key: "account",
     cwd: "/workspace",
     binaryPath: "/managed/codex",
     env: {},
     connectionId: null,
-  });
+  };
+  const retiring = f.internals.getOrCreateAccountProcess(admission).catch((error) => error);
   await Promise.resolve();
   expect(spawn).not.toHaveBeenCalled();
   second.resolve({ escalated: true, signalErrors: [] });
-  expect(await restarting).toBe(replacement);
+  expect(await retiring).toBe(f.transport.protocolFailure);
   expect(terminate).toHaveBeenCalledTimes(2);
+  expect(spawn).not.toHaveBeenCalled();
+  expect(await f.internals.getOrCreateAccountProcess(admission)).toBe(replacement);
   expect(spawn).toHaveBeenCalledOnce();
 });
 
@@ -232,13 +238,15 @@ it.each(["proof-first", "close-first"])(
     f.child.stdout.emit("end");
     const replacement = { key: "replacement" };
     const spawn = vi.spyOn(f.internals, "startAccountProcess").mockResolvedValue(replacement);
-    const acquiring = f.internals.getOrCreateAccountProcess({
+    const admission = {
+      assertCurrentCredentials: Effect.void,
       key: "account",
       cwd: "/workspace",
       binaryPath: "/managed/codex",
       env: {},
       connectionId: null,
-    });
+    };
+    const acquiring = f.internals.getOrCreateAccountProcess(admission).catch((error) => error);
     // Let acquisition consume the already-resolved account entry.
     await Promise.resolve();
     expect(spawn).not.toHaveBeenCalled();
@@ -259,7 +267,9 @@ it.each(["proof-first", "close-first"])(
       expect(spawn).not.toHaveBeenCalled();
       proof.resolve({ escalated: false, signalErrors: [] });
     }
-    expect(await acquiring).toBe(replacement);
+    expect(await acquiring).toBe(f.transport.protocolFailure);
+    expect(spawn).not.toHaveBeenCalled();
+    expect(await f.internals.getOrCreateAccountProcess(admission)).toBe(replacement);
     expect(spawn).toHaveBeenCalledOnce();
   },
 );
@@ -272,6 +282,7 @@ it("acquisition rethrows a failed proof and keeps the account barrier", async ()
   const spawn = vi.spyOn(f.internals, "startAccountProcess");
   const acquiring = f.internals
     .getOrCreateAccountProcess({
+      assertCurrentCredentials: Effect.void,
       key: "account",
       cwd: "/workspace",
       binaryPath: "/managed/codex",
