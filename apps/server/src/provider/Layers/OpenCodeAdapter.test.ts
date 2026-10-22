@@ -1,4 +1,4 @@
-import { ProviderConnectionId, ThreadId } from "@penkra/contracts";
+import { FolderId, ProviderConnectionId, ThreadId } from "@penkra/contracts";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import type {
   Agent,
@@ -97,6 +97,17 @@ function createMockOpenCodeRuntime(options?: {
     },
   };
   const client = {
+    provider: {
+      list: async () => ({
+        data: options?.inventory?.providerList ?? { all: [], connected: [], default: {} },
+      }),
+    },
+    app: {
+      agents: async () => {
+        if (options?.inventoryError) throw options.inventoryError;
+        return { data: options?.inventory?.agents ?? [] };
+      },
+    },
     event: {
       subscribe: async () => {
         const subscriptionIndex = eventSubscribeCallCount;
@@ -557,6 +568,179 @@ describe("normalizeOpenCodeTokenUsage", () => {
 });
 
 describe("OpenCodeAdapter runtime lifecycle", () => {
+  it("reads model capabilities from the server and propagates an agent-list failure", async () => {
+    const runtime = createMockOpenCodeRuntime({
+      inventory: {
+        providerList: {
+          connected: ["openai"],
+          default: {},
+          all: [
+            {
+              id: "openai",
+              name: "OpenAI",
+              models: {
+                "model-a": {
+                  id: "model-a",
+                  name: "Model A",
+                  limit: { context: 100000 },
+                  variants: { high: { reasoningEffort: "high" } },
+                },
+              },
+            } as unknown as Provider,
+          ],
+        },
+        agents: [],
+        consoleState: null,
+      },
+      inventoryError: new OpenCodeRuntimeError({
+        operation: "app.agents",
+        detail: "agents unavailable",
+      }),
+    });
+    await Effect.runPromise(
+      Effect.gen(function* () {
+        const adapter = yield* OpenCodeAdapter;
+        if (!adapter.loadCatalog) throw new Error("Missing catalog loader");
+        const input = {
+          scope: {
+            provider: "opencode" as const,
+            connectionId: ProviderConnectionId.makeUnsafe("selected"),
+          },
+          cwd: "/repo",
+          internalProviderId: "openai",
+          managedLaunch: {
+            binaryPath: "/managed/opencode",
+            isolationKey: "selected",
+            profileRoot: "/profile",
+            nativeStateRoot: "/native",
+            childEnvironment: () => ({}),
+          },
+        };
+        const result = yield* adapter.loadCatalog({ ...input, kinds: ["models"] });
+        expect(result.models).toHaveLength(1);
+        expect(result.models?.[0]).toMatchObject({
+          slug: "openai/model-a",
+          upstreamProviderId: "openai",
+          supportedReasoningEfforts: [{ value: "high" }],
+        });
+        const error = yield* Effect.flip(
+          adapter.loadCatalog({
+            ...input,
+            scope: { ...input.scope, folderId: FolderId.makeUnsafe("folder") },
+            kinds: ["agents"],
+          }),
+        );
+        expect(error._tag).toBe("ProviderAdapterRequestError");
+        expect(yield* adapter.listSessions()).toEqual([]);
+      }).pipe(
+        Effect.provide(
+          makeOpenCodeAdapterLive({ runtime: runtime.runtime }).pipe(
+            Layer.provideMerge(
+              ServerConfig.layerTest(process.cwd(), { prefix: "opencode-catalog-models-" }),
+            ),
+            Layer.provideMerge(NodeServices.layer),
+          ),
+        ),
+      ),
+    );
+    expect(runtime.cliModelCalls).toEqual([]);
+  });
+
+  it("loads a folder's commands through its selected managed server without a thread", async () => {
+    const commandList = vi.fn(async () => ({
+      data: [{ name: "review", description: "Review changes" }],
+    }));
+    const runtime = createMockOpenCodeRuntime({ commandList });
+    await Effect.runPromise(
+      Effect.gen(function* () {
+        const adapter = yield* OpenCodeAdapter;
+        if (!adapter.loadCatalog) throw new Error("Missing catalog loader");
+        const result = yield* adapter.loadCatalog({
+          scope: {
+            provider: "opencode",
+            connectionId: ProviderConnectionId.makeUnsafe("selected"),
+            folderId: FolderId.makeUnsafe("folder"),
+          },
+          cwd: "/repo/selected",
+          kinds: ["commands", "skills", "plugins"],
+          internalProviderId: null,
+          managedLaunch: {
+            binaryPath: "/managed/opencode",
+            isolationKey: "selected",
+            connectionId: ProviderConnectionId.makeUnsafe("selected"),
+            profileRoot: "/profile",
+            nativeStateRoot: "/native",
+            childEnvironment: () => ({ SELECTED: "yes" }),
+          },
+        });
+        expect(result).toEqual({ commands: [{ name: "review", description: "Review changes" }] });
+        expect(yield* adapter.listSessions()).toEqual([]);
+      }).pipe(
+        Effect.provide(
+          makeOpenCodeAdapterLive({ runtime: runtime.runtime }).pipe(
+            Layer.provideMerge(
+              ServerConfig.layerTest(process.cwd(), { prefix: "opencode-catalog-" }),
+            ),
+            Layer.provideMerge(NodeServices.layer),
+          ),
+        ),
+      ),
+    );
+    expect(commandList).toHaveBeenCalledTimes(1);
+    expect(runtime.connectCalls).toHaveLength(1);
+    expect(runtime.connectCalls[0]).toMatchObject({
+      binaryPath: "/managed/opencode",
+      cwd: "/repo/selected",
+      poolIsolationKey: "selected",
+      connectionId: "selected",
+      processEnv: { SELECTED: "yes" },
+    });
+    expect(runtime.createCalls).toEqual([]);
+  });
+
+  it("fails a native command-catalog error once without converting it into unsupported", async () => {
+    const commandList = vi.fn(async () => {
+      throw Object.assign(new Error("Method not found"), { code: -32601 });
+    });
+    const runtime = createMockOpenCodeRuntime({ commandList });
+    await Effect.runPromise(
+      Effect.gen(function* () {
+        const adapter = yield* OpenCodeAdapter;
+        if (!adapter.loadCatalog) throw new Error("Missing catalog loader");
+        const error = yield* Effect.flip(
+          adapter.loadCatalog({
+            scope: {
+              provider: "opencode",
+              connectionId: null,
+              folderId: FolderId.makeUnsafe("folder"),
+            },
+            cwd: "/repo",
+            kinds: ["commands"],
+            internalProviderId: "opencode",
+            managedLaunch: {
+              binaryPath: "/managed/opencode",
+              isolationKey: "anonymous",
+              profileRoot: "/profile",
+              nativeStateRoot: "/native",
+              childEnvironment: () => ({}),
+            },
+          }),
+        );
+        expect(error._tag).toBe("ProviderAdapterRequestError");
+      }).pipe(
+        Effect.provide(
+          makeOpenCodeAdapterLive({ runtime: runtime.runtime }).pipe(
+            Layer.provideMerge(
+              ServerConfig.layerTest(process.cwd(), { prefix: "opencode-catalog-error-" }),
+            ),
+            Layer.provideMerge(NodeServices.layer),
+          ),
+        ),
+      ),
+    );
+    expect(commandList).toHaveBeenCalledTimes(1);
+  });
+
   it("probes in a temporary tool-free session and deletes it", async () => {
     const runtime = createMockOpenCodeRuntime({
       prompt: async () => ({ data: { info: {}, parts: [{ type: "text", text: "OK" }] } }),

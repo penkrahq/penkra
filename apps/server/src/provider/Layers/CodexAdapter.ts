@@ -1851,6 +1851,18 @@ const makeCodexAdapter = (options?: CodexAdapterLiveOptions) =>
           }),
       });
 
+    const loadCatalog: NonNullable<CodexAdapterShape["loadCatalog"]> = (input) =>
+      Effect.tryPromise({
+        try: () => manager.loadCatalog(input),
+        catch: (cause) =>
+          new ProviderAdapterRequestError({
+            provider: PROVIDER,
+            method: "catalog/load",
+            detail: toMessage(cause, "Codex catalog load failed"),
+            cause,
+          }),
+      });
+
     const listSkills: NonNullable<CodexAdapterShape["listSkills"]> = (input) =>
       Effect.tryPromise({
         try: () =>
@@ -2102,6 +2114,7 @@ const makeCodexAdapter = (options?: CodexAdapterLiveOptions) =>
       ),
       getComposerCapabilities,
       getCapabilityHealth,
+      loadCatalog,
       listSkills,
       listPlugins,
       readPlugin,

@@ -53,6 +53,7 @@ import {
   TurnId,
   type UserInputQuestion,
   type ProviderComposerCapabilities,
+  type ProviderCatalogData,
   type ProviderListCommandsInput,
   type ProviderListCommandsResult,
   type ProviderListSkillsInput,
@@ -5277,6 +5278,74 @@ function makeClaudeAdapter(options?: ClaudeAdapterLiveOptions) {
         return context !== undefined && !context.stopped;
       });
 
+    const loadCatalog: NonNullable<ClaudeAdapterShape["loadCatalog"]> = (input) =>
+      Effect.tryPromise({
+        try: async () => {
+          const kinds = new Set(input.kinds);
+          if (!kinds.has("models") && !kinds.has("commands") && !kinds.has("agents")) return {};
+          await Effect.runPromise(teardownFailedCommandDiscoveryProcesses());
+          const owner: ClaudeProcessOwner = {};
+          let discovery: ClaudeQueryRuntime | undefined;
+          try {
+            discovery = await createQuery({
+              prompt: neverResolvingUserMessageStream(),
+              options: {
+                cwd: input.cwd,
+                pathToClaudeCodeExecutable: input.managedLaunch.binaryPath,
+                settingSources: [...CLAUDE_SETTING_SOURCES],
+                permissionMode: "plan",
+                persistSession: false,
+                env: input.managedLaunch.childEnvironment(process.env),
+                spawnClaudeCodeProcess: bindClaudeProcessOwner(owner),
+              },
+            });
+            const query = discovery;
+            const data: { -readonly [K in keyof ProviderCatalogData]: ProviderCatalogData[K] } = {};
+            const metadata = Promise.all([
+              kinds.has("models")
+                ? query.supportedModels().then((models) => {
+                    data.models = mapSupportedModels(models).models;
+                  })
+                : undefined,
+              kinds.has("commands")
+                ? query.supportedCommands().then((commands) => {
+                    data.commands = mapSupportedCommands(commands).commands;
+                  })
+                : undefined,
+              kinds.has("agents")
+                ? query.supportedAgents().then((agents) => {
+                    data.agents = agents.map((agent) => ({
+                      name: agent.name,
+                      displayName: agent.name,
+                      ...(agent.description ? { description: agent.description } : {}),
+                      ...(agent.model ? { model: agent.model } : {}),
+                    }));
+                  })
+                : undefined,
+            ]).then(() => data);
+            // Iteration drives the SDK handshake. Failure belongs to this load, not an active thread.
+            const stream = (async (): Promise<never> => {
+              for await (const message of query) void message;
+              throw new Error("Claude catalog discovery ended before its metadata was available.");
+            })();
+            return await Promise.race([metadata, stream]);
+          } finally {
+            try {
+              discovery?.close();
+            } finally {
+              await Effect.runPromise(teardownCommandDiscoveryProcess(owner));
+            }
+          }
+        },
+        catch: (cause) =>
+          new ProviderAdapterRequestError({
+            provider: PROVIDER,
+            method: "catalog/load",
+            detail: toMessage(cause, "Claude catalog load failed"),
+            cause,
+          }),
+      });
+
     // Native command discovery cache — avoids spawning a process per query.
     let commandsCache: {
       result: ProviderListCommandsResult;
@@ -5721,6 +5790,7 @@ function makeClaudeAdapter(options?: ClaudeAdapterLiveOptions) {
       ),
       getComposerCapabilities,
       getCapabilityHealth,
+      loadCatalog,
       listCommands,
       listSkills,
       listModels,

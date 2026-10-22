@@ -5,6 +5,7 @@ import {
   EventId,
   type ProviderKind,
   type ProviderComposerCapabilities,
+  type ProviderCatalogData,
   type ProviderListCommandsResult,
   type ProviderModelDescriptor,
   type ProviderRuntimeEvent,
@@ -4007,6 +4008,68 @@ export function makeOpenCodeAdapterLive(options?: OpenCodeAdapterLiveOptions) {
         );
       };
 
+      const loadCatalog: NonNullable<OpenCodeAdapterShape["loadCatalog"]> = (input) => {
+        const kinds = new Set(input.kinds);
+        if (!kinds.has("models") && !kinds.has("commands") && !kinds.has("agents"))
+          return Effect.succeed({});
+        return withDiscoveryClient(
+          { cwd: input.cwd, managedLaunch: input.managedLaunch },
+          ({ client }) =>
+            Effect.gen(function* () {
+              const data: { -readonly [K in keyof ProviderCatalogData]: ProviderCatalogData[K] } =
+                {};
+              if (kinds.has("models")) {
+                const response = yield* runOpenCodeSdk("provider.list", () =>
+                  client.provider.list(),
+                ).pipe(Effect.mapError(toAdapterRequestError));
+                if (!response.data)
+                  return yield* new ProviderAdapterRequestError({
+                    provider,
+                    method: "provider.list",
+                    detail: "OpenCode provider.list returned no catalog.",
+                  });
+                const credentialProviderIDs = yield* openCodeRuntime
+                  .loadOpenCodeCredentialProviderIDs(client, adapterConfig.cliSpec)
+                  .pipe(Effect.mapError(toAdapterRequestError));
+                data.models = flattenOpenCodeModels({
+                  inventory: { providerList: response.data, consoleState: null },
+                  credentialProviderIDs,
+                  ...(input.scope.connectionId === null ? { freeOnlyProviderID: "opencode" } : {}),
+                }).filter(
+                  (model) =>
+                    input.internalProviderId === null ||
+                    model.upstreamProviderId === input.internalProviderId,
+                );
+              }
+              if (kinds.has("commands")) {
+                const response = yield* runOpenCodeSdk("command.list", () =>
+                  client.command.list(),
+                ).pipe(Effect.mapError(toAdapterRequestError));
+                if (!response.data)
+                  return yield* new ProviderAdapterRequestError({
+                    provider,
+                    method: "command.list",
+                    detail: "OpenCode command.list returned no catalog.",
+                  });
+                data.commands = flattenOpenCodeCommands(response.data);
+              }
+              if (kinds.has("agents")) {
+                const response = yield* runOpenCodeSdk("app.agents", () =>
+                  client.app.agents(),
+                ).pipe(Effect.mapError(toAdapterRequestError));
+                if (!response.data)
+                  return yield* new ProviderAdapterRequestError({
+                    provider,
+                    method: "app.agents",
+                    detail: "OpenCode app.agents returned no catalog.",
+                  });
+                data.agents = flattenOpenCodeAgents(response.data);
+              }
+              return data;
+            }),
+        );
+      };
+
       const listModels: NonNullable<OpenCodeAdapterShape["listModels"]> = (input) => {
         const binaryPath =
           input.managedLaunch?.binaryPath ??
@@ -4273,6 +4336,7 @@ export function makeOpenCodeAdapterLive(options?: OpenCodeAdapterLiveOptions) {
         listAgents,
         ...(provider === "opencode" ? { listCommands } : {}),
         getComposerCapabilities,
+        loadCatalog,
         get streamEvents() {
           return Stream.fromQueue(runtimeEvents);
         },
