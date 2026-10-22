@@ -121,7 +121,10 @@ describe("DesktopRunningWorkClient", () => {
     const received = latch();
     const states: ReadonlyArray<string>[] = [];
     const onError = vi.fn();
-    const fetcher = vi.fn(async () => input.response);
+    const fetcher = vi
+      .fn()
+      .mockResolvedValueOnce(input.response)
+      .mockResolvedValueOnce(new Response(""));
     const client = new DesktopRunningWorkClient({
       fetcher: fetcher as typeof fetch,
       onError,
