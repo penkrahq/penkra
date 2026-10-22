@@ -51,6 +51,7 @@ import {
   CodexAppServerTransportError,
   CodexJsonlFramer,
   CodexJsonlWriter,
+  CodexResponseTooLargeError,
 } from "./codexAppServerTransport";
 import { ensureDurableThreadWorkspace } from "./scratchWorkspaces";
 import { acquireAgentGatewaySessionLease } from "./agentGateway/sessionLease.ts";
@@ -73,6 +74,124 @@ const approvalRequiredTurnOverrides = {
 } as const;
 
 describe("Codex capability preflight logging", () => {
+  it("rejects only an oversized catalog response while another thread continues streaming", async () => {
+    class FakeCodexChild extends EventEmitter {
+      readonly pid = 42;
+      exitCode = null;
+      signalCode = null;
+      killed = false;
+      readonly stdin = new PassThrough();
+      readonly stdout = new PassThrough();
+      readonly stderr = new PassThrough();
+    }
+    const child = new FakeCodexChild();
+    const manager = new CodexAppServerManager();
+    const internals = manager as unknown as {
+      sessions: Map<ThreadId, unknown>;
+      attachProcessListeners(transport: unknown): void;
+      terminateAccountProcess(transport: unknown): Promise<void>;
+      sendRequest(
+        transport: unknown,
+        owner: ThreadId | null,
+        method: string,
+        params: unknown,
+      ): Promise<unknown>;
+    };
+    const transport = {
+      child,
+      key: "account",
+      token: Symbol("account"),
+      stopping: false,
+      protocolClosed: false,
+      threads: new Set<unknown>(),
+      probes: new Map(),
+      pendingCloses: new Map(),
+      pending: new Map(),
+      stdoutFramer: new CodexJsonlFramer(256),
+      stdinWriter: new CodexJsonlWriter(child.stdin),
+      stderrLineFramer: new CodexStderrLineFramer(),
+      stderrRecordFramer: new CodexStderrRecordFramer(),
+      nextRequestId: 1,
+    };
+    const context = {
+      transport,
+      stopping: false,
+      session: {
+        threadId: asThreadId("running-thread"),
+        provider: "codex",
+        status: "running",
+        activeTurnId: asTurnId("turn-b"),
+        resumeCursor: { threadId: "native-b" },
+      },
+      collabReceiverTurns: new Map(),
+      collabReceiverParents: new Map(),
+      terminalTurnIds: new Set(),
+      reviewTurnIds: new Set(),
+    };
+    transport.threads.add(context);
+    internals.sessions.set(context.session.threadId, context);
+    const terminate = vi.spyOn(internals, "terminateAccountProcess").mockResolvedValue(undefined);
+    const warning = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const events: ProviderEvent[] = [];
+    manager.on("event", (event) => events.push(event));
+    internals.attachProcessListeners(transport);
+    const catalog = internals
+      .sendRequest(transport, null, "plugin/list", {})
+      .catch((error) => error);
+    const models = internals.sendRequest(transport, null, "model/list", {});
+    try {
+      // Finish the real queued writes before injecting the fake child's replies.
+      await transport.stdinWriter.write({ method: "initialized" });
+      child.stdout.write(
+        JSON.stringify({ id: 1, result: { privatePayload: "x".repeat(600) } }) +
+          "\n" +
+          JSON.stringify({
+            method: "item/agentMessage/delta",
+            params: {
+              threadId: "native-b",
+              turnId: "turn-b",
+              itemId: "message-b",
+              delta: "still working",
+            },
+          }) +
+          "\n" +
+          JSON.stringify({ id: 2, result: { models: [] } }) +
+          "\n",
+      );
+      const error = await catalog;
+      expect(error).toBeInstanceOf(CodexResponseTooLargeError);
+      expect(error).toMatchObject({ method: "plugin/list", requestId: 1 });
+      expect(error).toHaveProperty(
+        "message",
+        "Codex's reply to plugin/list was larger than 16 MiB.",
+      );
+      expect(error).not.toHaveProperty("requestOutcome");
+      await expect(models).resolves.toEqual({ models: [] });
+      expect(transport.pending.size).toBe(0);
+      expect(transport.protocolClosed).toBe(false);
+      expect(terminate).not.toHaveBeenCalled();
+      expect(manager.hasSession(context.session.threadId)).toBe(true);
+      expect(context.session.status).toBe("running");
+      expect(events).toEqual([
+        expect.objectContaining({
+          method: "item/agentMessage/delta",
+          threadId: context.session.threadId,
+          payload: expect.objectContaining({ delta: "still working" }),
+        }),
+      ]);
+      expect(warning).toHaveBeenCalledOnce();
+      expect(warning.mock.calls[0]![0]).toContain('method="plugin/list"');
+      expect(warning.mock.calls[0]![0]).not.toContain("privatePayload");
+      child.stdout.write(JSON.stringify({ id: 1, result: "x".repeat(600) }) + "\n");
+      expect(manager.hasSession(context.session.threadId)).toBe(true);
+      expect(warning).toHaveBeenCalledTimes(2);
+    } finally {
+      child.stdin.end();
+      warning.mockRestore();
+      terminate.mockRestore();
+    }
+  });
+
   it("correlates a failed response with its request instead of guessing from the last issued method", () => {
     const manager = new CodexAppServerManager() as unknown as {
       handleTransportFailure(transport: unknown, cause: unknown): void;

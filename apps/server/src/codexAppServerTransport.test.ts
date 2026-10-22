@@ -15,9 +15,10 @@ describe("Codex app-server transport", () => {
     for (const split of [1, 8, 100]) {
       const framer = new CodexJsonlFramer(256);
       framer.push(frame.slice(0, split));
-      expect(() => framer.push(frame.slice(split) + "\n")).toThrowError(
-        expect.objectContaining({ reason: "frame-too-large", requestId: 17 }),
-      );
+      expect(framer.push(frame.slice(split) + '\n{"id":18,"result":{}}\n')).toEqual([
+        { kind: "oversized-response", requestId: 17, observedBytes: Buffer.byteLength(frame) },
+        '{"id":18,"result":{}}',
+      ]);
     }
     const framer = new CodexJsonlFramer(256);
     expect(() =>
@@ -391,9 +392,9 @@ describe("Codex app-server transport", () => {
       },
     });
 
-    expect(() => framer.push(`${frame}\n`)).toThrowError(
-      expect.objectContaining({ reason: "frame-too-large" }),
-    );
+    expect(framer.push(`${frame}\n`)).toEqual([
+      { kind: "oversized-response", requestId: 7, observedBytes: Buffer.byteLength(frame) },
+    ]);
   });
 
   it("does not retain a large unrelated top-level string in scanner memory", () => {
@@ -408,16 +409,73 @@ describe("Codex app-server transport", () => {
     expect(scanner?.stringBytes).toBeUndefined();
   });
 
-  it("rejects an identified response at the normal frame limit", () => {
+  it("discards an identified response without retaining the payload and waits for its newline", () => {
     const framer = new CodexJsonlFramer(256, 2_048);
     const partialResponse = `{"id":7,"result":"${"x".repeat(512)}`;
 
-    expect(() => framer.push(partialResponse)).toThrowError(
-      expect.objectContaining({
-        reason: "frame-too-large",
-        maxBytes: 256,
-      }),
+    expect(framer.push(partialResponse)).toEqual([]);
+    expect((framer as unknown as { chunks: unknown[] }).chunks).toEqual([]);
+    expect(framer.push('"}\n')).toEqual([
+      {
+        kind: "oversized-response",
+        requestId: 7,
+        observedBytes: Buffer.byteLength(partialResponse) + 2,
+      },
+    ]);
+  });
+
+  it("recognizes a trailing response id and an oversized error response across single-byte chunks", () => {
+    for (const frame of [
+      JSON.stringify({ result: { output: "😀".repeat(150) }, id: 19 }),
+      JSON.stringify({ error: { code: -32000, message: "x".repeat(600) }, id: 19 }),
+    ]) {
+      const framer = new CodexJsonlFramer(128, 2048);
+      const frames = Array.from(Buffer.from(frame + "\n")).flatMap((byte) =>
+        framer.push(Buffer.from([byte])),
+      );
+      expect(frames).toEqual([
+        { kind: "oversized-response", requestId: 19, observedBytes: Buffer.byteLength(frame) },
+      ]);
+      expect(framer.push('{"id":20,"result":true}\n')).toEqual(['{"id":20,"result":true}']);
+      framer.finish();
+    }
+  });
+
+  it("never mistakes a server request, invalid response envelope or malformed JSON for a discardable response", () => {
+    const payload = "x".repeat(300);
+    for (const frame of [
+      JSON.stringify({ id: 1, method: "tool/requestUserInput", params: { text: payload } }),
+      JSON.stringify({ id: null, result: payload }),
+      JSON.stringify({ id: true, result: payload }),
+      JSON.stringify({ id: 9007199254740992, result: payload }),
+      JSON.stringify({ result: payload }),
+      JSON.stringify({ id: 1, other: payload }),
+      JSON.stringify({ id: 1, result: payload, error: {} }),
+      `{"id":1,"result":"${payload}","id":2}`,
+      `{"id":1,"result":"${payload}",}`,
+      `{"id":1,"result":"${payload}"`,
+      `{"id":1,"result":"${payload}"}{"other":1}`,
+    ])
+      expect(() => new CodexJsonlFramer(128, 2048).push(frame + "\n")).toThrowError(
+        expect.objectContaining({ reason: "frame-too-large" }),
+      );
+  });
+
+  it("keeps the absolute discard limit and UTF-8 validation for oversized responses", () => {
+    const prefix = Buffer.from(`{"id":1,"result":"${"x".repeat(300)}`);
+    expect(() => new CodexJsonlFramer(128, 256).push(prefix)).toThrowError(
+      expect.objectContaining({ reason: "frame-too-large", maxBytes: 256 }),
     );
+    const framer = new CodexJsonlFramer(128, 512);
+    framer.push(prefix);
+    expect(() => framer.push("x".repeat(256))).toThrowError(
+      expect.objectContaining({ maxBytes: 512 }),
+    );
+    expect(() =>
+      new CodexJsonlFramer(128, 2048).push(
+        Buffer.concat([prefix, Buffer.from([0xff]), Buffer.from('"}\n')]),
+      ),
+    ).toThrowError(expect.objectContaining({ reason: "invalid-utf8" }));
   });
 
   it("rejects a known unsupported notification at the normal frame limit", () => {
