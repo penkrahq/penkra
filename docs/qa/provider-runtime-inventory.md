@@ -395,3 +395,32 @@ experimental; version pinning does not establish its behavior for later SDKs.
 Neither experiment reads personal credential files or proves the application
 usage wiring, multi-Connection account parity, or the personal-credential
 isolation acceptance cases. No Production installation is part of this evidence.
+
+## 8. Runtime ownership integration evidence (2026-10-22)
+
+The server session facade now exposes `ensure` and reason-bearing `stop` rather
+than `startSession`/`stopSession`. `ThreadRuntime` owns adapter start/disposal,
+per-thread replacement serialization, urgent startup cancellation, native
+running/ready transitions, and `provider.session.lifecycle` transition logs.
+The former serialized `runCurrentUrgent` route and its queued-urgent test were
+removed; new owner tests cover urgent work bypassing a blocked control request
+and cancellation waiting for real cleanup. A failed native disposal retains
+`stopping` ownership, rather than admitting an overlapping replacement.
+
+A separate failing reproduction established that the original generation lock
+published a replacement generation during preparation, before native ownership
+changed. The lock now reserves a generation and activates it at native startup;
+read-only preparation keeps the live generation. This preserves valid old-runtime
+events during preparation and keeps the existing stale-generation fence after
+handoff. The matching before/after test is in `ThreadRuntime.test.ts`.
+
+The old compensating provider restart was deleted. The two previous rollback
+tests now verify explicit restart, unchanged stored provider/cursor, and stale
+exit isolation after that explicit request. No test was removed to mask a
+failure. Archive/delete and runtime-mode/selection-change callers carry reasons;
+the retention archive stop remains inside its original SQL transaction.
+
+At this checkpoint, 113 tests across the owner, generation, service, retention,
+account-pool and fixture-integration files passed. This does not establish
+completion of idle-policy migration, application/Connection shutdown routing,
+OpenCode's shared-process integration, or Production visual QA.

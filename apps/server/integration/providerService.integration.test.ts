@@ -93,15 +93,12 @@ it.effect("replays typed runtime fixture events", () =>
 
     yield* Effect.gen(function* () {
       const provider = yield* ProviderService;
-      const session = yield* provider.startSession(
-        ThreadId.makeUnsafe("thread-integration-typed"),
-        {
-          threadId: ThreadId.makeUnsafe("thread-integration-typed"),
-          provider: "codex",
-          cwd: fixture.cwd,
-          runtimeMode: "full-access",
-        },
-      );
+      const session = yield* provider.ensure(ThreadId.makeUnsafe("thread-integration-typed"), {
+        threadId: ThreadId.makeUnsafe("thread-integration-typed"),
+        provider: "codex",
+        cwd: fixture.cwd,
+        runtimeMode: "full-access",
+      });
       assert.equal((session.threadId ?? "").length > 0, true);
 
       const snapshot = yield* runTurn({
@@ -135,15 +132,12 @@ it.effect("replays file-changing fixture turn events", () =>
 
     yield* Effect.gen(function* () {
       const provider = yield* ProviderService;
-      const session = yield* provider.startSession(
-        ThreadId.makeUnsafe("thread-integration-tools"),
-        {
-          threadId: ThreadId.makeUnsafe("thread-integration-tools"),
-          provider: "codex",
-          cwd: fixture.cwd,
-          runtimeMode: "full-access",
-        },
-      );
+      const session = yield* provider.ensure(ThreadId.makeUnsafe("thread-integration-tools"), {
+        threadId: ThreadId.makeUnsafe("thread-integration-tools"),
+        provider: "codex",
+        cwd: fixture.cwd,
+        runtimeMode: "full-access",
+      });
       assert.equal((session.threadId ?? "").length > 0, true);
 
       const snapshot = yield* runTurn({
@@ -181,15 +175,12 @@ it.effect("runs multi-turn tool and continuation flow", () =>
 
     yield* Effect.gen(function* () {
       const provider = yield* ProviderService;
-      const session = yield* provider.startSession(
-        ThreadId.makeUnsafe("thread-integration-multi"),
-        {
-          threadId: ThreadId.makeUnsafe("thread-integration-multi"),
-          provider: "codex",
-          cwd: fixture.cwd,
-          runtimeMode: "full-access",
-        },
-      );
+      const session = yield* provider.ensure(ThreadId.makeUnsafe("thread-integration-multi"), {
+        threadId: ThreadId.makeUnsafe("thread-integration-multi"),
+        provider: "codex",
+        cwd: fixture.cwd,
+        runtimeMode: "full-access",
+      });
       assert.equal((session.threadId ?? "").length > 0, true);
 
       const firstSnapshot = yield* runTurn({
@@ -249,15 +240,12 @@ it.effect("rolls back provider conversation state only", () =>
 
     yield* Effect.gen(function* () {
       const provider = yield* ProviderService;
-      const session = yield* provider.startSession(
-        ThreadId.makeUnsafe("thread-integration-rollback"),
-        {
-          threadId: ThreadId.makeUnsafe("thread-integration-rollback"),
-          provider: "codex",
-          cwd: fixture.cwd,
-          runtimeMode: "full-access",
-        },
-      );
+      const session = yield* provider.ensure(ThreadId.makeUnsafe("thread-integration-rollback"), {
+        threadId: ThreadId.makeUnsafe("thread-integration-rollback"),
+        provider: "codex",
+        cwd: fixture.cwd,
+        runtimeMode: "full-access",
+      });
       assert.equal((session.threadId ?? "").length > 0, true);
 
       yield* runTurn({

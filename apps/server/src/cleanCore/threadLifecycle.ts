@@ -140,7 +140,7 @@ export const makeThreadLifecycle = Effect.gen(function* () {
                 condition,
               );
               if (!applied) return false;
-              yield* provider.stopSession({ threadId: input.threadId });
+              yield* provider.stop({ threadId: input.threadId, reason: "archive" });
               return true;
             }),
           );
@@ -155,7 +155,10 @@ export const makeThreadLifecycle = Effect.gen(function* () {
         if (archiving && row.state === "running")
           return yield* Effect.fail(new ThreadRunningError());
         if (archiving || input.action === "delete") {
-          yield* provider.stopSession({ threadId: input.threadId });
+          yield* provider.stop({
+            threadId: input.threadId,
+            reason: input.action === "delete" ? "delete" : "archive",
+          });
         }
         if (input.action === "delete") {
           const nativeRows = yield* sql<{

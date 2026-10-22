@@ -32,6 +32,7 @@ import { ServiceMap } from "effect";
 import type { Effect, Stream } from "effect";
 
 import type { ProviderServiceError } from "../Errors.ts";
+import type { ThreadRuntimeStopReason } from "../ThreadRuntime.ts";
 import type {
   ProviderAdapterCapabilities,
   ProviderManagedLaunchContext,
@@ -54,7 +55,7 @@ export interface ProviderServiceShape {
   /**
    * Start a provider session.
    */
-  readonly startSession: (
+  readonly ensure: (
     threadId: ThreadId,
     input: ProviderServiceSessionStartInput,
   ) => Effect.Effect<ProviderSession, ProviderServiceError>;
@@ -111,8 +112,8 @@ export interface ProviderServiceShape {
   /**
    * Stop a provider session.
    */
-  readonly stopSession: (
-    input: ProviderStopSessionInput,
+  readonly stop: (
+    input: ProviderStopSessionInput & { readonly reason: ThreadRuntimeStopReason },
   ) => Effect.Effect<void, ProviderServiceError>;
 
   /**

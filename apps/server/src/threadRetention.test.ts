@@ -37,7 +37,7 @@ const setup = Effect.gen(function* () {
       runExclusive: (_id, action) => action,
     } as typeof ThreadSender.Service),
     Effect.provideService(ProviderService, {
-      stopSession: () => Effect.suspend(() => beforeStop),
+      stop: () => Effect.suspend(() => beforeStop),
     } as unknown as typeof ProviderService.Service),
     Effect.provideService(ServerConfig, {
       stateDir: "/tmp/penkra-retention-tests-no-native-state",

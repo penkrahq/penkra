@@ -7,11 +7,13 @@ import * as Semaphore from "effect/Semaphore";
 export interface ProviderLifecycleLease {
   readonly generation: string;
   readonly isCurrent: () => boolean;
+  /** Publish the reserved generation immediately before native startup. */
+  readonly activate: () => void;
   /**
    * Takes lasting ownership of {@link ProviderLifecycleLease.generation}.
    *
-   * A run publishes its generation eagerly (runtime events emitted *while* a
-   * provider starts must not look stale), but that publication is provisional:
+   * Native startup activates its reserved generation before calling the adapter,
+   * not while preparing selection or reading metadata. Activation is provisional:
    * it survives the run only if the run says it took ownership. Call this once
    * the generation is observable outside the coordinator — i.e. a session was
    * started with it or a binding was persisted with it.
@@ -29,11 +31,6 @@ export interface ProviderLifecycleCoordinator {
     operation: (lease: ProviderLifecycleLease) => Effect.Effect<A, E, R>,
   ) => Effect.Effect<A, E, R>;
   readonly runCurrent: <A, E, R>(
-    threadId: ThreadId,
-    operation: (generation: string | undefined) => Effect.Effect<A, E, R>,
-  ) => Effect.Effect<A, E, R>;
-  /** Control-plane operations await the same per-thread ownership release. */
-  readonly runCurrentUrgent: <A, E, R>(
     threadId: ThreadId,
     operation: (generation: string | undefined) => Effect.Effect<A, E, R>,
   ) => Effect.Effect<A, E, R>;
@@ -83,28 +80,33 @@ export function makeProviderLifecycleCoordinator(): ProviderLifecycleCoordinator
       Effect.suspend(() => {
         const generation = randomUUID();
         const previousGeneration = currentGenerations.get(threadId);
-        currentGenerations.set(threadId, generation);
         let ownedGeneration: string = generation;
-        // Ownership is opt-in. The eagerly published generation is rewound on
-        // exit unless the run explicitly committed/adopted/retired, so a run
-        // that ends without changing anything — a successful no-op early
-        // return, a failure, an interrupt before the provider was touched —
-        // leaves the still-live session's generation exactly as it found it.
-        // The inverse default is unsafe: an uncommitted generation nobody else
-        // knows about silently invalidates every runtime event and every
-        // generation-checked control call for that thread, forever.
+        // Preparation does not transfer native ownership. Keep accepting events
+        // from the live generation until the owner activates a native start.
         let owned = false;
-        const isCurrent = () => currentGenerations.get(threadId) === ownedGeneration;
+        let activated = false;
+        const isCurrent = () =>
+          currentGenerations.get(threadId) === (activated ? ownedGeneration : previousGeneration);
+        const activate = () => {
+          if (!isCurrent()) return;
+          currentGenerations.set(threadId, ownedGeneration);
+          activated = true;
+        };
         return operation({
           generation,
           isCurrent,
+          activate,
           commit: () => {
-            if (isCurrent()) owned = true;
+            if (isCurrent()) {
+              activate();
+              owned = true;
+            }
           },
           adopt: (adoptedGeneration) => {
             if (isCurrent()) {
               ownedGeneration = adoptedGeneration;
               currentGenerations.set(threadId, adoptedGeneration);
+              activated = true;
               owned = true;
             }
           },
@@ -118,7 +120,7 @@ export function makeProviderLifecycleCoordinator(): ProviderLifecycleCoordinator
           Effect.onExit(() =>
             // `isCurrent` also guards against clobbering a newer owner: only
             // rewind while this run's generation is still the published one.
-            owned || !isCurrent()
+            owned || !activated || !isCurrent()
               ? Effect.void
               : Effect.sync(() => {
                   if (previousGeneration === undefined) {
@@ -135,11 +137,6 @@ export function makeProviderLifecycleCoordinator(): ProviderLifecycleCoordinator
   return {
     run,
     runCurrent: (threadId, operation) =>
-      withThreadLock(
-        threadId,
-        Effect.suspend(() => operation(currentGenerations.get(threadId))),
-      ),
-    runCurrentUrgent: (threadId, operation) =>
       withThreadLock(
         threadId,
         Effect.suspend(() => operation(currentGenerations.get(threadId))),

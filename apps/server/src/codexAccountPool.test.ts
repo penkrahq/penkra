@@ -404,7 +404,7 @@ it("ThreadLifecycle removes native files only after thread/closed", () =>
             runExclusive: (_id, action) => action,
           } as typeof ThreadSender.Service),
           Effect.provideService(ProviderService, {
-            stopSession: () =>
+            stop: () =>
               Effect.tryPromise(() => {
                 enteredStop();
                 return f.manager.stopSession(a.threadId);
@@ -656,7 +656,7 @@ it.each(["codex", "opencode"] as const)(
             });
             yield* sql`UPDATE threads SET native_state_id=${"native-" + threadId} WHERE id=${threadId}`;
             // No managedLaunch is supplied: this is the production resolver callback.
-            yield* service.startSession(threadId, {
+            yield* service.ensure(threadId, {
               provider,
               threadId,
               runtimeMode: "full-access",
