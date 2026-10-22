@@ -6,6 +6,32 @@ import { it } from "vitest";
 import { contractFixture, listen } from "./support.ts";
 import { jsonRpcJournal, NativeRpcError } from "./jsonRpcJournal.ts";
 import { requiredCodexMethods } from "./codexRequestCoverage.ts";
+import { parseAuthStatusFromOutput } from "../../src/provider/Layers/ProviderHealth.ts";
+
+it("classifies the pinned CLI's exact signed-out login status", async () => {
+  const fixture = await contractFixture("codex");
+  try {
+    let failure: unknown;
+    try {
+      await fixture.command(["login", "status"]);
+    } catch (error) {
+      failure = error;
+    }
+    assert(
+      failure instanceof Error && "code" in failure && "stdout" in failure && "stderr" in failure,
+    );
+    assert.equal(failure.code, 1);
+    assert.equal(failure.stdout, "");
+    assert.equal(failure.stderr, "Not logged in\n");
+    assert.equal(
+      parseAuthStatusFromOutput({ code: 1, stdout: "", stderr: failure.stderr as string })
+        .authStatus,
+      "unauthenticated",
+    );
+  } finally {
+    await fixture.close();
+  }
+});
 
 interface NativeThread {
   id: string;

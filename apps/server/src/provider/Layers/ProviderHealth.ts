@@ -274,34 +274,6 @@ export function parseAuthStatusFromOutput(result: CommandResult): {
   readonly voiceTranscriptionAvailable?: boolean;
   readonly message?: string;
 } {
-  const lowerOutput = `${result.stdout}\n${result.stderr}`.toLowerCase();
-
-  if (
-    lowerOutput.includes("unknown command") ||
-    lowerOutput.includes("unrecognized command") ||
-    lowerOutput.includes("unexpected argument")
-  ) {
-    return {
-      status: "warning",
-      authStatus: "unknown",
-      message: "Codex CLI authentication status command is unavailable in this Codex version.",
-    };
-  }
-
-  if (
-    lowerOutput.includes("not logged in") ||
-    lowerOutput.includes("login required") ||
-    lowerOutput.includes("authentication required") ||
-    lowerOutput.includes("run `codex login`") ||
-    lowerOutput.includes("run codex login")
-  ) {
-    return {
-      status: "error",
-      authStatus: "unauthenticated",
-      message: "Codex CLI is not authenticated. Run `codex login` and try again.",
-    };
-  }
-
   const parsedAuth = (() => {
     const trimmed = result.stdout.trim();
     if (!trimmed || (!trimmed.startsWith("{") && !trimmed.startsWith("["))) {
@@ -354,6 +326,20 @@ export function parseAuthStatusFromOutput(result: CommandResult): {
   }
   if (result.code === 0) {
     return { status: "ready", authStatus: "authenticated" };
+  }
+
+  // Pinned Codex login status exposes no JSON mode. This exact signed-out
+  // envelope is exercised against the real executable in the native contract.
+  if (
+    result.code === 1 &&
+    result.stdout.trim() === "" &&
+    result.stderr.trim() === "Not logged in"
+  ) {
+    return {
+      status: "error",
+      authStatus: "unauthenticated",
+      message: "Codex CLI is not authenticated. Run `codex login` and try again.",
+    };
   }
 
   const detail = detailFromResult(result);
