@@ -11,6 +11,10 @@ import { ThreadId } from "@penkra/contracts";
 import type { Part } from "@opencode-ai/sdk/v2";
 import { relocateOpenCodeToolOutputFiles } from "../../src/provider/openCodeToolOutputFiles.ts";
 import { preserveOpenCodeNativeSnapshots } from "../../src/provider/openCodeNativeSnapshots.ts";
+import {
+  importOpenCodeConversation,
+  type OpenCodeConversationExport,
+} from "../../src/provider/openCodeConversationTransfer.ts";
 import { makeAgentGatewaySessionRegistry } from "../../src/agentGateway/Layers/AgentGatewaySessionRegistry.ts";
 import {
   PENKRA_EXEC_COMMAND_DESCRIPTION,
@@ -540,13 +544,44 @@ export const Proof = async () => ({tool:{proof:{description:'Return the native s
           parts: await relocateOpenCodeToolOutputFiles(
             message.parts as Part[],
             path.join(fixture.root, "source"),
-            path.join(preservedEnv.XDG_DATA_HOME!, "opencode"),
+            path.join(
+              preservedEnv.XDG_DATA_HOME!,
+              "opencode",
+              "thread-artifacts",
+              source.session.id,
+            ),
           ),
         })),
       ),
     };
-    await writeFile(file, JSON.stringify(preserved));
-    await fixture.command(["import", file], source.directory, preservedEnv);
+    const preservedServer = await fixture.startServer(
+      ["serve", "--port", "0", "--hostname", "127.0.0.1"],
+      source.directory,
+      preservedEnv,
+      /opencode server listening on (http:\/\/[^\s]+)/,
+    );
+    const transfer = {
+      conversation: exported as unknown as OpenCodeConversationExport,
+      sourceDataRoot: path.join(env.XDG_DATA_HOME!, "opencode"),
+      targetDataRoot: path.join(preservedEnv.XDG_DATA_HOME!, "opencode"),
+      worktree: source.directory,
+      temporaryRoot: path.join(fixture.root, "transfer"),
+      env: preservedEnv,
+      signal: fixture.signal,
+      deleteTarget: async () => {
+        const result = await fetch(
+          `${preservedServer.origin}/session/${source.session.id}?directory=${encodeURIComponent(source.directory)}`,
+          { method: "DELETE", signal: fixture.signal },
+        );
+        assert(result.ok || result.status === 404);
+      },
+      command: async (args: string[]) => ({
+        ...(await fixture.command(args, source.directory, preservedEnv)),
+        code: 0,
+      }),
+    };
+    await importOpenCodeConversation(transfer);
+    await importOpenCodeConversation(transfer);
     const targetSnapshot = path.join(preservedEnv.XDG_DATA_HOME!, "opencode", snapshotRelative);
     const snapshotCopy = {
       parts: exported.messages.flatMap((message) => message.parts) as Part[],
@@ -585,12 +620,6 @@ export const Proof = async () => ({tool:{proof:{description:'Return the native s
         ["--git-dir", targetSnapshot, "cat-file", "-e", `${hash}^{tree}`],
         { signal: fixture.signal },
       );
-    const preservedServer = await fixture.startServer(
-      ["serve", "--port", "0", "--hostname", "127.0.0.1"],
-      source.directory,
-      preservedEnv,
-      /opencode server listening on (http:\/\/[^\s]+)/,
-    );
     assert.equal(
       await readFile(path.join(source.directory, "proof.txt"), "utf8"),
       "changed by native tool\n",

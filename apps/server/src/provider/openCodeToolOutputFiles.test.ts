@@ -1,11 +1,41 @@
 import { mkdtemp, mkdir, readFile, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import type { Part } from "@opencode-ai/sdk/v2";
 import { describe, expect, it } from "vitest";
 import { relocateOpenCodeToolOutputFiles } from "./openCodeToolOutputFiles.ts";
 
 describe("OpenCode tool-output relocation", () => {
+  it("preserves owned file attachments on messages and completed tools", async () => {
+    const root = await mkdtemp(path.join(tmpdir(), "penkra-opencode-output-"));
+    try {
+      const source = path.join(root, "source");
+      await mkdir(source);
+      const file = path.join(source, "image.png");
+      await writeFile(file, Buffer.from([1, 2, 3]));
+      const attachment = { type: "file", mime: "image/png", url: pathToFileURL(file).href } as Part;
+      const tool = {
+        type: "tool",
+        state: { status: "completed", output: "image", metadata: {}, attachments: [attachment] },
+      } as Part;
+      const moved = await relocateOpenCodeToolOutputFiles(
+        [attachment, tool],
+        source,
+        path.join(root, "target"),
+      );
+      const image = moved[0]!;
+      const result = moved[1]!;
+      if (image.type !== "file" || result.type !== "tool" || result.state.status !== "completed")
+        throw new Error("Missing attachments");
+      expect(result.state.attachments?.[0]?.url).toBe(image.url);
+      await rm(source, { recursive: true });
+      expect(await readFile(fileURLToPath(image.url))).toEqual(Buffer.from([1, 2, 3]));
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
   it("keeps the full output readable after deleting the source and is repeatable", async () => {
     const root = await mkdtemp(path.join(tmpdir(), "penkra-opencode-output-"));
     try {
