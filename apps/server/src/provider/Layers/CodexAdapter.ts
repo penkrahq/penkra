@@ -55,6 +55,9 @@ import {
 import {
   CodexAppServerManager,
   CodexJsonRpcResponseError,
+  CodexSessionNotFoundError,
+  CodexSessionClosedError,
+  CodexSessionStoppedRequestError,
   parseCodexUserInputQuestions,
   type CodexAppServerSendTurnInput,
   type CodexAppServerStartSessionInput,
@@ -196,18 +199,17 @@ function toSessionError(
   threadId: ThreadId,
   cause: unknown,
 ): ProviderAdapterSessionNotFoundError | ProviderAdapterSessionClosedError | undefined {
-  const normalized = toMessage(cause, "").toLowerCase();
-  if (normalized.includes("unknown session") || normalized.includes("unknown provider session")) {
+  if (cause instanceof CodexSessionNotFoundError) {
     return new ProviderAdapterSessionNotFoundError({
       provider: PROVIDER,
       threadId,
       cause,
     });
   }
-  // A closed stdin is the transport-level signature of a dead app-server
-  // process; treat it as a closed session so callers recover via resume
-  // instead of surfacing a raw request failure.
-  if (normalized.includes("session is closed") || normalized.includes("stdin closed")) {
+  if (
+    cause instanceof CodexSessionClosedError ||
+    cause instanceof CodexSessionStoppedRequestError
+  ) {
     return new ProviderAdapterSessionClosedError({
       provider: PROVIDER,
       threadId,

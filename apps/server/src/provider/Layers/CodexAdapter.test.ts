@@ -22,6 +22,7 @@ import { Effect, Fiber, FileSystem, Layer, Option, Stream } from "effect";
 import {
   CodexAppServerManager,
   CodexJsonRpcResponseError,
+  CodexSessionNotFoundError,
   type CodexAppServerStartSessionInput,
   type CodexAppServerSendTurnInput,
 } from "../../codexAppServerManager.ts";
@@ -487,7 +488,7 @@ validationLayer("CodexAdapterLive validation", (it) => {
 
 const sessionErrorManager = new FakeCodexManager();
 sessionErrorManager.sendTurnImpl.mockImplementation(async () => {
-  throw new Error("Unknown session: sess-missing");
+  throw new CodexSessionNotFoundError(asThreadId("sess-missing"));
 });
 const sessionErrorLayer = it.layer(
   makeCodexAdapterLive({ manager: sessionErrorManager }).pipe(
@@ -498,6 +499,24 @@ const sessionErrorLayer = it.layer(
 );
 
 sessionErrorLayer("CodexAdapterLive session errors", (it) => {
+  it.effect("does not classify provider wording as a missing or closed Penkra session", () =>
+    Effect.gen(function* () {
+      const adapter = yield* CodexAdapter;
+      for (const message of [
+        "Unknown session in the remote tool",
+        "session is closed by upstream policy",
+        "stdin closed in a tool command",
+      ]) {
+        sessionErrorManager.sendTurnImpl.mockRejectedValueOnce(new Error(message));
+        const result = yield* Effect.result(
+          adapter.sendTurn({ threadId: asThreadId("thread-1"), input: "hello", attachments: [] }),
+        );
+        assert.equal(result._tag, "Failure");
+        if (result._tag === "Failure")
+          assert.equal(result.failure._tag, "ProviderAdapterRequestError");
+      }
+    }),
+  );
   it.effect("maps the manager's JSON-RPC rejection error without a machine reason", () =>
     Effect.gen(function* () {
       const managerRejection = new Error("turn/start failed: usage limit reached");
