@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { once } from "node:events";
 import http from "node:http";
 import { it } from "vitest";
 import { contractFixture, listen, nativeEventJournal, nativeJson } from "./support.ts";
@@ -11,11 +12,13 @@ interface NativeReply {
 it("reports real question, interrupt, and request-failure facts without stopping the shared server", async () => {
   const fixture = await contractFixture("opencode");
   let journal: Awaited<ReturnType<typeof nativeEventJournal>> | undefined;
+  let peerJournal: Awaited<ReturnType<typeof nativeEventJournal>> | undefined;
   let blocked!: () => void;
   const blockStarted = new Promise<void>((resolve) => {
     blocked = resolve;
   });
   let requests = 0;
+  const crashRequests = new Map<string, () => void>();
   const model = http.createServer(async (req, res) => {
     let text = "";
     for await (const chunk of req) text += chunk;
@@ -42,6 +45,12 @@ it("reports real question, interrupt, and request-failure facts without stopping
     if (command?.includes("BLOCK_CONTRACT")) {
       blocked();
       return;
+    }
+    for (const [marker, entered] of crashRequests) {
+      if (command?.includes(marker)) {
+        entered();
+        return;
+      }
     }
     const question =
       command?.includes("QUESTION_CONTRACT") &&
@@ -167,14 +176,78 @@ it("reports real question, interrupt, and request-failure facts without stopping
     assert.equal(server.child.exitCode, null);
     await journal.close();
     journal = undefined;
+
+    // A native process cannot send per-session terminal events after it dies.
+    // Its observable boundary is child exit plus failed in-flight requests.
+    // Keep another Connection alive to prove the boundary is not global.
+    const peer = await fixture.startServer(
+      ["serve", "--port", "0", "--hostname", "127.0.0.1"],
+      fixture.root,
+      fixture.environment("peer", { OPENCODE_CONFIG_CONTENT: env.OPENCODE_CONFIG_CONTENT }),
+      /opencode server listening on (http:\/\/[^\s]+)/,
+    );
+    const peerApi = <T>(route: string, body?: unknown) =>
+      nativeJson<T>(peer.origin, route, fixture.root, fixture.signal, body);
+    peerJournal = await nativeEventJournal(peer.origin, fixture.signal);
+    const peerSession = await peerApi<{ id: string }>("/session", { title: "Other Connection" });
+    const peerAnswering = peerApi<NativeReply>(`/session/${peerSession.id}/message`, {
+      model: { providerID: "contract", modelID: "contract" },
+      parts: [{ type: "text", text: "QUESTION_CONTRACT" }],
+    });
+    const peerAsked = await peerJournal.waitFor(
+      (event) =>
+        event.payload.type === "question.asked" &&
+        event.payload.properties.sessionID === peerSession.id,
+    );
+    const affected = await Promise.all([create(), create()]);
+    const pending = affected.map((session, index) => {
+      const marker = `CRASH_BOUNDARY_${index}`;
+      const entered = new Promise<void>((resolve) => crashRequests.set(marker, resolve));
+      // Attach rejection handling before killing the process.
+      const outcome = prompt(session.id, marker).then(
+        () => ({ rejected: false }),
+        () => ({ rejected: true }),
+      );
+      return { entered, outcome };
+    });
+    await Promise.all(pending.map((request) => request.entered));
+    const exited = once(server.child, "exit", { signal: fixture.signal });
+    assert.equal(server.child.kill("SIGKILL"), true);
+    const [code, signal] = await exited;
+    assert.equal(code, null);
+    assert.equal(signal, "SIGKILL");
+    assert.deepEqual(await Promise.all(pending.map((request) => request.outcome)), [
+      { rejected: true },
+      { rejected: true },
+    ]);
+    assert.equal(
+      await peerApi(`/question/${peerAsked.payload.properties.id}/reply`, { answers: [["Blue"]] }),
+      true,
+    );
+    assert.equal((await peerAnswering).info.error, undefined);
+    const peerReply = await peerApi<NativeReply>(`/session/${peerSession.id}/message`, {
+      model: { providerID: "contract", modelID: "contract" },
+      parts: [{ type: "text", text: "Reply normally after the other Connection exits." }],
+    });
+    assert.equal(peerReply.info.error, undefined);
+    assert(peerReply.parts.some((part) => part.text === "CONTRACT_DONE"));
+    assert.equal(peer.child.exitCode, null);
+    assert.equal(peer.child.signalCode, null);
+    await peerJournal.close();
+    peerJournal = undefined;
     await fixture.stop(server.child);
+    await fixture.stop(peer.child);
   } finally {
     model.closeAllConnections();
     model.close();
     try {
       await journal?.close();
     } finally {
-      await fixture.close();
+      try {
+        await peerJournal?.close();
+      } finally {
+        await fixture.close();
+      }
     }
   }
 });
