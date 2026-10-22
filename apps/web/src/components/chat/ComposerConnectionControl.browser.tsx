@@ -1,6 +1,11 @@
 import "../../index.css";
 
-import { ProviderConnectionId, type ProviderConnection } from "@penkra/contracts";
+import {
+  ProviderConnectionId,
+  type ProviderConnection,
+  type ServerProviderUsageSnapshot,
+} from "@penkra/contracts";
+import { applyProviderUsage, clearProviderUsage } from "../../providerUsageStore";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { page } from "vitest/browser";
 import { describe, expect, it, vi } from "vitest";
@@ -115,13 +120,13 @@ function Harness() {
 }
 
 describe("ComposerConnectionControl", () => {
-  it("loads account usage on open, switches to a key, and opens the provider dashboard", async () => {
+  it("shows pushed account usage on open, switches to a key, and opens the provider dashboard", async () => {
     const overlayActive = vi.fn();
     Object.defineProperty(window, "desktopBridge", {
       configurable: true,
       value: { appTabs: { overlayActive } },
     });
-    nativeApi.listProviderUsage.mockResolvedValue([
+    const snapshots: ServerProviderUsageSnapshot[] = [
       {
         provider: "claudeAgent",
         connectionId: connections[0]!.id,
@@ -152,7 +157,10 @@ describe("ComposerConnectionControl", () => {
         source: "test",
         status: "unsupported",
       },
-    ]);
+    ];
+    clearProviderUsage();
+    for (const snapshot of snapshots)
+      applyProviderUsage({ connectionId: snapshot.connectionId!, snapshot });
     nativeApi.openExternal.mockResolvedValue(undefined);
     const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
     const screen = await render(
@@ -170,11 +178,7 @@ describe("ComposerConnectionControl", () => {
       await expect.element(page.getByText("emmanuel@penkra.com", { exact: true })).toBeVisible();
       expect(nativeApi.listProviderUsage).not.toHaveBeenCalled();
       await trigger.click();
-      await vi.waitFor(() => expect(nativeApi.listProviderUsage).toHaveBeenCalledTimes(1));
-      expect(nativeApi.listProviderUsage).toHaveBeenCalledWith({
-        provider: "claudeAgent",
-        connectionIds: connections.map((connection) => connection.id),
-      });
+      expect(nativeApi.listProviderUsage).not.toHaveBeenCalled();
       const popup = document.querySelector<HTMLElement>("[data-slot='menu-popup']");
       const frame = document.querySelector<HTMLElement>("[data-composer-column-frame]");
       expect(popup).not.toBeNull();
@@ -213,6 +217,7 @@ describe("ComposerConnectionControl", () => {
     } finally {
       await screen.unmount();
       queryClient.clear();
+      clearProviderUsage();
     }
   });
 });

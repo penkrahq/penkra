@@ -36,9 +36,7 @@ describe("App tab state", () => {
       open: false,
       activePaneId: null,
       width: 640,
-      panes: [
-        { ...pane, appRendererId: -42, appStatus: "ready", appState: { documentId: "doc-1" } },
-      ],
+      panes: [{ ...pane, appRendererId: -42, appStatus: "ready", appState: undefined }],
     });
     expect(applyFolderAppTabsInState(next, { panes: [] }, {}).panes).toEqual([]);
     expect(applyFolderAppTabsInState(state, { panes: [pane] }, {}).panes[0]?.appStatus).toBe(
@@ -51,10 +49,8 @@ describe("App tab navigation updates", () => {
   it("does not churn state when equivalent reconstructed navigation is received", () => {
     const state = applyFolderAppTabsInState(
       createDefaultRightDockState(),
-      { panes: [pane] },
-      {
-        [pane.id]: { appState: { documentId: "doc-1", selection: ["node-1"] } },
-      },
+      { panes: [{ ...pane, appState: { documentId: "doc-1", selection: ["node-1"] } }] },
+      {},
     );
     expect(
       updatePaneInState(state, pane.id, {

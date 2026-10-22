@@ -24,6 +24,7 @@ describe("Codex app-server failures", () => {
     vi.useFakeTimers();
     const manager = new CodexAppServerManager();
     const context = {
+      child: { pid: 5544 },
       nextRequestId: 1,
       lastRequestMethod: undefined as string | undefined,
       pending: new Map(),

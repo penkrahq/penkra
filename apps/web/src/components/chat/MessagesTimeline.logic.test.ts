@@ -330,6 +330,38 @@ describe("server-defined transcript rows", () => {
       ],
     },
   };
+  it.each([false, true])(
+    "keeps cut-off work at its turn and steer positions without a final answer (steer=%s)",
+    (steered) => {
+      const steer = item(5, "user", {
+        data: '{"origin":{"_tag":"user"},"attachments":[],"steered":true}',
+      });
+      const segment = base.segments.t1[0]!;
+      const rows = deriveMessagesTimelineRows({
+        ...base,
+        turns: { t1: { ...marker, status: "interrupted" } },
+        finals: {},
+        timelineEntries: threadItemsToTimelineEntries([
+          history[0]!,
+          history[1]!,
+          ...(steered ? [steer, item(6, "tool")] : []),
+        ]),
+        segments: {
+          t1: steered
+            ? [
+                { ...segment, toSeq: 5 },
+                { ...segment, fromSeq: 5 },
+              ]
+            : [segment],
+        },
+      });
+      expect(rows.map((row) => row.id)).toEqual(
+        steered
+          ? ["item-1", 'turn-header:["t1",0,5]', "item-5", 'turn-header:["t1",5,null]']
+          : ["item-1", 'turn-header:["t1",0,null]'],
+      );
+    },
+  );
   it("places independent settled folds on either side of a steer, with no fold for an empty segment", () => {
     const steer = item(5, "user", {
       data: JSON.stringify({

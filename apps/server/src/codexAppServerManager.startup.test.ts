@@ -2,6 +2,7 @@ import { EventEmitter } from "node:events";
 import * as childProcess from "node:child_process";
 import { PassThrough } from "node:stream";
 import { afterEach, expect, it, vi } from "vitest";
+import { Effect } from "effect";
 import { CodexAppServerManager } from "./codexAppServerManager";
 import {
   ProviderProcessExitUnprovenError,
@@ -32,6 +33,7 @@ class Child extends EventEmitter {
   }
 }
 const input = {
+  assertCurrentCredentials: Effect.void,
   key: "account",
   cwd: "/workspace",
   binaryPath: "/managed/codex",
@@ -87,12 +89,16 @@ it("retains a failed startup's transport and retries tree proof before another s
   vi.mocked(childProcess.spawn).mockReturnValueOnce(
     nextChild as unknown as childProcess.ChildProcessWithoutNullStreams,
   );
-  const restarting = f.internals.getOrCreateAccountProcess(input);
+  const retiring = f.internals.getOrCreateAccountProcess(input).catch((error) => error);
   await Promise.resolve();
   expect(childProcess.spawn).toHaveBeenCalledTimes(1);
   f.child.close();
   prove({ escalated: true, signalErrors: [] });
-  const replacement = await restarting;
+  expect(await retiring).toMatchObject({
+    message: "Codex account process stopped before admission.",
+  });
+  expect(childProcess.spawn).toHaveBeenCalledTimes(1);
+  const replacement = await f.internals.getOrCreateAccountProcess(input);
   expect(replacement).toMatchObject({ child: nextChild });
   expect(childProcess.spawn).toHaveBeenCalledTimes(2);
   expect(teardown).toHaveBeenCalledTimes(3);

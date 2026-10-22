@@ -4879,6 +4879,8 @@ function ChatViewContent({
       void runQueuedActionWhilePending(message, "edit", async () => {
         const api = readNativeApi();
         if (!api) return;
+        const moveIntoDraft =
+          source === "queue" ? api.cleanCore.editQueuedMessage : api.cleanCore.restoreSavedPrompt;
         try {
           // Stage the existing attachment bytes under the same ID used by the draft.
           await Promise.all(
@@ -4898,9 +4900,7 @@ function ChatViewContent({
                 });
               }),
           );
-          const result = await (
-            source === "queue" ? api.cleanCore.editQueuedMessage : api.cleanCore.restoreSavedPrompt
-          )({
+          const result = await moveIntoDraft({
             threadId,
             messageId: message.messageId,
             updatedAt: new Date().toISOString(),

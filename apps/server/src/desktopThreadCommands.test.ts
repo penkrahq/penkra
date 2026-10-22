@@ -33,6 +33,7 @@ const rows = ["thread", "target"].map((id, sidebarSortOrder) =>
     latestTurn: null,
     lastError: null,
     queue: "[]",
+    saved: "[]",
     createdBy: "user",
     createdByThreadId: null,
     sidebarSortOrder,

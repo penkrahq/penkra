@@ -37,7 +37,7 @@ it.effect("rolls back every change when a turn has duplicate anchors", () =>
       yield* sql`INSERT INTO thread_items(thread_id,seq,source_id,turn_id,kind,status,text,data,created_at,updated_at)
       VALUES ('a',${seq},${source},${turn},${kind},'done','unchanged',${data},${at},${at})`;
     const before = yield* sql`SELECT rowid,* FROM thread_items ORDER BY seq`;
-    const result = yield* Effect.exit(runMigrations());
+    const result = yield* Effect.exit(runMigrations({ toMigrationInclusive: 209 }));
     assert.equal(result._tag, "Failure");
     assert.deepStrictEqual(yield* sql`SELECT rowid,* FROM thread_items ORDER BY seq`, before);
     assert.deepStrictEqual(
@@ -72,7 +72,7 @@ it.effect(
         VALUES ('a',${seq},${source},'late',${kind},'done','needle', '{"startedAt":"start","endedAt":"end"}',${at},${at})`;
       const [before] =
         yield* sql`SELECT rowid,source_id,status,data,created_at,updated_at FROM thread_items WHERE kind='turn'`;
-      yield* runMigrations();
+      yield* runMigrations({ toMigrationInclusive: 209 });
       assert.deepStrictEqual(
         yield* sql`SELECT source_id FROM thread_items ORDER BY seq`,
         ["user", "turn:late", "tool", "steer", "text"].map((source_id) => ({ source_id })),
@@ -123,7 +123,7 @@ it.effect(
       }>`SELECT rowid,source_id,thread_id FROM thread_items WHERE source_id<>'warning' ORDER BY thread_id,seq`;
       const searchBefore =
         yield* sql`SELECT rowid FROM thread_items_search WHERE thread_items_search MATCH 'needle' ORDER BY rowid`;
-      yield* runMigrations();
+      yield* runMigrations({ toMigrationInclusive: 209 });
       const rows = yield* sql<{
         seq: number;
         source_id: string;
