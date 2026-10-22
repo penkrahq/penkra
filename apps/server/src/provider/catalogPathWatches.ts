@@ -13,7 +13,8 @@ function existingWatchRoot(target: string): WatchRoot {
   let current = target;
   while (true) {
     try {
-      return { path: current, recursive: current === target && statSync(current).isDirectory() };
+      const stat = statSync(current);
+      return { path: current, recursive: current === target && stat.isDirectory() };
     } catch (error) {
       if (!(error instanceof Error) || !("code" in error) || error.code !== "ENOENT") throw error;
       const parent = path.dirname(current);

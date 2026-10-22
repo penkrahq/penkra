@@ -6,7 +6,7 @@ import {
   type ProviderCatalogScope,
 } from "@penkra/contracts";
 import * as NodeServices from "@effect/platform-node/NodeServices";
-import { Effect, Layer, Option, Stream } from "effect";
+import { Effect, Layer, Logger, Option, Stream } from "effect";
 import * as SqlClient from "effect/unstable/sql/SqlClient";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { ServerConfig } from "../../config.ts";
@@ -112,6 +112,23 @@ function harness(
 }
 
 describe("ProviderCatalog layer", () => {
+  it("writes asynchronous catalog load evidence through the configured server logger", async () => {
+    const messages: unknown[] = [];
+    const logger = Logger.make(({ message }) => messages.push(message));
+    const { layer } = harness(() => Effect.succeed(models));
+    await Effect.runPromise(
+      Effect.gen(function* () {
+        return yield* (yield* ProviderCatalogService).get(scope, ["models"]);
+      }).pipe(
+        Effect.provide(
+          layer.pipe(Layer.provide(Logger.layer([logger], { mergeWithExisting: false }))),
+        ),
+      ),
+    );
+    expect(
+      messages.some((message) => Array.isArray(message) && message[0] === "provider.catalog.load"),
+    ).toBe(true);
+  });
   it("subscribes once to App skill changes, preserves items after source loss, and reconnects only on Retry", async () => {
     vi.spyOn(portableSkills, "skillsCatalogRoots").mockReturnValue([]);
     vi.spyOn(portableSkills, "discoverSkillsCatalog").mockResolvedValue([]);
