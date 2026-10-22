@@ -77,7 +77,9 @@ import {
   CodexAppServerTransportError,
   CodexJsonlFramer,
   CodexJsonlWriter,
+  CodexResponseTooLargeError,
   type CodexOversizedNotificationFrame,
+  type CodexOversizedResponseFrame,
 } from "./codexAppServerTransport.ts";
 import { buildCodexTurnInput, type CodexTurnInputItem } from "./codexTurnInput.ts";
 import {
@@ -2863,6 +2865,8 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
         for (const line of transport.stdoutFramer.push(chunk)) {
           if (typeof line === "string") {
             if (!isIgnorableCodexProcessLine(line)) this.handleStdoutLine(transport, line);
+          } else if (line.kind === "oversized-response") {
+            this.handleOversizedResponse(transport, line);
           } else {
             const context = this.findContext(transport, line.threadId);
             if (context) this.handleOversizedNotification(context, line);
@@ -3238,6 +3242,26 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
         return context;
     }
     return undefined;
+  }
+
+  private handleOversizedResponse(
+    transport: CodexAccountProcess,
+    frame: CodexOversizedResponseFrame,
+  ): void {
+    const key = String(frame.requestId);
+    const pending = transport.pending.get(key);
+    log.warn("Codex response exceeded its byte limit", {
+      pid: transport.child.pid,
+      method: pending?.method ?? null,
+      requestId: frame.requestId,
+      observedBytes: frame.observedBytes,
+    });
+    if (!pending) return;
+    transport.pending.delete(key);
+    clearTimeout(pending.timeout);
+    pending.reject(
+      new CodexResponseTooLargeError(pending.method, frame.requestId, frame.observedBytes),
+    );
   }
 
   private handleOversizedNotification(

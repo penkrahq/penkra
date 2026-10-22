@@ -35,7 +35,27 @@ export type CodexOversizedNotificationFrame = {
   readonly observedBytes: number;
 };
 
-export type CodexJsonlFrame = string | CodexOversizedNotificationFrame;
+export type CodexOversizedResponseFrame = {
+  readonly kind: "oversized-response";
+  readonly requestId: number;
+  readonly observedBytes: number;
+};
+
+export type CodexJsonlFrame =
+  | string
+  | CodexOversizedNotificationFrame
+  | CodexOversizedResponseFrame;
+
+export class CodexResponseTooLargeError extends Error {
+  constructor(
+    readonly method: string,
+    readonly requestId: number,
+    readonly observedBytes: number,
+  ) {
+    super(`Codex's reply to ${method} was larger than 16 MiB.`);
+    this.name = "CodexResponseTooLargeError";
+  }
+}
 
 export type CodexAppServerTransportErrorReason =
   | "frame-too-large"
@@ -171,11 +191,7 @@ export class CodexJsonlFramer {
       }
       const envelope = this.oversizedEnvelope;
       envelope?.push(chunk);
-      if (
-        envelope?.isInvalid ||
-        envelope?.hasId ||
-        oversizedNotificationEligibility(envelope) === "ineligible"
-      ) {
+      if (envelope?.isInvalid || oversizedFrameEligibility(envelope) === "ineligible") {
         throw new CodexAppServerTransportError({
           reason: "frame-too-large",
           maxBytes: this.maxFrameBytes,
@@ -218,15 +234,7 @@ export class CodexJsonlFramer {
           ...summarizeOversizedProtocolCandidate(oversizedEnvelope),
         });
       }
-      if (oversizedEnvelope.hasId) {
-        throw new CodexAppServerTransportError({
-          reason: "frame-too-large",
-          maxBytes: this.maxFrameBytes,
-          observedBytes,
-          ...summarizeOversizedProtocolCandidate(oversizedEnvelope),
-        });
-      }
-      if (oversizedNotificationEligibility(oversizedEnvelope) === "ineligible") {
+      if (oversizedFrameEligibility(oversizedEnvelope) === "ineligible") {
         throw new CodexAppServerTransportError({
           reason: "frame-too-large",
           maxBytes: this.maxFrameBytes,
@@ -267,11 +275,22 @@ export class CodexJsonlFramer {
         });
       }
       const envelope = this.oversizedEnvelope;
+      const oversizedResponse =
+        envelope?.isComplete &&
+        envelope.requestId !== undefined &&
+        !envelope.hasMethod &&
+        envelope.hasResult !== envelope.hasError
+          ? {
+              kind: "oversized-response" as const,
+              requestId: envelope.requestId,
+              observedBytes: this.frameBytes,
+            }
+          : undefined;
       const oversizedNotification =
         envelope?.isComplete && !envelope.hasId
           ? classifyOversizedNotification(envelope)
           : undefined;
-      if (!oversizedNotification) {
+      if (!oversizedResponse && !oversizedNotification) {
         const protocolSummary = summarizeOversizedProtocolCandidate(envelope);
         throw new CodexAppServerTransportError({
           reason: "frame-too-large",
@@ -280,11 +299,13 @@ export class CodexJsonlFramer {
           ...protocolSummary,
         });
       }
-      const frame = {
-        ...oversizedNotification,
-        maxBytes: this.maxFrameBytes,
-        observedBytes: this.frameBytes,
-      } satisfies CodexOversizedNotificationFrame;
+      const frame =
+        oversizedResponse ??
+        ({
+          ...oversizedNotification!,
+          maxBytes: this.maxFrameBytes,
+          observedBytes: this.frameBytes,
+        } satisfies CodexJsonlFrame);
       this.oversizedFrame = false;
       this.oversizedEnvelope = undefined;
       this.oversizedDecoder = undefined;
@@ -366,6 +387,14 @@ function oversizedNotificationEligibility(
   return "ineligible";
 }
 
+function oversizedFrameEligibility(
+  envelope: JsonTopLevelEnvelopeScanner | undefined,
+): "eligible" | "ineligible" | "unknown" {
+  // A server request has a method and id; it is not a response to our request.
+  if (envelope?.hasId) return envelope.hasMethod ? "ineligible" : "unknown";
+  return oversizedNotificationEligibility(envelope);
+}
+
 function summarizeOversizedProtocolCandidate(envelope: JsonTopLevelEnvelopeScanner | undefined): {
   readonly protocolMethod?: string;
   readonly protocolTypes: ReadonlyArray<string>;
@@ -414,6 +443,9 @@ class JsonTopLevelEnvelopeScanner {
   method: string | undefined;
   requestId: number | undefined;
   hasId = false;
+  hasMethod = false;
+  hasResult = false;
+  hasError = false;
   modernItemType: string | undefined;
   legacyMessageType: string | undefined;
   legacyItemType: string | undefined;
@@ -561,7 +593,25 @@ class JsonTopLevelEnvelopeScanner {
         if (this.containers.length === 0) this.rootClosed = true;
       } else if (context.kind === "object" && context.expectation === "colon" && byte === 0x3a) {
         context.valueKey = context.pendingKey ?? undefined;
-        this.hasId ||= context.label === "root" && context.pendingKey === "id";
+        if (context.label === "root") {
+          const field =
+            context.pendingKey === "id"
+              ? "hasId"
+              : context.pendingKey === "method"
+                ? "hasMethod"
+                : context.pendingKey === "result"
+                  ? "hasResult"
+                  : context.pendingKey === "error"
+                    ? "hasError"
+                    : undefined;
+          if (field !== undefined) {
+            if (this[field]) {
+              this.invalidStructure = true;
+              return;
+            }
+            this[field] = true;
+          }
+        }
         context.pendingKey = undefined;
         context.expectation = "value";
       } else if (byte === 0x2c && context.expectation === "commaOrEnd") {
@@ -615,6 +665,7 @@ class JsonTopLevelEnvelopeScanner {
     if (
       context?.label === "root" &&
       context.valueKey === "id" &&
+      /^-?(?:0|[1-9]\d*)$/.test(value) &&
       Number.isSafeInteger(Number(value))
     )
       this.requestId = Number(value);

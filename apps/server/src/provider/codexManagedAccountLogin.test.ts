@@ -2,6 +2,10 @@ import { EventEmitter } from "node:events";
 import { PassThrough } from "node:stream";
 
 import { describe, expect, it } from "vitest";
+import {
+  CODEX_APP_SERVER_MAX_FRAME_BYTES,
+  CodexResponseTooLargeError,
+} from "../codexAppServerTransport.ts";
 
 import {
   readCodexManagedAccount,
@@ -72,6 +76,26 @@ async function startFakeLogin(
 }
 
 describe("Codex managed account login", () => {
+  it("rejects an oversized account verification reply instead of leaving the request pending", async () => {
+    const child = fakeCodexLoginProcess([
+      { type: "chatgpt", extra: "x".repeat(CODEX_APP_SERVER_MAX_FRAME_BYTES) },
+    ]);
+    await expect(
+      readCodexManagedAccount({ binaryPath: "codex", cwd: "/tmp", env: {} }, () => child as never),
+    ).rejects.toBeInstanceOf(CodexResponseTooLargeError);
+  });
+
+  it("settles login when its account-read reply is oversized", async () => {
+    const { child, handle } = await startFakeLogin([
+      { type: "chatgpt", extra: "x".repeat(CODEX_APP_SERVER_MAX_FRAME_BYTES) },
+    ]);
+    const completed = handle.completion.catch((error) => error);
+    child.stdout.write(
+      JSON.stringify({ method: "account/updated", params: { authMode: "chatgpt" } }) + "\n",
+    );
+    expect(await completed).toBeInstanceOf(CodexResponseTooLargeError);
+  });
+
   it("reads the exact isolated account without starting another login", async () => {
     const child = fakeCodexLoginProcess();
     await expect(

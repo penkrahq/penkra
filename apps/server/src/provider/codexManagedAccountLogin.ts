@@ -6,9 +6,32 @@ import { type ChildProcessWithoutNullStreams, spawn } from "node:child_process";
 import { prepareWindowsSafeProcess } from "@penkra/shared/windowsProcess";
 
 import { buildCodexInitializeParams } from "../codexAppServerManager.ts";
-import { CodexJsonlFramer, CodexJsonlWriter } from "../codexAppServerTransport.ts";
+import {
+  CodexJsonlFramer,
+  CodexJsonlWriter,
+  CodexResponseTooLargeError,
+  type CodexOversizedResponseFrame,
+} from "../codexAppServerTransport.ts";
 
 type JsonRecord = Record<string, unknown>;
+
+type PendingRequest = {
+  method: string;
+  resolve: (value: unknown) => void;
+  reject: (error: Error) => void;
+};
+
+function rejectOversizedResponse(
+  pending: Map<number, PendingRequest>,
+  frame: CodexOversizedResponseFrame,
+) {
+  const request = pending.get(frame.requestId);
+  if (!request) return;
+  pending.delete(frame.requestId);
+  request.reject(
+    new CodexResponseTooLargeError(request.method, frame.requestId, frame.observedBytes),
+  );
+}
 
 export interface CodexManagedAccountSnapshot {
   readonly type: "chatgpt";
@@ -99,24 +122,26 @@ export async function readCodexManagedAccount(
   const writer = new CodexJsonlWriter(child.stdin);
   const framer = new CodexJsonlFramer();
   let nextId = 1;
-  const pending = new Map<
-    number,
-    { resolve: (value: unknown) => void; reject: (error: Error) => void }
-  >();
+  const pending = new Map<number, PendingRequest>();
   const fail = (error: Error) => {
     for (const request of pending.values()) request.reject(error);
     pending.clear();
   };
   const request = async (method: string, params: unknown): Promise<unknown> => {
     const id = nextId++;
-    const result = new Promise<unknown>((resolve, reject) => pending.set(id, { resolve, reject }));
+    const result = new Promise<unknown>((resolve, reject) =>
+      pending.set(id, { method, resolve, reject }),
+    );
     await writer.write({ id, method, params });
     return result;
   };
   child.stdout.on("data", (chunk: Buffer) => {
     try {
       for (const frame of framer.push(chunk)) {
-        if (typeof frame !== "string") continue;
+        if (typeof frame !== "string") {
+          if (frame.kind === "oversized-response") rejectOversizedResponse(pending, frame);
+          continue;
+        }
         if (!frame.trim()) continue;
         const message = record(JSON.parse(frame));
         if (!message || typeof message.id !== "number") continue;
@@ -169,10 +194,7 @@ export async function startCodexManagedAccountLogin(
   let nextId = 1;
   let settled = false;
   let verificationRequested = false;
-  const pending = new Map<
-    number,
-    { resolve: (value: unknown) => void; reject: (error: Error) => void }
-  >();
+  const pending = new Map<number, PendingRequest>();
   let resolveCompletion!: (snapshot: CodexManagedAccountSnapshot) => void;
   let rejectCompletion!: (error: Error) => void;
   const completion = new Promise<CodexManagedAccountSnapshot>((resolve, reject) => {
@@ -189,7 +211,9 @@ export async function startCodexManagedAccountLogin(
   };
   const request = async (method: string, params: unknown): Promise<unknown> => {
     const id = nextId++;
-    const result = new Promise<unknown>((resolve, reject) => pending.set(id, { resolve, reject }));
+    const result = new Promise<unknown>((resolve, reject) =>
+      pending.set(id, { method, resolve, reject }),
+    );
     await writer.write({ id, method, params });
     return result;
   };
@@ -226,7 +250,10 @@ export async function startCodexManagedAccountLogin(
   child.stdout.on("data", (chunk: Buffer) => {
     try {
       for (const frame of framer.push(chunk)) {
-        if (typeof frame !== "string") continue;
+        if (typeof frame !== "string") {
+          if (frame.kind === "oversized-response") rejectOversizedResponse(pending, frame);
+          continue;
+        }
         if (!frame.trim()) continue;
         const message = record(JSON.parse(frame));
         if (!message) continue;
