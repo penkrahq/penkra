@@ -846,3 +846,21 @@ Pinned source confirms that import inserts conversation records rather than
 moving the snapshot store:
 [import](https://github.com/anomalyco/opencode/blob/v1.19.3/packages/opencode/src/cli/cmd/import.ts),
 [snapshot](https://github.com/anomalyco/opencode/blob/v1.19.3/packages/opencode/src/snapshot/index.ts).
+
+## 26. Native snapshot objects survive relocation and still undo the edit
+
+The same pinned OpenCode fixture now uses two real temporary Git workspaces.
+Its native proof tool changes a tracked file. Exported step snapshots and patch
+hashes are verified as actual trees in the source snapshot repository. The
+experiment initializes a target snapshot repository at the pinned native path
+and fetches those exact object hashes, without copying a database or replacing
+an existing object store. The target import uses the same workspace, as a
+Connection switch does.
+
+After removing the old isolated profile, every transferred tree is still
+readable. More importantly, a new native OpenCode process performs its own
+session revert and restores the edited file from `changed by native tool` to
+`original`. The native contract passed (21.17 seconds). Formatting, lint (869
+warnings, zero errors) and workspace typecheck passed. This establishes a
+preservation mechanism for the shared-store implementation; Production and
+the currently active storage layout remain unchanged.
