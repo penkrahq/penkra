@@ -11,8 +11,7 @@ import { rememberClaudeThreadAccount } from "../claudeThreadNativeState.ts";
 import { ProviderConnectionRepository } from "../../persistence/Services/ProviderConnections.ts";
 import { ProviderInstallationRepository } from "../../persistence/Services/ProviderInstallations.ts";
 import { ProviderTurnSelectionResolver } from "../Services/ProviderTurnSelectionResolver.ts";
-import { ProviderAdapterRegistry } from "../Services/ProviderAdapterRegistry.ts";
-import { ProviderLaunchResolver } from "../Services/ProviderLaunchResolver.ts";
+import { ProviderCatalogService } from "../Services/ProviderCatalog.ts";
 import {
   claudeConnectionsShareAccount,
   ProviderTurnSelectionResolverLive,
@@ -57,7 +56,7 @@ let threadExists = true;
 let hasSession = true;
 let installationLifecycle: "active" | "retired" = "active";
 let threadHarness: "opencode" | "claudeAgent" = "opencode";
-let resolvedNativeStateIdentities: string[] = [];
+let catalogScopes: { provider: string; connectionId: ProviderConnectionId | null }[] = [];
 let currentClaudeIdentity = "alice@example.com";
 let claudeBoundConnectionId = claudeConnectionId;
 
@@ -70,48 +69,33 @@ const dependencies = Layer.mergeAll(
     Layer.provide(NodeServices.layer),
   ),
   ServerSettingsService.layerTest(),
-  Layer.succeed(ProviderAdapterRegistry, {
-    getByProvider: () =>
-      Effect.succeed({
-        listModels: (input: { provider: string; internalProviderId?: string | null }) =>
-          Effect.succeed({
-            models: modelAvailable
-              ? input.provider === "claudeAgent"
-                ? [
-                    { slug: "claude-opus-4-7", name: "Opus 4.7" },
-                    { slug: "claude-sonnet-5", name: "Sonnet 5" },
-                  ]
-                : [
-                    {
-                      slug:
-                        input.provider === "codex"
-                          ? "gpt-5.5"
-                          : input.internalProviderId === "opencode-go"
-                            ? "opencode-go/kimi-k2.5"
-                            : "opencode/big-pickle",
-                      name: "Available",
-                    },
-                  ]
-              : [],
-          }),
-      } as never),
-    listProviders: () => Effect.succeed([]),
-  }),
-  Layer.succeed(ProviderLaunchResolver, {
-    resolve: () => Effect.die("not used"),
-    resolveProfile: (input) => {
-      resolvedNativeStateIdentities.push(input.nativeStateIdentity);
+  Layer.succeed(ProviderCatalogService, {
+    get: (scope: { provider: string; connectionId: ProviderConnectionId | null }) => {
+      catalogScopes.push(scope);
       return Effect.succeed({
-        binaryPath: "/managed/provider",
-        isolationKey: `selection:${input.connectionId ?? "anonymous"}`,
-        profileRoot: "/managed/profile",
-        nativeStateRoot: "/managed/native",
-        connectionId: input.connectionId,
-        installationId: input.installationId,
-        childEnvironment: (environment: NodeJS.ProcessEnv) => environment,
+        version: 1,
+        error: null,
+        models: !modelAvailable
+          ? []
+          : scope.provider === "claudeAgent"
+            ? [
+                { slug: "claude-opus-4-7", name: "Opus 4.7" },
+                { slug: "claude-sonnet-5", name: "Sonnet 5" },
+              ]
+            : [
+                {
+                  slug:
+                    scope.provider === "codex"
+                      ? "gpt-5.5"
+                      : scope.connectionId === null
+                        ? "opencode/big-pickle"
+                        : "opencode-go/kimi-k2.5",
+                  name: "Available",
+                },
+              ],
       });
     },
-  }),
+  } as never),
   Layer.succeed(ProviderInstallationRepository, {
     getActiveRecord: (harness: string) =>
       Effect.succeed(
@@ -415,7 +399,7 @@ layer("ProviderTurnSelectionResolver", (it) => {
   it.effect("requires an explicit authorized anonymous selection", () =>
     Effect.gen(function* () {
       connectionLifecycle = "active";
-      resolvedNativeStateIdentities = [];
+      catalogScopes = [];
       const resolver = yield* fixtureResolver();
 
       const current = yield* resolver.resolveExisting({ threadId });
@@ -470,7 +454,7 @@ layer("ProviderTurnSelectionResolver", (it) => {
       assert.strictEqual(anonymous.connectionId, null);
       assert.strictEqual(anonymous.internalProviderId, "opencode");
       assert.strictEqual(anonymous.modelId, "opencode/big-pickle");
-      assert.deepEqual(resolvedNativeStateIdentities, ["discovery:opencode:anonymous"]);
+      assert.deepEqual(catalogScopes, [{ provider: "opencode", connectionId: null }]);
 
       connectionLifecycle = "terminated";
       const disconnected = yield* Effect.exit(resolver.resolveExisting({ threadId }));

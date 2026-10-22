@@ -45,7 +45,7 @@ import {
 } from "../../agentGateway/hostToolContract.ts";
 import { ServerConfig } from "../../config.ts";
 import { ProviderAdapterRequestError, ProviderAdapterValidationError } from "../Errors.ts";
-import { ClaudeAdapter } from "../Services/ClaudeAdapter.ts";
+import { ClaudeAdapter, type ClaudeAdapterShape } from "../Services/ClaudeAdapter.ts";
 import {
   PENKRA_SYSTEM_PROMPT,
   makeClaudeAdapterLive as makeClaudeAdapterLiveBase,
@@ -134,6 +134,30 @@ it.effect("a Claude catalog metadata failure closes only its discovery query", (
     assert.deepEqual(yield* adapter.listSessions(), []);
   }).pipe(Effect.provide(layer));
 });
+
+function claudeCatalogInput(
+  cwd: string,
+  kinds: Parameters<NonNullable<ClaudeAdapterShape["loadCatalog"]>>[0]["kinds"],
+  connectionId = "catalog-test",
+): Parameters<NonNullable<ClaudeAdapterShape["loadCatalog"]>>[0] {
+  return {
+    scope: {
+      provider: "claudeAgent",
+      connectionId: ProviderConnectionId.makeUnsafe(connectionId),
+      ...(kinds.includes("models") ? {} : { folderId: FolderId.makeUnsafe("catalog-folder") }),
+    },
+    kinds,
+    cwd,
+    internalProviderId: null,
+    managedLaunch: {
+      binaryPath: "/managed/claude",
+      isolationKey: connectionId,
+      profileRoot: "/profile",
+      nativeStateRoot: "/native",
+      childEnvironment: () => ({}),
+    },
+  };
+}
 
 function makeClaudeAdapterLive(options?: ClaudeAdapterLiveOptions) {
   const gateway = makeGatewayCredentialsHarness();
@@ -4487,15 +4511,11 @@ await agent("Draft the spec", { label: "delta-agent", phase: "Two" });
 
     return Effect.gen(function* () {
       const adapter = yield* ClaudeAdapter;
-      const listCommands = adapter.listCommands;
+      const listCommands = adapter.loadCatalog;
       if (!listCommands) {
         assert.fail("Expected Claude adapter to support command discovery.");
       }
-      const input = {
-        provider: "claudeAgent" as const,
-        cwd: "/tmp/project",
-        forceReload: true,
-      };
+      const input = claudeCatalogInput("/tmp/project", ["commands"]);
 
       assert.isTrue(Exit.isFailure(yield* Effect.exit(listCommands(input))));
       assert.equal(spawnCalls, 1);
@@ -4554,15 +4574,11 @@ await agent("Draft the spec", { label: "delta-agent", phase: "Two" });
 
       return Effect.gen(function* () {
         const adapter = yield* ClaudeAdapter;
-        const listCommands = adapter.listCommands;
+        const listCommands = adapter.loadCatalog;
         if (!listCommands) {
           assert.fail("Expected Claude adapter to support command discovery.");
         }
-        const input = {
-          provider: "claudeAgent" as const,
-          cwd: "/tmp/project",
-          forceReload: true,
-        };
+        const input = claudeCatalogInput("/tmp/project", ["commands"]);
 
         assert.isTrue(Exit.isFailure(yield* Effect.exit(listCommands(input))));
         assert.equal(createCalls, 1);
@@ -4628,15 +4644,11 @@ await agent("Draft the spec", { label: "delta-agent", phase: "Two" });
 
     return Effect.gen(function* () {
       const adapter = yield* ClaudeAdapter;
-      const listCommands = adapter.listCommands;
+      const listCommands = adapter.loadCatalog;
       if (!listCommands) {
         assert.fail("Expected Claude adapter to support command discovery.");
       }
-      const input = {
-        provider: "claudeAgent" as const,
-        cwd: "/tmp/project",
-        forceReload: true,
-      };
+      const input = claudeCatalogInput("/tmp/project", ["commands"]);
 
       assert.isTrue(Exit.isFailure(yield* Effect.exit(listCommands(input))));
       assert.equal(createCalls, 1);
@@ -7646,77 +7658,6 @@ await agent("Draft the spec", { label: "delta-agent", phase: "Two" });
     );
   });
 
-  it.effect(
-    "coalesces concurrent Claude discovery and surfaces a later failure without a cache",
-    () => {
-      const query = new FakeClaudeQuery();
-      const failedQuery = new FakeClaudeQuery();
-      let started!: () => void;
-      const requestStarted = new Promise<void>((resolve) => {
-        started = resolve;
-      });
-      let complete!: (models: ModelInfo[]) => void;
-      const response = new Promise<ModelInfo[]>((resolve) => {
-        complete = resolve;
-      });
-      (query as { supportedModels: () => Promise<ModelInfo[]> }).supportedModels = () => {
-        started();
-        return response;
-      };
-      (failedQuery as { supportedModels: () => Promise<ModelInfo[]> }).supportedModels =
-        async () => {
-          throw new Error("Claude discovery failed");
-        };
-      let creations = 0;
-      const layer = makeClaudeAdapterLive({
-        createQuery: () => (++creations === 1 ? query : failedQuery),
-      }).pipe(
-        Layer.provideMerge(ServerConfig.layerTest("/tmp/claude-adapter-test", "/tmp")),
-        Layer.provideMerge(NodeServices.layer),
-      );
-      return Effect.gen(function* () {
-        const adapter = yield* ClaudeAdapter;
-        const listModels = adapter.listModels;
-        if (!listModels) throw new Error("Expected Claude model discovery.");
-        const input = {
-          provider: "claudeAgent" as const,
-          managedLaunch: {
-            binaryPath: "/managed/claude",
-            isolationKey: "discovery-test",
-            profileRoot: "/isolated/profile",
-            nativeStateRoot: "/isolated/native",
-            childEnvironment: () => ({}),
-          },
-        };
-        const discovery = yield* Effect.all([listModels(input), listModels(input)], {
-          concurrency: "unbounded",
-        }).pipe(Effect.forkChild);
-        yield* Effect.promise(() => requestStarted);
-        assert.equal(creations, 1);
-        complete([
-          {
-            value: claudeDefaultModelId,
-            resolvedModel: claudeDefaultModelId,
-            displayName: "Default",
-            description: "",
-          },
-        ]);
-        const results = yield* Fiber.join(discovery);
-        assert.deepEqual(results[0], results[1]);
-        assert.equal(query.closeCalls, 1);
-        const failure = yield* Effect.flip(listModels(input));
-        if (failure._tag !== "ProviderAdapterProcessError")
-          throw new Error("Expected a discovery process error.");
-        assert.include(failure.detail, "Claude discovery failed");
-        assert.equal(creations, 2);
-        assert.equal(failedQuery.closeCalls, 1);
-      }).pipe(
-        Effect.provideService(Random.Random, makeDeterministicRandomService()),
-        Effect.provide(layer),
-      );
-    },
-  );
-
   it.effect("discovers canonical future Claude models before a session starts", () => {
     const query = new FakeClaudeQuery();
     let discoveryInput:
@@ -7754,13 +7695,12 @@ await agent("Draft the spec", { label: "delta-agent", phase: "Two" });
 
     return Effect.gen(function* () {
       const adapter = yield* ClaudeAdapter;
-      const listModels = adapter.listModels;
+      const listModels = adapter.loadCatalog;
       if (!listModels) {
         throw new Error("Expected Claude adapter to support runtime model listing.");
       }
       const result = yield* listModels({
-        provider: "claudeAgent",
-        cwd: "/tmp/claude-model-discovery",
+        ...claudeCatalogInput("/tmp/claude-model-discovery", ["models"]),
         managedLaunch: {
           binaryPath: "/managed/claude",
           isolationKey: "connection:work:discovery",
@@ -7773,6 +7713,7 @@ await agent("Draft the spec", { label: "delta-agent", phase: "Two" });
         },
       });
 
+      assert.ok(result.models);
       assert.deepEqual(
         result.models.map((model) => model.slug),
         [...claudeModelsListFixture],
@@ -7786,8 +7727,6 @@ await agent("Draft the spec", { label: "delta-agent", phase: "Two" });
       assert.isFalse(
         result.models.some((model) => model.slug === "default" || model.slug === "sonnet"),
       );
-      assert.equal(result.source, "claudeAgent");
-      assert.equal(result.cached, false);
       assert.equal(query.closeCalls, 1);
       assert.equal(discoveryInput?.options.pathToClaudeCodeExecutable, "/managed/claude");
       assert.deepEqual(discoveryInput?.options.env, {
@@ -7828,10 +7767,10 @@ await agent("Draft the spec", { label: "delta-agent", phase: "Two" });
 
     return Effect.gen(function* () {
       const adapter = yield* ClaudeAdapter;
-      const listAgents = adapter.listAgents;
+      const listAgents = adapter.loadCatalog;
       if (!listAgents) throw new Error("Expected Claude adapter agent discovery.");
       const personal = yield* listAgents({
-        provider: "claudeAgent",
+        ...claudeCatalogInput("/tmp", ["agents"], "personal"),
         managedLaunch: {
           binaryPath: "/managed/claude",
           isolationKey: "connection:personal:agents",
@@ -7843,7 +7782,7 @@ await agent("Draft the spec", { label: "delta-agent", phase: "Two" });
         },
       });
       const work = yield* listAgents({
-        provider: "claudeAgent",
+        ...claudeCatalogInput("/tmp", ["agents"], "work"),
         managedLaunch: {
           binaryPath: "/managed/claude",
           isolationKey: "connection:work:agents",
@@ -7853,6 +7792,8 @@ await agent("Draft the spec", { label: "delta-agent", phase: "Two" });
         },
       });
 
+      assert.ok(personal.agents);
+      assert.ok(work.agents);
       assert.deepEqual(
         personal.agents.map((agent) => agent.name),
         ["personal-review"],

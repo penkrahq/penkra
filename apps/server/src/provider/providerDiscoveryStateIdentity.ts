@@ -13,6 +13,3 @@ const routeSuffix = (input: ProviderDiscoveryRoute): string =>
 
 export const providerModelDiscoveryStateIdentity = (input: ProviderDiscoveryRoute): string =>
   `discovery:${routeSuffix(input)}`;
-
-export const providerAgentDiscoveryStateIdentity = (input: ProviderDiscoveryRoute): string =>
-  `agent-discovery:${routeSuffix(input)}`;

@@ -11,6 +11,7 @@ import { makeEventNdjsonLogger } from "./Layers/EventNdjsonLogger";
 import { makeOpenCodeAdapterLive } from "./Layers/OpenCodeAdapter";
 import { ProviderAdapterRegistryLive } from "./Layers/ProviderAdapterRegistry";
 import { ProviderDiscoveryServiceLive } from "./Layers/ProviderDiscoveryService";
+import { ProviderCatalogLive } from "./Layers/ProviderCatalog.ts";
 import { makeManagedProviderServiceLive } from "./Layers/ProviderService";
 import { ProviderSessionDirectoryLive } from "./Layers/ProviderSessionDirectory";
 import { ProviderConnectionRepositoryLive } from "../persistence/Layers/ProviderConnections";
@@ -71,8 +72,22 @@ export function makeServerProviderLayer(
         ),
       ),
     );
+    const providerCatalogLayer = ProviderCatalogLive.pipe(
+      Layer.provide(adapterRegistryLayer),
+      Layer.provide(ProviderConnectionRepositoryLive),
+      Layer.provide(ProviderInstallationRepositoryLive),
+      Layer.provide(
+        ProviderLaunchResolverLive.pipe(
+          Layer.provideMerge(ProviderConnectionRepositoryLive),
+          Layer.provideMerge(ProviderInstallationRepositoryLive),
+          Layer.provideMerge(ProviderCredentialBrokerLive),
+        ),
+      ),
+      Layer.provide(ServerSettingsLive),
+    );
     const providerDiscoveryLayer = ProviderDiscoveryServiceLive.pipe(
       Layer.provide(adapterRegistryLayer),
+      Layer.provide(providerCatalogLayer),
       Layer.provide(ProviderConnectionRepositoryLive),
       Layer.provide(ProviderInstallationRepositoryLive),
       Layer.provide(
@@ -89,6 +104,7 @@ export function makeServerProviderLayer(
     return Layer.mergeAll(
       providerServiceLayer,
       providerDiscoveryLayer,
+      providerCatalogLayer,
       adapterRegistryLayer,
       providerSessionDirectoryLayer,
     );

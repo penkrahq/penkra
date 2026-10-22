@@ -40,6 +40,7 @@ import {
   serverSettingsQueryOptions,
 } from "../lib/serverReactQuery";
 import { ensureNativeApi, readNativeApi } from "../nativeApi";
+import { invalidateProviderCatalog, providerCatalogQueryKeys } from "../hooks/useProviderCatalog";
 import { finalizePromotedDraftThreads, markPromotedDraftThreads } from "../composerDraftStore";
 import {} from "../chatLifecycleDiagnostics";
 import {} from "../chatScrollDiagnostics";
@@ -48,6 +49,7 @@ import {
   onServerProviderStatusesUpdated,
   onServerSettingsUpdated,
   onServerWelcome,
+  onProviderCatalogChanged,
 } from "../wsNativeApi";
 import {
   addWsCompatibilityIssueListener,
@@ -517,6 +519,7 @@ function EventRouter() {
     });
 
     const unsubWelcome = onServerWelcome((payload) => {
+      void queryClient.invalidateQueries({ queryKey: providerCatalogQueryKeys.all });
       // A server restart may change installations or account discovery data.
       void invalidateProviderData(queryClient);
       void (async () => {
@@ -541,6 +544,9 @@ function EventRouter() {
       })().catch(() => undefined);
     });
 
+    const unsubCatalogChanged = onProviderCatalogChanged((event) => {
+      void invalidateProviderCatalog(queryClient, event);
+    });
     const unsubProviderStatusesUpdated = onServerProviderStatusesUpdated((payload) => {
       const nextProviderDiscoveryFingerprint = providerModelDiscoveryInvalidationFingerprint(
         payload.providers,
@@ -577,6 +583,7 @@ function EventRouter() {
       disposed = true;
       unsubWorkspaceChange();
       unsubWelcome();
+      unsubCatalogChanged();
       unsubProviderStatusesUpdated();
       unsubWsTransportState();
       unsubServerSettingsUpdated();

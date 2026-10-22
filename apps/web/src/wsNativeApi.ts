@@ -17,6 +17,7 @@ import {
   type AuthSessionState,
   type AuthWebSocketTokenResult,
   type CleanCoreThreadChange,
+  type ProviderCatalogChanged,
   type CleanCoreSidebarChange,
   type ProjectWorkspaceChangeEvent,
   type ServerProviderStatusesUpdatedPayload,
@@ -91,6 +92,7 @@ function subscribeWithReplay<T>(input: {
 
 const welcomeListeners = createListenerRegistry<WsWelcomePayload>();
 const serverConfigUpdatedListeners = createListenerRegistry<ServerConfigUpdatedPayload>();
+const providerCatalogChangedListeners = createListenerRegistry<ProviderCatalogChanged>();
 const serverProviderStatusesUpdatedListeners =
   createListenerRegistry<ServerProviderStatusesUpdatedPayload>();
 const serverMaintenanceUpdatedListeners = createListenerRegistry<ServerLifecycleStreamEvent>();
@@ -105,6 +107,7 @@ function clearWsNativeApiListeners(): void {
   cleanCoreSidebarChangeListeners.clear();
   welcomeListeners.clear();
   serverConfigUpdatedListeners.clear();
+  providerCatalogChangedListeners.clear();
   serverProviderStatusesUpdatedListeners.clear();
   serverMaintenanceUpdatedListeners.clear();
   serverSettingsUpdatedListeners.clear();
@@ -210,6 +213,12 @@ export function onServerConfigUpdated(
   });
 }
 
+export function onProviderCatalogChanged(
+  listener: (event: ProviderCatalogChanged) => void,
+): () => void {
+  return providerCatalogChangedListeners.subscribe(listener);
+}
+
 /**
  * Subscribe to provider status updates without forcing a full config reload.
  */
@@ -280,6 +289,9 @@ export function createWsNativeApi(): NativeApi {
   });
   transport.subscribe(WS_CHANNELS.serverConfigUpdated, (message) => {
     serverConfigUpdatedListeners.emit(message.data);
+  });
+  transport.subscribe(WS_CHANNELS.providerCatalogChanged, (message) => {
+    providerCatalogChangedListeners.emit(message.data);
   });
   transport.subscribe(WS_CHANNELS.serverProviderStatusesUpdated, (message) => {
     serverProviderStatusesUpdatedListeners.emit(message.data);
@@ -441,6 +453,8 @@ export function createWsNativeApi(): NativeApi {
       transcribeVoice: requestVoiceTranscriptionUpload,
     },
     provider: {
+      getCatalog: (input) => transport.request(WS_METHODS.providerGetCatalog, input),
+      reloadCatalog: (input) => transport.request(WS_METHODS.providerReloadCatalog, input),
       getComposerCapabilities: (input) =>
         transport.request(WS_METHODS.providerGetComposerCapabilities, input),
       getCapabilityHealth: (input) =>
@@ -449,13 +463,7 @@ export function createWsNativeApi(): NativeApi {
       // to the 10-minute turn-idle ceiling), so the server owns this bound.
       compactThread: (input) =>
         transport.request(WS_METHODS.providerCompactThread, input, { timeoutMs: null }),
-      listCommands: (input) => transport.request(WS_METHODS.providerListCommands, input),
-      listSkills: (input) => transport.request(WS_METHODS.providerListSkills, input),
       listSkillsCatalog: (input) => transport.request(WS_METHODS.providerListSkillsCatalog, input),
-      listPlugins: (input) => transport.request(WS_METHODS.providerListPlugins, input),
-      readPlugin: (input) => transport.request(WS_METHODS.providerReadPlugin, input),
-      listModels: (input) => transport.request(WS_METHODS.providerListModels, input),
-      listAgents: (input) => transport.request(WS_METHODS.providerListAgents, input),
       getConnections: (input = {}) => transport.request(WS_METHODS.providerGetConnections, input),
       retryAuthConnection: (input) =>
         transport.request(WS_METHODS.providerRetryAuthConnection, input),

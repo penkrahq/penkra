@@ -1,15 +1,11 @@
 import type { Agent, Model, Provider } from "@opencode-ai/sdk/v2";
 import { describe, expect, it } from "vitest";
 
-import { OpenCodeRuntimeError } from "./opencodeRuntime.ts";
 import {
   buildOpenCodeModelContextLimitMap,
   flattenOpenCodeAgents,
-  flattenOpenCodeCliModels,
   flattenOpenCodeCommands,
   flattenOpenCodeModels,
-  isUnsupportedOpenCodeCommandListError,
-  mergeOpenCodeCliModelDescriptors,
   resolvePreferredOpenCodeModelProviders,
 } from "./OpenCodeDiscovery.ts";
 
@@ -279,181 +275,6 @@ describe("flattenOpenCodeModels", () => {
     expect(models.map(({ slug, status }) => [slug, status])).toEqual([
       ["opencode/current", "active"],
       ["opencode/retired", "deprecated"],
-    ]);
-  });
-
-  it("converts OpenCode CLI model output into grouped model descriptors", () => {
-    const models = flattenOpenCodeCliModels({
-      models: [
-        {
-          slug: "openai/gpt-5.4",
-          providerID: "openai",
-          modelID: "gpt-5.4",
-          name: "GPT-5.4",
-          variants: [],
-          supportedReasoningEfforts: [],
-        },
-        {
-          slug: "opencode/minimax-m2.5-free",
-          providerID: "opencode",
-          modelID: "minimax-m2.5-free",
-          name: "MiniMax M2.5 Free",
-          variants: [],
-          supportedReasoningEfforts: [],
-        },
-        {
-          slug: "opencode-go/kimi-k2.6",
-          providerID: "opencode-go",
-          modelID: "kimi-k2.6",
-          name: "Kimi K2.6",
-          variants: [],
-          supportedReasoningEfforts: [],
-        },
-        {
-          slug: "kimi-for-coding/k2p6",
-          providerID: "kimi-for-coding",
-          modelID: "k2p6",
-          name: "K2P6",
-          variants: [],
-          supportedReasoningEfforts: [
-            {
-              value: "high",
-            },
-          ],
-          defaultReasoningEffort: "high",
-        },
-        {
-          slug: "github-copilot/claude-sonnet-4.6",
-          providerID: "github-copilot",
-          modelID: "claude-sonnet-4.6",
-          name: "Claude Sonnet 4.6",
-          variants: [],
-          supportedReasoningEfforts: [],
-        },
-        {
-          slug: "anthropic/claude-sonnet-4-5",
-          providerID: "anthropic",
-          modelID: "claude-sonnet-4-5",
-          name: "Claude Sonnet 4.5",
-          variants: [],
-          supportedReasoningEfforts: [],
-        },
-        {
-          slug: "google-vertex/gemini-3-pro",
-          providerID: "google-vertex",
-          modelID: "gemini-3-pro",
-          name: "Gemini 3 Pro",
-          variants: [],
-          supportedReasoningEfforts: [],
-        },
-        {
-          slug: "openrouter/qwen/qwen3-coder",
-          providerID: "openrouter",
-          modelID: "qwen/qwen3-coder",
-          name: "Qwen3 Coder",
-          variants: [],
-          supportedReasoningEfforts: [],
-        },
-        {
-          slug: "ollama/qwen3-coder:30b",
-          providerID: "ollama",
-          modelID: "qwen3-coder:30b",
-          name: "Qwen3 Coder 30B",
-          variants: [],
-          supportedReasoningEfforts: [],
-        },
-        {
-          slug: "amazon-bedrock/anthropic-claude-sonnet-4.5",
-          providerID: "amazon-bedrock",
-          modelID: "anthropic-claude-sonnet-4.5",
-          name: "Claude Sonnet 4.5",
-          variants: [],
-          supportedReasoningEfforts: [],
-        },
-        {
-          slug: "vercel-ai-gateway/xai/grok-code-fast",
-          providerID: "vercel-ai-gateway",
-          modelID: "xai/grok-code-fast",
-          name: "Grok Code Fast",
-          variants: [],
-          supportedReasoningEfforts: [],
-        },
-      ],
-    });
-
-    expect(models).toEqual([
-      {
-        slug: "amazon-bedrock/anthropic-claude-sonnet-4.5",
-        name: "Claude Sonnet 4.5",
-        upstreamProviderId: "amazon-bedrock",
-        upstreamProviderName: "Amazon Bedrock",
-      },
-      {
-        slug: "anthropic/claude-sonnet-4-5",
-        name: "Claude Sonnet 4.5",
-        upstreamProviderId: "anthropic",
-        upstreamProviderName: "Anthropic",
-      },
-      {
-        slug: "github-copilot/claude-sonnet-4.6",
-        name: "Claude Sonnet 4.6",
-        upstreamProviderId: "github-copilot",
-        upstreamProviderName: "GitHub Copilot",
-      },
-      {
-        slug: "google-vertex/gemini-3-pro",
-        name: "Gemini 3 Pro",
-        upstreamProviderId: "google-vertex",
-        upstreamProviderName: "Google Vertex AI",
-      },
-      {
-        slug: "kimi-for-coding/k2p6",
-        name: "K2P6",
-        upstreamProviderId: "kimi-for-coding",
-        upstreamProviderName: "Kimi For Coding",
-        supportedReasoningEfforts: [
-          {
-            value: "high",
-          },
-        ],
-        defaultReasoningEffort: "high",
-      },
-      {
-        slug: "ollama/qwen3-coder:30b",
-        name: "Qwen3 Coder 30B",
-        upstreamProviderId: "ollama",
-        upstreamProviderName: "Ollama",
-      },
-      {
-        slug: "openai/gpt-5.4",
-        name: "GPT-5.4",
-        upstreamProviderId: "openai",
-        upstreamProviderName: "OpenAI",
-      },
-      {
-        slug: "opencode/minimax-m2.5-free",
-        name: "MiniMax M2.5 Free",
-        upstreamProviderId: "opencode",
-        upstreamProviderName: "OpenCode",
-      },
-      {
-        slug: "opencode-go/kimi-k2.6",
-        name: "Kimi K2.6",
-        upstreamProviderId: "opencode-go",
-        upstreamProviderName: "OpenCode Go",
-      },
-      {
-        slug: "openrouter/qwen/qwen3-coder",
-        name: "Qwen3 Coder",
-        upstreamProviderId: "openrouter",
-        upstreamProviderName: "OpenRouter",
-      },
-      {
-        slug: "vercel-ai-gateway/xai/grok-code-fast",
-        name: "Grok Code Fast",
-        upstreamProviderId: "vercel-ai-gateway",
-        upstreamProviderName: "Vercel AI Gateway",
-      },
     ]);
   });
 
@@ -787,43 +608,5 @@ describe("OpenCode discovery helpers", () => {
       },
     ]);
     expect(commands).toEqual([{ name: "build" }, { name: "review", description: "Review code" }]);
-  });
-
-  it("classifies only command-discovery compatibility failures as unsupported", () => {
-    const error = (detail: string) =>
-      new OpenCodeRuntimeError({ operation: "command.list", detail });
-
-    expect(isUnsupportedOpenCodeCommandListError(error("status=404 body={}"))).toBe(true);
-    expect(isUnsupportedOpenCodeCommandListError(error("unknown method command.list"))).toBe(true);
-    expect(isUnsupportedOpenCodeCommandListError(error("connection refused"))).toBe(false);
-  });
-
-  it("preserves generic provider title-casing when merged CLI models are absent from inventory", () => {
-    const models = mergeOpenCodeCliModelDescriptors({
-      inventory: {
-        providerList: { connected: [], all: [] },
-        consoleState: null,
-      },
-      models: [],
-      cliModels: [
-        {
-          slug: "xai/grok-code-fast",
-          providerID: "xai",
-          modelID: "grok-code-fast",
-          name: "Grok Code Fast",
-          variants: [],
-          supportedReasoningEfforts: [],
-        },
-      ],
-    });
-
-    expect(models).toEqual([
-      {
-        slug: "xai/grok-code-fast",
-        name: "Grok Code Fast",
-        upstreamProviderId: "xai",
-        upstreamProviderName: "Xai",
-      },
-    ]);
   });
 });

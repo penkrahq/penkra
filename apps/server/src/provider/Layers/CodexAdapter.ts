@@ -12,11 +12,7 @@ import {
   type ModelSelection,
   type ProviderComposerCapabilities,
   type ProviderEvent,
-  type ProviderListModelsResult,
-  type ProviderListPluginsResult,
-  type ProviderReadPluginResult,
   type ProviderSendTurnInput,
-  type ProviderListSkillsResult,
   type ProviderRuntimeEvent,
   type ServerVoiceTranscriptionResult,
   type ThreadTokenUsageSnapshot,
@@ -90,6 +86,8 @@ import {
 } from "../providerRuntimeEventIngress.ts";
 import { type EventNdjsonLogger, makeEventNdjsonLogger } from "./EventNdjsonLogger.ts";
 import { adoptManagedCodexRollout, prepareManagedCodexResume } from "../codexManagedNativeState.ts";
+import { makeInvalidationHub } from "../../cleanCore/invalidationHub.ts";
+import type { ProviderCatalogInvalidation } from "../Services/ProviderAdapter.ts";
 
 const PROVIDER = "codex" as const;
 const CODEX_ROLLOUT_ADOPTION_ATTEMPTS = 50;
@@ -1851,6 +1849,19 @@ const makeCodexAdapter = (options?: CodexAdapterLiveOptions) =>
           }),
       });
 
+    const catalogChanges = makeInvalidationHub<ProviderCatalogInvalidation>((event) =>
+      JSON.stringify([event.connectionId, event.kinds]),
+    );
+    const catalogListener = (event: Omit<ProviderCatalogInvalidation, "provider">) =>
+      catalogChanges.publish({ ...event, provider: PROVIDER });
+    yield* Effect.acquireRelease(
+      Effect.sync(() => manager.on("catalogInvalidated", catalogListener)),
+      () =>
+        Effect.sync(() => {
+          manager.off("catalogInvalidated", catalogListener);
+        }).pipe(Effect.andThen(catalogChanges.close)),
+    );
+
     const loadCatalog: NonNullable<CodexAdapterShape["loadCatalog"]> = (input) =>
       Effect.tryPromise({
         try: () => manager.loadCatalog(input),
@@ -1862,81 +1873,6 @@ const makeCodexAdapter = (options?: CodexAdapterLiveOptions) =>
             cause,
           }),
       });
-
-    const listSkills: NonNullable<CodexAdapterShape["listSkills"]> = (input) =>
-      Effect.tryPromise({
-        try: () =>
-          manager.listSkills({
-            cwd: input.cwd,
-            ...(input.threadId !== undefined ? { threadId: input.threadId } : {}),
-            ...(input.forceReload !== undefined ? { forceReload: input.forceReload } : {}),
-          }),
-        catch: (cause) =>
-          new ProviderAdapterRequestError({
-            provider: PROVIDER,
-            method: "skills/list",
-            detail: toMessage(cause, "skills/list failed"),
-            cause,
-          }),
-      }).pipe(Effect.map((result) => result satisfies ProviderListSkillsResult));
-
-    const listPlugins: NonNullable<CodexAdapterShape["listPlugins"]> = (input) =>
-      Effect.tryPromise({
-        try: () =>
-          manager.listPlugins({
-            ...(input.cwd !== undefined ? { cwd: input.cwd } : {}),
-            ...(input.threadId !== undefined ? { threadId: input.threadId } : {}),
-            ...(input.forceRemoteSync !== undefined
-              ? { forceRemoteSync: input.forceRemoteSync }
-              : {}),
-            ...(input.forceReload !== undefined ? { forceReload: input.forceReload } : {}),
-          }),
-        catch: (cause) =>
-          new ProviderAdapterRequestError({
-            provider: PROVIDER,
-            method: "plugin/list",
-            detail: toMessage(cause, "plugin/list failed"),
-            cause,
-          }),
-      }).pipe(Effect.map((result) => result satisfies ProviderListPluginsResult));
-
-    const readPlugin: NonNullable<CodexAdapterShape["readPlugin"]> = (input) =>
-      Effect.tryPromise({
-        try: () =>
-          manager.readPlugin({
-            marketplacePath: input.marketplacePath,
-            pluginName: input.pluginName,
-            ...(input.threadId !== undefined ? { threadId: input.threadId } : {}),
-          }),
-        catch: (cause) =>
-          new ProviderAdapterRequestError({
-            provider: PROVIDER,
-            method: "plugin/read",
-            detail: toMessage(cause, "plugin/read failed"),
-            cause,
-          }),
-      }).pipe(Effect.map((result) => result satisfies ProviderReadPluginResult));
-
-    const listModels: NonNullable<CodexAdapterShape["listModels"]> = (input) =>
-      Effect.tryPromise({
-        try: () =>
-          manager.listModels(
-            undefined,
-            input.managedLaunch
-              ? {
-                  ...(input.cwd ? { cwd: input.cwd } : {}),
-                  managedLaunch: input.managedLaunch,
-                }
-              : undefined,
-          ),
-        catch: (cause) =>
-          new ProviderAdapterRequestError({
-            provider: PROVIDER,
-            method: "model/list",
-            detail: toMessage(cause, "model/list failed"),
-            cause,
-          }),
-      }).pipe(Effect.map((result) => result satisfies ProviderListModelsResult));
 
     const probeTurnEndpoint: NonNullable<CodexAdapterShape["probeTurnEndpoint"]> = (input) =>
       Effect.tryPromise({
@@ -2115,10 +2051,7 @@ const makeCodexAdapter = (options?: CodexAdapterLiveOptions) =>
       getComposerCapabilities,
       getCapabilityHealth,
       loadCatalog,
-      listSkills,
-      listPlugins,
-      readPlugin,
-      listModels,
+      catalogChanges: catalogChanges.stream(),
       probeTurnEndpoint,
       transcribeVoice,
       streamEvents: Stream.fromQueue(runtimeEventQueue),

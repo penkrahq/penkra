@@ -52,6 +52,7 @@ import {} from "./orchestration/Services/ProviderThreadSwitchCoordinator";
 import { ThreadReads } from "./cleanCore/ThreadReads";
 import { listProviderConnectionManifests } from "./provider/providerConnectionManifests";
 import { ProviderDiscoveryService } from "./provider/Services/ProviderDiscoveryService";
+import { ProviderCatalogService } from "./provider/Services/ProviderCatalog.ts";
 import { discoverSkillsCatalog, penkraSkillsDir } from "./provider/skillsCatalog";
 import { ProviderAdapterRegistry } from "./provider/Services/ProviderAdapterRegistry";
 import { ProviderHealth } from "./provider/Services/ProviderHealth";
@@ -137,6 +138,7 @@ const makeWsRpcHandlersLayer = () =>
       const projectionReadModelQuery = yield* ThreadReads;
       const providerAdapterRegistry = yield* ProviderAdapterRegistry;
       const providerDiscoveryService = yield* ProviderDiscoveryService;
+      const providerCatalog = yield* ProviderCatalogService;
       const authCircuits = yield* ProviderAuthCircuits;
       const providerHealth = yield* ProviderHealth;
       const providerService = yield* ProviderService;
@@ -766,6 +768,16 @@ const makeWsRpcHandlersLayer = () =>
                     payload: { settings },
                   })),
                 ),
+              ).pipe(
+                Stream.merge(
+                  providerCatalog.streamChanges.pipe(
+                    Stream.map((event) => ({
+                      type: "catalog.changed" as const,
+                      scope: event.scope,
+                      version: event.version,
+                    })),
+                  ),
+                ),
               ),
             ).pipe(Stream.mapError((cause) => toWsRpcError(cause, "Server config stream failed"))),
           ),
@@ -812,10 +824,10 @@ const makeWsRpcHandlersLayer = () =>
           ),
         [WS_METHODS.providerCompactThread]: (input) =>
           rpcEffect(providerService.compactThread(input), "Failed to compact thread"),
-        [WS_METHODS.providerListCommands]: (input) =>
-          rpcEffect(providerDiscoveryService.listCommands(input), "Failed to list commands"),
-        [WS_METHODS.providerListSkills]: (input) =>
-          rpcEffect(providerDiscoveryService.listSkills(input), "Failed to list skills"),
+        [WS_METHODS.providerGetCatalog]: ({ kinds, ...scope }) =>
+          rpcEffect(providerCatalog.get(scope, kinds), "Failed to read the provider catalog"),
+        [WS_METHODS.providerReloadCatalog]: (scope) =>
+          rpcEffect(providerCatalog.reload(scope), "Failed to retry the provider catalog"),
         [WS_METHODS.providerListSkillsCatalog]: (input) =>
           rpcEffect(
             Effect.tryPromise(() =>
@@ -833,14 +845,6 @@ const makeWsRpcHandlersLayer = () =>
             ),
             "Failed to list the skills catalog",
           ),
-        [WS_METHODS.providerListPlugins]: (input) =>
-          rpcEffect(providerDiscoveryService.listPlugins(input), "Failed to list plugins"),
-        [WS_METHODS.providerReadPlugin]: (input) =>
-          rpcEffect(providerDiscoveryService.readPlugin(input), "Failed to read plugin"),
-        [WS_METHODS.providerListModels]: (input) =>
-          rpcEffect(providerDiscoveryService.listModels(input), "Failed to list models"),
-        [WS_METHODS.providerListAgents]: (input) =>
-          rpcEffect(providerDiscoveryService.listAgents(input), "Failed to list agents"),
       });
     }),
   );

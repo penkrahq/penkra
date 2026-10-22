@@ -13,12 +13,7 @@ import {
   type ProviderCatalogKind,
   ProviderItemId,
   type ProviderListModelsResult,
-  type ProviderListPluginsResult,
   type ProviderMentionReference,
-  type ProviderReadPluginResult,
-  type ProviderListSkillsResult,
-  type ProviderListPluginsInput,
-  type ProviderReadPluginInput,
   type ProviderStartReviewInput,
   type ProviderSkillReference,
   ProviderRequestKind,
@@ -87,7 +82,6 @@ import { buildCodexTurnInput, type CodexTurnInputItem } from "./codexTurnInput.t
 import {
   parseCodexModelListResponse,
   parseCodexPluginListResponse,
-  parseCodexPluginReadResponse,
   parseCodexSkillsListResponse,
 } from "./provider/codexDiscoveryCatalog.ts";
 import {
@@ -247,16 +241,6 @@ interface CodexSessionContext {
   stopPromise?: Promise<void>;
 }
 
-interface CodexSkillListInput {
-  readonly cwd: string;
-  readonly forceReload?: boolean;
-  readonly threadId?: string;
-}
-
-interface CodexPluginListInput extends Omit<ProviderListPluginsInput, "provider"> {}
-
-interface CodexPluginReadInput extends Omit<ProviderReadPluginInput, "provider"> {}
-
 interface JsonRpcError {
   code?: number;
   message?: string;
@@ -292,37 +276,6 @@ export class CodexJsonRpcResponseError extends Error {
     super(`${method} failed: ${message}`);
     this.name = "CodexJsonRpcResponseError";
   }
-}
-
-function shouldRetrySkillsListWithCwdFallback(error: unknown): boolean {
-  const message = error instanceof Error ? error.message.toLowerCase() : "";
-  return (
-    message.includes("skills/list failed") &&
-    (message.includes("invalid") ||
-      message.includes("unknown field") ||
-      message.includes("unrecognized field") ||
-      message.includes("missing field") ||
-      message.includes("expected") ||
-      message.includes("cwds"))
-  );
-}
-
-function shouldRetryPluginListWithoutMarketplaceKinds(error: unknown): boolean {
-  const message = error instanceof Error ? error.message.toLowerCase() : "";
-  return (
-    message.includes("plugin/list failed") &&
-    (message.includes("marketplacekinds") ||
-      message.includes("unknown field") ||
-      message.includes("unrecognized field"))
-  );
-}
-
-function isPluginListUnavailable(error: unknown): boolean {
-  const message = error instanceof Error ? error.message.toLowerCase() : "";
-  return (
-    message.includes("plugin/list") &&
-    (message.includes("method not found") || message.includes("unknown method"))
-  );
 }
 
 type CodexPlanType =
@@ -909,11 +862,16 @@ export function inspectCodexThreadActivity(response: unknown): {
 
 export interface CodexAppServerManagerEvents {
   event: [event: ProviderEvent];
+  catalogInvalidated: [
+    event: {
+      readonly connectionId: ProviderConnectionId;
+      readonly kinds: ReadonlyArray<ProviderCatalogKind>;
+    },
+  ];
 }
 
 // A connectivity probe can stall without a turn-end event; bound only that probe.
 const CODEX_AUTH_PROBE_DEADLINE_MS = 20_000;
-const CODEX_DISCOVERY_CACHE_MAX_ENTRIES = 128;
 const CODEX_TEMPORARY_RESOURCE_MAX_BYTES = 16 * 1024 * 1024;
 
 function safeTemporaryResourceName(value: string | undefined): string {
@@ -922,33 +880,6 @@ function safeTemporaryResourceName(value: string | undefined): string {
     .replace(/[^A-Za-z0-9._-]+/gu, "-")
     .slice(0, 160);
   return safe && safe !== "." && safe !== ".." ? safe : "attachment";
-}
-
-function getRecentCacheEntry<K, V>(cache: Map<K, V>, key: K): V | undefined {
-  const value = cache.get(key);
-  if (value === undefined) {
-    return undefined;
-  }
-  cache.delete(key);
-  cache.set(key, value);
-  return value;
-}
-
-function setRecentCacheEntry<K, V>(
-  cache: Map<K, V>,
-  key: K,
-  value: V,
-  maxEntries = CODEX_DISCOVERY_CACHE_MAX_ENTRIES,
-): void {
-  cache.delete(key);
-  cache.set(key, value);
-  while (cache.size > maxEntries) {
-    const oldestKey = cache.keys().next().value as K | undefined;
-    if (oldestKey === undefined) {
-      return;
-    }
-    cache.delete(oldestKey);
-  }
 }
 
 export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEvents> {
@@ -961,8 +892,6 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
       transport?: CodexAccountProcess;
     }
   >();
-  private readonly pluginDetailCache = new Map<string, ProviderReadPluginResult>();
-  private readonly pendingModelDiscoveries = new Map<string, Promise<ProviderListModelsResult>>();
 
   private runPromise: (effect: Effect.Effect<unknown, never>) => Promise<unknown>;
   private readonly penkraSkillsDir: string | undefined;
@@ -1101,71 +1030,28 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
     }
   }
 
-  /**
-   * Codex refreshes plugin catalogs in the background when app-server starts.
-   * `plugin/list` is the provider-owned barrier that waits for configured local
-   * plugin caches to reconcile. Run it before opening the thread, then invalidate
-   * the skill cache, so the first user turn cannot race plugin materialization.
-   */
+  /** Initialize the configured local plugin/skill snapshot before opening a native thread. */
   private async reconcileConfiguredPluginsBeforeThreadOpen(
     context: CodexSessionContext,
     cwd: string,
     signal?: AbortSignal,
   ): Promise<void> {
-    try {
-      try {
-        await this.sendRequest(
-          context.transport,
-          context.session.threadId,
-          "plugin/list",
-          { cwds: [cwd], marketplaceKinds: ["local"] },
-          undefined,
-          signal,
-        );
-      } catch (error) {
-        if (signal?.aborted) throw error;
-        if (!shouldRetryPluginListWithoutMarketplaceKinds(error)) throw error;
-        await this.sendRequest(
-          context.transport,
-          context.session.threadId,
-          "plugin/list",
-          { cwds: [cwd] },
-          undefined,
-          signal,
-        );
-      }
-    } catch (error) {
-      if (signal?.aborted) throw error;
-      if (isPluginListUnavailable(error)) {
-        log.warn("Codex plugin reconciliation is unavailable in this runtime", {
-          error,
-        });
-        return;
-      }
-      throw error;
-    }
-
-    try {
-      await this.sendRequest(
-        context.transport,
-        context.session.threadId,
-        "skills/list",
-        { cwds: [cwd], forceReload: true },
-        undefined,
-        signal,
-      );
-    } catch (error) {
-      if (signal?.aborted) throw error;
-      if (!shouldRetrySkillsListWithCwdFallback(error)) throw error;
-      await this.sendRequest(
-        context.transport,
-        context.session.threadId,
-        "skills/list",
-        { cwd, forceReload: true },
-        undefined,
-        signal,
-      );
-    }
+    await this.sendRequest(
+      context.transport,
+      context.session.threadId,
+      "plugin/list",
+      { cwds: [cwd], marketplaceKinds: ["local"] },
+      undefined,
+      signal,
+    );
+    await this.sendRequest(
+      context.transport,
+      context.session.threadId,
+      "skills/list",
+      { cwds: [cwd], forceReload: true },
+      undefined,
+      signal,
+    );
   }
 
   async startSession(
@@ -2214,33 +2100,6 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
       throw new AggregateError(failures, "One or more Codex account process trees did not exit.");
   }
 
-  async listSkills(input: CodexSkillListInput): Promise<ProviderListSkillsResult> {
-    const cwd = input.cwd.trim();
-    const transport = await this.resolveProcessForDiscovery(input.threadId, cwd);
-    let response: Record<string, unknown>;
-    try {
-      response = await this.sendRequest<Record<string, unknown>>(transport, null, "skills/list", {
-        cwds: [cwd],
-        ...(input.forceReload ? { forceReload: true } : {}),
-      });
-    } catch (error) {
-      if (!shouldRetrySkillsListWithCwdFallback(error)) {
-        throw error;
-      }
-      response = await this.sendRequest<Record<string, unknown>>(transport, null, "skills/list", {
-        cwd,
-        ...(input.forceReload ? { forceReload: true } : {}),
-      });
-    }
-    const skills = parseCodexSkillsListResponse(response, cwd);
-    const result: ProviderListSkillsResult = {
-      skills,
-      source: "codex-app-server",
-      cached: false,
-    };
-    return result;
-  }
-
   /** Discovery uses the selected account process, without creating or requiring a thread. */
   async loadCatalog(input: {
     readonly cwd: string;
@@ -2302,26 +2161,6 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
       }),
     );
     return data;
-  }
-
-  async listPlugins(input: CodexPluginListInput): Promise<ProviderListPluginsResult> {
-    const cwd = input.cwd?.trim() || null;
-    const transport = await this.resolveProcessForDiscovery(input.threadId, cwd ?? undefined);
-    const response = await this.sendRequest<Record<string, unknown>>(
-      transport,
-      null,
-      "plugin/list",
-      {
-        ...(cwd ? { cwds: [cwd] } : {}),
-        ...(input.forceRemoteSync ? { forceRefetch: true } : {}),
-      },
-    );
-    const result: ProviderListPluginsResult = {
-      ...parseCodexPluginListResponse(response),
-      source: "codex-app-server",
-      cached: false,
-    };
-    return result;
   }
 
   async getComputerUseCapabilityHealth(threadId: ThreadId): Promise<ComputerUseCapabilityHealth> {
@@ -2402,41 +2241,6 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
       routes: health.routes,
     });
     return health;
-  }
-
-  async readPlugin(input: CodexPluginReadInput): Promise<ProviderReadPluginResult> {
-    const marketplacePath = input.marketplacePath.trim();
-    const pluginName = input.pluginName.trim();
-    const cacheKey = JSON.stringify({
-      marketplacePath,
-      pluginName,
-      threadId: input.threadId?.trim() || null,
-    });
-    const cached = getRecentCacheEntry(this.pluginDetailCache, cacheKey);
-    if (cached) {
-      return {
-        ...cached,
-        cached: true,
-      };
-    }
-
-    const transport = await this.resolveProcessForDiscovery(input.threadId);
-    const response = await this.sendRequest<Record<string, unknown>>(
-      transport,
-      null,
-      "plugin/read",
-      {
-        marketplacePath,
-        pluginName,
-      },
-    );
-    const result: ProviderReadPluginResult = {
-      plugin: parseCodexPluginReadResponse(response),
-      source: "codex-app-server",
-      cached: false,
-    };
-    setRecentCacheEntry(this.pluginDetailCache, cacheKey, result);
-    return result;
   }
 
   /** Send an isolated read-only probe using the same account transport as its threads. */
@@ -2541,46 +2345,6 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
     }
   }
 
-  async listModels(
-    threadId?: string,
-    managedDiscovery?: {
-      readonly cwd?: string;
-      readonly managedLaunch: ProviderManagedLaunchContext;
-    },
-  ): Promise<ProviderListModelsResult> {
-    const cacheKey = managedDiscovery
-      ? `managed:${managedDiscovery.managedLaunch.isolationKey}:${managedDiscovery.cwd ?? ""}`
-      : threadId?.trim() || "__default__";
-    const existing = this.pendingModelDiscoveries.get(cacheKey);
-    if (existing) return existing;
-    const pending = (async (): Promise<ProviderListModelsResult> => {
-      const transport = managedDiscovery
-        ? await this.getOrCreateManagedProcess(
-            managedDiscovery.cwd?.trim() || process.cwd(),
-            managedDiscovery.managedLaunch,
-          )
-        : await this.resolveProcessForDiscovery(threadId);
-      const response = await this.sendRequest<Record<string, unknown>>(
-        transport,
-        null,
-        "model/list",
-        { cursor: null, limit: 50, includeHidden: false },
-      );
-      return {
-        models: parseCodexModelListResponse(response),
-        source: "codex-app-server",
-        cached: false,
-      };
-    })();
-    this.pendingModelDiscoveries.set(cacheKey, pending);
-    try {
-      return await pending;
-    } finally {
-      if (this.pendingModelDiscoveries.get(cacheKey) === pending)
-        this.pendingModelDiscoveries.delete(cacheKey);
-    }
-  }
-
   async transcribeVoice(
     input: ServerVoiceTranscriptionInput & {
       readonly managedLaunch?: ProviderManagedLaunchContext;
@@ -2644,14 +2408,14 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
     );
   }
 
-  private async resolveProcessForDiscovery(
+  private async requireVoiceThreadAccountProcess(
     threadId?: string,
     cwd?: string,
   ): Promise<CodexAccountProcess> {
     const normalizedThreadId = threadId?.trim();
     const normalizedCwd = cwd?.trim() || undefined;
     if (!normalizedThreadId) {
-      throw new Error("Managed Codex discovery requires an exact active thread session.");
+      throw new Error("Voice transcription requires an exact active thread session.");
     }
     const session = this.requireSession(ThreadId.makeUnsafe(normalizedThreadId));
     if (normalizedCwd && session.session.cwd !== normalizedCwd) {
@@ -2672,7 +2436,7 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
           input.managedLaunch,
         )
       : input.threadId?.trim()
-        ? await this.resolveProcessForDiscovery(input.threadId, input.cwd)
+        ? await this.requireVoiceThreadAccountProcess(input.threadId, input.cwd)
         : null;
     if (transport === null) {
       throw new Error("Voice transcription requires an exact active Connection session.");
@@ -3258,6 +3022,15 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
       return;
     }
     if (this.isServerNotification(parsed)) {
+      if (parsed.method === "skills/changed" || parsed.method === "account/updated") {
+        for (const connectionId of transport.connectionIds) {
+          this.emit("catalogInvalidated", {
+            connectionId,
+            kinds: parsed.method === "skills/changed" ? ["skills"] : ["models"],
+          });
+        }
+        if (parsed.method === "skills/changed") return;
+      }
       if (parsed.method === "turn/started" || parsed.method === "turn/completed")
         void transport.diagnostics?.sampleMemory();
       const nativeId = this.readProviderConversationId(parsed.params);

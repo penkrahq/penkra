@@ -19,6 +19,11 @@ import {
 } from "./orchestration";
 import { ProviderCompactThreadInput } from "./provider";
 import {
+  ProviderCatalogScope,
+  ProviderCatalogSnapshot,
+  ProviderGetCatalogInput,
+} from "./providerCatalog";
+import {
   CreateStaticProviderConnectionInput,
   BeginProviderConnectionLoginInput,
   GetProviderConnectionLoginInput,
@@ -34,20 +39,8 @@ import {
   ProviderComposerCapabilities,
   ProviderGetCapabilityHealthInput,
   ProviderGetCapabilityHealthResult,
-  ProviderListAgentsInput,
-  ProviderListAgentsResult,
-  ProviderListCommandsInput,
-  ProviderListCommandsResult,
-  ProviderListModelsInput,
-  ProviderListModelsResult,
-  ProviderListPluginsInput,
-  ProviderListPluginsResult,
-  ProviderListSkillsInput,
-  ProviderListSkillsResult,
   ProviderSkillsCatalogInput,
   ProviderSkillsCatalogResult,
-  ProviderReadPluginInput,
-  ProviderReadPluginResult,
 } from "./providerDiscovery";
 import {
   ProjectCreateLocalFilePreviewGrantInput,
@@ -330,45 +323,21 @@ export const WsProviderCompactThreadRpc = Rpc.make(WS_METHODS.providerCompactThr
   error: WsRpcError,
 });
 
-export const WsProviderListCommandsRpc = Rpc.make(WS_METHODS.providerListCommands, {
-  payload: ProviderListCommandsInput,
-  success: ProviderListCommandsResult,
-  error: WsRpcError,
-});
-
-export const WsProviderListSkillsRpc = Rpc.make(WS_METHODS.providerListSkills, {
-  payload: ProviderListSkillsInput,
-  success: ProviderListSkillsResult,
-  error: WsRpcError,
-});
-
 export const WsProviderListSkillsCatalogRpc = Rpc.make(WS_METHODS.providerListSkillsCatalog, {
   payload: ProviderSkillsCatalogInput,
   success: ProviderSkillsCatalogResult,
   error: WsRpcError,
 });
 
-export const WsProviderListPluginsRpc = Rpc.make(WS_METHODS.providerListPlugins, {
-  payload: ProviderListPluginsInput,
-  success: ProviderListPluginsResult,
+export const WsProviderGetCatalogRpc = Rpc.make(WS_METHODS.providerGetCatalog, {
+  payload: ProviderGetCatalogInput,
+  success: ProviderCatalogSnapshot,
   error: WsRpcError,
 });
 
-export const WsProviderReadPluginRpc = Rpc.make(WS_METHODS.providerReadPlugin, {
-  payload: ProviderReadPluginInput,
-  success: ProviderReadPluginResult,
-  error: WsRpcError,
-});
-
-export const WsProviderListModelsRpc = Rpc.make(WS_METHODS.providerListModels, {
-  payload: ProviderListModelsInput,
-  success: ProviderListModelsResult,
-  error: WsRpcError,
-});
-
-export const WsProviderListAgentsRpc = Rpc.make(WS_METHODS.providerListAgents, {
-  payload: ProviderListAgentsInput,
-  success: ProviderListAgentsResult,
+export const WsProviderReloadCatalogRpc = Rpc.make(WS_METHODS.providerReloadCatalog, {
+  payload: ProviderCatalogScope,
+  success: ProviderCatalogSnapshot,
   error: WsRpcError,
 });
 
@@ -648,13 +617,9 @@ export const WsFeatureRpcGroup = RpcGroup.make(
   WsProviderGetComposerCapabilitiesRpc,
   WsProviderGetCapabilityHealthRpc,
   WsProviderCompactThreadRpc,
-  WsProviderListCommandsRpc,
-  WsProviderListSkillsRpc,
   WsProviderListSkillsCatalogRpc,
-  WsProviderListPluginsRpc,
-  WsProviderReadPluginRpc,
-  WsProviderListModelsRpc,
-  WsProviderListAgentsRpc,
+  WsProviderGetCatalogRpc,
+  WsProviderReloadCatalogRpc,
   WsProviderGetConnectionsRpc,
   WsProviderRetryAuthConnectionRpc,
   WsProviderCreateStaticConnectionRpc,

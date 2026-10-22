@@ -24,6 +24,12 @@ export const ProviderCatalogScope = Schema.Struct({
 });
 export type ProviderCatalogScope = typeof ProviderCatalogScope.Type;
 
+export const ProviderGetCatalogInput = Schema.Struct({
+  ...ProviderCatalogScope.fields,
+  kinds: Schema.Array(ProviderCatalogKind).check(Schema.isNonEmpty()),
+});
+export type ProviderGetCatalogInput = typeof ProviderGetCatalogInput.Type;
+
 export const ProviderCatalogData = Schema.Struct({
   models: Schema.optional(Schema.Array(ProviderModelDescriptor)),
   commands: Schema.optional(Schema.Array(ProviderNativeCommandDescriptor)),

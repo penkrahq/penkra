@@ -6,9 +6,7 @@
 import type {
   ProviderListModelsResult,
   ProviderListPluginsResult,
-  ProviderPluginAppSummary,
   ProviderPluginDescriptor,
-  ProviderPluginDetail,
   ProviderSkillDescriptor,
 } from "@penkra/contracts";
 
@@ -253,59 +251,6 @@ export function parseCodexPluginListResponse(
     marketplaceLoadErrors,
     remoteSyncError: remoteSyncError?.length ? remoteSyncError : null,
     featuredPluginIds,
-  };
-}
-
-function parsePluginAppSummary(value: unknown): ProviderPluginAppSummary | undefined {
-  const record = readObject(value);
-  if (!record) return undefined;
-  const id = readString(record, "id")?.trim();
-  const name = readString(record, "name")?.trim();
-  if (!id || !name) {
-    return undefined;
-  }
-  const description = readString(record, "description")?.trim();
-  const installUrl = readString(record, "installUrl")?.trim();
-  return {
-    id,
-    name,
-    ...(description ? { description } : {}),
-    ...(installUrl ? { installUrl } : {}),
-    needsAuth: record.needsAuth === true,
-  };
-}
-
-export function parseCodexPluginReadResponse(response: unknown): ProviderPluginDetail {
-  const responseRecord = readObject(response);
-  const resultRecord = readObject(responseRecord, "result") ?? responseRecord;
-  const pluginRecord = readObject(resultRecord, "plugin") ?? resultRecord;
-  const marketplaceName = readString(pluginRecord, "marketplaceName")?.trim();
-  const marketplacePath = readString(pluginRecord, "marketplacePath")?.trim();
-  const summary = parsePluginSummary(readObject(pluginRecord, "summary"));
-  if (!marketplaceName || !marketplacePath || !summary) {
-    throw new Error("plugin/read response did not include a valid plugin payload.");
-  }
-  const skills = (readArray(pluginRecord, "skills") ?? []).flatMap((skill) => {
-    const parsedSkill = parseSkillDescriptor(skill);
-    return parsedSkill ? [parsedSkill] : [];
-  });
-  const apps = (readArray(pluginRecord, "apps") ?? []).flatMap((app) => {
-    const parsedApp = parsePluginAppSummary(app);
-    return parsedApp ? [parsedApp] : [];
-  });
-  const mcpServers = (readArray(pluginRecord, "mcpServers") ?? [])
-    .map((value) => (typeof value === "string" ? value.trim() : ""))
-    .filter((value) => value.length > 0);
-  const description = readString(pluginRecord, "description")?.trim();
-
-  return {
-    marketplaceName,
-    marketplacePath,
-    summary,
-    ...(description ? { description } : {}),
-    skills,
-    apps,
-    mcpServers,
   };
 }
 

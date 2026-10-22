@@ -73,11 +73,6 @@ import {
   resolveLatestProjectTargetIdWithFallback,
   resolveNewThreadTarget,
 } from "../lib/projectShortcutTargets";
-import {
-  prefetchProviderModelsForNewThread,
-  resolveNewThreadModelPrefetchCwd,
-  resolveNewThreadModelPrefetchProvider,
-} from "../lib/providerModelPrefetch";
 import { serverConfigQueryOptions } from "../lib/serverReactQuery";
 import { activeSpaceDisplayNameForReference, resolveActiveSpaceId } from "../lib/spaceGrouping";
 import {
@@ -716,52 +711,8 @@ export default function Sidebar() {
     [currentProjectShortcutTargetId, latestUsableFolderId],
   );
 
-  // Warm model discovery before ChatView mounts so new-thread composers skip
-  // the "Loading models" skeleton when React Query already has a fresh cache hit.
-  const prefetchModelsForProjectNewThread = useCallback(
-    (folderId: FolderId, options?: { includeDroid?: boolean }) => {
-      const project = folders.find((candidate) => candidate.id === folderId);
-      if (!project) {
-        return;
-      }
-
-      const draftStore = useComposerDraftStore.getState();
-      const draftThread = draftStore.getDraftThreadByFolderId(folderId);
-      const draftComposer = draftThread
-        ? (draftStore.draftsByThreadId[draftThread.threadId] ?? null)
-        : null;
-      const provider = resolveNewThreadModelPrefetchProvider({
-        draftActiveProvider: draftComposer?.activeProvider ?? null,
-        stickyActiveProvider: draftStore.stickyActiveProvider,
-        projectDefaultProvider: project.defaultModelSelection?.provider ?? null,
-        defaultProvider: appSettings.defaultProvider,
-      });
-      const cwd = resolveNewThreadModelPrefetchCwd({
-        projectCwd: project.cwd,
-        serverCwd,
-      });
-
-      prefetchProviderModelsForNewThread(queryClient, {
-        provider,
-        settings: appSettings,
-        cwd,
-      });
-    },
-    [appSettings, folders, queryClient, serverCwd],
-  );
-
-  useEffect(() => {
-    if (!primaryNewThreadTarget) {
-      return;
-    }
-    prefetchModelsForProjectNewThread(primaryNewThreadTarget.folderId);
-  }, [prefetchModelsForProjectNewThread, primaryNewThreadTarget]);
-
   const handlePrimaryNewThread = useCallback(() => {
     if (primaryNewThreadTarget) {
-      prefetchModelsForProjectNewThread(primaryNewThreadTarget.folderId, {
-        includeDroid: true,
-      });
       void handleNewThread(primaryNewThreadTarget.folderId);
       return;
     }
@@ -772,13 +723,7 @@ export default function Sidebar() {
       return;
     }
     handleStartAddProject();
-  }, [
-    handleNewThread,
-    handleStartAddProject,
-    prefetchModelsForProjectNewThread,
-    primaryNewThreadTarget,
-    startupHydrated,
-  ]);
+  }, [handleNewThread, handleStartAddProject, primaryNewThreadTarget, startupHydrated]);
 
   const handleImportThread = useCallback(
     async (provider: ImportProviderKind, externalId: string) => {
@@ -1943,7 +1888,6 @@ export default function Sidebar() {
           : [candidate.name, candidate.remoteName],
       );
     const createProjectThread = () => {
-      prefetchModelsForProjectNewThread(project.id, { includeDroid: true });
       void handleNewThread(project.id);
     };
     const openProjectContextMenu = (event: React.MouseEvent<HTMLButtonElement>) => {

@@ -8,7 +8,6 @@ import {
   type ProviderKind,
 } from "@penkra/contracts";
 import { normalizeModelSlug } from "@penkra/shared/model";
-import { useQuery } from "@tanstack/react-query";
 import { useCallback, useMemo, useState } from "react";
 
 import {
@@ -23,8 +22,6 @@ import {
 } from "~/appSettings";
 import { useProviderModelCatalog } from "~/hooks/useProviderModelCatalog";
 import { PlusIcon, XIcon } from "~/lib/icons";
-import { resolveProviderDiscoveryCwd } from "~/lib/providerDiscovery";
-import { serverConfigQueryOptions } from "~/lib/serverReactQuery";
 import { cn } from "~/lib/utils";
 import {
   SETTINGS_CARD_ROW_DIVIDER_CLASS_NAME,
@@ -77,7 +74,6 @@ export function ModelsSettingsPanel({
   resetEpoch,
   active,
 }: AppSettingsBinding & { readonly resetEpoch: number; readonly active: boolean }) {
-  const serverConfigQuery = useQuery(serverConfigQueryOptions());
   const [selectedCustomModelProvider, setSelectedCustomModelProvider] =
     useState<ProviderKind>("codex");
   const [customModelInputByProvider, setCustomModelInputByProvider] = useState<
@@ -103,14 +99,9 @@ export function ModelsSettingsPanel({
     () => ({ [currentThreadTitleProvider]: currentThreadTitleModel }),
     [currentThreadTitleModel, currentThreadTitleProvider],
   );
-  const providerModelDiscoveryCwd = resolveProviderDiscoveryCwd({
-    activeProjectCwd: null,
-    serverCwd: serverConfigQuery.data?.cwd ?? null,
-  });
   const { modelOptionsByProvider: threadTitleCatalogOptionsByProvider } = useProviderModelCatalog({
     selectedProvider: currentThreadTitleProvider,
     discoveryEnabled: active,
-    cwd: providerModelDiscoveryCwd,
     modelHintByProvider: threadTitleModelHintByProvider,
     prefetchProviders: THREAD_TITLE_DISCOVERY_PROVIDERS,
   });

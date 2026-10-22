@@ -10,11 +10,7 @@ import type {
 } from "@penkra/contracts";
 import type { Agent, OpencodeClient } from "@opencode-ai/sdk/v2";
 
-import {
-  isAuthoritativelyFreeOpenCodeModel,
-  type OpenCodeCliModelDescriptor,
-  type OpenCodeRuntimeError,
-} from "./opencodeRuntime.ts";
+import { isAuthoritativelyFreeOpenCodeModel } from "./opencodeRuntime.ts";
 import { positiveInteger } from "./tokenUsage.ts";
 
 export interface OpenCodeModelInventory {
@@ -366,13 +362,6 @@ function toOpenCodeModelDescriptor(input: {
   readonly name: string;
   readonly provider: Pick<OpenCodeInventoryProvider, "id" | "name">;
   readonly model?: OpenCodeInventoryProvider["models"][string];
-  readonly cliModel?: Pick<
-    OpenCodeCliModelDescriptor,
-    | "supportedReasoningEfforts"
-    | "defaultReasoningEffort"
-    | "contextWindowOptions"
-    | "defaultContextWindow"
-  >;
 }): OpenCodeModelDescriptor | null {
   const name = input.name.trim();
   if (name.length === 0) {
@@ -380,33 +369,14 @@ function toOpenCodeModelDescriptor(input: {
   }
 
   const upstreamProviderName = input.provider.name.trim();
-  const contextSupport =
-    input.cliModel?.contextWindowOptions && input.cliModel.contextWindowOptions.length > 0
-      ? {
-          contextWindowOptions: input.cliModel.contextWindowOptions,
-          defaultContextWindow: input.cliModel.defaultContextWindow,
-        }
-      : resolveOpenCodeContextWindowSupport(input.model);
-  const reasoningSupport =
-    input.cliModel && input.cliModel.supportedReasoningEfforts.length > 0
-      ? {
-          descriptors: input.cliModel.supportedReasoningEfforts,
-          defaultReasoningEffort:
-            input.cliModel.defaultReasoningEffort ??
-            inferOpenCodeDefaultReasoningEffort(
-              input.provider.id,
-              input.cliModel.supportedReasoningEfforts,
-            ),
-        }
-      : (() => {
-          const resolved = resolveOpenCodeModelReasoningSupport(input.model);
-          return {
-            descriptors: resolved.descriptors,
-            defaultReasoningEffort:
-              resolved.defaultReasoningEffort ??
-              inferOpenCodeDefaultReasoningEffort(input.provider.id, resolved.descriptors),
-          };
-        })();
+  const contextSupport = resolveOpenCodeContextWindowSupport(input.model);
+  const resolved = resolveOpenCodeModelReasoningSupport(input.model);
+  const reasoningSupport = {
+    descriptors: resolved.descriptors,
+    defaultReasoningEffort:
+      resolved.defaultReasoningEffort ??
+      inferOpenCodeDefaultReasoningEffort(input.provider.id, resolved.descriptors),
+  };
   return {
     slug: input.slug,
     name,
@@ -428,80 +398,6 @@ function toOpenCodeModelDescriptor(input: {
         }
       : {}),
   };
-}
-
-function formatOpenCodeCliProviderName(providerId: string): string {
-  const normalizedProviderId = providerId.trim();
-  const knownNames: Record<string, string> = {
-    "302-ai": "302.AI",
-    "amazon-bedrock": "Amazon Bedrock",
-    anthropic: "Anthropic",
-    "atomic-chat": "Atomic Chat",
-    "azure-openai": "Azure OpenAI",
-    "azure-cognitive-services": "Azure Cognitive Services",
-    baseten: "Baseten",
-    cerebras: "Cerebras",
-    "cloudflare-ai-gateway": "Cloudflare AI Gateway",
-    "cloudflare-workers-ai": "Cloudflare Workers AI",
-    cortecs: "Cortecs",
-    deepinfra: "Deep Infra",
-    deepseek: "DeepSeek",
-    fireworks: "Fireworks AI",
-    "fireworks-ai": "Fireworks AI",
-    frogbot: "FrogBot",
-    "github-copilot": "GitHub Copilot",
-    "gitlab-duo": "GitLab Duo",
-    "google-vertex": "Google Vertex AI",
-    "google-vertex-ai": "Google Vertex AI",
-    groq: "Groq",
-    "hugging-face": "Hugging Face",
-    huggingface: "Hugging Face",
-    "io-net": "IO.NET",
-    "kimi-for-coding": "Kimi For Coding",
-    "llama.cpp": "llama.cpp",
-    lmstudio: "LM Studio",
-    minimax: "MiniMax",
-    "moonshot-ai": "Moonshot AI",
-    "nebius-token-factory": "Nebius Token Factory",
-    nvidia: "NVIDIA",
-    ollama: "Ollama",
-    "ollama-cloud": "Ollama Cloud",
-    openai: "OpenAI",
-    opencode: "OpenCode",
-    "opencode-go": "OpenCode Go",
-    "opencode-zen": "OpenCode Zen",
-    openrouter: "OpenRouter",
-    "ovhcloud-ai-endpoints": "OVHcloud AI Endpoints",
-    "sap-ai-core": "SAP AI Core",
-    scaleway: "Scaleway",
-    stackit: "STACKIT",
-    "together-ai": "Together AI",
-    "venice-ai": "Venice AI",
-    "vercel-ai-gateway": "Vercel AI Gateway",
-    xai: "xAI",
-    "z-ai": "Z.AI",
-    zenmux: "ZenMux",
-  };
-  return knownNames[normalizedProviderId.toLowerCase()] ?? formatOpenCodeIdentifier(providerId);
-}
-
-export function flattenOpenCodeCliModels(input: {
-  readonly models: ReadonlyArray<OpenCodeCliModelDescriptor>;
-}): ProviderListModelsResult["models"] {
-  return input.models
-    .flatMap((model) => {
-      const descriptor = toOpenCodeModelDescriptor({
-        slug: model.slug,
-        name: model.name,
-        provider: {
-          id: model.providerID,
-          name: formatOpenCodeCliProviderName(model.providerID),
-        },
-        cliModel: model,
-      });
-      return descriptor ? [descriptor] : [];
-    })
-    .toSorted(compareOpenCodeModelDescriptors);
 }
 
 export function flattenOpenCodeModels(input: {
@@ -529,61 +425,6 @@ export function flattenOpenCodeModels(input: {
       }),
     )
     .toSorted(compareOpenCodeModelDescriptors);
-}
-
-export function mergeOpenCodeCliModelDescriptors(input: {
-  readonly inventory: OpenCodeModelInventory;
-  readonly models: ReadonlyArray<OpenCodeModelDescriptor>;
-  readonly cliModels: ReadonlyArray<OpenCodeCliModelDescriptor>;
-  readonly freeOnlyProviderID?: string;
-}): ProviderListModelsResult["models"] {
-  const providerById = new Map(
-    input.inventory.providerList.all.map((provider) => [provider.id, provider] as const),
-  );
-  const mergedBySlug = new Map(input.models.map((model) => [model.slug, model] as const));
-
-  for (const cliModel of input.cliModels) {
-    if (
-      input.freeOnlyProviderID &&
-      cliModel.providerID === input.freeOnlyProviderID &&
-      cliModel.isFree !== true
-    ) {
-      continue;
-    }
-    if (mergedBySlug.has(cliModel.slug)) {
-      continue;
-    }
-    const provider =
-      providerById.get(cliModel.providerID) ??
-      ({
-        id: cliModel.providerID,
-        name: formatOpenCodeIdentifier(cliModel.providerID) || cliModel.providerID,
-      } satisfies Pick<OpenCodeInventoryProvider, "id" | "name">);
-    const descriptor = toOpenCodeModelDescriptor({
-      slug: cliModel.slug,
-      name: cliModel.name,
-      provider,
-      ...(providerById.get(cliModel.providerID)?.models[cliModel.modelID]
-        ? { model: providerById.get(cliModel.providerID)!.models[cliModel.modelID] }
-        : {}),
-      cliModel,
-    });
-    if (descriptor) {
-      mergedBySlug.set(descriptor.slug, descriptor);
-    }
-  }
-
-  return [...mergedBySlug.values()].toSorted(compareOpenCodeModelDescriptors);
-}
-
-export function emptyOpenCodeModelInventory(): OpenCodeModelInventory {
-  return {
-    providerList: {
-      connected: [],
-      all: [],
-    },
-    consoleState: null,
-  };
 }
 
 export function buildOpenCodeModelContextLimitMap(
@@ -636,15 +477,4 @@ export function flattenOpenCodeCommands(
       ...(command.description?.trim() ? { description: command.description.trim() } : {}),
     }))
     .toSorted((left, right) => left.name.localeCompare(right.name));
-}
-
-export function isUnsupportedOpenCodeCommandListError(cause: OpenCodeRuntimeError): boolean {
-  const detail = cause.detail.toLowerCase();
-  return (
-    detail.includes("status=404") ||
-    detail.includes("404") ||
-    detail.includes("not found") ||
-    detail.includes("method not found") ||
-    detail.includes("unknown method")
-  );
 }

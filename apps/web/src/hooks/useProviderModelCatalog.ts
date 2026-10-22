@@ -1,22 +1,20 @@
 // FILE: useProviderModelCatalog.ts
-// Purpose: Shared three-provider model and agent discovery catalog.
+// Purpose: Read Connection-scoped model catalogs for the three provider pickers.
 
 import type {
-  ProviderAgentDescriptor,
   ProviderConnectionId,
   ProviderKind,
   ProviderModelDescriptor,
 } from "@penkra/contracts";
 import { useQuery } from "@tanstack/react-query";
 import { useCallback, useMemo } from "react";
+import { filterProviderModelsForPicker } from "@penkra/shared/providerModelPresentation";
+import { useProviderCatalog } from "./useProviderCatalog";
+import { providerConnectionsQueryOptions } from "../lib/providerConnectionsReactQuery";
 
 import { getAppModelOptions, getCustomModelsByProvider, useAppSettings } from "../appSettings";
 import { resolveRuntimeModelDescriptor } from "../components/chat/runtimeModelCapabilities";
-import {
-  isInitialModelDiscoveryPending,
-  providerAgentsQueryOptions,
-  providerModelsQueryOptions,
-} from "../lib/providerDiscoveryReactQuery";
+import { isInitialModelDiscoveryPending } from "../lib/providerDiscoveryReactQuery";
 import { mergeDynamicModelOptions, type ProviderModelOption } from "../providerModelOptions";
 
 export interface ProviderModelCatalog {
@@ -29,7 +27,6 @@ export interface ProviderModelCatalog {
   unavailableModelProviders: Partial<Record<ProviderKind, boolean>>;
   runtimeModelsByProvider: Record<ProviderKind, ReadonlyArray<ProviderModelDescriptor>>;
   selectedRuntimeModel: ProviderModelDescriptor | undefined;
-  selectedRuntimeAgents: ReadonlyArray<ProviderAgentDescriptor>;
   selectedProviderModelsLoading: boolean;
   selectedProviderRuntimeModelDiscoveryPending: boolean;
 }
@@ -43,10 +40,8 @@ const PROVIDERS = [
 export function useProviderModelCatalog(input: {
   selectedProvider: ProviderKind;
   discoveryEnabled: boolean;
-  cwd?: string | null;
   modelHintByProvider?: Partial<Record<ProviderKind, string | null>>;
   prefetchProviders?: ReadonlyArray<ProviderKind>;
-  agentDiscoveryPolicy?: "selected" | "eager-core";
   routeByProvider?: Partial<
     Record<
       ProviderKind,
@@ -55,7 +50,7 @@ export function useProviderModelCatalog(input: {
   >;
 }): ProviderModelCatalog {
   const { settings, serverSettings } = useAppSettings();
-  const cwd = input.cwd ?? null;
+  const connections = useQuery(providerConnectionsQueryOptions());
   const customModelsByProvider = useMemo(() => getCustomModelsByProvider(settings), [settings]);
   const prefetchProviderSet = useMemo(
     () => (input.prefetchProviders ? new Set(input.prefetchProviders) : null),
@@ -76,43 +71,51 @@ export function useProviderModelCatalog(input: {
     ],
   );
 
-  const modelQueryInput = (provider: ProviderKind) => ({
-    provider,
-    ...input.routeByProvider?.[provider],
-    enabled: shouldDiscover(provider),
-  });
-
-  const codexModels = useQuery(providerModelsQueryOptions(modelQueryInput("codex")));
-  const claudeModels = useQuery(providerModelsQueryOptions(modelQueryInput("claudeAgent")));
-  const openCodeModels = useQuery(
-    providerModelsQueryOptions({ ...modelQueryInput("opencode"), cwd }),
+  const modelScope = (provider: ProviderKind) => {
+    const active =
+      connections.data?.connections.filter(
+        (connection) => connection.harness === provider && connection.lifecycle === "active",
+      ) ?? [];
+    const selected = serverSettings?.providers[provider]?.defaultConnectionId;
+    const connectionId =
+      input.routeByProvider !== undefined
+        ? input.routeByProvider[provider]?.connectionId
+        : selected !== undefined
+          ? selected
+          : active.length === 1
+            ? active[0]!.id
+            : active.length === 0 &&
+                connections.data?.anonymousRoutes.some((route) => route.harness === provider)
+              ? null
+              : undefined;
+    return connectionId === undefined ? null : { provider, connectionId };
+  };
+  const codexModels = useProviderCatalog(modelScope("codex"), ["models"], shouldDiscover("codex"));
+  const claudeModels = useProviderCatalog(
+    modelScope("claudeAgent"),
+    ["models"],
+    shouldDiscover("claudeAgent"),
+  );
+  const openCodeModels = useProviderCatalog(
+    modelScope("opencode"),
+    ["models"],
+    shouldDiscover("opencode"),
   );
   const modelQueries = useMemo(
     () => ({ codex: codexModels, claudeAgent: claudeModels, opencode: openCodeModels }),
     [claudeModels, codexModels, openCodeModels],
   );
 
-  const eagerCore = input.agentDiscoveryPolicy === "eager-core";
-  const agentQueryInput = (provider: ProviderKind, eager = eagerCore) => ({
-    provider,
-    ...input.routeByProvider?.[provider],
-    enabled: shouldDiscover(provider, eager),
-  });
-  const codexAgents = useQuery(providerAgentsQueryOptions(agentQueryInput("codex")));
-  const claudeAgents = useQuery(providerAgentsQueryOptions(agentQueryInput("claudeAgent")));
-  const openCodeAgents = useQuery(
-    providerAgentsQueryOptions({
-      ...agentQueryInput("opencode", input.discoveryEnabled),
-      cwd,
-    }),
-  );
-  const agentQueries = { codex: codexAgents, claudeAgent: claudeAgents, opencode: openCodeAgents };
-
   const runtimeModelsByProvider = useMemo(
     () => ({
-      codex: codexModels.data?.models ?? [],
-      claudeAgent: claudeModels.data?.models ?? [],
-      opencode: openCodeModels.data?.models ?? [],
+      codex: filterProviderModelsForPicker("codex", { models: codexModels.data?.models ?? [] })
+        .models,
+      claudeAgent: filterProviderModelsForPicker("claudeAgent", {
+        models: claudeModels.data?.models ?? [],
+      }).models,
+      opencode: filterProviderModelsForPicker("opencode", {
+        models: openCodeModels.data?.models ?? [],
+      }).models,
     }),
     [claudeModels.data?.models, codexModels.data?.models, openCodeModels.data?.models],
   );
@@ -151,7 +154,7 @@ export function useProviderModelCatalog(input: {
     for (const provider of PROVIDERS) {
       result[provider] =
         shouldDiscover(provider) &&
-        modelQueries[provider].isError &&
+        modelQueries[provider].loadFailed &&
         runtimeModelsByProvider[provider].length === 0;
     }
     return result;
@@ -165,16 +168,6 @@ export function useProviderModelCatalog(input: {
     model: input.modelHintByProvider?.[input.selectedProvider] ?? null,
     runtimeModels: runtimeModelsByProvider[input.selectedProvider],
   });
-  const selectedAgentData = agentQueries[input.selectedProvider].data?.agents;
-  const selectedRuntimeAgents = useMemo(
-    () =>
-      (selectedAgentData ?? []).map((agent) =>
-        agent.description
-          ? { name: agent.name, displayName: agent.displayName, description: agent.description }
-          : { name: agent.name, displayName: agent.displayName },
-      ),
-    [selectedAgentData],
-  );
 
   return useMemo(
     () => ({
@@ -184,7 +177,6 @@ export function useProviderModelCatalog(input: {
       unavailableModelProviders,
       runtimeModelsByProvider,
       selectedRuntimeModel,
-      selectedRuntimeAgents,
       selectedProviderModelsLoading:
         selectedProviderRuntimeModelDiscoveryPending ||
         selectedQuery.isLoading ||
@@ -200,7 +192,6 @@ export function useProviderModelCatalog(input: {
       selectedQuery.data,
       selectedQuery.isFetching,
       selectedQuery.isLoading,
-      selectedRuntimeAgents,
       selectedRuntimeModel,
       unavailableModelProviders,
     ],

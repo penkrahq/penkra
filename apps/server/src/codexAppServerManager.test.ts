@@ -2771,66 +2771,25 @@ describe("startSession", () => {
     ]);
   });
 
-  it("falls back for runtimes with the older plugin and skill list parameter shapes", async () => {
+  it("does not retry native plugin initialization with an older parameter shape", async () => {
     const manager = new CodexAppServerManager();
-    const context = { transport: {}, session: { threadId: asThreadId("test-thread") } };
-    const sendRequest = vi
-      .spyOn(
-        manager as unknown as {
-          sendRequest: (...args: unknown[]) => Promise<unknown>;
-        },
-        "sendRequest",
-      )
-      .mockRejectedValueOnce(
-        new Error('plugin/list failed: invalid params: unknown field "marketplaceKinds"'),
-      )
-      .mockResolvedValueOnce({})
-      .mockRejectedValueOnce(new Error('skills/list failed: unknown field "cwds"'))
-      .mockResolvedValueOnce({});
-
-    await (
-      manager as unknown as {
-        reconcileConfiguredPluginsBeforeThreadOpen: (
-          context: unknown,
-          cwd: string,
-        ) => Promise<void>;
-      }
-    ).reconcileConfiguredPluginsBeforeThreadOpen(context, "/workspace");
-
-    expect(sendRequest.mock.calls).toEqual([
-      [
-        context.transport,
-        context.session.threadId,
-        "plugin/list",
-        { cwds: ["/workspace"], marketplaceKinds: ["local"] },
-        undefined,
-        undefined,
-      ],
-      [
-        context.transport,
-        context.session.threadId,
-        "plugin/list",
-        { cwds: ["/workspace"] },
-        undefined,
-        undefined,
-      ],
-      [
-        context.transport,
-        context.session.threadId,
-        "skills/list",
-        { cwds: ["/workspace"], forceReload: true },
-        undefined,
-        undefined,
-      ],
-      [
-        context.transport,
-        context.session.threadId,
-        "skills/list",
-        { cwd: "/workspace", forceReload: true },
-        undefined,
-        undefined,
-      ],
-    ]);
+    const internals = manager as unknown as {
+      sendRequest(...args: unknown[]): Promise<unknown>;
+      reconcileConfiguredPluginsBeforeThreadOpen(context: unknown, cwd: string): Promise<void>;
+    };
+    const error = new CodexJsonRpcResponseError(
+      "plugin/list",
+      -32602,
+      "unknown field marketplaceKinds",
+    );
+    const request = vi.spyOn(internals, "sendRequest").mockRejectedValue(error);
+    await expect(
+      internals.reconcileConfiguredPluginsBeforeThreadOpen(
+        { transport: {}, session: { threadId: asThreadId("test-thread") } },
+        "/workspace",
+      ),
+    ).rejects.toBe(error);
+    expect(request).toHaveBeenCalledTimes(1);
   });
 
   it("removes an in-flight startup request immediately when startup is cancelled", async () => {
@@ -3689,198 +3648,7 @@ describe("steerTurn", () => {
 });
 
 describe("CodexAppServerManager discovery", () => {
-  it("wires model discovery through model/list", async () => {
-    const manager = new CodexAppServerManager();
-    const context = {
-      transport: {
-        key: "test-account",
-        cwd: "test-cwd",
-        connectionIds: new Set(),
-        token: Symbol("test-account"),
-        threads: new Set<unknown>(),
-        probes: new Map(),
-        pendingCloses: new Map(),
-        stopping: false,
-        account: {
-          type: "unknown",
-          planType: null,
-          sparkEnabled: true,
-        },
-      },
-      session: {
-        provider: "codex",
-        status: "ready",
-        threadId: "thread_1",
-        runtimeMode: "full-access",
-        model: "gpt-5.5",
-      },
-      collabReceiverTurns: new Map(),
-      collabReceiverParents: new Map(),
-    };
-    context.transport.threads.add(context);
-
-    vi.spyOn(
-      manager as unknown as {
-        resolveProcessForDiscovery: (threadId?: string) => unknown;
-      },
-      "resolveProcessForDiscovery",
-    ).mockReturnValue(context.transport);
-    const sendRequest = vi
-      .spyOn(
-        manager as unknown as {
-          sendRequest: (...args: unknown[]) => Promise<unknown>;
-        },
-        "sendRequest",
-      )
-      .mockResolvedValue({ result: { items: [] } });
-
-    await expect(manager.listModels("thread_1")).resolves.toMatchObject({
-      models: [],
-      source: "codex-app-server",
-      cached: false,
-    });
-    expect(sendRequest).toHaveBeenCalledWith(context.transport, null, "model/list", {
-      cursor: null,
-      limit: 50,
-      includeHidden: false,
-    });
-  });
-
-  it("coalesces only concurrent model discovery requests", async () => {
-    const manager = new CodexAppServerManager();
-    const transport = {};
-    vi.spyOn(
-      manager as unknown as { resolveProcessForDiscovery: () => unknown },
-      "resolveProcessForDiscovery",
-    ).mockReturnValue(transport);
-    let started!: () => void;
-    const requestStarted = new Promise<void>((resolve) => {
-      started = resolve;
-    });
-    let complete!: (value: unknown) => void;
-    const reply = new Promise<unknown>((resolve) => {
-      complete = resolve;
-    });
-    const sendRequest = vi
-      .spyOn(
-        manager as unknown as { sendRequest: (...args: unknown[]) => Promise<unknown> },
-        "sendRequest",
-      )
-      .mockImplementation(() => {
-        started();
-        return reply;
-      });
-    const first = manager.listModels("thread_1");
-    const second = manager.listModels("thread_1");
-    await requestStarted;
-    expect(sendRequest).toHaveBeenCalledTimes(1);
-    complete({ result: { items: [{ id: "gpt-5.6-sol", name: "Sol" }] } });
-    const results = await Promise.all([first, second]);
-    expect(results[0]).toEqual(results[1]);
-    expect(results[0]).toMatchObject({ models: [{ slug: "gpt-5.6-sol" }], cached: false });
-  });
-
-  it("reads models on each explicit discovery request", async () => {
-    const manager = new CodexAppServerManager();
-    const context = {
-      transport: {
-        key: "test-account",
-        cwd: "test-cwd",
-        connectionIds: new Set(),
-        token: Symbol("test-account"),
-        threads: new Set<unknown>(),
-        probes: new Map(),
-        pendingCloses: new Map(),
-        stopping: false,
-        account: { type: "unknown", planType: null, sparkEnabled: true },
-      },
-      session: {
-        provider: "codex",
-        status: "ready",
-        threadId: "thread_1",
-        runtimeMode: "full-access",
-        model: "gpt-5.6-sol",
-      },
-      collabReceiverTurns: new Map(),
-      collabReceiverParents: new Map(),
-    };
-    context.transport.threads.add(context);
-    vi.spyOn(
-      manager as unknown as { resolveProcessForDiscovery: () => unknown },
-      "resolveProcessForDiscovery",
-    ).mockReturnValue(context.transport);
-    const sendRequest = vi
-      .spyOn(
-        manager as unknown as {
-          sendRequest: (...args: unknown[]) => Promise<unknown>;
-        },
-        "sendRequest",
-      )
-      .mockResolvedValueOnce({
-        result: { items: [{ id: "gpt-5.6-sol", name: "Sol" }] },
-      })
-      .mockResolvedValueOnce({
-        result: {
-          items: [{ id: "gpt-6-astra", name: "Astra", isDefault: true }],
-        },
-      });
-
-    await expect(manager.listModels("thread_1")).resolves.toMatchObject({
-      models: [{ slug: "gpt-5.6-sol" }],
-      cached: false,
-    });
-    await expect(manager.listModels("thread_1")).resolves.toMatchObject({
-      models: [{ slug: "gpt-6-astra", isDefault: true }],
-      cached: false,
-    });
-    expect(sendRequest).toHaveBeenCalledTimes(2);
-  });
-
-  it("surfaces a failed explicit discovery instead of retaining a server catalog", async () => {
-    const manager = new CodexAppServerManager();
-    const context = {
-      transport: {
-        key: "test-account",
-        cwd: "test-cwd",
-        connectionIds: new Set(),
-        token: Symbol("test-account"),
-        threads: new Set<unknown>(),
-        probes: new Map(),
-        pendingCloses: new Map(),
-        stopping: false,
-        account: { type: "unknown", planType: null, sparkEnabled: true },
-      },
-      session: {
-        provider: "codex",
-        status: "ready",
-        threadId: "thread_1",
-        runtimeMode: "full-access",
-        model: "gpt-5.6-sol",
-      },
-      collabReceiverTurns: new Map(),
-      collabReceiverParents: new Map(),
-    };
-    context.transport.threads.add(context);
-    vi.spyOn(
-      manager as unknown as { resolveProcessForDiscovery: () => unknown },
-      "resolveProcessForDiscovery",
-    ).mockReturnValue(context.transport);
-    vi.spyOn(
-      manager as unknown as {
-        sendRequest: (...args: unknown[]) => Promise<unknown>;
-      },
-      "sendRequest",
-    )
-      .mockResolvedValueOnce({
-        result: { items: [{ id: "gpt-5.6-sol", name: "Sol" }] },
-      })
-      .mockRejectedValueOnce(new Error("provider unavailable"));
-
-    await manager.listModels("thread_1");
-    await expect(manager.listModels("thread_1")).rejects.toThrow("provider unavailable");
-  });
-
-  it("rejects discovery instead of reusing an unrelated active Connection session", async () => {
+  it("rejects voice lookup instead of reusing an unrelated active Connection session", async () => {
     const manager = new CodexAppServerManager();
     const activeContext = {
       transport: {
@@ -3951,13 +3719,17 @@ describe("CodexAppServerManager discovery", () => {
       });
 
     await expect(
-      manager.listSkills({ cwd: "/repo-b", threadId: "thread_missing" }),
+      (
+        manager as unknown as {
+          requireVoiceThreadAccountProcess(threadId: string, cwd: string): Promise<unknown>;
+        }
+      ).requireVoiceThreadAccountProcess("thread_missing", "/repo-b"),
     ).rejects.toThrow("Unknown session for thread: thread_missing");
     expect(getOrCreateManagedProcess).not.toHaveBeenCalled();
     expect(sendRequest).not.toHaveBeenCalled();
   });
 
-  it("rejects cwd-less discovery without an exact thread", async () => {
+  it("rejects voice lookup without an exact thread", async () => {
     const manager = new CodexAppServerManager();
     const deadContext = {
       transport: {
@@ -4002,237 +3774,11 @@ describe("CodexAppServerManager discovery", () => {
     await expect(
       (
         manager as unknown as {
-          resolveProcessForDiscovery: () => Promise<unknown>;
+          requireVoiceThreadAccountProcess: () => Promise<unknown>;
         }
-      ).resolveProcessForDiscovery(),
+      ).requireVoiceThreadAccountProcess(),
     ).rejects.toThrow("requires an exact active thread session");
     expect(getOrCreateManagedProcess).not.toHaveBeenCalled();
-  });
-
-  it("retries skills/list with cwd when a runtime rejects cwds", async () => {
-    const manager = new CodexAppServerManager();
-    const context = {
-      transport: {
-        key: "test-account",
-        cwd: "test-cwd",
-        connectionIds: new Set(),
-        token: Symbol("test-account"),
-        threads: new Set<unknown>(),
-        probes: new Map(),
-        pendingCloses: new Map(),
-        stopping: false,
-        account: {
-          type: "unknown",
-          planType: null,
-          sparkEnabled: true,
-        },
-      },
-      session: {
-        provider: "codex",
-        status: "ready",
-        threadId: "thread_1",
-        runtimeMode: "full-access",
-        model: "gpt-5.3-codex",
-        resumeCursor: { threadId: "thread_1" },
-        createdAt: "2026-02-10T00:00:00.000Z",
-        updatedAt: "2026-02-10T00:00:00.000Z",
-      },
-      collabReceiverTurns: new Map(),
-      collabReceiverParents: new Map(),
-    };
-    context.transport.threads.add(context);
-
-    vi.spyOn(
-      manager as unknown as {
-        resolveProcessForDiscovery: (threadId?: string) => unknown;
-      },
-      "resolveProcessForDiscovery",
-    ).mockReturnValue(context.transport);
-    const sendRequest = vi
-      .spyOn(
-        manager as unknown as {
-          sendRequest: (...args: unknown[]) => Promise<unknown>;
-        },
-        "sendRequest",
-      )
-      .mockRejectedValueOnce(new Error('skills/list failed: invalid params: unknown field "cwds"'))
-      .mockResolvedValueOnce({
-        result: {
-          skills: [
-            {
-              name: "check-code",
-              path: "/Users/test/.codex/skills/check-code/SKILL.md",
-            },
-          ],
-        },
-      });
-
-    const result = await manager.listSkills({
-      cwd: "/repo",
-      threadId: "thread_1",
-    });
-
-    expect(sendRequest).toHaveBeenNthCalledWith(1, context.transport, null, "skills/list", {
-      cwds: ["/repo"],
-    });
-    expect(sendRequest).toHaveBeenNthCalledWith(2, context.transport, null, "skills/list", {
-      cwd: "/repo",
-    });
-    expect(result.skills).toEqual([
-      {
-        name: "check-code",
-        path: "/Users/test/.codex/skills/check-code/SKILL.md",
-        enabled: true,
-      },
-    ]);
-  });
-
-  it("wires plugin discovery through plugin/list", async () => {
-    const manager = new CodexAppServerManager();
-    const context = {
-      transport: {
-        key: "test-account",
-        cwd: "test-cwd",
-        connectionIds: new Set(),
-        token: Symbol("test-account"),
-        threads: new Set<unknown>(),
-        probes: new Map(),
-        pendingCloses: new Map(),
-        stopping: false,
-        account: {
-          type: "unknown",
-          planType: null,
-          sparkEnabled: true,
-        },
-      },
-      session: {
-        provider: "codex",
-        status: "ready",
-        threadId: "thread_1",
-        runtimeMode: "full-access",
-        model: "gpt-5.5",
-      },
-      collabReceiverTurns: new Map(),
-      collabReceiverParents: new Map(),
-    };
-    context.transport.threads.add(context);
-
-    const resolveProcessForDiscovery = vi
-      .spyOn(
-        manager as unknown as {
-          resolveProcessForDiscovery: (threadId?: string, cwd?: string) => unknown;
-        },
-        "resolveProcessForDiscovery",
-      )
-      .mockReturnValue(context.transport);
-    const sendRequest = vi
-      .spyOn(
-        manager as unknown as {
-          sendRequest: (...args: unknown[]) => Promise<unknown>;
-        },
-        "sendRequest",
-      )
-      .mockResolvedValue({ result: {} });
-
-    await expect(
-      manager.listPlugins({
-        cwd: "/repo",
-        threadId: "thread_1",
-        forceRemoteSync: true,
-      }),
-    ).resolves.toMatchObject({
-      marketplaces: [],
-      source: "codex-app-server",
-      cached: false,
-    });
-    await manager.listPlugins({ cwd: "/repo", threadId: "thread_1", forceRemoteSync: true });
-    expect(sendRequest).toHaveBeenCalledTimes(2);
-    expect(resolveProcessForDiscovery).toHaveBeenCalledWith("thread_1", "/repo");
-    expect(sendRequest).toHaveBeenCalledWith(context.transport, null, "plugin/list", {
-      cwds: ["/repo"],
-      forceRefetch: true,
-    });
-  });
-
-  it("wires plugin details through plugin/read", async () => {
-    const manager = new CodexAppServerManager();
-    const context = {
-      transport: {
-        key: "test-account",
-        cwd: "test-cwd",
-        connectionIds: new Set(),
-        token: Symbol("test-account"),
-        threads: new Set<unknown>(),
-        probes: new Map(),
-        pendingCloses: new Map(),
-        stopping: false,
-        account: {
-          type: "unknown",
-          planType: null,
-          sparkEnabled: true,
-        },
-      },
-      session: {
-        provider: "codex",
-        status: "ready",
-        threadId: "thread_1",
-        runtimeMode: "full-access",
-        model: "gpt-5.5",
-      },
-      collabReceiverTurns: new Map(),
-      collabReceiverParents: new Map(),
-    };
-    context.transport.threads.add(context);
-
-    vi.spyOn(
-      manager as unknown as {
-        resolveProcessForDiscovery: (threadId?: string, cwd?: string) => unknown;
-      },
-      "resolveProcessForDiscovery",
-    ).mockReturnValue(context.transport);
-    const sendRequest = vi
-      .spyOn(
-        manager as unknown as {
-          sendRequest: (...args: unknown[]) => Promise<unknown>;
-        },
-        "sendRequest",
-      )
-      .mockResolvedValue({
-        result: {
-          plugin: {
-            marketplaceName: "openai-curated",
-            marketplacePath: "/marketplace.json",
-            summary: {
-              id: "plugin/github",
-              name: "github",
-              source: { path: "/plugins/github" },
-              installed: true,
-              enabled: true,
-              installPolicy: "INSTALLED_BY_DEFAULT",
-              authPolicy: "ON_USE",
-            },
-          },
-        },
-      });
-
-    await expect(
-      manager.readPlugin({
-        marketplacePath: "/marketplace.json",
-        pluginName: "github",
-        threadId: "thread_1",
-      }),
-    ).resolves.toMatchObject({
-      plugin: {
-        marketplaceName: "openai-curated",
-        summary: { id: "plugin/github" },
-      },
-      source: "codex-app-server",
-      cached: false,
-    });
-    expect(sendRequest).toHaveBeenCalledWith(context.transport, null, "plugin/read", {
-      marketplacePath: "/marketplace.json",
-      pluginName: "github",
-    });
   });
 });
 

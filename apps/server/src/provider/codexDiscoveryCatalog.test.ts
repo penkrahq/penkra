@@ -3,7 +3,6 @@ import { describe, expect, it } from "vitest";
 import {
   parseCodexModelListResponse,
   parseCodexPluginListResponse,
-  parseCodexPluginReadResponse,
   parseCodexSkillsListResponse,
 } from "./codexDiscoveryCatalog.ts";
 
@@ -229,120 +228,6 @@ describe("Codex discovery catalog", () => {
       ],
       featuredPluginIds: ["plugin/github"],
       remoteSyncError: "Remote sync unavailable",
-    });
-  });
-
-  it("normalizes plugin/read responses into plugin detail", () => {
-    expect(
-      parseCodexPluginReadResponse({
-        result: {
-          plugin: {
-            marketplaceName: "openai-curated",
-            marketplacePath: "/Users/test/.agents/plugins/marketplace.json",
-            summary: {
-              id: "plugin/github",
-              name: "github",
-              source: {
-                path: "/Users/test/.codex/plugins/cache/openai-curated/github",
-              },
-              installed: true,
-              enabled: true,
-              installPolicy: "INSTALLED_BY_DEFAULT",
-              authPolicy: "ON_USE",
-              interface: {
-                displayName: "GitHub",
-                shortDescription: "Inspect repositories and pull requests",
-                longDescription: "Use GitHub tools to work with repositories, issues, and PRs.",
-                developerName: "OpenAI",
-                category: "Developer Tools",
-                capabilities: ["pull_requests", "issues"],
-                defaultPrompt: ["Help with repository tasks"],
-                websiteUrl: "https://github.com",
-                privacyPolicyUrl: "https://github.com/privacy",
-                termsOfServiceUrl:
-                  "https://docs.github.com/site-policy/github-terms/github-terms-of-service",
-                brandColor: "#24292f",
-                composerIcon: "github",
-                logo: "https://example.com/github-logo.png",
-                screenshots: ["https://example.com/github.png"],
-              },
-            },
-            description: "GitHub connector for repository workflows.",
-            skills: [
-              {
-                name: "gh-fix-ci",
-                description: "Debug failing GitHub Actions checks.",
-                path: "/Users/test/.codex/plugins/cache/openai-curated/github/skills/gh-fix-ci/SKILL.md",
-                scope: "user",
-                dependencies: ["gh"],
-              },
-            ],
-            apps: [
-              {
-                id: "github-app",
-                name: "GitHub App",
-                description: "Connected GitHub account",
-                installUrl: "https://github.com/apps/openai",
-                needsAuth: true,
-              },
-            ],
-            mcpServers: ["GitHub"],
-          },
-        },
-      }),
-    ).toEqual({
-      marketplaceName: "openai-curated",
-      marketplacePath: "/Users/test/.agents/plugins/marketplace.json",
-      summary: {
-        id: "plugin/github",
-        name: "github",
-        source: {
-          type: "local",
-          path: "/Users/test/.codex/plugins/cache/openai-curated/github",
-        },
-        installed: true,
-        enabled: true,
-        installPolicy: "INSTALLED_BY_DEFAULT",
-        authPolicy: "ON_USE",
-        interface: {
-          displayName: "GitHub",
-          shortDescription: "Inspect repositories and pull requests",
-          longDescription: "Use GitHub tools to work with repositories, issues, and PRs.",
-          developerName: "OpenAI",
-          category: "Developer Tools",
-          capabilities: ["pull_requests", "issues"],
-          defaultPrompt: ["Help with repository tasks"],
-          websiteUrl: "https://github.com",
-          privacyPolicyUrl: "https://github.com/privacy",
-          termsOfServiceUrl:
-            "https://docs.github.com/site-policy/github-terms/github-terms-of-service",
-          brandColor: "#24292f",
-          composerIcon: "github",
-          logo: "https://example.com/github-logo.png",
-          screenshots: ["https://example.com/github.png"],
-        },
-      },
-      description: "GitHub connector for repository workflows.",
-      skills: [
-        {
-          name: "gh-fix-ci",
-          description: "Debug failing GitHub Actions checks.",
-          path: "/Users/test/.codex/plugins/cache/openai-curated/github/skills/gh-fix-ci/SKILL.md",
-          enabled: true,
-          scope: "user",
-          dependencies: ["gh"],
-        },
-      ],
-      apps: [
-        {
-          id: "github-app",
-          name: "GitHub App",
-          description: "Connected GitHub account",
-          installUrl: "https://github.com/apps/openai",
-          needsAuth: true,
-        },
-      ],
-      mcpServers: ["GitHub"],
     });
   });
 });

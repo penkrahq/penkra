@@ -52,17 +52,16 @@ import {
   ServerVoiceTranscriptionInput,
 } from "./server";
 import {
-  ProviderListCommandsInput,
   ProviderGetComposerCapabilitiesInput,
   ProviderGetCapabilityHealthInput,
-  ProviderListPluginsInput,
-  ProviderListModelsInput,
-  ProviderListAgentsInput,
-  ProviderReadPluginInput,
-  ProviderListSkillsInput,
   ProviderSkillsCatalogInput,
 } from "./providerDiscovery";
 import { ProviderCompactThreadInput } from "./provider";
+import {
+  ProviderCatalogChanged,
+  ProviderCatalogScope,
+  ProviderGetCatalogInput,
+} from "./providerCatalog";
 import {
   CreateStaticProviderConnectionInput,
   BeginProviderConnectionLoginInput,
@@ -75,6 +74,8 @@ import {
 // ── WebSocket RPC Method Names ───────────────────────────────────────
 
 export const WS_METHODS = {
+  providerGetCatalog: "provider.getCatalog",
+  providerReloadCatalog: "provider.reloadCatalog",
   projectsListDirectories: "folders.listDirectories",
   projectsSearchEntries: "folders.searchEntries",
   projectsSearchLocalEntries: "folders.searchLocalEntries",
@@ -143,13 +144,7 @@ export const WS_METHODS = {
   providerGetComposerCapabilities: "provider.getComposerCapabilities",
   providerGetCapabilityHealth: "provider.getCapabilityHealth",
   providerCompactThread: "provider.compactThread",
-  providerListCommands: "provider.listCommands",
-  providerListSkills: "provider.listSkills",
   providerListSkillsCatalog: "provider.listSkillsCatalog",
-  providerListPlugins: "provider.listPlugins",
-  providerReadPlugin: "provider.readPlugin",
-  providerListModels: "provider.listModels",
-  providerListAgents: "provider.listAgents",
   providerGetConnections: "provider.getConnections",
   providerRetryAuthConnection: "provider.retryAuthConnection",
   providerCreateStaticConnection: "provider.createStaticConnection",
@@ -162,6 +157,7 @@ export const WS_METHODS = {
 // ── Push Event Channels ──────────────────────────────────────────────
 
 export const WS_CHANNELS = {
+  providerCatalogChanged: "catalog.changed",
   projectWorkspaceChange: "project.workspaceChange",
   serverWelcome: "server.welcome",
   serverMaintenanceUpdated: "server.maintenanceUpdated",
@@ -184,6 +180,8 @@ const tagRequestBody = <const Tag extends string, const Fields extends Schema.St
   );
 
 const WebSocketRequestBody = Schema.Union([
+  tagRequestBody(WS_METHODS.providerGetCatalog, ProviderGetCatalogInput),
+  tagRequestBody(WS_METHODS.providerReloadCatalog, ProviderCatalogScope),
   tagRequestBody(ORCHESTRATION_WS_METHODS.importThread, OrchestrationImportThreadInput),
   tagRequestBody(WS_METHODS.projectsListDirectories, ProjectListDirectoriesInput),
   tagRequestBody(WS_METHODS.projectsSearchEntries, ProjectSearchEntriesInput),
@@ -253,13 +251,7 @@ const WebSocketRequestBody = Schema.Union([
   tagRequestBody(WS_METHODS.providerGetComposerCapabilities, ProviderGetComposerCapabilitiesInput),
   tagRequestBody(WS_METHODS.providerGetCapabilityHealth, ProviderGetCapabilityHealthInput),
   tagRequestBody(WS_METHODS.providerCompactThread, ProviderCompactThreadInput),
-  tagRequestBody(WS_METHODS.providerListCommands, ProviderListCommandsInput),
-  tagRequestBody(WS_METHODS.providerListSkills, ProviderListSkillsInput),
   tagRequestBody(WS_METHODS.providerListSkillsCatalog, ProviderSkillsCatalogInput),
-  tagRequestBody(WS_METHODS.providerListPlugins, ProviderListPluginsInput),
-  tagRequestBody(WS_METHODS.providerReadPlugin, ProviderReadPluginInput),
-  tagRequestBody(WS_METHODS.providerListModels, ProviderListModelsInput),
-  tagRequestBody(WS_METHODS.providerListAgents, ProviderListAgentsInput),
   tagRequestBody(WS_METHODS.providerGetConnections, ProviderConnectionsSnapshotInput),
   tagRequestBody(WS_METHODS.providerRetryAuthConnection, RetryProviderAuthConnectionInput),
   tagRequestBody(WS_METHODS.providerCreateStaticConnection, CreateStaticProviderConnectionInput),
@@ -299,6 +291,7 @@ export const WsWelcomePayload = Schema.Struct({
 export type WsWelcomePayload = typeof WsWelcomePayload.Type;
 
 export interface WsPushPayloadByChannel {
+  readonly [WS_CHANNELS.providerCatalogChanged]: ProviderCatalogChanged;
   readonly [WS_CHANNELS.serverProviderUsageUpdated]: ServerProviderUsageChange;
   readonly [WS_CHANNELS.serverWelcome]: WsWelcomePayload;
   readonly [WS_CHANNELS.serverMaintenanceUpdated]: ServerLifecycleStreamEvent;
@@ -325,6 +318,10 @@ const makeWsPushSchema = <const Channel extends string, Payload extends Schema.S
   });
 
 export const WsPushServerWelcome = makeWsPushSchema(WS_CHANNELS.serverWelcome, WsWelcomePayload);
+export const WsPushProviderCatalogChanged = makeWsPushSchema(
+  WS_CHANNELS.providerCatalogChanged,
+  ProviderCatalogChanged,
+);
 export const WsPushServerProviderUsageUpdated = makeWsPushSchema(
   WS_CHANNELS.serverProviderUsageUpdated,
   ServerProviderUsageChange,
@@ -360,6 +357,7 @@ export const WsPushCleanCoreThreadChange = makeWsPushSchema(
 );
 
 export const WsPushChannelSchema = Schema.Literals([
+  WS_CHANNELS.providerCatalogChanged,
   WS_CHANNELS.serverProviderUsageUpdated,
   WS_CHANNELS.serverWelcome,
   WS_CHANNELS.serverMaintenanceUpdated,
@@ -373,6 +371,7 @@ export const WsPushChannelSchema = Schema.Literals([
 export type WsPushChannelSchema = typeof WsPushChannelSchema.Type;
 
 export const WsPush = Schema.Union([
+  WsPushProviderCatalogChanged,
   WsPushServerProviderUsageUpdated,
   WsPushServerWelcome,
   WsPushServerMaintenanceUpdated,

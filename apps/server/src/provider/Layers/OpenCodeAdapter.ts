@@ -6,7 +6,6 @@ import {
   type ProviderKind,
   type ProviderComposerCapabilities,
   type ProviderCatalogData,
-  type ProviderListCommandsResult,
   type ProviderModelDescriptor,
   type ProviderRuntimeEvent,
   type ProviderSession,
@@ -59,7 +58,6 @@ import {
 } from "../Services/ProviderAdapter.ts";
 import {
   buildOpenCodePermissionRules,
-  type OpenCodeCliModelDescriptor,
   type OpenCodeCompatibleCliSpec,
   type OpenCodeInventory,
   OPENCODE_CLI_SPEC,
@@ -79,19 +77,13 @@ import { appendFileAttachmentsPromptBlock } from "../attachmentProjection.ts";
 import { makeRuntimeTaskListItem, nonEmptyRuntimeTaskListPayload } from "../runtimeTaskList.ts";
 import {
   buildOpenCodeModelContextLimitMap,
-  emptyOpenCodeModelInventory,
   flattenOpenCodeAgents,
   flattenOpenCodeCommands,
-  flattenOpenCodeCliModels,
   flattenOpenCodeModels,
-  isUnsupportedOpenCodeCommandListError,
-  mergeOpenCodeCliModelDescriptors,
   resolvePreferredOpenCodeModelProviders,
 } from "../OpenCodeDiscovery.ts";
 import { nonNegativeFiniteNumber, nonNegativeInteger, positiveInteger } from "../tokenUsage.ts";
 import { providerPermissionDecision } from "../providerPermissionPolicy.ts";
-
-export { flattenOpenCodeCliModels, flattenOpenCodeModels, resolvePreferredOpenCodeModelProviders };
 
 type OpenCodeCompatibleProvider = Extract<ProviderKind, "opencode">;
 
@@ -102,8 +94,6 @@ interface OpenCodeCompatibleAdapterConfig {
   readonly providerOptionsKey: OpenCodeCompatibleProvider;
   readonly runtimeEventSource: "opencode.sdk.event";
   readonly turnIdPrefix: string;
-  readonly cliModelSource: string;
-  readonly nativeApiSource: string;
   readonly defaultAgent: string;
   readonly planAgent: string;
   readonly cliSpec: OpenCodeCompatibleCliSpec;
@@ -116,8 +106,6 @@ const OPENCODE_ADAPTER_CONFIG: OpenCodeCompatibleAdapterConfig = {
   providerOptionsKey: "opencode",
   runtimeEventSource: "opencode.sdk.event",
   turnIdPrefix: "opencode-turn",
-  cliModelSource: "opencode-cli",
-  nativeApiSource: "opencode",
   defaultAgent: "build",
   planAgent: "plan",
   cliSpec: OPENCODE_CLI_SPEC,
@@ -3837,116 +3825,32 @@ export function makeOpenCodeAdapterLive(options?: OpenCodeAdapterLiveOptions) {
         });
 
       const withDiscoveryClient = <A>(
-        input: {
-          readonly threadId?: string | null;
-          readonly binaryPath?: string | null;
-          readonly cwd?: string | null;
-          readonly serverUrl?: string | null;
-          readonly experimentalWebSockets?: boolean;
-          readonly reuseAnyActiveContext?: boolean;
-          readonly managedLaunch?: ProviderManagedLaunchContext;
-        },
+        input: { readonly cwd: string; readonly managedLaunch: ProviderManagedLaunchContext },
         fn: (input: {
           readonly client: OpencodeClient;
-          readonly activeContext?: OpenCodeSessionContext;
         }) => Effect.Effect<A, ProviderAdapterRequestError>,
       ): Effect.Effect<A, ProviderAdapterRequestError> =>
-        Effect.gen(function* () {
-          const requestedCwd = input.cwd?.trim();
-          const requestedServerUrl = input.serverUrl?.trim();
-          const activeContext = input.managedLaunch
-            ? undefined
-            : input.threadId
-              ? sessions.get(ThreadId.makeUnsafe(input.threadId))
-              : input.reuseAnyActiveContext
-                ? [...sessions.values()][0]
-                : undefined;
-          if (
-            activeContext &&
-            (!requestedCwd || requestedCwd === activeContext.directory) &&
-            (!requestedServerUrl || requestedServerUrl === activeContext.server.url)
-          ) {
-            return yield* fn({
-              client: activeContext.client,
-              activeContext,
-            });
-          }
-
-          return yield* Effect.scoped(
-            Effect.gen(function* () {
-              const serverUrl = input.serverUrl?.trim();
-              const server = yield* openCodeRuntime
-                .connectToOpenCodeServer({
-                  binaryPath:
-                    input.managedLaunch?.binaryPath ??
-                    input.binaryPath?.trim() ??
-                    adapterConfig.defaultBinaryPath,
-                  cliSpec: adapterConfig.cliSpec,
-                  cwd: input.cwd?.trim() || serverConfig.cwd,
-                  ...(serverUrl ? { serverUrl } : {}),
-                  ...(provider === "opencode" && input.experimentalWebSockets
-                    ? { experimentalWebSockets: true }
-                    : {}),
-                  ...(input.managedLaunch
-                    ? {
-                        poolIsolationKey: input.managedLaunch.isolationKey,
-                        ...(input.managedLaunch.connectionId
-                          ? { connectionId: input.managedLaunch.connectionId }
-                          : {}),
-                        processEnv: input.managedLaunch.childEnvironment(process.env),
-                      }
-                    : {}),
-                })
-                .pipe(Effect.mapError(toAdapterRequestError));
-              const client = openCodeRuntime.createOpenCodeSdkClient({
-                baseUrl: server.url,
-                directory: input.cwd?.trim() || serverConfig.cwd,
+        Effect.scoped(
+          Effect.gen(function* () {
+            const server = yield* openCodeRuntime
+              .connectToOpenCodeServer({
+                binaryPath: input.managedLaunch.binaryPath,
                 cliSpec: adapterConfig.cliSpec,
-              });
-              return yield* fn({ client });
-            }),
-          );
-        });
-
-      const withDiscoveryInventory = <A>(
-        input: {
-          readonly binaryPath?: string | null;
-          readonly cwd?: string | null;
-          readonly managedLaunch?: ProviderManagedLaunchContext;
-        },
-        fn: (input: {
-          readonly client: OpencodeClient;
-          readonly inventory: OpenCodeInventory;
-          readonly credentialProviderIDs: ReadonlyArray<string>;
-        }) => Effect.Effect<A, ProviderAdapterRequestError>,
-      ): Effect.Effect<A, ProviderAdapterRequestError> =>
-        withDiscoveryClient(
-          {
-            ...input,
-            reuseAnyActiveContext: input.managedLaunch === undefined,
-          },
-          ({ activeContext, client }) =>
-            Effect.gen(function* () {
-              const inventory = yield* openCodeRuntime
-                .loadOpenCodeInventory(client)
-                .pipe(Effect.mapError(toAdapterRequestError));
-              if (activeContext) {
-                replaceModelContextLimits(
-                  activeContext,
-                  buildOpenCodeModelContextLimitMap(inventory),
-                );
-              }
-              const credentialProviderIDs =
-                yield* openCodeRuntime.loadOpenCodeCredentialProviderIDs(
-                  client,
-                  adapterConfig.cliSpec,
-                );
-              return yield* fn({
-                client,
-                inventory,
-                credentialProviderIDs,
-              });
-            }),
+                cwd: input.cwd,
+                poolIsolationKey: input.managedLaunch.isolationKey,
+                ...(input.managedLaunch.connectionId
+                  ? { connectionId: input.managedLaunch.connectionId }
+                  : {}),
+                processEnv: input.managedLaunch.childEnvironment(process.env),
+              })
+              .pipe(Effect.mapError(toAdapterRequestError));
+            const client = openCodeRuntime.createOpenCodeSdkClient({
+              baseUrl: server.url,
+              directory: input.cwd,
+              cliSpec: adapterConfig.cliSpec,
+            });
+            return yield* fn({ client });
+          }),
         );
 
       const probeTurnEndpoint: NonNullable<OpenCodeAdapterShape["probeTurnEndpoint"]> = (input) => {
@@ -4070,189 +3974,6 @@ export function makeOpenCodeAdapterLive(options?: OpenCodeAdapterLiveOptions) {
         );
       };
 
-      const listModels: NonNullable<OpenCodeAdapterShape["listModels"]> = (input) => {
-        const binaryPath =
-          input.managedLaunch?.binaryPath ??
-          input.binaryPath?.trim() ??
-          adapterConfig.defaultBinaryPath;
-        const routeProviderID = input.internalProviderId ?? undefined;
-        const freeOnlyProviderID =
-          routeProviderID === "opencode" && input.managedLaunch?.connectionId === null
-            ? "opencode"
-            : routeProviderID === undefined
-              ? "opencode"
-              : undefined;
-        const restrictToRoute = (
-          models: readonly ProviderModelDescriptor[],
-        ): readonly ProviderModelDescriptor[] =>
-          routeProviderID
-            ? models.filter((model) => model.upstreamProviderId === routeProviderID)
-            : models;
-        return Effect.gen(function* () {
-          const processEnv = input.managedLaunch?.childEnvironment(process.env);
-          const cliModelsEffect = openCodeRuntime
-            .listOpenCodeCliModels({
-              binaryPath,
-              cliSpec: adapterConfig.cliSpec,
-              ...(input.cwd ? { cwd: input.cwd } : {}),
-              ...(processEnv ? { processEnv } : {}),
-            })
-            .pipe(
-              Effect.catch((error) =>
-                Effect.logDebug(`${adapterConfig.displayName} CLI model discovery failed`, {
-                  binaryPath,
-                  detail: openCodeRuntimeErrorDetail(error),
-                }).pipe(Effect.as([] as ReadonlyArray<OpenCodeCliModelDescriptor>)),
-              ),
-            );
-          const inventoryEffect = withDiscoveryInventory(
-            {
-              binaryPath,
-              ...(input.cwd ? { cwd: input.cwd } : {}),
-              ...(input.managedLaunch ? { managedLaunch: input.managedLaunch } : {}),
-            },
-            ({ inventory, credentialProviderIDs }) =>
-              Effect.succeed({
-                inventory,
-                credentialProviderIDs,
-              }),
-          ).pipe(Effect.exit);
-          const [cliModels, inventoryExit] = yield* Effect.all([cliModelsEffect, inventoryEffect], {
-            concurrency: "unbounded",
-          });
-
-          if (Exit.isSuccess(inventoryExit)) {
-            const { inventory, credentialProviderIDs } = inventoryExit.value;
-            const preferredProviderIDs = new Set(
-              resolvePreferredOpenCodeModelProviders({
-                inventory,
-                credentialProviderIDs,
-              }).map((provider) => provider.id),
-            );
-            const inventoryModels = flattenOpenCodeModels({
-              inventory,
-              credentialProviderIDs,
-              ...(freeOnlyProviderID ? { freeOnlyProviderID } : {}),
-            });
-            const preferredCliModels = cliModels.filter((model) =>
-              preferredProviderIDs.has(model.providerID),
-            );
-            const models = restrictToRoute(
-              mergeOpenCodeCliModelDescriptors({
-                inventory,
-                models: inventoryModels,
-                cliModels: preferredCliModels.length > 0 ? preferredCliModels : cliModels,
-                ...(freeOnlyProviderID ? { freeOnlyProviderID } : {}),
-              }),
-            );
-            yield* Effect.logDebug(`${adapterConfig.displayName} model discovery resolved`, {
-              binaryPath,
-              connectedProviders: inventory.providerList.connected,
-              inventoryModelCount: inventoryModels.length,
-              cliModelCount: cliModels.length,
-              modelCount: models.length,
-              sampleModels: models.slice(0, 12).map((model) => model.slug),
-            });
-            return {
-              models,
-              source:
-                cliModels.length > 0 ? adapterConfig.cliModelSource : adapterConfig.nativeApiSource,
-              cached: false,
-            };
-          }
-
-          // The authoritative CLI inventory is an independent discovery surface,
-          // so it remains valid when the local SDK server is unavailable.
-          if (cliModels.length > 0) {
-            const models = restrictToRoute(
-              mergeOpenCodeCliModelDescriptors({
-                inventory: emptyOpenCodeModelInventory(),
-                models: [],
-                cliModels,
-                ...(freeOnlyProviderID ? { freeOnlyProviderID } : {}),
-              }),
-            );
-            yield* Effect.logDebug(
-              `${adapterConfig.displayName} model discovery resolved from CLI only`,
-              {
-                binaryPath,
-                cliModelCount: cliModels.length,
-                modelCount: models.length,
-                sampleModels: models.slice(0, 12).map((model) => model.slug),
-              },
-            );
-            return {
-              models,
-              source: adapterConfig.cliModelSource,
-              cached: false,
-            };
-          }
-
-          const inventoryFailure = Cause.squash(inventoryExit.cause);
-          return yield* new ProviderAdapterRequestError({
-            provider,
-            method: "listModels",
-            detail: openCodeRuntimeErrorDetail(inventoryFailure),
-            cause: inventoryFailure,
-          });
-        });
-      };
-
-      const listAgents: NonNullable<OpenCodeAdapterShape["listAgents"]> = (input) => {
-        const binaryPath =
-          input.managedLaunch?.binaryPath ??
-          input.binaryPath?.trim() ??
-          adapterConfig.defaultBinaryPath;
-        return withDiscoveryInventory(
-          {
-            binaryPath,
-            ...(input.cwd ? { cwd: input.cwd } : {}),
-            ...(input.managedLaunch ? { managedLaunch: input.managedLaunch } : {}),
-          },
-          ({ inventory }) =>
-            Effect.succeed({
-              agents: flattenOpenCodeAgents(inventory.agents),
-              source: adapterConfig.nativeApiSource,
-              cached: false,
-            }),
-        );
-      };
-
-      const listCommands: NonNullable<OpenCodeAdapterShape["listCommands"]> = (input) => {
-        const discoveryInput = {
-          ...(input.threadId !== undefined ? { threadId: input.threadId } : {}),
-          ...(input.binaryPath !== undefined ? { binaryPath: input.binaryPath } : {}),
-          cwd: input.cwd,
-          ...(input.serverUrl !== undefined ? { serverUrl: input.serverUrl } : {}),
-          ...(input.experimentalWebSockets !== undefined
-            ? { experimentalWebSockets: input.experimentalWebSockets }
-            : {}),
-        };
-
-        return withDiscoveryClient(discoveryInput, ({ client }) =>
-          runOpenCodeSdk("command.list", () => client.command.list()).pipe(
-            Effect.map(
-              (commands) =>
-                ({
-                  commands: flattenOpenCodeCommands(commands.data ?? []),
-                  source: adapterConfig.nativeApiSource,
-                  cached: false,
-                }) satisfies ProviderListCommandsResult,
-            ),
-            Effect.catch((cause) =>
-              isUnsupportedOpenCodeCommandListError(cause)
-                ? Effect.succeed({
-                    commands: [],
-                    source: "unsupported",
-                    cached: false,
-                  } satisfies ProviderListCommandsResult)
-                : Effect.fail(cause),
-            ),
-            Effect.mapError(toAdapterRequestError),
-          ),
-        );
-      };
-
       const getComposerCapabilities: NonNullable<
         OpenCodeAdapterShape["getComposerCapabilities"]
       > = () =>
@@ -4331,10 +4052,7 @@ export function makeOpenCodeAdapterLive(options?: OpenCodeAdapterLiveOptions) {
         drainRuntimeEvents: awaitProviderRuntimeEventsDrained(
           Queue.size(runtimeEvents).pipe(Effect.map((size) => size === 0)),
         ),
-        listModels,
         probeTurnEndpoint,
-        listAgents,
-        ...(provider === "opencode" ? { listCommands } : {}),
         getComposerCapabilities,
         loadCatalog,
         get streamEvents() {

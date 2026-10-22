@@ -19,7 +19,6 @@ import {
   type AgentGatewayCredentialsShape,
 } from "../../agentGateway/Services/AgentGatewayCredentials.ts";
 import {
-  type OpenCodeCliModelDescriptor,
   OpenCodeRuntimeError,
   type OpenCodeInventory,
   type OpenCodeRuntimeShape,
@@ -44,8 +43,6 @@ function createMockOpenCodeRuntime(options?: {
   readonly inventory?: OpenCodeInventory;
   readonly inventoryError?: OpenCodeRuntimeError;
   readonly connectError?: OpenCodeRuntimeError;
-  readonly cliModelsError?: OpenCodeRuntimeError;
-  readonly cliModels?: ReadonlyArray<OpenCodeCliModelDescriptor>;
   readonly events?: AsyncIterable<unknown>;
   readonly eventSubscriptions?: ReadonlyArray<AsyncIterable<unknown>>;
   readonly prompt?: (input: Record<string, unknown>) => Promise<unknown>;
@@ -79,7 +76,6 @@ function createMockOpenCodeRuntime(options?: {
   readonly onScopeClose?: () => void;
 }) {
   const abortCalls: Array<{ sessionID: string }> = [];
-  const cliModelCalls: Array<Parameters<OpenCodeRuntimeShape["listOpenCodeCliModels"]>[0]> = [];
   const connectCalls: Array<Parameters<OpenCodeRuntimeShape["connectToOpenCodeServer"]>[0]> = [];
   const createCalls: Array<Record<string, unknown>> = [];
   const deleteCalls: Array<Record<string, unknown>> = [];
@@ -272,14 +268,6 @@ function createMockOpenCodeRuntime(options?: {
               consoleState: null,
             },
           ),
-    listOpenCodeCliModels: (input) =>
-      Effect.gen(function* () {
-        cliModelCalls.push(input);
-        if (options?.cliModelsError) {
-          return yield* options.cliModelsError;
-        }
-        return options?.cliModels ?? [];
-      }),
     loadOpenCodeCredentialProviderIDs: () => Effect.succeed([]),
   };
 
@@ -289,7 +277,6 @@ function createMockOpenCodeRuntime(options?: {
       return stoppedAll;
     },
     abortCalls,
-    cliModelCalls,
     connectCalls,
     createCalls,
     deleteCalls,
@@ -643,7 +630,6 @@ describe("OpenCodeAdapter runtime lifecycle", () => {
         ),
       ),
     );
-    expect(runtime.cliModelCalls).toEqual([]);
   });
 
   it("loads a folder's commands through its selected managed server without a thread", async () => {
@@ -786,241 +772,6 @@ describe("OpenCodeAdapter runtime lifecycle", () => {
     expect(runtime.deleteCalls).toHaveLength(1);
   });
 
-  it("lists OpenCode models from the CLI before falling back to server inventory", async () => {
-    const runtime = createMockOpenCodeRuntime({
-      cliModels: [
-        {
-          slug: "opencode/minimax-m2.5-free",
-          providerID: "opencode",
-          modelID: "minimax-m2.5-free",
-          name: "MiniMax M2.5 Free",
-          isFree: true,
-          variants: [],
-          supportedReasoningEfforts: [],
-        },
-        {
-          slug: "opencode/gpt-5-paid",
-          providerID: "opencode",
-          modelID: "gpt-5-paid",
-          name: "GPT-5 Paid",
-          isFree: false,
-          variants: [],
-          supportedReasoningEfforts: [],
-        },
-        {
-          slug: "opencode-go/kimi-k2.6",
-          providerID: "opencode-go",
-          modelID: "kimi-k2.6",
-          name: "Kimi K2.6",
-          variants: [],
-          supportedReasoningEfforts: [],
-        },
-      ],
-      inventory: {
-        providerList: {
-          connected: ["openai"],
-          default: {},
-          all: [
-            {
-              id: "openai",
-              name: "OpenAI",
-              source: "api",
-              models: {
-                "gpt-5": {
-                  id: "gpt-5",
-                  name: "GPT-5",
-                },
-              },
-            } as unknown as Provider,
-          ],
-        },
-        agents: [],
-        consoleState: null,
-      },
-    });
-
-    const result = await Effect.runPromise(
-      Effect.gen(function* () {
-        const adapter = yield* OpenCodeAdapter;
-        const listModels = adapter.listModels;
-        if (!listModels) {
-          throw new Error("Expected OpenCode adapter to support runtime model listing.");
-        }
-        const legacy = yield* listModels({
-          provider: "opencode",
-          binaryPath: "opencode",
-          cwd: "/repo/model-discovery-config",
-        });
-        const managedLaunch = {
-          binaryPath: "/managed/opencode",
-          isolationKey: "managed-model-discovery",
-          profileRoot: "/isolated/profile",
-          nativeStateRoot: "/isolated/native",
-          connectionId: null,
-          childEnvironment: () => ({ PENKRA_ISOLATED: "1" }),
-        };
-        const anonymous = yield* listModels({
-          provider: "opencode",
-          cwd: "/repo/model-discovery-config",
-          managedLaunch,
-          internalProviderId: "opencode",
-        });
-        const go = yield* listModels({
-          provider: "opencode",
-          cwd: "/repo/model-discovery-config",
-          managedLaunch: {
-            ...managedLaunch,
-            isolationKey: "managed-go-discovery",
-          },
-          internalProviderId: "opencode-go",
-        });
-        const zen = yield* listModels({
-          provider: "opencode",
-          cwd: "/repo/model-discovery-config",
-          managedLaunch: {
-            ...managedLaunch,
-            connectionId: ProviderConnectionId.makeUnsafe("zen-connection"),
-            isolationKey: "managed-zen-discovery",
-          },
-          internalProviderId: "opencode",
-        });
-        return { legacy, anonymous, go, zen };
-      }).pipe(
-        Effect.provide(
-          makeOpenCodeAdapterLive({ runtime: runtime.runtime }).pipe(
-            Layer.provideMerge(
-              ServerConfig.layerTest(process.cwd(), {
-                prefix: "opencode-adapter-test-",
-              }),
-            ),
-            Layer.provideMerge(NodeServices.layer),
-          ),
-        ),
-      ),
-    );
-
-    expect(result.legacy).toMatchObject({
-      source: "opencode-cli",
-      cached: false,
-    });
-    expect(result.legacy.models.map((model) => model.slug)).toEqual([
-      "openai/gpt-5",
-      "opencode/minimax-m2.5-free",
-      "opencode-go/kimi-k2.6",
-    ]);
-    expect(result.anonymous.models.map((model) => model.slug)).toEqual([
-      "opencode/minimax-m2.5-free",
-    ]);
-    expect(result.go.models.map((model) => model.slug)).toEqual(["opencode-go/kimi-k2.6"]);
-    expect(result.zen.models.map((model) => model.slug)).toEqual([
-      "opencode/gpt-5-paid",
-      "opencode/minimax-m2.5-free",
-    ]);
-    expect(runtime.connectCalls).toHaveLength(4);
-    expect(runtime.connectCalls[0]).toMatchObject({
-      cwd: "/repo/model-discovery-config",
-    });
-    expect(runtime.connectCalls[1]).toMatchObject({
-      binaryPath: "/managed/opencode",
-      poolIsolationKey: "managed-model-discovery",
-      processEnv: { PENKRA_ISOLATED: "1" },
-    });
-    expect(runtime.cliModelCalls).toHaveLength(4);
-    expect(runtime.cliModelCalls[0]).toMatchObject({
-      cwd: "/repo/model-discovery-config",
-    });
-    expect(runtime.cliModelCalls[1]).toMatchObject({
-      binaryPath: "/managed/opencode",
-      processEnv: { PENKRA_ISOLATED: "1" },
-    });
-  });
-
-  it("lists OpenCode CLI models when server inventory discovery fails", async () => {
-    const runtime = createMockOpenCodeRuntime({
-      connectError: new OpenCodeRuntimeError({
-        operation: "connectToOpenCodeServer",
-        detail: "OpenCode server failed to start.",
-      }),
-      cliModels: [
-        {
-          slug: "opencode/nemotron-3-ultra-free",
-          providerID: "opencode",
-          modelID: "nemotron-3-ultra-free",
-          name: "Nemotron 3 Ultra Free",
-          isFree: true,
-          variants: [],
-          supportedReasoningEfforts: [],
-        },
-      ],
-    });
-
-    const result = await Effect.runPromise(
-      Effect.gen(function* () {
-        const adapter = yield* OpenCodeAdapter;
-        const listModels = adapter.listModels;
-        if (!listModels) {
-          throw new Error("Expected OpenCode adapter to support runtime model listing.");
-        }
-        return yield* listModels({
-          provider: "opencode",
-          binaryPath: "opencode",
-          cwd: "/repo/server-startup-fails",
-        });
-      }).pipe(
-        Effect.provide(
-          makeOpenCodeAdapterLive({ runtime: runtime.runtime }).pipe(
-            Layer.provideMerge(
-              ServerConfig.layerTest(process.cwd(), {
-                prefix: "opencode-adapter-test-",
-              }),
-            ),
-            Layer.provideMerge(NodeServices.layer),
-          ),
-        ),
-      ),
-    );
-
-    expect(result).toMatchObject({
-      source: "opencode-cli",
-      cached: false,
-    });
-    expect(result?.models.map((model) => model.slug)).toEqual(["opencode/nemotron-3-ultra-free"]);
-    expect(runtime.connectCalls).toHaveLength(1);
-    expect(runtime.connectCalls[0]).toMatchObject({
-      cwd: "/repo/server-startup-fails",
-    });
-    expect(runtime.cliModelCalls).toHaveLength(1);
-    expect(runtime.cliModelCalls[0]).toMatchObject({
-      cwd: "/repo/server-startup-fails",
-    });
-  });
-
-  it("uses server inventory when CLI model discovery fails", async () => {
-    const runtime = createMockOpenCodeRuntime({
-      cliModelsError: new OpenCodeRuntimeError({
-        operation: "listOpenCodeCliModels",
-        detail: "secret fixture model list failure",
-      }),
-    });
-    const result = await Effect.runPromise(
-      Effect.gen(function* () {
-        const adapter = yield* OpenCodeAdapter;
-        return yield* adapter.listModels!({ provider: "opencode", binaryPath: "opencode" });
-      }).pipe(
-        Effect.provide(
-          makeOpenCodeAdapterLive({ runtime: runtime.runtime }).pipe(
-            Layer.provideMerge(
-              ServerConfig.layerTest(process.cwd(), { prefix: "opencode-adapter-test-" }),
-            ),
-            Layer.provideMerge(NodeServices.layer),
-          ),
-        ),
-      ),
-    );
-    expect(result).toMatchObject({ source: "opencode", cached: false, models: [] });
-    expect(runtime.cliModelCalls).toHaveLength(1);
-  });
-
   it("lists OpenCode agents from the active discovery cwd", async () => {
     const runtime = createMockOpenCodeRuntime({
       inventory: {
@@ -1045,13 +796,19 @@ describe("OpenCodeAdapter runtime lifecycle", () => {
     const result = await Effect.runPromise(
       Effect.gen(function* () {
         const adapter = yield* OpenCodeAdapter;
-        const listAgents = adapter.listAgents;
+        const listAgents = adapter.loadCatalog;
         if (!listAgents) {
           throw new Error("Expected OpenCode adapter to support runtime agent listing.");
         }
         return yield* listAgents({
-          provider: "opencode",
-          binaryPath: "opencode",
+          scope: {
+            provider: "opencode",
+            connectionId: null,
+            folderId: FolderId.makeUnsafe("agent-folder"),
+          },
+          kinds: ["agents"],
+          internalProviderId: "opencode",
+          managedLaunch: managedLaunchForTest(asThreadId("agent-discovery")),
           cwd: "/repo/agent-discovery-config",
         });
       }).pipe(
@@ -1069,8 +826,6 @@ describe("OpenCodeAdapter runtime lifecycle", () => {
     );
 
     expect(result).toMatchObject({
-      source: "opencode",
-      cached: false,
       agents: [
         {
           name: "project-review",
@@ -1082,51 +837,6 @@ describe("OpenCodeAdapter runtime lifecycle", () => {
     expect(runtime.connectCalls).toHaveLength(1);
     expect(runtime.connectCalls[0]).toMatchObject({
       cwd: "/repo/agent-discovery-config",
-    });
-  });
-
-  it("does not reuse an unrelated active OpenCode session for command discovery", async () => {
-    const runtime = createMockOpenCodeRuntime({
-      commandLists: [[{ name: "wrong-thread" }], [{ name: "review", description: "Review code" }]],
-    });
-
-    const result = await Effect.runPromise(
-      Effect.gen(function* () {
-        const adapter = yield* OpenCodeAdapter;
-        const listCommands = adapter.listCommands;
-        if (!listCommands) {
-          throw new Error("Expected OpenCode adapter to support command listing.");
-        }
-
-        yield* adapter.startSession({
-          managedLaunch: managedLaunchForTest(asThreadId("thread-active")),
-          provider: "opencode",
-          threadId: asThreadId("thread-active"),
-          runtimeMode: "full-access",
-        });
-
-        return yield* listCommands({
-          provider: "opencode",
-          cwd: process.cwd(),
-        });
-      }).pipe(
-        Effect.provide(
-          makeOpenCodeAdapterLive({ runtime: runtime.runtime }).pipe(
-            Layer.provideMerge(
-              ServerConfig.layerTest(process.cwd(), {
-                prefix: "opencode-adapter-test-",
-              }),
-            ),
-            Layer.provideMerge(NodeServices.layer),
-          ),
-        ),
-      ),
-    );
-
-    expect(result).toEqual({
-      commands: [{ name: "review", description: "Review code" }],
-      source: "opencode",
-      cached: false,
     });
   });
 
@@ -1931,89 +1641,6 @@ describe("OpenCodeAdapter runtime lifecycle", () => {
         permission: [{ permission: "*", pattern: "*", action: "allow" }],
       },
     ]);
-  });
-
-  it("reuses the matching active OpenCode thread for command discovery", async () => {
-    const threadId = asThreadId("thread-command-discovery");
-    const runtime = createMockOpenCodeRuntime({
-      commandLists: [[{ name: "active-thread-command" }], [{ name: "scoped-client-command" }]],
-    });
-
-    const result = await Effect.runPromise(
-      Effect.gen(function* () {
-        const adapter = yield* OpenCodeAdapter;
-        const listCommands = adapter.listCommands;
-        if (!listCommands) {
-          throw new Error("Expected OpenCode adapter to support command listing.");
-        }
-
-        yield* adapter.startSession({
-          managedLaunch: managedLaunchForTest(threadId),
-          provider: "opencode",
-          threadId,
-          runtimeMode: "full-access",
-        });
-
-        return yield* listCommands({
-          provider: "opencode",
-          threadId,
-          cwd: process.cwd(),
-        });
-      }).pipe(
-        Effect.provide(
-          makeOpenCodeAdapterLive({ runtime: runtime.runtime }).pipe(
-            Layer.provideMerge(
-              ServerConfig.layerTest(process.cwd(), {
-                prefix: "opencode-adapter-test-",
-              }),
-            ),
-            Layer.provideMerge(NodeServices.layer),
-          ),
-        ),
-      ),
-    );
-
-    expect(result.commands.map((command) => command.name)).toEqual(["active-thread-command"]);
-  });
-
-  it("returns no OpenCode commands when command discovery is unsupported", async () => {
-    const runtime = createMockOpenCodeRuntime({
-      commandList: async () => {
-        throw new Error("status=404 body={}");
-      },
-    });
-
-    const result = await Effect.runPromise(
-      Effect.gen(function* () {
-        const adapter = yield* OpenCodeAdapter;
-        const listCommands = adapter.listCommands;
-        if (!listCommands) {
-          throw new Error("Expected OpenCode adapter to support command listing.");
-        }
-
-        return yield* listCommands({
-          provider: "opencode",
-          cwd: process.cwd(),
-        });
-      }).pipe(
-        Effect.provide(
-          makeOpenCodeAdapterLive({ runtime: runtime.runtime }).pipe(
-            Layer.provideMerge(
-              ServerConfig.layerTest(process.cwd(), {
-                prefix: "opencode-adapter-test-",
-              }),
-            ),
-            Layer.provideMerge(NodeServices.layer),
-          ),
-        ),
-      ),
-    );
-
-    expect(result).toEqual({
-      commands: [],
-      source: "unsupported",
-      cached: false,
-    });
   });
 
   it("pins the initial model on new OpenCode sessions", async () => {

@@ -6,7 +6,8 @@ import {
   EventId,
   ProviderItemId,
   type ProviderEvent,
-  type ProviderListModelsResult,
+  type ProviderCatalogData,
+  ProviderConnectionId,
   type ProviderSession,
   type ProviderTurnStartResult,
   type ProviderUserInputAnswers,
@@ -99,14 +100,11 @@ class FakeCodexManager extends CodexAppServerManager {
   );
 
   public stopAllImpl = vi.fn(() => undefined);
-  public listModelsImpl = vi.fn(
+  public loadCatalogImpl = vi.fn(
     async (
-      _threadId?: string,
-      _managedDiscovery?: Parameters<CodexAppServerManager["listModels"]>[1],
-    ): Promise<ProviderListModelsResult> => ({
+      _input: Parameters<CodexAppServerManager["loadCatalog"]>[0],
+    ): Promise<ProviderCatalogData> => ({
       models: [{ slug: "gpt-managed", name: "Managed GPT" }],
-      source: "test",
-      cached: false,
     }),
   );
 
@@ -159,11 +157,10 @@ class FakeCodexManager extends CodexAppServerManager {
     this.stopAllImpl();
   }
 
-  override listModels(
-    threadId?: string,
-    managedDiscovery?: Parameters<CodexAppServerManager["listModels"]>[1],
-  ): Promise<ProviderListModelsResult> {
-    return this.listModelsImpl(threadId, managedDiscovery);
+  override loadCatalog(
+    input: Parameters<CodexAppServerManager["loadCatalog"]>[0],
+  ): Promise<ProviderCatalogData> {
+    return this.loadCatalogImpl(input);
   }
 }
 
@@ -255,35 +252,28 @@ validationLayer("CodexAdapterLive validation", (it) => {
 
   it.effect("discovers models through the exact managed Codex profile", () =>
     Effect.gen(function* () {
-      validationManager.listModelsImpl.mockClear();
+      validationManager.loadCatalogImpl.mockClear();
       const adapter = yield* CodexAdapter;
-      assert.ok(adapter.listModels);
-      const childEnvironment = () => ({ CODEX_HOME: "/isolated/codex" });
-      const result = yield* adapter.listModels({
-        provider: "codex",
+      assert.ok(adapter.loadCatalog);
+      const input = {
+        scope: {
+          provider: "codex" as const,
+          connectionId: ProviderConnectionId.makeUnsafe("personal"),
+        },
         cwd: "/repo/models",
+        kinds: ["models"] as const,
+        internalProviderId: null,
         managedLaunch: {
           binaryPath: "/managed/codex",
           isolationKey: "connection:personal:discovery",
           profileRoot: "/isolated/profile",
           nativeStateRoot: "/isolated/native",
-          childEnvironment,
+          childEnvironment: () => ({ CODEX_HOME: "/isolated/codex" }),
         },
-      });
+      };
+      const result = yield* adapter.loadCatalog(input);
       assert.deepStrictEqual(result.models, [{ slug: "gpt-managed", name: "Managed GPT" }]);
-      assert.deepStrictEqual(validationManager.listModelsImpl.mock.calls[0], [
-        undefined,
-        {
-          cwd: "/repo/models",
-          managedLaunch: {
-            binaryPath: "/managed/codex",
-            isolationKey: "connection:personal:discovery",
-            profileRoot: "/isolated/profile",
-            nativeStateRoot: "/isolated/native",
-            childEnvironment,
-          },
-        },
-      ]);
+      assert.deepStrictEqual(validationManager.loadCatalogImpl.mock.calls, [[input]]);
     }),
   );
 
