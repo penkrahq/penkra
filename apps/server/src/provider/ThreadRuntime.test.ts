@@ -10,6 +10,75 @@ const thread = ThreadId.makeUnsafe("runtime-owner");
 const peer = ThreadId.makeUnsafe("runtime-peer");
 
 describe("ThreadRuntime ownership", () => {
+  it("quiesces pending startup before shutdown and rejects later admission", async () => {
+    await Effect.runPromise(
+      Effect.gen(function* () {
+        const runtime = makeThreadRuntime();
+        const entered = yield* Deferred.make<void>();
+        const cleaning = yield* Deferred.make<void>();
+        const release = yield* Deferred.make<void>();
+        const start = yield* runtime
+          .ensure(thread, "codex", () =>
+            Deferred.succeed(entered, undefined).pipe(
+              Effect.andThen(Effect.never),
+              Effect.onInterrupt(() =>
+                Deferred.succeed(cleaning, undefined).pipe(Effect.andThen(Deferred.await(release))),
+              ),
+            ),
+          )
+          .pipe(Effect.forkChild);
+        yield* Deferred.await(entered);
+        const shutdown = yield* runtime.beginShutdown.pipe(Effect.forkChild);
+        yield* Deferred.await(cleaning);
+        expect(shutdown.pollUnsafe()).toBeUndefined();
+        let admitted = false;
+        const rejected = yield* Effect.result(
+          runtime.ensure(peer, "codex", () =>
+            Effect.sync(() => {
+              admitted = true;
+            }),
+          ),
+        );
+        expect(rejected._tag).toBe("Failure");
+        expect(admitted).toBe(false);
+        yield* Deferred.succeed(release, undefined);
+        expect(yield* Fiber.join(shutdown)).toEqual([thread]);
+        yield* Fiber.await(start);
+        expect(runtime.state(thread)).toBe("none");
+      }),
+    );
+  });
+
+  it("attempts every process owner even when another provider fails to close", async () => {
+    await Effect.runPromise(
+      Effect.gen(function* () {
+        const runtime = makeThreadRuntime();
+        const stopped: string[] = [];
+        const adapters = ["codex", "claudeAgent"].map((provider) => ({
+          provider,
+          stopAll: () =>
+            Effect.sync(() => stopped.push(provider)).pipe(
+              Effect.andThen(
+                provider === "codex"
+                  ? Effect.fail(
+                      new ProviderAdapterProcessError({
+                        provider,
+                        threadId: thread,
+                        detail: "close failed",
+                      }),
+                    )
+                  : Effect.void,
+              ),
+            ),
+        })) as unknown as ReadonlyArray<ProviderAdapterShape<ProviderAdapterError>>;
+        yield* runtime.beginShutdown;
+        const result = yield* Effect.result(runtime.closeProcesses(adapters));
+        expect(result._tag).toBe("Failure");
+        expect(stopped.toSorted()).toEqual(["claudeAgent", "codex"]);
+      }),
+    );
+  });
+
   it("keeps the live generation during replacement preparation until native ownership changes", async () => {
     await Effect.runPromise(
       Effect.gen(function* () {

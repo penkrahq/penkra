@@ -36,6 +36,7 @@ interface RuntimeOwner {
     | { readonly fiber: Fiber.Fiber<unknown, unknown>; readonly settled: Effect.Effect<void> }
     | undefined;
   cancelled: boolean;
+  cancelReason?: ThreadRuntimeStopReason | undefined;
   nativeTouched: boolean;
   nativeCleaned: boolean;
   readonly turns: Set<string>;
@@ -57,6 +58,7 @@ const PROVIDER_FAILED_START_CLEANUP_TIMEOUT = Duration.seconds(10);
 export function makeThreadRuntime() {
   const lifecycle = makeProviderLifecycleCoordinator();
   const owners = new Map<ThreadId, RuntimeOwner>();
+  let closing = false;
 
   const transition = (
     threadId: ThreadId,
@@ -86,6 +88,11 @@ export function makeThreadRuntime() {
     lifecycle.run(threadId, (lease) =>
       Effect.uninterruptibleMask((restore) =>
         Effect.gen(function* () {
+          if (closing)
+            return yield* new ProviderValidationError({
+              operation: "ThreadRuntime.ensure",
+              issue: "Provider runtimes are shutting down.",
+            });
           const previous = owners.get(threadId);
           if (previous?.state === "stopping") {
             return yield* new ProviderValidationError({
@@ -136,7 +143,7 @@ export function makeThreadRuntime() {
                   threadId,
                   owner,
                   cleanupFailed ? "stopping" : "none",
-                  owner.cancelled ? "user-stop" : null,
+                  owner.cancelReason ?? null,
                 );
                 if (cleanupFailed && owner.nativeTouched) lease.commit();
                 else if (owner.nativeTouched && owner.nativeCleaned) lease.retire();
@@ -194,15 +201,16 @@ export function makeThreadRuntime() {
       }),
     );
 
-  const interrupt = <A, E, R>(
+  const cancelStart = (
     threadId: ThreadId,
-    operation: (generation: string | undefined) => Effect.Effect<A, E, R>,
-  ): Effect.Effect<A | undefined, E | ProviderValidationError, R> =>
+    reason: ThreadRuntimeStopReason,
+  ): Effect.Effect<boolean, ProviderValidationError> =>
     Effect.gen(function* () {
       const owner = owners.get(threadId);
       const starting = owner?.start;
       if (owner && starting !== undefined) {
         owner.cancelled = true;
+        owner.cancelReason = reason;
         yield* Fiber.interrupt(starting.fiber);
         yield* starting.settled;
         if (owner.state === "stopping") {
@@ -212,8 +220,18 @@ export function makeThreadRuntime() {
             cause: owner.failure,
           });
         }
-        return;
+        return true;
       }
+      return false;
+    });
+
+  const interrupt = <A, E, R>(
+    threadId: ThreadId,
+    operation: (generation: string | undefined) => Effect.Effect<A, E, R>,
+  ): Effect.Effect<A | undefined, E | ProviderValidationError, R> =>
+    Effect.gen(function* () {
+      if (yield* cancelStart(threadId, "user-stop")) return;
+      const owner = owners.get(threadId);
       // Disposal already owns interruption. Do not wait on it, race its native
       // close, or start another cleanup path from a repeated Stop click.
       if (owner?.state === "stopping") return;
@@ -305,7 +323,7 @@ export function makeThreadRuntime() {
       }).pipe(
         Effect.onExit((exit) =>
           Exit.isFailure(exit)
-            ? dispose(adapter, input.threadId, owner.cancelled ? "user-stop" : null).pipe(
+            ? dispose(adapter, input.threadId, owner.cancelReason ?? null).pipe(
                 Effect.timeoutOption(PROVIDER_FAILED_START_CLEANUP_TIMEOUT),
                 Effect.flatMap((result) =>
                   Option.isSome(result)
@@ -331,6 +349,42 @@ export function makeThreadRuntime() {
     observe,
     startNative,
     dispose,
+    beginShutdown: Effect.suspend(() => {
+      closing = true;
+      const threadIds = [...owners]
+        .filter(([, owner]) => owner.state !== "none" || owner.start !== undefined)
+        .map(([threadId]) => threadId);
+      return Effect.forEach(
+        threadIds,
+        (threadId) =>
+          cancelStart(threadId, "app-quit").pipe(
+            Effect.catchCause((cause) =>
+              Effect.logWarning("provider.session.shutdown_cancel_failed", {
+                threadId,
+                cause: Cause.pretty(cause),
+              }),
+            ),
+          ),
+        { concurrency: "unbounded" },
+      ).pipe(Effect.as(threadIds));
+    }),
+    closeProcesses: (adapters: ReadonlyArray<ProviderAdapterShape<ProviderAdapterError>>) =>
+      Effect.gen(function* () {
+        if (!closing)
+          return yield* new ProviderValidationError({
+            operation: "ThreadRuntime.closeProcesses",
+            issue: "Application shutdown has not begun.",
+          });
+        const exits = yield* Effect.forEach(adapters, (adapter) => Effect.exit(adapter.stopAll()), {
+          concurrency: "unbounded",
+        });
+        let failure: Cause.Cause<ProviderAdapterError> | undefined;
+        for (const exit of exits)
+          if (Exit.isFailure(exit))
+            failure = failure === undefined ? exit.cause : Cause.combine(failure, exit.cause);
+        if (failure !== undefined) return yield* Effect.failCause(failure);
+      }),
+    providerFor: (threadId: ThreadId) => owners.get(threadId)?.provider,
     adoptSession: (session: ProviderSession) =>
       Effect.suspend(() => {
         const owner = owners.get(session.threadId);
