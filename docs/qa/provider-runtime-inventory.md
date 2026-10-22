@@ -584,3 +584,30 @@ changed launch/catalog/text-generation fixture files passed 218 tests; the final
 ThreadRuntime file passed 12 tests including the new cancellation case. `bun fmt`,
 `bun lint` (872 warnings, zero errors), `bun typecheck`, and the server's explicit
 typecheck passed. These are local source checks, not installed Production QA.
+
+## 15. Native OpenCode export/import does not relocate spilled output
+
+The pinned 1.19.3 contract now emits 4,000 marked output lines from the native
+custom tool. OpenCode marks the completed part `metadata.truncated: true` and
+stores its full output at the absolute `metadata.outputPath` inside the source
+profile. The file exists and contains the expected marker.
+
+Export/import preserves the complete message/part objects, including that exact
+absolute source path; it does not copy the referenced file to the target profile.
+After both fixture servers are stopped, deleting only the owned source fixture
+profile makes that imported path unreadable (`ENOENT`). The native contract
+passes these assertions. Consequently the approved migration's instruction to
+delete the old directory immediately after successful import is not sufficient
+to preserve all conversation data. No Production directory has been removed and
+the shared conversation storage switch has not been enabled.
+
+The same native experiment proves CLI session deletion is visible immediately
+to an already-running target server, its GET returns HTTP 404 afterwards, and
+repeated HTTP DELETE returns structured HTTP 404. The peer conversation remains
+available. No missing-session decision needs CLI error wording.
+
+An initial native run failed before session creation because this execution
+environment selected `/usr/local/bin/git`, an x86_64-only executable, and OpenCode
+reported `EBADARCH`. Rerunning with `/usr/bin` before that directory used the
+system universal Git and completed. This is local fixture/toolchain evidence,
+not a Penkra product change or a claimed historical Production cause.
