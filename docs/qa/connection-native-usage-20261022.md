@@ -45,6 +45,14 @@ unsupported, with no native usage request.
   Use verified the signed-in Codex Connection's popup visually: Session and Weekly
   windows displayed, without a reconnect error. This is one real Connection, not
   proof that all production accounts match their provider dashboards.
+- Combined server suite: 2,395 passed, one failed, two pre-existing skips across
+  360 files, 510.85 s. The sole failure was a newly added assertion proving native
+  push source labels accumulated (`test+test` rather than `test`). Commit
+  `dad66b6ed` keeps the latest native source label; the complete affected usage and
+  refresh-stream files then passed all nine tests. The full suite was not repeated.
+- Formatting, lint (869 warnings, no errors) and all 11 typecheck tasks passed
+  before the small source-label correction; its two files were formatted and its
+  focused tests rerun afterward.
 
 One native-contract invocation failed before running any request because the
 implementer supplied `<version>/codex` instead of the pinned `<version>/bin/codex`.
