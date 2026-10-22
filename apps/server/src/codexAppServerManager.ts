@@ -2139,7 +2139,7 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
             transport,
             null,
             "skills/list",
-            { cwds: [input.cwd] },
+            { cwds: [input.cwd], forceReload: true },
           );
           data.skills = parseCodexSkillsListResponse(response, input.cwd);
         } else {
