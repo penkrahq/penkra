@@ -39,7 +39,6 @@ import {
   recordCodexCapabilityPreflightFailure,
   resumeCodexThreadWithoutHistoryReplay,
   resolveCodexModelForAccount,
-  shouldRetryCodexPreThreadOpenFailure,
 } from "./codexAppServerManager";
 import {
   assertCodexWorkingDirectoryExists,
@@ -1115,49 +1114,6 @@ function createProcessOutputHarness() {
 }
 
 describe("Codex app-server teardown", () => {
-  it("retries only the first transport failure before thread open", () => {
-    expect(
-      shouldRetryCodexPreThreadOpenFailure({
-        startupAttempt: 0,
-        aborted: false,
-        transportFailed: true,
-        threadOpenRequestSent: false,
-      }),
-    ).toBe(true);
-    expect(
-      shouldRetryCodexPreThreadOpenFailure({
-        startupAttempt: 1,
-        aborted: false,
-        transportFailed: true,
-        threadOpenRequestSent: false,
-      }),
-    ).toBe(false);
-    expect(
-      shouldRetryCodexPreThreadOpenFailure({
-        startupAttempt: 0,
-        aborted: true,
-        transportFailed: true,
-        threadOpenRequestSent: false,
-      }),
-    ).toBe(false);
-    expect(
-      shouldRetryCodexPreThreadOpenFailure({
-        startupAttempt: 0,
-        aborted: false,
-        transportFailed: true,
-        threadOpenRequestSent: true,
-      }),
-    ).toBe(false);
-    expect(
-      shouldRetryCodexPreThreadOpenFailure({
-        startupAttempt: 0,
-        aborted: false,
-        transportFailed: false,
-        threadOpenRequestSent: false,
-      }),
-    ).toBe(false);
-  });
-
   it("keeps a live process routable when only the last turn status is error", () => {
     class FakeCodexChild extends EventEmitter {
       readonly pid = 5050;
@@ -3892,20 +3848,20 @@ describe("provider thread control", () => {
     });
   });
 
-  it("retries review interrupt with the latest review turn from thread/read after timeout", async () => {
+  it("reads the exact active review turn before interrupting once", async () => {
     const { manager, context, sendRequest, updateSession } = createThreadControlHarness();
     context.session.status = "running";
     context.session.activeTurnId = "turn_review_old";
     context.reviewTurnIds.add("turn_review_old");
 
     sendRequest
-      .mockRejectedValueOnce(new Error("Timed out waiting for turn/interrupt."))
       .mockResolvedValueOnce({
         thread: {
           id: "thread_1",
           turns: [
             {
               id: "turn_review_new",
+              status: "inProgress",
               items: [{ type: "enteredReviewMode" }],
             },
           ],
@@ -3919,16 +3875,6 @@ describe("provider thread control", () => {
       1,
       context.transport,
       context.session.threadId,
-      "turn/interrupt",
-      {
-        threadId: "thread_1",
-        turnId: "turn_review_old",
-      },
-    );
-    expect(sendRequest).toHaveBeenNthCalledWith(
-      2,
-      context.transport,
-      context.session.threadId,
       "thread/read",
       {
         threadId: "thread_1",
@@ -3936,7 +3882,7 @@ describe("provider thread control", () => {
       },
     );
     expect(sendRequest).toHaveBeenNthCalledWith(
-      3,
+      2,
       context.transport,
       context.session.threadId,
       "turn/interrupt",
@@ -3948,6 +3894,26 @@ describe("provider thread control", () => {
     expect(updateSession).toHaveBeenCalledWith(context, {
       activeTurnId: "turn_review_new",
     });
+    expect(sendRequest).toHaveBeenCalledTimes(2);
+  });
+
+  it("does not retry a rejected review interrupt", async () => {
+    const { manager, context, sendRequest } = createThreadControlHarness();
+    context.session.status = "running";
+    context.session.activeTurnId = "review";
+    context.reviewTurnIds.add("review");
+    sendRequest
+      .mockResolvedValueOnce({
+        thread: { id: "thread_1", turns: [{ id: "review", status: "inProgress", items: [] }] },
+      })
+      .mockRejectedValueOnce(new Error("native interrupt rejected"));
+    await expect(manager.interruptTurn(asThreadId("thread_1"))).rejects.toThrow(
+      "native interrupt rejected",
+    );
+    expect(sendRequest.mock.calls.map((call) => call[2])).toEqual([
+      "thread/read",
+      "turn/interrupt",
+    ]);
   });
 
   it("settles review interrupt when thread/read already shows exited review mode", async () => {
@@ -3956,19 +3922,18 @@ describe("provider thread control", () => {
     context.session.activeTurnId = "turn_review_old";
     context.reviewTurnIds.add("turn_review_old");
 
-    sendRequest
-      .mockRejectedValueOnce(new Error("Timed out waiting for turn/interrupt."))
-      .mockResolvedValueOnce({
-        thread: {
-          id: "thread_1",
-          turns: [
-            {
-              id: "turn_review_old",
-              items: [{ type: "enteredReviewMode" }, { type: "exitedReviewMode" }],
-            },
-          ],
-        },
-      });
+    sendRequest.mockResolvedValueOnce({
+      thread: {
+        id: "thread_1",
+        turns: [
+          {
+            id: "turn_review_old",
+            status: "completed",
+            items: [{ type: "enteredReviewMode" }, { type: "exitedReviewMode" }],
+          },
+        ],
+      },
+    });
 
     await manager.interruptTurn(asThreadId("thread_1"));
 
@@ -3977,6 +3942,8 @@ describe("provider thread control", () => {
       activeTurnId: undefined,
       lastError: undefined,
     });
+    expect(sendRequest).toHaveBeenCalledTimes(1);
+    expect(sendRequest.mock.calls[0]?.[2]).toBe("thread/read");
   });
 
   it("emits compaction progress before waiting for thread/compact/start", async () => {
@@ -4654,86 +4621,28 @@ describe("collab child conversation routing", () => {
 });
 
 describe("handleServerNotification error normalization", () => {
-  it("recovers a missing turn/completed after legacy task_complete", () => {
+  it("does not infer turn completion from legacy task_complete or elapsed time", () => {
     vi.useFakeTimers();
     try {
-      const manager = new CodexAppServerManager(undefined, {
-        taskCompleteFallbackGraceMs: 25,
-      });
-      const harness = createCollabNotificationHarness();
-      const context = harness.context;
-      const emitEvent = vi
-        .spyOn(manager as unknown as { emitEvent: (...args: unknown[]) => void }, "emitEvent")
-        .mockImplementation(() => {});
-      const updateSession = vi
-        .spyOn(
-          manager as unknown as { updateSession: (...args: unknown[]) => void },
-          "updateSession",
-        )
-        .mockImplementation(() => {});
-
+      const { manager, context, updateSession, emitEvent } = createCollabNotificationHarness();
       handleServerNotificationForTest(manager, context, {
         method: "codex/event/task_complete",
-        params: {
-          id: "turn_parent",
-          msg: {
-            type: "task_complete",
-            turn_id: "turn_parent",
-            last_agent_message: "Done.",
-          },
-        },
+        params: { id: "turn_parent", msg: { type: "task_complete", turn_id: "turn_parent" } },
       });
-      vi.advanceTimersByTime(25);
-
-      expect(updateSession).toHaveBeenCalledWith(context, {
-        status: "ready",
-        activeTurnId: undefined,
-        lastError: undefined,
-      });
-      expect(emitEvent).toHaveBeenLastCalledWith(
-        expect.objectContaining({
-          method: "turn/completed",
-          turnId: "turn_parent",
-          payload: expect.objectContaining({
-            recoveredFrom: "codex/event/task_complete",
-          }),
-        }),
-      );
-    } finally {
-      vi.useRealTimers();
-    }
-  });
-
-  it("cancels the task_complete fallback when native turn/completed arrives", () => {
-    vi.useFakeTimers();
-    try {
-      const manager = new CodexAppServerManager(undefined, {
-        taskCompleteFallbackGraceMs: 25,
-      });
-      const context = createCollabNotificationHarness().context;
-      const emitEvent = vi
-        .spyOn(manager as unknown as { emitEvent: (...args: unknown[]) => void }, "emitEvent")
-        .mockImplementation(() => {});
-
-      handleServerNotificationForTest(manager, context, {
-        method: "codex/event/task_complete",
-        params: {
-          id: "turn_parent",
-          msg: { type: "task_complete", turn_id: "turn_parent" },
-        },
-      });
-      handleServerNotificationForTest(manager, context, {
-        method: "turn/completed",
-        params: {
-          threadId: "provider_parent",
-          turn: { id: "turn_parent", status: "completed" },
-        },
-      });
-      vi.advanceTimersByTime(25);
-
+      vi.runAllTimers();
+      expect(updateSession).not.toHaveBeenCalled();
       expect(
         emitEvent.mock.calls.filter(
-          ([event]) => (event as { method?: string }).method === "turn/completed",
+          ([event]) => (event as ProviderEvent).method === "turn/completed",
+        ),
+      ).toHaveLength(0);
+      handleServerNotificationForTest(manager, context, {
+        method: "turn/completed",
+        params: { threadId: "provider_parent", turn: { id: "turn_parent", status: "completed" } },
+      });
+      expect(
+        emitEvent.mock.calls.filter(
+          ([event]) => (event as ProviderEvent).method === "turn/completed",
         ),
       ).toHaveLength(1);
     } finally {

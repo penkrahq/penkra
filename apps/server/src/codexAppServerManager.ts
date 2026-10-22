@@ -218,7 +218,6 @@ interface CodexSessionContext {
   lifecycleGeneration?: string;
   pendingGatewayTurnStart?: { turnId?: TurnId; registered: boolean };
   nativeTurnStartTail?: Promise<void>;
-  threadOpenRequestSent?: boolean;
   pendingUserInputs: Map<string, PendingUserInputRequest>;
   collabReceiverTurns: Map<string, TurnId>;
   collabReceiverParents: Map<string, string>;
@@ -232,12 +231,6 @@ interface CodexSessionContext {
   terminalTurnIds: Set<TurnId>;
   temporaryResourcePaths: Map<TurnId, Set<string>>;
   computerUseHealth?: ComputerUseCapabilityHealth;
-  taskCompleteFallback?:
-    | {
-        readonly turnId: TurnId;
-        readonly timeout: ReturnType<typeof setTimeout>;
-      }
-    | undefined;
   stopping: boolean;
   stopPromise?: Promise<void>;
 }
@@ -331,6 +324,7 @@ export interface CodexAppServerStartSessionInput {
 export interface CodexThreadTurnSnapshot {
   id: TurnId;
   items: unknown[];
+  status?: string;
 }
 
 export interface CodexThreadSnapshot {
@@ -439,20 +433,6 @@ function formatCodexProcessFailure(
   return stderr
     ? `Codex app-server failed (${metadata}). stderr:\n${stderr}`
     : `Codex app-server failed (${metadata}).`;
-}
-
-export function shouldRetryCodexPreThreadOpenFailure(input: {
-  readonly startupAttempt: number;
-  readonly aborted: boolean;
-  readonly transportFailed: boolean;
-  readonly threadOpenRequestSent: boolean;
-}): boolean {
-  return (
-    input.startupAttempt === 0 &&
-    !input.aborted &&
-    input.transportFailed &&
-    !input.threadOpenRequestSent
-  );
 }
 
 // Bounds the best-effort answers written to parked server requests: a child that
@@ -911,7 +891,6 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
       }
     | undefined;
   private readonly teardownProcessTree: typeof teardownProviderProcessTree;
-  private readonly taskCompleteFallbackGraceMs: number;
   private readonly stateDir: string;
 
   private async materializeTemporaryResource(
@@ -974,7 +953,6 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
         readonly requireNativeSurface: () => AgentGatewayNativeToolSurface;
       };
       readonly teardownProcessTree?: typeof teardownProviderProcessTree;
-      readonly taskCompleteFallbackGraceMs?: number;
       readonly stateDir?: string;
     },
   ) {
@@ -983,7 +961,6 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
     this.penkraSkillsDir = options?.penkraSkillsDir;
     this.agentGatewayHostTool = options?.agentGatewayHostTool;
     this.teardownProcessTree = options?.teardownProcessTree ?? teardownProviderProcessTree;
-    this.taskCompleteFallbackGraceMs = Math.max(0, options?.taskCompleteFallbackGraceMs ?? 750);
     // Direct manager construction is retained for focused tests and external
     // consumers. Production adapters always supply Penkra's durable stateDir.
     this.stateDir = options?.stateDir ?? Path.join(process.cwd(), ".penkra");
@@ -1058,14 +1035,6 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
   async startSession(
     input: CodexAppServerStartSessionInput,
     signal?: AbortSignal,
-  ): Promise<ProviderSession> {
-    return this.startSessionAttempt(input, signal, 0);
-  }
-
-  private async startSessionAttempt(
-    input: CodexAppServerStartSessionInput,
-    signal: AbortSignal | undefined,
-    startupAttempt: number,
   ): Promise<ProviderSession> {
     const threadId = input.threadId;
     const now = new Date().toISOString();
@@ -1226,7 +1195,6 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
       // Any retry after this boundary could create a duplicate native thread or
       // race a resume whose response was lost. Startup retries are therefore
       // limited to app-server failures before this flag is set.
-      context.threadOpenRequestSent = true;
       if (resumeThreadId) {
         try {
           threadOpenMethod = "thread/resume";
@@ -1362,12 +1330,6 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
       return { ...context.session };
     } catch (error) {
       const message = error instanceof Error ? error.message : "Failed to start Codex session.";
-      const retryPreThreadOpen = shouldRetryCodexPreThreadOpenFailure({
-        startupAttempt,
-        aborted: signal?.aborted === true,
-        transportFailed: context?.transport.transportFailureHandled === true,
-        threadOpenRequestSent: context?.threadOpenRequestSent === true,
-      });
       if (context) {
         this.updateSession(context, {
           status: "error",
@@ -1376,14 +1338,6 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
         await this.stopSession(threadId);
       } else {
         gatewaySessionLease?.release();
-      }
-      if (retryPreThreadOpen) {
-        log.warn("retrying Codex app-server after pre-thread-open process failure", {
-          threadId,
-          startupAttempt,
-          message,
-        });
-        return this.startSessionAttempt(input, signal, startupAttempt + 1);
       }
       if (context) {
         this.emitErrorEvent(context, "session/startFailed", message);
@@ -1706,98 +1660,52 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
 
   async interruptTurn(threadId: ThreadId, turnId?: TurnId): Promise<void> {
     const context = this.requireSession(threadId);
-    const effectiveTurnId = turnId ?? context.session.activeTurnId;
-
-    // Stop must also unpark codex from any question/approval it is blocked on;
-    // turn/interrupt alone does not settle server-initiated requests.
+    let effectiveTurnId = turnId ?? context.session.activeTurnId;
     await this.settlePendingHumanRequests(context, "turn interrupted");
-
     const providerThreadId = readResumeThreadId({
       threadId: context.session.threadId,
       runtimeMode: context.session.runtimeMode,
       resumeCursor: context.session.resumeCursor,
     });
-    if (!effectiveTurnId || !providerThreadId) {
-      log.info("[codex-review] turn/interrupt skipped", {
-        threadId,
-        requestedTurnId: turnId ?? null,
-        activeTurnId: context.session.activeTurnId ?? null,
-        providerThreadId: providerThreadId ?? null,
-      });
-      return;
-    }
+    if (!effectiveTurnId || !providerThreadId) return;
 
+    if (context.reviewTurnIds.has(effectiveTurnId)) {
+      const snapshot = await this.readThread(threadId);
+      const active = snapshot.turns.find((turn) => turn.status === "inProgress");
+      if (active === undefined) {
+        const requested = snapshot.turns.find((turn) => turn.id === effectiveTurnId);
+        if (
+          requested &&
+          (requested.status === "completed" ||
+            requested.status === "interrupted" ||
+            requested.status === "failed")
+        ) {
+          this.settleTrackedReview(context, {
+            completedTurnId: requested.id,
+            reason: "review terminal via thread/read",
+          });
+          return;
+        }
+        throw new Error("Codex did not report an exact active review turn.");
+      }
+      effectiveTurnId = active.id;
+      context.reviewTurnIds.add(effectiveTurnId);
+      this.updateSession(context, { activeTurnId: effectiveTurnId });
+    }
     log.info("[codex-review] turn/interrupt requested", {
       threadId,
       providerThreadId,
       turnId: effectiveTurnId,
-      isTrackedReviewTurn: context.reviewTurnIds.has(effectiveTurnId),
     });
-    try {
-      await this.sendRequest(context.transport, context.session.threadId, "turn/interrupt", {
-        threadId: providerThreadId,
-        turnId: effectiveTurnId,
-      });
-      log.info("[codex-review] turn/interrupt acknowledged", {
-        threadId,
-        providerThreadId,
-        turnId: effectiveTurnId,
-      });
-    } catch (error) {
-      log.warn("[codex-review] turn/interrupt failed", {
-        threadId,
-        providerThreadId,
-        turnId: effectiveTurnId,
-        isTrackedReviewTurn: context.reviewTurnIds.has(effectiveTurnId),
-        error: error instanceof Error ? error.message : String(error),
-      });
-      if (!context.reviewTurnIds.has(effectiveTurnId) || !this.isTurnInterruptTimeout(error)) {
-        throw error;
-      }
-
-      const snapshot = await this.readThread(threadId);
-      const latestReviewTurnId = this.findLatestReviewTurnId(snapshot);
-      log.info("[codex-review] review interrupt recovery snapshot", {
-        threadId,
-        currentTurnId: effectiveTurnId,
-        latestReviewTurnId: latestReviewTurnId ?? null,
-        latestReviewTurnExited: latestReviewTurnId
-          ? this.isExitedReviewTurn(snapshot, latestReviewTurnId)
-          : false,
-        snapshotTurnIds: snapshot.turns.map((turn) => String(turn.id)),
-      });
-
-      if (latestReviewTurnId && this.isExitedReviewTurn(snapshot, latestReviewTurnId)) {
-        log.info("[codex-review] settling review from thread/read exitedReviewMode", {
-          threadId,
-          turnId: latestReviewTurnId,
-        });
-        this.settleTrackedReview(context, {
-          completedTurnId: latestReviewTurnId,
-          reason: "review exited via thread/read",
-        });
-        return;
-      }
-
-      if (latestReviewTurnId && latestReviewTurnId !== effectiveTurnId) {
-        log.info("[codex-review] retrying turn/interrupt with refreshed review turn", {
-          threadId,
-          previousTurnId: effectiveTurnId,
-          nextTurnId: latestReviewTurnId,
-        });
-        await this.sendRequest(context.transport, context.session.threadId, "turn/interrupt", {
-          threadId: providerThreadId,
-          turnId: latestReviewTurnId,
-        });
-        context.reviewTurnIds.add(latestReviewTurnId);
-        this.updateSession(context, {
-          activeTurnId: latestReviewTurnId,
-        });
-        return;
-      }
-
-      throw error;
-    }
+    await this.sendRequest(context.transport, context.session.threadId, "turn/interrupt", {
+      threadId: providerThreadId,
+      turnId: effectiveTurnId,
+    });
+    log.info("[codex-review] turn/interrupt acknowledged", {
+      threadId,
+      providerThreadId,
+      turnId: effectiveTurnId,
+    });
   }
 
   async readThread(threadId: ThreadId): Promise<CodexThreadSnapshot> {
@@ -2039,7 +1947,6 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
     if (!context) return;
     if (context.stopPromise) return context.stopPromise;
     context.stopping = true;
-    this.clearTaskCompleteFallback(context);
     this.rejectPendingRequests(context.transport, new CodexSessionStoppedRequestError(), threadId);
     const nativeId = readResumeCursorThreadId(context.session.resumeCursor);
     const activeTurnId = context.session.activeTurnId;
@@ -2521,14 +2428,18 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
         // attachProcessListeners installs this native-close promise before any
         // request is admitted. Acquisition cannot take requested-stop ownership.
         await transport.closePromise;
-        return this.getOrCreateAccountProcess(input);
+        throw (
+          transport.protocolFailure ?? new Error("Codex account process closed before admission.")
+        );
       }
       if (!transport.stopping && !transport.protocolClosed) {
         if (input.connectionId !== null) transport.connectionIds.add(input.connectionId);
         return transport;
       }
       await this.closeAccountProcess(transport);
-      return this.getOrCreateAccountProcess(input);
+      throw (
+        transport.protocolFailure ?? new Error("Codex account process stopped before admission.")
+      );
     }
     const token = Symbol(input.key);
     const entry: {
@@ -2658,7 +2569,6 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
     transport.stopPromise = (async () => {
       for (const context of transport.threads) {
         context.stopping = true;
-        this.clearTaskCompleteFallback(context);
         context.gatewaySessionLease?.release();
         await withCodexPendingSettleDeadline(
           this.settlePendingHumanRequests(context, "account process stopped"),
@@ -2854,7 +2764,6 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
   private releaseAccountProcess(transport: CodexAccountProcess): void {
     transport.detachStdout?.();
     for (const context of transport.threads) {
-      this.clearTaskCompleteFallback(context);
       context.gatewaySessionLease?.release();
       context.pendingUserInputs.clear();
       void this.clearTemporaryResources(context);
@@ -3306,7 +3215,6 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
       if (isChildConversation) {
         return;
       }
-      this.clearTaskCompleteFallback(context);
       const turnId = toTurnId(this.readString(this.readObject(notification.params)?.turn, "id"));
       if (
         turnId !== undefined &&
@@ -3331,7 +3239,6 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
       if (isChildConversation) {
         return;
       }
-      this.clearTaskCompleteFallback(context, rawRoute.turnId);
       context.collabReceiverTurns.clear();
       context.collabReceiverParents.clear();
       const turn = this.readObject(notification.params, "turn");
@@ -3358,7 +3265,6 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
       if (isChildConversation) {
         return;
       }
-      this.clearTaskCompleteFallback(context, rawRoute.turnId);
       context.collabReceiverTurns.clear();
       context.collabReceiverParents.clear();
       if (rawRoute.turnId) {
@@ -3371,14 +3277,6 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
         activeTurnId: undefined,
         lastError: undefined,
       });
-      return;
-    }
-
-    if (notification.method === "codex/event/task_complete") {
-      if (isChildConversation || rawRoute.turnId === undefined) {
-        return;
-      }
-      this.scheduleTaskCompleteFallback(context, rawRoute.turnId);
       return;
     }
 
@@ -3469,7 +3367,6 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
         return;
       }
 
-      this.clearTaskCompleteFallback(context);
       this.updateSession(context, {
         status: "error",
         lastError: message ?? context.session.lastError,
@@ -3832,73 +3729,6 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
     this.emit("event", event);
   }
 
-  private clearTaskCompleteFallback(context: CodexSessionContext, turnId?: TurnId): void {
-    const pending = context.taskCompleteFallback;
-    if (!pending || (turnId !== undefined && pending.turnId !== turnId)) {
-      return;
-    }
-    clearTimeout(pending.timeout);
-    context.taskCompleteFallback = undefined;
-  }
-
-  private scheduleTaskCompleteFallback(context: CodexSessionContext, turnId: TurnId): void {
-    if (
-      context.stopping ||
-      context.session.status !== "running" ||
-      (context.session.activeTurnId !== undefined && context.session.activeTurnId !== turnId)
-    ) {
-      return;
-    }
-
-    this.clearTaskCompleteFallback(context);
-    const timeout = setTimeout(() => {
-      if (context.taskCompleteFallback?.turnId !== turnId) {
-        return;
-      }
-      context.taskCompleteFallback = undefined;
-      if (
-        context.stopping ||
-        context.session.status !== "running" ||
-        (context.session.activeTurnId !== undefined && context.session.activeTurnId !== turnId)
-      ) {
-        return;
-      }
-
-      context.collabReceiverTurns.clear();
-      context.collabReceiverParents.clear();
-      void this.clearTemporaryResources(context, turnId);
-      context.terminalTurnIds.add(turnId);
-      context.reviewTurnIds.delete(turnId);
-      this.updateSession(context, {
-        status: "ready",
-        activeTurnId: undefined,
-        lastError: undefined,
-      });
-      this.emitEvent({
-        id: EventId.makeUnsafe(randomUUID()),
-        kind: "notification",
-        provider: "codex",
-        threadId: context.session.threadId,
-        createdAt: new Date().toISOString(),
-        ...(context.lifecycleGeneration !== undefined
-          ? { lifecycleGeneration: context.lifecycleGeneration }
-          : {}),
-        method: "turn/completed",
-        turnId,
-        message: "Recovered a missing turn/completed notification after task_complete.",
-        payload: {
-          turn: {
-            id: turnId,
-            status: "completed",
-          },
-          recoveredFrom: "codex/event/task_complete",
-        },
-      });
-    }, this.taskCompleteFallbackGraceMs);
-    timeout.unref();
-    context.taskCompleteFallback = { turnId, timeout };
-  }
-
   private settleTrackedReview(
     context: CodexSessionContext,
     input: {
@@ -3992,9 +3822,11 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
       const turnIdRaw = this.readString(turn, "id") ?? `${threadIdRaw}:turn:${index + 1}`;
       const turnId = TurnId.makeUnsafe(turnIdRaw);
       const items = this.readArray(turn, "items") ?? [];
+      const status = this.readString(turn, "status");
       return {
         id: turnId,
         items,
+        ...(status === undefined ? {} : { status }),
       };
     });
 
@@ -4266,47 +4098,6 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
     const item = this.readObject(notification.params, "item");
     const itemType = this.readString(item, "type") ?? this.readString(item, "kind");
     return itemType === "exitedReviewMode";
-  }
-
-  private isTurnInterruptTimeout(error: unknown): boolean {
-    return error instanceof Error && error.message.includes("Timed out waiting for turn/interrupt");
-  }
-
-  private normalizeItemType(raw: unknown): string {
-    if (typeof raw !== "string") return "";
-    return raw
-      .replace(/([a-z0-9])([A-Z])/g, "$1 $2")
-      .replace(/[._/-]/g, " ")
-      .replace(/\s+/g, " ")
-      .trim()
-      .toLowerCase();
-  }
-
-  private turnHasReviewItem(
-    turn: CodexThreadTurnSnapshot,
-    itemType: "entered" | "exited",
-  ): boolean {
-    return turn.items.some((item) => {
-      const record = this.readObject(item);
-      const normalized = this.normalizeItemType(
-        this.readString(record, "type") ?? this.readString(record, "kind"),
-      );
-      return itemType === "entered"
-        ? normalized.includes("entered review mode")
-        : normalized.includes("exited review mode");
-    });
-  }
-
-  private findLatestReviewTurnId(snapshot: CodexThreadSnapshot): TurnId | undefined {
-    const latestReviewTurn = [...snapshot.turns]
-      .reverse()
-      .find((turn) => this.turnHasReviewItem(turn, "entered"));
-    return latestReviewTurn?.id;
-  }
-
-  private isExitedReviewTurn(snapshot: CodexThreadSnapshot, turnId: TurnId): boolean {
-    const turn = snapshot.turns.find((entry) => entry.id === turnId);
-    return turn ? this.turnHasReviewItem(turn, "exited") : false;
   }
 }
 

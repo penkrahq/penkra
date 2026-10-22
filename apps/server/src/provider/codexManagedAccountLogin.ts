@@ -62,18 +62,6 @@ export type CodexManagedAccountProbe = (
   input: CodexManagedLoginProcessFactoryInput,
 ) => Promise<CodexManagedAccountSnapshot | null>;
 
-interface CodexManagedAccountVerificationPolicy {
-  readonly attempts: number;
-  readonly delayMs: number;
-  readonly sleep: (delayMs: number) => Promise<void>;
-}
-
-const defaultAccountVerificationPolicy: CodexManagedAccountVerificationPolicy = {
-  attempts: 40,
-  delayMs: 100,
-  sleep: (delayMs) => new Promise((resolve) => setTimeout(resolve, delayMs)),
-};
-
 const defaultProcessFactory: CodexManagedLoginProcessFactory = (input) => {
   const prepared = prepareWindowsSafeProcess(input.binaryPath, ["app-server"], {
     cwd: input.cwd,
@@ -192,7 +180,6 @@ export async function readCodexManagedAccount(
 export async function startCodexManagedAccountLogin(
   input: CodexManagedLoginProcessFactoryInput,
   processFactory: CodexManagedLoginProcessFactory = defaultProcessFactory,
-  verificationPolicy: CodexManagedAccountVerificationPolicy = defaultAccountVerificationPolicy,
 ): Promise<CodexManagedLoginHandle> {
   const child = processFactory(input);
   const writer = new CodexJsonlWriter(child.stdin);
@@ -231,25 +218,21 @@ export async function startCodexManagedAccountLogin(
     if (settled || verificationRequested) return;
     verificationRequested = true;
     void (async () => {
-      for (let attempt = 1; attempt <= verificationPolicy.attempts; attempt += 1) {
-        const account = record(
-          record(await request("account/read", { refreshToken: false }))?.account,
-        );
-        if (account?.type === "chatgpt") {
-          const rateLimitsSnapshot = await readRateLimits(request);
-          settled = true;
-          resolveCompletion({
-            type: "chatgpt",
-            email: optionalString(account.email),
-            planType: optionalString(account.planType),
-            rateLimitsSnapshot,
-          });
-          return;
-        }
-        if (account !== null) throw new Error("Codex selected a non-ChatGPT account.");
-        if (attempt < verificationPolicy.attempts)
-          await verificationPolicy.sleep(verificationPolicy.delayMs);
+      const account = record(
+        record(await request("account/read", { refreshToken: false }))?.account,
+      );
+      if (account?.type === "chatgpt") {
+        const rateLimitsSnapshot = await readRateLimits(request);
+        settled = true;
+        resolveCompletion({
+          type: "chatgpt",
+          email: optionalString(account.email),
+          planType: optionalString(account.planType),
+          rateLimitsSnapshot,
+        });
+        return;
       }
+      if (account !== null) throw new Error("Codex selected a non-ChatGPT account.");
       throw new Error(
         "Codex reported a successful sign in, but the ChatGPT account did not become readable.",
       );
@@ -282,7 +265,6 @@ export async function startCodexManagedAccountLogin(
             fail(new Error(optionalString(params?.error) ?? "Codex sign in did not complete."));
             continue;
           }
-          verifySelectedAccount();
           continue;
         }
         if (message.method === "account/updated" && params?.authMode === "chatgpt") {
