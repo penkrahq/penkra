@@ -784,3 +784,17 @@ a second cache or claim that all provider-list reads are deduplicated.
 
 The four changed fixture files passed 91 tests. Formatting, lint (869 warnings,
 zero errors), and workspace typecheck passed. Production was not changed.
+
+## 23. Codex skill-root registration reports native rejection
+
+The skill-root registration request no longer catches all native failures as
+compatibility with older Codex builds. The controlled test failed before the
+change because the rejected request resolved successfully; it now preserves
+the original rejection and sends exactly one request. Process startup already
+owns cleanup when initialization cannot complete; no retry was added.
+
+The changed manager file passed 134 tests; its pre-existing real-account test
+remains opt-in. The pinned Codex 0.163.0 native contract passed, including the
+actual `skills/extraRoots/set` call with a fixture root. Formatting, lint (869
+warnings, zero errors), and workspace typecheck passed. Production was not
+changed.
