@@ -310,12 +310,14 @@ it("reports native completion, rollout path, steer, questions, interrupt and loc
       turnId: interruptedTurn.id,
     });
     assert.equal((await completed(interruptThread, interruptedTurn)).status, "interrupted");
+    assert((await stat(interruptThread.path!)).isFile());
     releaseBlock();
 
     const failedThread = await create();
     const beforeFailure = requests.length;
     const failed = await completed(failedThread, await start(failedThread, "FAIL_CONTRACT"));
     assert.equal(failed.status, "failed");
+    assert((await stat(failedThread.path!)).isFile());
     assert.notEqual(failed.error, null);
     assert.equal(
       requests.slice(beforeFailure).filter((raw) => raw.includes("FAIL_CONTRACT")).length,

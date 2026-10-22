@@ -611,3 +611,39 @@ environment selected `/usr/local/bin/git`, an x86_64-only executable, and OpenCo
 reported `EBADARCH`. Rerunning with `/usr/bin` before that directory used the
 system universal Git and completed. This is local fixture/toolchain evidence,
 not a Penkra product change or a claimed historical Production cause.
+
+## 16. Codex native completion, interruption, and login events
+
+The controlled legacy-notification reproduction failed before removal: advancing
+all scheduled timers after `codex/event/task_complete` changed a running session
+to ready and emitted a synthesized `turn/completed`. That synthesized-terminal
+path, its configurable 750 ms grace, and the two tests supporting it are deleted.
+The replacement test keeps the session unchanged through elapsed time and
+observes exactly one completion when the actual v2 notification arrives.
+
+The fresh-start retry predicate, attempt counter, recursive startup attempt, and
+the predicate's old test are deleted. A separate pooled-process reproduction
+showed a closed transport spawned another process within the same acquisition.
+That request now fails with the recorded transport cause after joining native
+close. A later explicit start creates a new process; the fixture verifies both
+spawn counts, preserving the approved next-message/Play behavior.
+
+Review interruption now reads one native snapshot before sending one interrupt
+to the turn with exact `status: inProgress`. A snapshot reporting the requested
+review already terminal settles it without interrupting. Rejected interruption
+is not retried. The two changed-order tests failed against the old implementation
+and pass with this ordering; error-text timeout matching and review-item text
+normalization are removed with their now-unused helpers.
+
+Managed ChatGPT login waits for native `account/updated` before its single
+`account/read`. The 40-attempt/100 ms keyring polling policy and test-only policy
+injection are deleted. The controlled test failed on the old early read after
+`account/login/completed`. The updated tests exercise no early read, one verified
+read, missing account, oversized response, and native process exit.
+
+The real pinned Codex 0.163.0 contract passes and additionally verifies its exact
+reported rollout path exists after completed, interrupted, and failed terminal
+events. This establishes the terminal file-availability boundary for subsequent
+rollout adoption work; the adapter's old adoption loop is not changed by this
+checkpoint. The separate real-account resume test is pre-existing and remains
+opt-in; the pinned contract uses isolated credentials and a local model fixture.

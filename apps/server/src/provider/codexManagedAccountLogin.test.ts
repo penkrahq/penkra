@@ -62,15 +62,11 @@ function fakeCodexLoginProcess(
   return child;
 }
 
-async function startFakeLogin(
-  accountResponses?: Array<Record<string, unknown> | null>,
-  verificationAttempts = 3,
-) {
+async function startFakeLogin(accountResponses?: Array<Record<string, unknown> | null>) {
   const child = fakeCodexLoginProcess(accountResponses);
   const handle = await startCodexManagedAccountLogin(
     { binaryPath: "/managed/codex", cwd: "/workspace", env: {} },
     () => child as never,
-    { attempts: verificationAttempts, delayMs: 0, sleep: async () => undefined },
   );
   return { child, handle };
 }
@@ -122,6 +118,10 @@ describe("Codex managed account login", () => {
     child.stdout.write(
       `${JSON.stringify({ method: "account/login/completed", params: { loginId: "login-1", success: true, error: null } })}\n`,
     );
+    expect(child.requests.filter((request) => request.method === "account/read")).toHaveLength(0);
+    child.stdout.write(
+      `${JSON.stringify({ method: "account/updated", params: { authMode: "chatgpt" } })}\n`,
+    );
     await expect(handle.completion).resolves.toEqual({
       type: "chatgpt",
       email: "person@example.com",
@@ -145,14 +145,15 @@ describe("Codex managed account login", () => {
     });
   });
 
-  it("waits for the successful login's keyring entry to become readable", async () => {
-    const { child, handle } = await startFakeLogin([
-      null,
-      { type: "chatgpt", email: "person@example.com", planType: "pro" },
-    ]);
+  it("verifies only once after the authoritative update, not by polling keyring readiness", async () => {
+    const { child, handle } = await startFakeLogin();
 
     child.stdout.write(
       `${JSON.stringify({ method: "account/login/completed", params: { loginId: "login-1", success: true, error: null } })}\n`,
+    );
+    expect(child.requests.filter((request) => request.method === "account/read")).toHaveLength(0);
+    child.stdout.write(
+      `${JSON.stringify({ method: "account/updated", params: { authMode: "chatgpt" } })}\n`,
     );
 
     await expect(handle.completion).resolves.toEqual({
@@ -161,19 +162,20 @@ describe("Codex managed account login", () => {
       planType: "pro",
       rateLimitsSnapshot: { rateLimits: { primary: { usedPercent: 12 } } },
     });
-    expect(child.requests.filter((request) => request.method === "account/read")).toHaveLength(2);
+    expect(child.requests.filter((request) => request.method === "account/read")).toHaveLength(1);
   });
 
-  it("fails closed when a successful login never exposes an authoritative account", async () => {
-    const { child, handle } = await startFakeLogin([null, null, null]);
+  it("fails once when the authoritative update exposes no account", async () => {
+    const { child, handle } = await startFakeLogin([null]);
 
     child.stdout.write(
-      `${JSON.stringify({ method: "account/login/completed", params: { loginId: "login-1", success: true, error: null } })}\n`,
+      `${JSON.stringify({ method: "account/updated", params: { authMode: "chatgpt" } })}\n`,
     );
 
     await expect(handle.completion).rejects.toThrow(
       "Codex reported a successful sign in, but the ChatGPT account did not become readable.",
     );
+    expect(child.requests.filter((request) => request.method === "account/read")).toHaveLength(1);
   });
 
   it("fails if the provider closes before a terminal login notification", async () => {

@@ -112,17 +112,15 @@ export const makeProviderLaunchResolver = Effect.gen(function* () {
         }
         const admitted = connection.value;
         assertCurrentCredentials = Effect.gen(function* () {
-          const current = yield* connections
-            .getRecord(admitted.id)
-            .pipe(
-              Effect.mapError(
-                (cause) =>
-                  new ProviderLaunchResolutionError({
-                    detail: "Could not verify current Connection ownership.",
-                    cause,
-                  }),
-              ),
-            );
+          const current = yield* connections.getRecord(admitted.id).pipe(
+            Effect.mapError(
+              (cause) =>
+                new ProviderLaunchResolutionError({
+                  detail: "Could not verify current Connection ownership.",
+                  cause,
+                }),
+            ),
+          );
           if (
             Option.isNone(current) ||
             current.value.lifecycle !== "active" ||

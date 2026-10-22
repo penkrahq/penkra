@@ -338,6 +338,22 @@ it("coalesces concurrent starts and discovery per account and attributes interle
     });
   }));
 
+it("fails the current acquisition instead of automatically restarting a closed process", () =>
+  withPool(async (f) => {
+    const first = await f.input("before-close");
+    await f.manager.startSession(first);
+    const internals = f.manager as unknown as {
+      sessions: Map<string, { transport: { protocolClosed: boolean; protocolFailure: Error } }>;
+    };
+    const transport = internals.sessions.get(String(first.threadId))!.transport;
+    transport.protocolClosed = true;
+    transport.protocolFailure = new Error("Controlled closed transport");
+    await expect(f.manager.startSession(await f.input("same-acquisition"))).rejects.toThrow();
+    expect((await f.events()).filter((event) => event.event === "spawn")).toHaveLength(1);
+    await f.manager.startSession(await f.input("next-explicit-start"));
+    expect((await f.events()).filter((event) => event.event === "spawn")).toHaveLength(2);
+  }));
+
 it("waits for native close, keeps a sibling working, and retains the program at zero references", () =>
   withPool(async (f) => {
     const a = await f.input("a");
