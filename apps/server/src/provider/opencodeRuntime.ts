@@ -210,12 +210,11 @@ export interface OpenCodeRuntimeShape {
     /** Isolates the managed program; the runtime retains it until explicit close. */
     readonly poolIsolationKey?: string;
     readonly connectionId?: ProviderConnectionId;
-    readonly profileRoot?: string;
+    readonly assertCurrentCredentials?: Effect.Effect<void, unknown>;
     readonly gateway?: OpenCodeGatewayProcessCredential;
   }) => Effect.Effect<OpenCodeServerConnection, OpenCodeRuntimeError, Scope.Scope>;
   readonly stopAccount: (
     connectionId: ProviderConnectionId,
-    profileRoot: string,
   ) => Effect.Effect<void, OpenCodeRuntimeError>;
   readonly stopAll: () => Effect.Effect<void, OpenCodeRuntimeError>;
   readonly runOpenCodeCommand: (input: {
@@ -520,14 +519,10 @@ const makeOpenCodeRuntime = (options?: OpenCodeRuntimeLiveOptions) =>
       Scope.close(scope, Exit.void),
     );
     const withPoolLock = makeKeyedRuntimeLock<string>();
-    const pendingServers = new Map<
-      string,
-      { connectionId: ProviderConnectionId | undefined; profileRoot: string | undefined }
-    >();
+    const pendingServers = new Map<string, { connectionId: ProviderConnectionId | undefined }>();
     let stoppingAll = 0;
     let disposed = false;
     const pooledServers = new Map<string, PooledOpenCodeServer>();
-    const closedProfileRoots = new Set<string>();
 
     const runOpenCodeCommand: OpenCodeRuntimeShape["runOpenCodeCommand"] = (input) =>
       Effect.gen(function* () {
@@ -860,7 +855,7 @@ const makeOpenCodeRuntime = (options?: OpenCodeRuntimeLiveOptions) =>
       readonly experimentalWebSockets?: boolean;
       readonly poolIsolationKey?: string;
       readonly connectionId?: ProviderConnectionId;
-      readonly profileRoot?: string;
+      readonly assertCurrentCredentials?: Effect.Effect<void, unknown>;
       readonly gateway?: OpenCodeGatewayProcessCredential;
       readonly processEnv?: NodeJS.ProcessEnv;
     }) =>
@@ -872,20 +867,28 @@ const makeOpenCodeRuntime = (options?: OpenCodeRuntimeLiveOptions) =>
               operation: "connectToOpenCodeServer",
               detail: "Provider process admission is closed during shutdown.",
             });
-          if (input.connectionId !== undefined && input.profileRoot === undefined)
+          if (input.connectionId !== undefined && input.assertCurrentCredentials === undefined)
             return yield* new OpenCodeRuntimeError({
               operation: "connectToOpenCodeServer",
-              detail: "A Connection-owned process requires its immutable credential profile.",
+              detail: "A Connection-owned process requires current credential admission.",
             });
-          if (input.profileRoot !== undefined && closedProfileRoots.has(input.profileRoot)) {
-            return yield* new OpenCodeRuntimeError({
-              operation: "connectToOpenCodeServer",
-              detail: "The Connection's credential profile has been closed.",
-            });
-          }
+          const validate =
+            input.assertCurrentCredentials === undefined
+              ? Effect.void
+              : input.assertCurrentCredentials.pipe(
+                  Effect.mapError(
+                    (cause) =>
+                      new OpenCodeRuntimeError({
+                        operation: "connectToOpenCodeServer",
+                        detail: "The Connection is no longer current for native admission.",
+                        cause,
+                      }),
+                  ),
+                );
           const key = pooledOpenCodeServerKey(input);
           const existing = pooledServers.get(key);
           if (existing) {
+            yield* validate;
             if (input.gateway !== undefined && existing.gatewayProcessToken === undefined) {
               return yield* new OpenCodeRuntimeError({
                 operation: "connectToOpenCodeServer",
@@ -900,7 +903,6 @@ const makeOpenCodeRuntime = (options?: OpenCodeRuntimeLiveOptions) =>
           // Start lazily and keep the shared program until quit, removal or update.
           pendingServers.set(key, {
             connectionId: input.connectionId,
-            profileRoot: input.profileRoot,
           });
           return yield* Effect.uninterruptibleMask((restore) =>
             Effect.gen(function* () {
@@ -925,7 +927,8 @@ const makeOpenCodeRuntime = (options?: OpenCodeRuntimeLiveOptions) =>
                     };
               const startedExit = yield* Effect.exit(
                 restore(
-                  startOpenCodeServerProcess(processInput).pipe(
+                  validate.pipe(
+                    Effect.andThen(startOpenCodeServerProcess(processInput)),
                     Effect.provideService(Scope.Scope, serverScope),
                   ),
                 ),
@@ -1003,14 +1006,12 @@ const makeOpenCodeRuntime = (options?: OpenCodeRuntimeLiveOptions) =>
           );
         }),
       );
-    const stopAccount: OpenCodeRuntimeShape["stopAccount"] = (connectionId, profileRoot) =>
+    const stopAccount: OpenCodeRuntimeShape["stopAccount"] = (connectionId) =>
       Effect.uninterruptible(
         Effect.suspend(() => {
-          closedProfileRoots.add(profileRoot);
           const keys = new Set<string>();
           for (const [key, pending] of pendingServers)
-            if (pending.connectionId === connectionId || pending.profileRoot === profileRoot)
-              keys.add(key);
+            if (pending.connectionId === connectionId) keys.add(key);
           for (const [key, server] of pooledServers)
             if (server.connectionIds.has(connectionId)) keys.add(key);
           return closeProcessKeys(keys);
@@ -1056,7 +1057,9 @@ const makeOpenCodeRuntime = (options?: OpenCodeRuntimeLiveOptions) =>
             : {}),
           ...(input.processEnv !== undefined ? { processEnv: input.processEnv } : {}),
           ...(input.connectionId !== undefined ? { connectionId: input.connectionId } : {}),
-          ...(input.profileRoot !== undefined ? { profileRoot: input.profileRoot } : {}),
+          ...(input.assertCurrentCredentials !== undefined
+            ? { assertCurrentCredentials: input.assertCurrentCredentials }
+            : {}),
           ...(input.gateway !== undefined ? { gateway: input.gateway } : {}),
         });
         yield* Scope.addFinalizer(callerScope, releasePooledServer(pooledServer));

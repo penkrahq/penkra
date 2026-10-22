@@ -1,3 +1,4 @@
+import { Effect } from "effect";
 import { assert, describe, it } from "@effect/vitest";
 import { appendFile, lstat, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -26,6 +27,7 @@ async function fixture() {
   const nativeStateRoot = Path.join(root, "generation");
   const launch: ProviderManagedLaunchContext = {
     binaryPath: "/managed/codex",
+    assertCurrentCredentials: Effect.void,
     isolationKey: "managed-codex-test",
     profileRoot,
     nativeStateRoot,

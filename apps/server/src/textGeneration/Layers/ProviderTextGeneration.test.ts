@@ -48,6 +48,7 @@ describe("ProviderTextGenerationLive", () => {
         binaryPath: "/selected/binary",
         profileRoot: "/selected/profile",
         nativeStateRoot: "/conversation/native",
+        assertCurrentCredentials: Effect.void,
         isolationKey: "exact-connection",
         childEnvironment: () => ({ CODEX_HOME: "/selected/profile/codex-home" }),
       };

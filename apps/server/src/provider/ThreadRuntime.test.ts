@@ -10,6 +10,71 @@ const thread = ThreadId.makeUnsafe("runtime-owner");
 const peer = ThreadId.makeUnsafe("runtime-peer");
 
 describe("ThreadRuntime ownership", () => {
+  it("preserves the existing Connection when a different Connection is disconnected during preparation", async () => {
+    await Effect.runPromise(
+      Effect.gen(function* () {
+        const runtime = makeThreadRuntime();
+        const original = ProviderConnectionId.makeUnsafe("original");
+        const replacement = ProviderConnectionId.makeUnsafe("replacement");
+        let active = false;
+        let stops = 0;
+        const adapter = {
+          provider: "codex",
+          hasSession: () => Effect.sync(() => active),
+          startSession: () =>
+            Effect.sync(() => {
+              active = true;
+              return {};
+            }),
+          stopSession: () =>
+            Effect.sync(() => {
+              active = false;
+              stops++;
+            }),
+        } as unknown as ProviderAdapterShape<ProviderAdapterError>;
+        const input = (connectionId: typeof original, assertion: Effect.Effect<void, unknown>) => ({
+          threadId: thread,
+          runtimeMode: "full-access" as const,
+          managedLaunch: {
+            connectionId,
+            binaryPath: "/managed/codex",
+            isolationKey: connectionId,
+            profileRoot: `/profiles/${connectionId}`,
+            nativeStateRoot: "/native/thread",
+            childEnvironment: (env: NodeJS.ProcessEnv) => env,
+            assertCurrentCredentials: assertion,
+          },
+        });
+        yield* runtime.ensure(thread, "codex", (lease) =>
+          runtime.startNative(adapter, {
+            ...input(original, Effect.void),
+            lifecycleGeneration: lease.generation,
+          }),
+        );
+        const entered = yield* Deferred.make<void>();
+        const pending = yield* runtime
+          .ensure(thread, "codex", (lease) =>
+            runtime.startNative(adapter, {
+              ...input(
+                replacement,
+                Deferred.succeed(entered, undefined).pipe(Effect.andThen(Effect.never)),
+              ),
+              lifecycleGeneration: lease.generation,
+            }),
+          )
+          .pipe(Effect.forkChild);
+        yield* Deferred.await(entered);
+        expect(runtime.threadsForConnection(replacement)).toEqual([thread]);
+        yield* runtime.cancelStart(thread, "connection-removed");
+        yield* Fiber.await(pending);
+        expect(runtime.ownsConnection(thread, replacement)).toBe(false);
+        expect(runtime.ownsConnection(thread, original)).toBe(true);
+        expect(runtime.state(thread)).toBe("ready");
+        expect(active).toBe(true);
+        expect(stops).toBe(0);
+      }),
+    );
+  });
   it("joins an already-fired idle disposal before shutdown completes", async () => {
     vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
     try {
@@ -58,7 +123,6 @@ describe("ThreadRuntime ownership", () => {
               throw new Error("must not start");
             }),
         } as unknown as ProviderAdapterShape<ProviderAdapterError>;
-        yield* runtime.retireProfile("/retired/profile");
         const result = yield* Effect.result(
           runtime.ensure(thread, "claudeAgent", (lease) =>
             runtime.startNative(adapter, {
@@ -67,6 +131,7 @@ describe("ThreadRuntime ownership", () => {
               lifecycleGeneration: lease.generation,
               managedLaunch: {
                 binaryPath: "/managed/claude",
+                assertCurrentCredentials: Effect.fail(new Error("Credential retired")),
                 isolationKey: "old",
                 profileRoot: "/retired/profile",
                 nativeStateRoot: "/native/thread",
@@ -110,6 +175,7 @@ describe("ThreadRuntime ownership", () => {
               managedLaunch: {
                 connectionId,
                 binaryPath: "/managed/codex",
+                assertCurrentCredentials: Effect.void,
                 isolationKey: connectionId,
                 profileRoot: "/managed/profile",
                 nativeStateRoot: "/native/thread",

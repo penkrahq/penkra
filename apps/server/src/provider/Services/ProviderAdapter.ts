@@ -95,6 +95,8 @@ export interface ProviderThreadSnapshot {
  * cannot cross the client command boundary.
  */
 export interface ProviderManagedLaunchContext {
+  /** Revalidate the exact admitted credential, not a profile folder or label. */
+  readonly assertCurrentCredentials: Effect.Effect<void, unknown>;
   readonly binaryPath: string;
   readonly isolationKey: string;
   /** Null selects the provider's explicit anonymous/free route. */
@@ -186,10 +188,7 @@ export interface ProviderAdapterShape<TError> {
   readonly stopSession: (threadId: ThreadId) => Effect.Effect<void, TError>;
 
   /** Close an account-owned program, including its idle pool entry. */
-  readonly stopAccount?: (
-    connectionId: ProviderConnectionId,
-    profileRoot: string,
-  ) => Effect.Effect<void, TError>;
+  readonly stopAccount?: (connectionId: ProviderConnectionId) => Effect.Effect<void, TError>;
 
   /**
    * List currently active provider sessions for this adapter.

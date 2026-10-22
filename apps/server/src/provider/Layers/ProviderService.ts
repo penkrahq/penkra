@@ -1895,13 +1895,8 @@ const makeProviderService = (options?: ProviderServiceLiveOptions) =>
         );
       });
 
-    const stopConnection: ProviderServiceShape["stopConnection"] = (
-      connectionId,
-      provider,
-      profileRoot,
-    ) =>
+    const stopConnection: ProviderServiceShape["stopConnection"] = (connectionId, provider) =>
       Effect.gen(function* () {
-        yield* lifecycle.retireProfile(profileRoot);
         const threadIds = lifecycle.threadsForConnection(connectionId);
         const exits = yield* Effect.forEach(
           threadIds,
@@ -1909,14 +1904,20 @@ const makeProviderService = (options?: ProviderServiceLiveOptions) =>
             Effect.exit(
               lifecycle
                 .cancelStart(threadId, "connection-removed")
-                .pipe(Effect.andThen(stop({ threadId, reason: "connection-removed" }))),
+                .pipe(
+                  Effect.andThen(
+                    Effect.suspend(() =>
+                      lifecycle.ownsConnection(threadId, connectionId)
+                        ? stop({ threadId, reason: "connection-removed" })
+                        : Effect.void,
+                    ),
+                  ),
+                ),
             ),
           { concurrency: "unbounded" },
         );
         const adapter = yield* registry.getByProvider(provider);
-        const process = yield* Effect.exit(
-          lifecycle.closeAccount(adapter, connectionId, profileRoot),
-        );
+        const process = yield* Effect.exit(lifecycle.closeAccount(adapter, connectionId));
         let failure: Cause.Cause<ProviderServiceError> | undefined;
         for (const exit of [...exits, process])
           if (Exit.isFailure(exit))
@@ -2466,6 +2467,7 @@ export function makeManagedProviderServiceLive(options?: ProviderServiceLiveOpti
             });
             return {
               binaryPath: launch.binaryPath,
+              assertCurrentCredentials: launch.assertCurrentCredentials,
               connectionId: launch.connectionId,
               isolationKey: launch.isolationKey,
               profileRoot: launch.profileRoot,

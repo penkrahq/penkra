@@ -83,6 +83,7 @@ async function fixture(provider: ProviderKind, providerSessionId: string | null)
   const resolve = vi.fn(() =>
     Effect.succeed({
       binaryPath: "/provider",
+      assertCurrentCredentials: Effect.void,
       isolationKey: "isolation",
       profileRoot: "/profile",
       nativeStateRoot: "/native",

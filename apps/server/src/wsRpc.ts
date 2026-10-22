@@ -68,10 +68,6 @@ import { ServerLifecycleEvents } from "./serverLifecycleEvents";
 import { ServerRuntimeStartup } from "./serverRuntimeStartup";
 import { ServerSettingsService } from "./serverSettings";
 import { isLoopbackHost } from "./startupAccess";
-import {
-  providerConnectionProfileRoot,
-  providerCredentialProfileRoot,
-} from "./provider/providerNativeStatePaths.ts";
 import { WorkspaceEntries } from "./workspace/Services/WorkspaceEntries";
 import { WorkspaceFileSystem } from "./workspace/Services/WorkspaceFileSystem";
 import { makeWsStreamAdmission } from "./wsStreamAdmission";
@@ -647,22 +643,10 @@ const makeWsRpcHandlersLayer = () =>
                   onNone: () => Effect.fail(new Error("The Connection is unavailable.")),
                   onSome: (connection) =>
                     Effect.gen(function* () {
-                      const profileRoot =
-                        connection.profileRef === null
-                          ? providerConnectionProfileRoot(config.stateDir, connection.id)
-                          : providerCredentialProfileRoot(config.stateDir, connection.profileRef);
-                      if (profileRoot === null)
-                        return yield* Effect.fail(
-                          new Error("The Connection's credential profile is invalid."),
-                        );
                       const terminated = connection.profileRef
                         ? yield* providerConnectionLoginCoordinator.terminateProfile(input)
                         : yield* providerConnectionLifecycle.terminate(input);
-                      yield* providerService.stopConnection(
-                        input.connectionId,
-                        connection.harness,
-                        profileRoot,
-                      );
+                      yield* providerService.stopConnection(input.connectionId, connection.harness);
                       return terminated;
                     }),
                 }),

@@ -29,6 +29,7 @@ import {
   ProviderLaunchResolutionError,
   ProviderLaunchResolver,
   type ProviderLaunchResolverShape,
+  type ProviderLaunchSpec,
 } from "../Services/ProviderLaunchResolver.ts";
 
 const fail = (detail: string, cause?: unknown) =>
@@ -83,6 +84,8 @@ export const makeProviderLaunchResolver = Effect.gen(function* () {
 
       let credentialEnvironment: NodeJS.ProcessEnv = {};
       let profileIdentity: string = input.connectionId ?? `anonymous:${input.harness}`;
+      let credentialIdentity = profileIdentity;
+      let assertCurrentCredentials: ProviderLaunchSpec["assertCurrentCredentials"] = Effect.void;
       let claudeAccount:
         | { readonly authenticationMethodId: string; readonly providerIdentityId: string | null }
         | undefined;
@@ -107,6 +110,30 @@ export const makeProviderLaunchResolver = Effect.gen(function* () {
         ) {
           return yield* fail("The selected Connection is not active for this harness.");
         }
+        const admitted = connection.value;
+        assertCurrentCredentials = Effect.gen(function* () {
+          const current = yield* connections
+            .getRecord(admitted.id)
+            .pipe(
+              Effect.mapError(
+                (cause) =>
+                  new ProviderLaunchResolutionError({
+                    detail: "Could not verify current Connection ownership.",
+                    cause,
+                  }),
+              ),
+            );
+          if (
+            Option.isNone(current) ||
+            current.value.lifecycle !== "active" ||
+            current.value.harness !== admitted.harness ||
+            current.value.credentialRef !== admitted.credentialRef ||
+            current.value.profileRef !== admitted.profileRef ||
+            current.value.authenticationMethodId !== admitted.authenticationMethodId ||
+            current.value.authenticationTargetId !== admitted.authenticationTargetId
+          )
+            return yield* fail("The Connection's credentials changed before native admission.");
+        });
         const staticMethod = findStaticCredentialMethod({
           harness: connection.value.harness,
           authenticationTargetId: connection.value.authenticationTargetId,
@@ -141,6 +168,7 @@ export const makeProviderLaunchResolver = Effect.gen(function* () {
             ),
           );
           credentialEnvironment = staticMethod.buildCredentialEnvironment(secret);
+          credentialIdentity = connection.value.credentialRef;
         } else {
           const profileRef = connection.value.profileRef;
           const managedProfileIdentity =
@@ -149,6 +177,7 @@ export const makeProviderLaunchResolver = Effect.gen(function* () {
             return yield* fail("The selected Connection profile is incompatible.");
           }
           profileIdentity = managedProfileIdentity;
+          credentialIdentity = profileRef!;
         }
       }
 
@@ -205,13 +234,14 @@ export const makeProviderLaunchResolver = Effect.gen(function* () {
           : null;
 
       return {
+        assertCurrentCredentials,
         binaryPath: installation.value.executablePath,
         profileRoot,
         nativeStateRoot,
         isolationKey: providerOpaquePathKey(
           input.harness === "codex"
-            ? `${installation.value.id}:${profileIdentity}`
-            : `${installation.value.id}:${profileIdentity}:${input.nativeStateIdentity}`,
+            ? `${installation.value.id}:${credentialIdentity}`
+            : `${installation.value.id}:${credentialIdentity}:${input.nativeStateIdentity}`,
         ),
         connectionId: input.connectionId,
         installationId: input.installationId,

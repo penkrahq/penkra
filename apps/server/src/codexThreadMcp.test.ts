@@ -1,3 +1,4 @@
+import { Effect } from "effect";
 // FILE: codexThreadMcp.test.ts
 // Purpose: Check the actual manager's start/resume authentication boundary.
 
@@ -72,6 +73,7 @@ readline.createInterface({input:process.stdin}).on('line',line => {
       binaryPath,
       profileRoot,
       nativeStateRoot: Path.join(root, "native"),
+      assertCurrentCredentials: Effect.void,
       isolationKey: "account",
       childEnvironment: (env: NodeJS.ProcessEnv) => ({
         ...env,

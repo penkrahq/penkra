@@ -137,6 +137,7 @@ export const resolveSelectedThreadRuntime = Effect.fnUntraced(function* (
     managedLaunch: {
       connectionId: launch.connectionId,
       binaryPath: launch.binaryPath,
+      assertCurrentCredentials: launch.assertCurrentCredentials,
       isolationKey: launch.isolationKey,
       profileRoot: launch.profileRoot,
       nativeStateRoot: launch.nativeStateRoot,

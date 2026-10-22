@@ -555,3 +555,32 @@ The changed gateway/adapter subsets and native contract passed, along with
 formatting, lint and workspace/server typechecking. This does not enable shared
 Connection conversation storage or establish Production validation; those were
 not changed by this gateway integration checkpoint.
+
+## 14. Credential admission and same-folder reauthentication
+
+The disconnect checkpoint's profile-root tombstones rejected a static-key
+Connection reactivated into its existing folder. The account-pool reproduction
+now signs the same Connection back in using that same folder, and demonstrates
+that the retired launch is rejected while the new credential is admitted.
+
+Those tombstones are removed. A managed launch carries a server-created Effect
+that compares the current Connection row with the exact credential/profile
+references and authentication route resolved for that launch. Native acquisition
+checks it before spawning or reusing a process. The process isolation identity
+includes the credential reference; the persistent profile folder is unchanged.
+Anonymous launches carry an explicit no-credential assertion. This adds no table,
+persisted retirement flag, timeout, retry, or error-wording classifier.
+
+ThreadRuntime distinguishes a pending replacement's Connection from the live
+predecessor. Cancelling the replacement during credential validation restores
+the predecessor without disposing it; disconnect checks the restored ownership
+before stopping anything. The controlled test holds validation open, disconnects
+the replacement, and verifies the original runtime remains ready with no native
+stop. Codex and OpenCode pending acquisitions remain registered before asynchronous
+validation/startup so disconnect joins their cleanup.
+
+Verification: the six ownership/pool/adapter files passed 186 tests; the thirteen
+changed launch/catalog/text-generation fixture files passed 218 tests; the final
+ThreadRuntime file passed 12 tests including the new cancellation case. `bun fmt`,
+`bun lint` (872 warnings, zero errors), `bun typecheck`, and the server's explicit
+typecheck passed. These are local source checks, not installed Production QA.
