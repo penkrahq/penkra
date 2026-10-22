@@ -2,9 +2,11 @@
  * providerCliOutput - Pure helpers for interpreting provider CLI probe output.
  *
  * Shared by the provider health checks in ProviderHealth: shapes captured
- * process output and walks arbitrary auth-status JSON for common markers.
- * No process spawning and no effect dependencies live here.
+ * process output, recognizes structured launch failures, and reads auth-status JSON.
+ * No process spawning lives here.
  */
+
+import { PlatformError } from "effect/PlatformError";
 
 export const PROVIDER_COMMAND_TIMEOUT_DETAIL = "Timed out while running command.";
 
@@ -21,9 +23,8 @@ export function nonEmptyTrimmed(value: string | undefined): string | undefined {
 }
 
 export function isCommandMissingCause(error: unknown): boolean {
-  if (!(error instanceof Error)) return false;
-  const lower = error.message.toLowerCase();
-  return lower.includes("enoent") || lower.includes("notfound");
+  if (error instanceof PlatformError) return error.reason._tag === "NotFound";
+  return error instanceof Error && "code" in error && error.code === "ENOENT";
 }
 
 export function detailFromResult(

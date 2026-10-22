@@ -48,6 +48,7 @@ import { PENKRA_HOST_POLICY } from "./agentGateway/harnessPolicy.ts";
 import type { AgentGatewaySessionLease } from "./agentGateway/sessionLease.ts";
 import type { AgentGatewayNativeToolSurface } from "./agentGateway/Services/AgentGatewayToolBridge.ts";
 import { isCodexToolAttemptFailure } from "./codexErrorClassification.ts";
+import { isCommandMissingCause } from "./provider/providerCliOutput.ts";
 import { buildCodexProcessEnv } from "./codexProcessEnv.ts";
 import {
   assertCodexWorkingDirectoryExists,
@@ -4146,16 +4147,6 @@ function readCodexProviderOptions(input: CodexAppServerStartSessionInput): {
   };
 }
 
-function isMissingExecutableSpawnError(error: Error): boolean {
-  const lower = error.message.toLowerCase();
-  return (
-    lower.includes("enoent") ||
-    lower.includes("command not found") ||
-    lower.includes("not found") ||
-    lower.includes("filesystem.access")
-  );
-}
-
 interface CodexVersionCommandResult {
   readonly error?: Error;
   readonly status: number | null;
@@ -4282,7 +4273,7 @@ async function runCodexCliVersionGate(input: {
   });
 
   if (result.error) {
-    if (isMissingExecutableSpawnError(result.error)) {
+    if (isCommandMissingCause(result.error)) {
       // Race: cwd may have disappeared between the pre-check and spawn.
       assertCodexWorkingDirectoryExists(input.cwd);
       throw new Error(`Codex CLI (${input.binaryPath}) is not installed or not executable.`);
