@@ -2,7 +2,6 @@ import * as NodeServices from "@effect/platform-node/NodeServices";
 import { assert, it } from "@effect/vitest";
 import { access, mkdir, readFile, writeFile } from "node:fs/promises";
 import * as Path from "node:path";
-import { DatabaseSync } from "node:sqlite";
 import { Effect, Layer } from "effect";
 
 import { ServerConfig } from "../../config.ts";
@@ -265,95 +264,23 @@ layer("ProviderNativeStateMaterializer", (it) => {
     );
   }
 
-  for (const harness of ["codex", "opencode"] as const) {
-    it.effect(`starts fresh when an existing ${harness} folder has no conversation`, () =>
-      Effect.gen(function* () {
-        const config = yield* ServerConfig;
-        const materializer = yield* ProviderNativeStateMaterializer;
-        const source = `empty-${harness}-source`;
-        yield* Effect.promise(() =>
-          mkdir(providerNativeStateRoot(config.stateDir, source), { recursive: true }),
-        );
-        const copied = yield* materializer.clone({
-          harness,
-          providerSessionId: "missing-session",
-          sourceNativeStateId: source,
-          targetNativeStateId: `empty-${harness}-target`,
-        });
-        assert.strictEqual(copied.providerSessionId, null);
-        yield* Effect.promise(() => access(copied.root));
-        yield* Effect.promise(() => access(providerNativeStateRoot(config.stateDir, source)));
-      }),
-    );
-  }
-
-  it.effect("copies OpenCode conversation state without profile authentication", () =>
+  it.effect("starts fresh when an existing Codex folder has no conversation", () =>
     Effect.gen(function* () {
       const config = yield* ServerConfig;
       const materializer = yield* ProviderNativeStateMaterializer;
-      const source = "materializer-opencode-source";
-      const target = "materializer-opencode-target";
-      const sourceRoot = providerNativeStateRoot(config.stateDir, source);
+      const source = "empty-codex-source";
       yield* Effect.promise(() =>
-        mkdir(`${sourceRoot}/xdg-data/opencode/storage`, {
-          recursive: true,
-          mode: 0o700,
-        }),
+        mkdir(providerNativeStateRoot(config.stateDir, source), { recursive: true }),
       );
-      yield* Effect.sync(() => {
-        const database = new DatabaseSync(`${sourceRoot}/opencode.db`);
-        database.exec(
-          "PRAGMA journal_mode=WAL; CREATE TABLE sessions (id TEXT PRIMARY KEY); INSERT INTO sessions VALUES ('session');",
-        );
-        database.close();
-      });
-      yield* Effect.promise(() =>
-        writeFile(`${sourceRoot}/xdg-data/opencode/storage/session.json`, "session"),
-      );
-      yield* Effect.promise(() => writeFile(`${sourceRoot}/xdg-data/opencode/auth.json`, "secret"));
-
-      const { root: targetRoot } = yield* materializer.clone({
-        harness: "opencode",
-        providerSessionId: "ses_exact",
+      const copied = yield* materializer.clone({
+        harness: "codex",
+        providerSessionId: "missing-session",
         sourceNativeStateId: source,
-        targetNativeStateId: target,
+        targetNativeStateId: "empty-codex-target",
       });
-      assert.isFalse(
-        yield* Effect.promise(() =>
-          access(`${targetRoot}/opencode.db-wal`).then(
-            () => true,
-            () => false,
-          ),
-        ),
-      );
-      assert.strictEqual(
-        yield* Effect.sync(() => {
-          const database = new DatabaseSync(`${targetRoot}/opencode.db`, {
-            readOnly: true,
-          });
-          try {
-            return database.prepare("SELECT id FROM sessions").get()?.id;
-          } finally {
-            database.close();
-          }
-        }),
-        "session",
-      );
-      assert.strictEqual(
-        yield* Effect.promise(() =>
-          readFile(`${targetRoot}/xdg-data/opencode/storage/session.json`, "utf8"),
-        ),
-        "session",
-      );
-      assert.strictEqual(
-        yield* Effect.promise(() =>
-          access(`${targetRoot}/xdg-data/opencode/auth.json`).then(
-            () => true,
-            () => false,
-          ),
-        ),
-        false,
-      );
+      assert.strictEqual(copied.providerSessionId, null);
+      yield* Effect.promise(() => access(copied.root));
+      yield* Effect.promise(() => access(providerNativeStateRoot(config.stateDir, source)));
     }),
   );
 });

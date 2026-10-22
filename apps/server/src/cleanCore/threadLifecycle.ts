@@ -1,7 +1,13 @@
 import { rm } from "node:fs/promises";
 import { ProviderService } from "../provider/Services/ProviderService.ts";
 import { ServerConfig } from "../config.ts";
-import { providerNativeStateRoot } from "../provider/providerNativeStatePaths.ts";
+import {
+  providerConnectionProfileRoot,
+  providerNativeStateRoot,
+} from "../provider/providerNativeStatePaths.ts";
+import { ProviderAdapterRegistry } from "../provider/Services/ProviderAdapterRegistry.ts";
+import { ProviderInstallationRepository } from "../persistence/Services/ProviderInstallations.ts";
+import { ProviderConnectionRepository } from "../persistence/Services/ProviderConnections.ts";
 import { ThreadSender } from "./ThreadSender.ts";
 import { ThreadRunningError } from "./threadStore.ts";
 import { ProviderTurnSelectionResolver } from "../provider/Services/ProviderTurnSelectionResolver.ts";
@@ -12,7 +18,7 @@ import {
   type CleanCoreThreadUpdate,
   type CleanCoreCreateThreadInput,
 } from "@penkra/contracts";
-import { Effect, Layer, ServiceMap } from "effect";
+import { Effect, Layer, Option, ServiceMap } from "effect";
 import * as SqlClient from "effect/unstable/sql/SqlClient";
 import { createThread, renameThread, setThreadArchived, setThreadDeleted } from "./threadStore.ts";
 import { findThread, getThread } from "./threadList.ts";
@@ -126,6 +132,9 @@ export const makeThreadLifecycle = Effect.gen(function* () {
   const sender = yield* ThreadSender;
   const provider = yield* ProviderService;
   const config = yield* ServerConfig;
+  const registry = yield* ProviderAdapterRegistry;
+  const installations = yield* ProviderInstallationRepository;
+  const connections = yield* ProviderConnectionRepository;
   const update = (input: LifecycleUpdate, condition: RetentionCondition) =>
     sender.runExclusive(
       input.threadId,
@@ -163,8 +172,55 @@ export const makeThreadLifecycle = Effect.gen(function* () {
         if (input.action === "delete") {
           const nativeRows = yield* sql<{
             nativeStateId: string | null;
-          }>`SELECT native_state_id AS "nativeStateId" FROM threads WHERE id = ${input.threadId}`;
+            providerSessionId: string | null;
+          }>`SELECT native_state_id AS "nativeStateId", provider_session_id AS "providerSessionId" FROM threads WHERE id = ${input.threadId}`;
           const nativeStateId = nativeRows[0]!.nativeStateId;
+          const providerSessionId = nativeRows[0]!.providerSessionId;
+          if (nativeStateId !== null) {
+            const peers =
+              yield* sql`SELECT id FROM threads WHERE native_state_id=${nativeStateId} AND id<>${input.threadId} AND deleted_at IS NULL LIMIT 1`;
+            if (peers.length !== 0)
+              return yield* Effect.fail(
+                new Error(
+                  "The native generation belongs to multiple Threads; no storage was changed.",
+                ),
+              );
+          }
+          if (row.provider === "opencode" && providerSessionId !== null) {
+            const peers =
+              yield* sql`SELECT id FROM threads WHERE provider='opencode' AND provider_session_id=${providerSessionId} AND id<>${input.threadId} AND deleted_at IS NULL LIMIT 1`;
+            if (peers.length !== 0)
+              return yield* Effect.fail(
+                new Error(
+                  "The native conversation is shared by multiple Threads; no storage was changed.",
+                ),
+              );
+            const installation = yield* installations.getActiveRecord("opencode");
+            if (Option.isNone(installation))
+              return yield* Effect.fail(
+                new Error("The pinned OpenCode runtime is unavailable for native deletion."),
+              );
+            const adapter = yield* registry.getByProvider("opencode");
+            if (!adapter.deleteNativeConversation)
+              return yield* Effect.fail(new Error("OpenCode native deletion is unavailable."));
+            const profiles = new Set([
+              "anonymous:opencode",
+              ...(yield* connections.list({ includeTerminated: true }))
+                .filter((connection) => connection.harness === "opencode")
+                .map((connection) => connection.id),
+            ]);
+            if (row.connectionId !== null) profiles.add(row.connectionId);
+            for (const identity of profiles)
+              yield* adapter.deleteNativeConversation({
+                providerSessionId,
+                profileRoot: providerConnectionProfileRoot(config.stateDir, identity),
+                ...(identity === (row.connectionId ?? "anonymous:opencode") &&
+                nativeStateId !== null
+                  ? { nativeStateRoot: providerNativeStateRoot(config.stateDir, nativeStateId) }
+                  : {}),
+                binaryPath: installation.value.executablePath,
+              });
+          }
           if (nativeStateId !== null) {
             const path = providerNativeStateRoot(config.stateDir, nativeStateId);
             yield* Effect.tryPromise({

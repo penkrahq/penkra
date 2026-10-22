@@ -1,4 +1,5 @@
 import { observePublisher } from "./cleanCore/threadPublisherTestHelpers.ts";
+import { NativeStorageTestLayer } from "./provider/nativeStorage.test-support.ts";
 import { assert, it } from "@effect/vitest";
 import { ThreadId } from "@penkra/contracts";
 import { Effect } from "effect";
@@ -28,6 +29,7 @@ const setup = Effect.gen(function* () {
   yield* observePublisher(publisher.threadChanges, ({ threadId }) => changes.push(threadId));
   let beforeStop: Effect.Effect<void, never> = Effect.void;
   const lifecycle = yield* makeThreadLifecycle.pipe(
+    Effect.provide(NativeStorageTestLayer),
     Effect.provideService(ThreadPublisher, publisher),
     Effect.provideService(
       ProviderTurnSelectionResolver,

@@ -16,6 +16,7 @@ import { ProviderAdapterValidationError } from "./Errors.ts";
 import { claudeThreadHasConversation } from "./claudeThreadNativeState.ts";
 import { findOneExactCodexRollout } from "./codexManagedNativeState.ts";
 import { providerNativeStateRoot } from "./providerNativeStatePaths.ts";
+import { hasOpenCodeDatabase } from "./openCodeStorage.ts";
 import { providerNativeResumeCursor } from "./nativeResumeIdentity.ts";
 import type { ProviderManagedLaunchContext } from "./Services/ProviderAdapter.ts";
 import type { ProviderLaunchResolverShape } from "./Services/ProviderLaunchResolver.ts";
@@ -92,36 +93,53 @@ export const resolveSelectedThreadRuntime = Effect.fnUntraced(function* (
     return yield* validation("The thread native state changed before managed runtime launch.");
   }
   const state = row.value;
+  if (selection.harness === "opencode") {
+    const peers =
+      yield* dependencies.sql`SELECT id FROM threads WHERE (native_state_id=${state.nativeStateId} OR provider='opencode' AND provider_session_id=${state.providerSessionId}) AND id<>${input.threadId} AND deleted_at IS NULL LIMIT 1`.pipe(
+        Effect.mapError((cause) =>
+          validation("Could not verify native generation ownership.", cause),
+        ),
+      );
+    if (peers.length !== 0)
+      return yield* validation(
+        "The native conversation or generation belongs to multiple Threads; no storage was changed.",
+      );
+  }
   const hasConversation =
-    state.nativeStateId === null || state.providerSessionId === null
+    state.providerSessionId === null
       ? false
-      : yield* Effect.tryPromise({
-          try: async () => {
-            const root = providerNativeStateRoot(dependencies.stateDir, state.nativeStateId!);
-            try {
-              if (!(await lstat(root)).isDirectory())
-                throw new Error(`Native state is not a directory: ${root}`);
-            } catch (cause) {
-              if ((cause as NodeJS.ErrnoException).code === "ENOENT") return false;
-              throw cause;
-            }
-            if (selection.harness === "claudeAgent")
-              return claudeThreadHasConversation(
-                dependencies.stateDir,
-                state.nativeStateId!,
-                state.providerSessionId!,
-              );
-            if (selection.harness === "codex")
-              return (
-                (await findOneExactCodexRollout(
-                  join(root, "codex-rollouts"),
-                  state.providerSessionId!,
-                )) !== null
-              );
-            return true;
-          },
-          catch: (cause) => validation("Could not read the thread's native conversation.", cause),
-        });
+      : selection.harness === "opencode"
+        ? true
+        : state.nativeStateId === null
+          ? false
+          : yield* Effect.tryPromise({
+              try: async () => {
+                const root = providerNativeStateRoot(dependencies.stateDir, state.nativeStateId!);
+                try {
+                  if (!(await lstat(root)).isDirectory())
+                    throw new Error(`Native state is not a directory: ${root}`);
+                } catch (cause) {
+                  if ((cause as NodeJS.ErrnoException).code === "ENOENT") return false;
+                  throw cause;
+                }
+                if (selection.harness === "claudeAgent")
+                  return claudeThreadHasConversation(
+                    dependencies.stateDir,
+                    state.nativeStateId!,
+                    state.providerSessionId!,
+                  );
+                if (selection.harness === "codex")
+                  return (
+                    (await findOneExactCodexRollout(
+                      join(root, "codex-rollouts"),
+                      state.providerSessionId!,
+                    )) !== null
+                  );
+                return true;
+              },
+              catch: (cause) =>
+                validation("Could not read the thread's native conversation.", cause),
+            });
   const launch = yield* dependencies.providerLaunchResolver
     .resolve({
       threadId: input.threadId,
@@ -129,11 +147,21 @@ export const resolveSelectedThreadRuntime = Effect.fnUntraced(function* (
       internalProviderId: selection.internalProviderId,
     })
     .pipe(Effect.mapError((cause) => validation(cause.message, cause)));
+  const canResume =
+    selection.harness === "opencode" && hasConversation
+      ? yield* Effect.tryPromise({
+          try: async () =>
+            (await hasOpenCodeDatabase(launch.nativeStateRoot)) ||
+            (await hasOpenCodeDatabase(launch.profileRoot)),
+          catch: (cause) =>
+            validation("Could not inspect the exact OpenCode conversation store.", cause),
+        })
+      : hasConversation;
   return {
-    resumeCursor: hasConversation
+    resumeCursor: canResume
       ? providerNativeResumeCursor(selection.harness, state.providerSessionId!)
       : undefined,
-    requiresReconstruction: !hasConversation,
+    requiresReconstruction: !canResume,
     managedLaunch: {
       connectionId: launch.connectionId,
       binaryPath: launch.binaryPath,

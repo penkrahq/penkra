@@ -8,7 +8,7 @@ import { pathToFileURL } from "node:url";
 import { promisify } from "node:util";
 import { it } from "vitest";
 import { ThreadId } from "@penkra/contracts";
-import type { Part } from "@opencode-ai/sdk/v2";
+import { createOpencodeClient, type Part } from "@opencode-ai/sdk/v2";
 import { relocateOpenCodeToolOutputFiles } from "../../src/provider/openCodeToolOutputFiles.ts";
 import { preserveOpenCodeNativeSnapshots } from "../../src/provider/openCodeNativeSnapshots.ts";
 import {
@@ -555,10 +555,21 @@ export const Proof = async () => ({tool:{proof:{description:'Return the native s
       ),
     };
     const preservedServer = await fixture.startServer(
-      ["serve", "--port", "0", "--hostname", "127.0.0.1"],
+      ["serve", "--pure", "--port", "0", "--hostname", "127.0.0.1"],
       source.directory,
       preservedEnv,
       /opencode server listening on (http:\/\/[^\s]+)/,
+    );
+    const preservedClient = createOpencodeClient({
+      baseUrl: preservedServer.origin,
+      directory: source.directory,
+      throwOnError: true,
+    });
+    assert.equal((await preservedClient.project.current()).data?.worktree, source.directory);
+    assert.equal(
+      (await preservedClient.session.get({ sessionID: source.session.id }, { throwOnError: false }))
+        .response.status,
+      404,
     );
     const transfer = {
       conversation: exported as unknown as OpenCodeConversationExport,
@@ -569,11 +580,11 @@ export const Proof = async () => ({tool:{proof:{description:'Return the native s
       env: preservedEnv,
       signal: fixture.signal,
       deleteTarget: async () => {
-        const result = await fetch(
-          `${preservedServer.origin}/session/${source.session.id}?directory=${encodeURIComponent(source.directory)}`,
-          { method: "DELETE", signal: fixture.signal },
+        const result = await preservedClient.session.delete(
+          { sessionID: source.session.id },
+          { throwOnError: false, signal: fixture.signal },
         );
-        assert(result.ok || result.status === 404);
+        assert(result.response.status === 404 || (result.response.ok && result.data === true));
       },
       command: async (args: string[]) => ({
         ...(await fixture.command(args, source.directory, preservedEnv)),

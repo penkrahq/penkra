@@ -101,9 +101,9 @@ export interface ProviderManagedLaunchContext {
   readonly isolationKey: string;
   /** Null selects the provider's explicit anonymous/free route. */
   readonly connectionId?: ProviderConnectionId | null;
-  /** Connection-owned provider profile. Never contains thread-native state. */
+  /** Connection-owned profile; OpenCode also stores its native conversations here. */
   readonly profileRoot: string;
-  /** Exact immutable-generation root for this thread's provider-native state. */
+  /** Thread generation root; OpenCode consumes an existing database here only for migration. */
   readonly nativeStateRoot: string;
   readonly childEnvironment: (baseEnv: NodeJS.ProcessEnv) => NodeJS.ProcessEnv;
 }
@@ -189,6 +189,22 @@ export interface ProviderAdapterShape<TError> {
 
   /** Close an account-owned program, including its idle pool entry. */
   readonly stopAccount?: (connectionId: ProviderConnectionId) => Effect.Effect<void, TError>;
+
+  /** Copy one native conversation before the canonical Connection selection commits. */
+  readonly copyNativeConversation?: (input: {
+    readonly providerSessionId: string;
+    readonly sourceProfileRoot: string;
+    readonly sourceNativeStateRoot?: string;
+    readonly managedLaunch: ProviderManagedLaunchContext;
+  }) => Effect.Effect<string | null, TError>;
+
+  /** Idempotent native deletion, including after the Connection has signed out. */
+  readonly deleteNativeConversation?: (input: {
+    readonly providerSessionId: string;
+    readonly profileRoot: string;
+    readonly nativeStateRoot?: string;
+    readonly binaryPath: string;
+  }) => Effect.Effect<void, TError>;
 
   /**
    * List currently active provider sessions for this adapter.

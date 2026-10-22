@@ -175,9 +175,37 @@ layer("ProviderLaunchResolver", (it) => {
       assert.deepStrictEqual(JSON.parse(environment.OPENCODE_AUTH_CONTENT ?? ""), {
         "opencode-go": { type: "api", key: "selected-go-key" },
       });
-      assert.match(environment.OPENCODE_DB ?? "", /provider-native-state/);
+      assert.match(environment.OPENCODE_DB ?? "", /provider-connections/);
       assert.match(environment.HOME ?? "", /provider-connections/);
     }),
+  );
+
+  it.effect(
+    "shares OpenCode data and its process key across native generations on one Connection",
+    () =>
+      Effect.gen(function* () {
+        const resolver = yield* ProviderLaunchResolver;
+        const input = {
+          harness: "opencode" as const,
+          connectionId,
+          installationId,
+          internalProviderId: "opencode-go",
+        };
+        const first = yield* resolver.resolveProfile({
+          ...input,
+          nativeStateIdentity: "thread-one",
+        });
+        const second = yield* resolver.resolveProfile({
+          ...input,
+          nativeStateIdentity: "thread-two",
+        });
+        assert.strictEqual(first.isolationKey, second.isolationKey);
+        assert.strictEqual(
+          first.childEnvironment({}).OPENCODE_DB,
+          second.childEnvironment({}).OPENCODE_DB,
+        );
+        assert.notStrictEqual(first.nativeStateRoot, second.nativeStateRoot);
+      }),
   );
 
   it.effect("launches the active installation and rejects a retained discovery profile", () =>

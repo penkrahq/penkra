@@ -14,7 +14,7 @@ export class ProviderNativeStateMaterializationError extends Data.TaggedError(
 
 export interface ProviderNativeStateMaterializerShape {
   readonly clone: (input: {
-    readonly harness: ProviderKind;
+    readonly harness: Exclude<ProviderKind, "opencode">;
     readonly providerSessionId: string | null;
     readonly sourceNativeStateId: string | null;
     readonly targetNativeStateId: string;
