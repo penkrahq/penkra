@@ -301,6 +301,11 @@ export function ComposerCommandMenu(props: {
   triggerKind: ComposerTriggerKind | null;
   groupSlashCommandSections?: boolean;
   emptyStateText?: string;
+  /**
+   * The provider catalog's last load for this menu failed (P25). With items, they are the
+   * previous load; without, nothing loaded. Retry asks the catalog to load again.
+   */
+  loadFailed?: { readonly onRetry: () => void } | null;
   activeItemId: string | null;
   onHighlightedItemChange: (itemId: string | null) => void;
   onSelect: (item: ComposerCommandItem) => void;
@@ -382,7 +387,14 @@ export function ComposerCommandMenu(props: {
             ) : null}
           </CommandList>
         ) : null}
-        {props.items.length === 0 && (
+        {props.loadFailed && !props.isLoading ? (
+          <ComposerCommandMenuLoadFailed
+            hasItems={props.items.length > 0}
+            triggerKind={props.triggerKind}
+            onRetry={props.loadFailed.onRetry}
+          />
+        ) : null}
+        {props.items.length === 0 && !(props.loadFailed && !props.isLoading) && (
           <p
             className={cn(
               "text-muted-foreground/50 text-[length:var(--app-font-size-ui-sm,11px)]",
@@ -407,6 +419,41 @@ export function ComposerCommandMenu(props: {
         )}
       </div>
     </Command>
+  );
+}
+
+/** One muted line in the menu's footer style: "Couldn't load commands. Retry" when nothing
+ *  loaded, "Couldn't refresh. Retry" under the previous items. */
+function ComposerCommandMenuLoadFailed(props: {
+  hasItems: boolean;
+  triggerKind: ComposerTriggerKind | null;
+  onRetry: () => void;
+}) {
+  const subject =
+    props.triggerKind === "mention"
+      ? "plugins"
+      : props.triggerKind === "skill"
+        ? "skills"
+        : "commands";
+  return (
+    <p
+      className={cn(
+        "flex items-center gap-1 px-2 text-[length:var(--app-font-size-ui-sm,11px)] text-muted-foreground/55",
+        props.hasItems ? "border-t border-border/60 pt-1.5 pb-1.5" : "py-1.5",
+      )}
+      role="status"
+    >
+      <span>{props.hasItems ? "Couldn't refresh." : `Couldn't load ${subject}.`}</span>
+      <button
+        type="button"
+        // Keep focus in the composer: the menu is driven from the editor.
+        onMouseDown={(event) => event.preventDefault()}
+        onClick={props.onRetry}
+        className="rounded-sm text-muted-foreground underline-offset-2 hover:text-foreground hover:underline focus-visible:text-foreground focus-visible:underline focus-visible:outline-none"
+      >
+        Retry
+      </button>
+    </p>
   );
 }
 
