@@ -84,5 +84,25 @@ native conversation state; no import or Production restart occurred.
 - The latest combined focused run passed 168 tests in seven files. Formatting,
   lint (869 existing warnings, zero errors), and all 11 typecheck tasks passed.
 
-These results validate the implementation, not installation. Production still
-contains the old path until the signed candidate is installed and checked there.
+At this point the implementation checks were complete but Production still
+contained the old path. Installation and live confirmation follow below.
+
+## Live Production confirmation
+
+After the local 0.14.5 update, the operator independently submitted another Chore
+message. The implementer did not replay the pending LinkedIn requests. Correlated
+Production logs now establish the original failure boundary passed:
+
+- 17:10:28.218Z: delivery prepared, three admitted messages, 175 characters,
+  no attachments, delivery id `e3e0b61f-10ef-4505-b78b-d00f874c7849`.
+- 17:10:29.102Z: exact native session exported, 19,416,475 bytes, 1,301 messages,
+  854.6 ms.
+- 17:10:32.488Z: target re-export verification, 19,416,997 bytes, 1,301 messages,
+  840.0 ms.
+- 17:10:32.589Z: `provider.storage.migrated` for Chore and the exact Connection.
+- 17:10:33.775Z: provider session ready; 17:10:33.776Z wire input delivered with
+  `rebuiltHistory:false`; 17:10:33.781Z session running.
+
+At 17:12:46 the subsequent official-bundle installation stopped that active turn
+with the explicit `app-quit` lifecycle reason. This is not an export failure or
+proof that the downstream LinkedIn task completed. No such completion is claimed.
