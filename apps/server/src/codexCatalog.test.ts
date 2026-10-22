@@ -30,6 +30,20 @@ function setup() {
 }
 
 describe("Codex account catalog", () => {
+  it("refreshes Codex's cwd cache so deleted skills cannot survive an invalidation", async () => {
+    const { manager, request } = setup();
+    let diskSkills = [{ name: "removed", path: "/repo/removed/SKILL.md" }];
+    let cachedSkills = diskSkills;
+    request.mockImplementation(async (_transport, _thread, _method, params) => {
+      if ((params as { forceReload?: boolean }).forceReload) cachedSkills = diskSkills;
+      return { data: [{ cwd: "/repo", skills: cachedSkills }] };
+    });
+    const input = { cwd: "/repo", managedLaunch: launch, kinds: ["skills"] as const };
+    expect((await manager.loadCatalog(input)).skills).toHaveLength(1);
+    diskSkills = [];
+    expect((await manager.loadCatalog(input)).skills).toEqual([]);
+    expect(request).toHaveBeenCalledTimes(2);
+  });
   it("routes native catalog invalidations to account Connections even without an active thread", () => {
     const manager = new CodexAppServerManager();
     const internals = manager as unknown as {
@@ -93,7 +107,10 @@ describe("Codex account catalog", () => {
       kinds: ["skills", "plugins", "agents", "commands"],
     });
     expect(account).toHaveBeenCalledExactlyOnceWith("/repo", launch);
-    expect(request).toHaveBeenCalledWith(transport, null, "skills/list", { cwds: ["/repo"] });
+    expect(request).toHaveBeenCalledWith(transport, null, "skills/list", {
+      cwds: ["/repo"],
+      forceReload: true,
+    });
     expect(request).toHaveBeenCalledWith(transport, null, "plugin/installed", { cwds: ["/repo"] });
     expect(request).toHaveBeenCalledTimes(2);
     expect(result.skills).toEqual([{ name: "review", path: "/repo/SKILL.md", enabled: true }]);
