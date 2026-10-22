@@ -412,9 +412,11 @@ export const makeThreadSender = Effect.gen(function* () {
         threadId,
         Effect.gen(function* () {
           const runtime = yield* getRuntime(threadId);
-          if (runtime.state !== "running")
+          const nativeState = provider.getRuntimeState(threadId);
+          const nativeBusy = nativeState === "starting" || nativeState === "running";
+          if (runtime.state !== "running" && !nativeBusy)
             return { threadId, interruptRequested: false, interruptedTurnId: null };
-          if (runtime.activeTurnId === null)
+          if (runtime.activeTurnId === null && !nativeBusy)
             return yield* Effect.fail(new Error("The running thread has no active provider turn."));
           yield* provider.interruptTurn({ threadId });
           return { threadId, interruptRequested: true, interruptedTurnId: runtime.activeTurnId };

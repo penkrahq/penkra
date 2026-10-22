@@ -353,6 +353,7 @@ it.effect(
       const changes: string[] = [];
       yield* observePublisher(publisher.threadChanges, (change) => changes.push(change.threadId));
       const interrupts: unknown[] = [];
+      let nativeState: "ready" | "starting" = "ready";
       const sender = yield* makeThreadSender.pipe(
         Effect.provide(ProviderSessionDirectoryLive),
         Effect.provide(ThreadLanesLive),
@@ -366,6 +367,7 @@ it.effect(
           {} as typeof ProviderThreadSwitchCoordinator.Service,
         ),
         Effect.provideService(ProviderService, {
+          getRuntimeState: () => nativeState,
           interruptTurn: (input: unknown) =>
             Effect.sync(() => {
               interrupts.push(input);
@@ -401,6 +403,12 @@ it.effect(
       yield* setThreadState(threadId, "idle", null, null, "2026-10-09T00:00:03.000Z");
       assert.isFalse((yield* sender.interrupt(threadId)).interruptRequested);
       assert.deepStrictEqual(interrupts, [{ threadId }]);
+      nativeState = "starting";
+      const startupStop = yield* sender.interrupt(threadId);
+      assert.isTrue(startupStop.interruptRequested);
+      assert.isNull(startupStop.interruptedTurnId);
+      assert.deepStrictEqual(interrupts, [{ threadId }, { threadId }]);
+      nativeState = "ready";
       yield* enqueueMessage(threadId, {
         messageId: MessageId.makeUnsafe("queued-after-service-start"),
         text: "fresh row",
@@ -565,6 +573,8 @@ for (const release of ["next-send", "remove-head", "edit-head"] as const) {
             attachments: [],
             files: [],
             assistantSelections: [],
+            skills: [],
+            mentions: [],
           });
         } else assert.isTrue((yield* sender.cancelQueued(input)).removed);
         yield* Deferred.await(delivered);
@@ -825,6 +835,8 @@ it.effect(
         attachments: [{ id: "image", name: "image.png", mimeType: "image/png" }],
         files: [{ id: "file", name: "file.txt", mimeType: "text/plain" }],
         assistantSelections: [],
+        skills: [],
+        mentions: [],
       });
       assert.isAbove(Date.parse(stored.draftUpdatedAt), Date.parse(beforeEdit!.draft_updated_at));
       assert.equal(stored.updatedAt, stored.draftUpdatedAt);

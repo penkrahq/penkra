@@ -32,7 +32,7 @@ import { ServiceMap } from "effect";
 import type { Effect, Stream } from "effect";
 
 import type { ProviderServiceError } from "../Errors.ts";
-import type { ThreadRuntimeStopReason } from "../ThreadRuntime.ts";
+import type { ThreadRuntimeState, ThreadRuntimeStopReason } from "../ThreadRuntime.ts";
 import type {
   ProviderAdapterCapabilities,
   ProviderManagedLaunchContext,
@@ -52,6 +52,8 @@ export type ProviderServiceSessionStartInput = ProviderSessionStartInput & {
  * ProviderServiceShape - Service API for provider session and turn orchestration.
  */
 export interface ProviderServiceShape {
+  /** Live native ownership, including startup before a turn/binding exists. */
+  readonly getRuntimeState: (threadId: ThreadId) => ThreadRuntimeState;
   /**
    * Start a provider session.
    */

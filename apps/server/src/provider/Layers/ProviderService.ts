@@ -2406,6 +2406,7 @@ const makeProviderService = (options?: ProviderServiceLiveOptions) =>
     yield* Effect.addFinalizer(() => closeRuntimeEvents);
 
     return {
+      getRuntimeState: lifecycle.state,
       ensure,
       sendTurn,
       steerTurn,
