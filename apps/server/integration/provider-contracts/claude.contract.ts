@@ -74,8 +74,10 @@ it("uses the pinned SDK/CLI for catalogs, turns, questions, interruption and a l
       return;
     }
     const n = ++counter;
-    const hasToolResult = raw.includes('"tool_result"');
+    const hasToolResult =
+      Array.isArray(content) && content.some((part) => part?.type === "tool_result");
     const question = command?.includes("QUESTION_CONTRACT") && !hasToolResult;
+    const background = command?.includes("BACKGROUND_CONTRACT") && !hasToolResult;
     const event = (type: string, data: unknown) =>
       res.write(`event: ${type}\ndata: ${JSON.stringify(data)}\n\n`);
     res.writeHead(200, { "Content-Type": "text/event-stream" });
@@ -92,37 +94,50 @@ it("uses the pinned SDK/CLI for catalogs, turns, questions, interruption and a l
         usage: { input_tokens: 10, output_tokens: 0 },
       },
     });
-    const toolInput = {
-      questions: [
-        {
-          header: "Color",
-          question: "Choose a color",
-          options: [
-            { label: "Blue", description: "Use blue" },
-            { label: "Red", description: "Use red" },
+    const toolInput = background
+      ? {
+          command: `${JSON.stringify(process.execPath)} -e ${JSON.stringify("require('node:fs').watch(process.argv[1],()=>{})")} ${JSON.stringify(fixture.root)}`,
+          description: "Watch the isolated contract directory",
+          run_in_background: false,
+        }
+      : {
+          questions: [
+            {
+              header: "Color",
+              question: "Choose a color",
+              options: [
+                { label: "Blue", description: "Use blue" },
+                { label: "Red", description: "Use red" },
+              ],
+              multiSelect: false,
+            },
           ],
-          multiSelect: false,
-        },
-      ],
-    };
+        };
     event("content_block_start", {
       type: "content_block_start",
       index: 0,
-      content_block: question
-        ? { type: "tool_use", id: `toolu_${n}`, name: "AskUserQuestion", input: {} }
-        : { type: "text", text: "" },
+      content_block:
+        question || background
+          ? {
+              type: "tool_use",
+              id: `toolu_${n}`,
+              name: background ? "Bash" : "AskUserQuestion",
+              input: {},
+            }
+          : { type: "text", text: "" },
     });
     event("content_block_delta", {
       type: "content_block_delta",
       index: 0,
-      delta: question
-        ? { type: "input_json_delta", partial_json: JSON.stringify(toolInput) }
-        : { type: "text_delta", text: "CONTRACT_DONE" },
+      delta:
+        question || background
+          ? { type: "input_json_delta", partial_json: JSON.stringify(toolInput) }
+          : { type: "text_delta", text: "CONTRACT_DONE" },
     });
     event("content_block_stop", { type: "content_block_stop", index: 0 });
     event("message_delta", {
       type: "message_delta",
-      delta: { stop_reason: question ? "tool_use" : "end_turn", stop_sequence: null },
+      delta: { stop_reason: question || background ? "tool_use" : "end_turn", stop_sequence: null },
       usage: { output_tokens: 5 },
     });
     event("message_stop", { type: "message_stop" });
@@ -173,7 +188,27 @@ it("uses the pinned SDK/CLI for catalogs, turns, questions, interruption and a l
         env,
         settingSources: [],
         model: "sonnet",
-        tools: ["AskUserQuestion"],
+        tools: ["AskUserQuestion", "Bash"],
+        mcpServers: {
+          contract: {
+            command: process.execPath,
+            args: [
+              "--input-type=module",
+              "-e",
+              `
+              import readline from "node:readline";
+              for await (const line of readline.createInterface({ input: process.stdin })) {
+                const request = JSON.parse(line);
+                if (request.id === undefined) continue;
+                const result = request.method === "initialize"
+                  ? { protocolVersion: request.params.protocolVersion, capabilities: { tools: {} }, serverInfo: { name: "contract", version: "1" } }
+                  : request.method === "tools/list" ? { tools: [] } : {};
+                process.stdout.write(JSON.stringify({ jsonrpc: "2.0", id: request.id, result }) + "\\n");
+              }
+            `,
+            ],
+          },
+        },
         permissionMode: "default",
         persistSession: true,
         includePartialMessages: true,
@@ -188,6 +223,7 @@ it("uses the pinned SDK/CLI for catalogs, turns, questions, interruption and a l
           return child;
         },
         canUseTool: async (name, toolInput) => {
+          if (name === "Bash") return { behavior: "allow", updatedInput: toolInput };
           assert.equal(name, "AskUserQuestion");
           questionSeen();
           await questionAnswer;
@@ -220,6 +256,25 @@ it("uses the pinned SDK/CLI for catalogs, turns, questions, interruption and a l
     send("Reply hello.");
     const first = await waitFor((message) => message.type === "result");
     assert.equal(first.type === "result" ? first.is_error : true, false);
+
+    phase = "native-controls";
+    await runtime.setModel("sonnet");
+    await runtime.setPermissionMode("default");
+    await runtime.applyFlagSettings({ alwaysThinkingEnabled: false, autoCompactWindow: null });
+    assert(await runtime.getContextUsage());
+    assert(
+      (await runtime.mcpServerStatus()).some(
+        (server) => server.name === "contract" && server.status === "connected",
+      ),
+    );
+    await runtime.toggleMcpServer("contract", false);
+    assert(
+      (await runtime.mcpServerStatus()).some(
+        (server) => server.name === "contract" && server.status === "disabled",
+      ),
+    );
+    await runtime.toggleMcpServer("contract", true);
+    assert.equal(typeof (await runtime.backgroundTasks()), "boolean");
 
     const questionOffset = messages.length;
     phase = "question";
@@ -276,6 +331,28 @@ it("uses the pinned SDK/CLI for catalogs, turns, questions, interruption and a l
     send("Reply once more.");
     const recovered = await waitFor((message) => message.type === "result", recoveryOffset);
     assert.equal(recovered.type === "result" ? recovered.is_error : true, false);
+    phase = "background-task";
+    const taskOffset = messages.length;
+    send("BACKGROUND_CONTRACT");
+    const task = await waitFor(
+      (message) => message.type === "system" && message.subtype === "task_started",
+      taskOffset,
+    );
+    assert(task.type === "system" && task.subtype === "task_started");
+    assert.equal(task.is_backgrounded, false);
+    assert(task.tool_use_id);
+    assert.equal(await runtime.backgroundTasks(task.tool_use_id), true);
+    await waitFor((message) => message.type === "result", taskOffset);
+    await runtime.stopTask(task.task_id);
+    const stopped = await waitFor(
+      (message) =>
+        message.type === "system" &&
+        message.subtype === "task_notification" &&
+        message.task_id === task.task_id,
+      taskOffset,
+    );
+    assert(stopped.type === "system" && stopped.subtype === "task_notification");
+    assert.equal(stopped.status, "stopped");
     assert.equal(nativeChildren.length, 1);
     assert.equal(nativeChildren[0]!.exitCode, null);
     assert(requests.length >= 4);
