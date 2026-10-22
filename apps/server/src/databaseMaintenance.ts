@@ -3,7 +3,7 @@ import * as path from "node:path";
 import { createHash } from "node:crypto";
 import { DatabaseSync } from "node:sqlite";
 
-import { Effect } from "effect";
+import { Effect, Schema } from "effect";
 
 import {
   inspectPenkraDatabaseHealth,
@@ -44,6 +44,14 @@ async function inspectRegularDatabase(dbPath: string): Promise<PenkraDatabaseHea
 }
 
 export type DatabaseStorageReport = PenkraDatabaseHealth & {
+  readonly nativeOwners: ReadonlyArray<{
+    readonly threadId: string;
+    readonly provider: string;
+    readonly connectionId: string | null;
+    readonly nativeStateId: string | null;
+    readonly providerSessionId: string | null;
+    readonly archivedAt: string | null;
+  }> | null;
   readonly mainFileBytes: number;
   readonly walBytes: number;
   readonly pageSize: number;
@@ -153,8 +161,43 @@ async function inspectStorageReport(dbPath: string): Promise<DatabaseStorageRepo
     }
     const pageSize = scalar("PRAGMA page_size");
     const freelistPages = scalar("PRAGMA freelist_count");
+    const threadColumns = new Set(
+      (
+        database.prepare("SELECT name FROM pragma_table_info('threads')").all() as {
+          name: string;
+        }[]
+      ).map((column) => column.name),
+    );
+    const nativeOwners = [
+      "id",
+      "provider",
+      "connection_id",
+      "native_state_id",
+      "provider_session_id",
+      "archived_at",
+      "deleted_at",
+    ].every((name) => threadColumns.has(name))
+      ? database
+          .prepare(`SELECT id AS threadId, provider, connection_id AS connectionId,
+          native_state_id AS nativeStateId, provider_session_id AS providerSessionId,
+          archived_at AS archivedAt FROM threads WHERE deleted_at IS NULL ORDER BY id`)
+          .all()
+          .map((row) =>
+            Schema.decodeUnknownSync(
+              Schema.Struct({
+                threadId: Schema.String,
+                provider: Schema.String,
+                connectionId: Schema.NullOr(Schema.String),
+                nativeStateId: Schema.NullOr(Schema.String),
+                providerSessionId: Schema.NullOr(Schema.String),
+                archivedAt: Schema.NullOr(Schema.String),
+              }),
+            )(row),
+          )
+      : null;
     return {
       ...health,
+      nativeOwners,
       mainFileBytes: await regularFileBytes(dbPath),
       walBytes: await regularFileBytes(`${dbPath}-wal`),
       pageSize,
