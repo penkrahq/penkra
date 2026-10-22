@@ -157,8 +157,9 @@ it.effect(
             runExclusive: (_id, action) => action,
           } as typeof ThreadSender.Service),
           Effect.provideService(ProviderService, {
-            stopSession: () =>
+            stop: (input: { readonly reason: string }) =>
               Effect.sync(() => {
+                assert.equal(input.reason, "delete");
                 cleanup.push("stop");
               }),
           } as unknown as typeof ProviderService.Service),

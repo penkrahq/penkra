@@ -12,13 +12,14 @@ import { makeProviderLifecycleCoordinator } from "./providerLifecycleCoordinator
 const threadId = ThreadId.makeUnsafe("thread-lifecycle-coordinator");
 
 describe("makeProviderLifecycleCoordinator", () => {
-  it("publishes the run generation for the duration of a committed run", async () => {
+  it("reserves a generation without replacing the live one until ownership commits", async () => {
     await Effect.runPromise(
       Effect.gen(function* () {
         const coordinator = makeProviderLifecycleCoordinator();
         const started = yield* coordinator.run(threadId, (lease) =>
           Effect.sync(() => {
-            expect(coordinator.currentGeneration(threadId)).toBe(lease.generation);
+            expect(coordinator.currentGeneration(threadId)).toBeUndefined();
+            expect(lease.isCurrent()).toBe(true);
             lease.commit();
             return lease.generation;
           }),
@@ -44,9 +45,9 @@ describe("makeProviderLifecycleCoordinator", () => {
         // with new work) returns successfully without touching the provider.
         // It must not leave behind a generation the live runtime never emits:
         // that would silently drop every later runtime event for the thread.
-        const observed = yield* coordinator.run(threadId, (lease) =>
+        const observed = yield* coordinator.run(threadId, () =>
           Effect.sync(() => {
-            expect(coordinator.currentGeneration(threadId)).toBe(lease.generation);
+            expect(coordinator.currentGeneration(threadId)).toBe(live);
             return "superseded" as const;
           }),
         );
@@ -198,45 +199,7 @@ describe("makeProviderLifecycleCoordinator", () => {
         const seen = yield* coordinator.runCurrent(threadId, (generation) =>
           Effect.succeed(generation),
         );
-        const seenUrgent = yield* coordinator.runCurrentUrgent(threadId, (generation) =>
-          Effect.succeed(generation),
-        );
-
         expect(seen).toBe(live);
-        expect(seenUrgent).toBe(live);
-      }),
-    );
-  });
-
-  it("orders urgent control-plane work after the current lifecycle owner releases", async () => {
-    await Effect.runPromise(
-      Effect.gen(function* () {
-        const coordinator = makeProviderLifecycleCoordinator();
-        const release = yield* Deferred.make<void>();
-        const entered = yield* Deferred.make<void>();
-        const urgentAttempted = yield* Deferred.make<void>();
-        const order: string[] = [];
-        const holder = yield* coordinator
-          .run(threadId, () =>
-            Deferred.succeed(entered, undefined).pipe(Effect.andThen(Deferred.await(release))),
-          )
-          .pipe(Effect.forkChild);
-
-        yield* Deferred.await(entered);
-        order.push("mutation");
-        const urgent = yield* Deferred.succeed(urgentAttempted, undefined).pipe(
-          Effect.andThen(
-            coordinator.runCurrentUrgent(threadId, () => Effect.sync(() => order.push("urgent"))),
-          ),
-          Effect.forkChild,
-        );
-        yield* Deferred.await(urgentAttempted);
-        expect(order).toEqual(["mutation"]);
-
-        yield* Deferred.succeed(release, undefined);
-        yield* Fiber.join(holder);
-        yield* Fiber.join(urgent);
-        expect(order).toEqual(["mutation", "urgent"]);
       }),
     );
   });

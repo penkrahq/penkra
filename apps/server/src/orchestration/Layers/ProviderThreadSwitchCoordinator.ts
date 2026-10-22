@@ -182,7 +182,7 @@ export const makeProviderThreadSwitchCoordinator = Effect.gen(function* () {
       // Release the old process before copying its files. Nothing is written to
       // the row until admission commits the selection and folder together.
       yield* provider
-        .stopSession({ threadId: input.command.threadId })
+        .stop({ threadId: input.command.threadId, reason: "selection-change" })
         .pipe(
           Effect.mapError((cause) =>
             failure("Could not stop the source provider session before switching.", cause),
@@ -208,7 +208,7 @@ export const makeProviderThreadSwitchCoordinator = Effect.gen(function* () {
       }
     } else if (!nativeSteer && selection.changed) {
       yield* provider
-        .stopSession({ threadId: input.command.threadId })
+        .stop({ threadId: input.command.threadId, reason: "selection-change" })
         .pipe(
           Effect.mapError((cause) =>
             failure("Could not restart the provider for the selected model.", cause),

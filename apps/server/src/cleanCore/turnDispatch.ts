@@ -80,7 +80,7 @@ export const TurnDispatchLive = Layer.effect(
           let reconstruct = false;
           if (!input.nativeSteer) {
             if (session && session.runtimeMode !== runtimeMode) {
-              yield* provider.stopSession({ threadId });
+              yield* provider.stop({ threadId, reason: "runtime-mode-change" });
               session = undefined;
             }
             if (!session) {
@@ -90,7 +90,7 @@ export const TurnDispatchLive = Layer.effect(
                 { stateDir: config.stateDir, sql, providerLaunchResolver: launchResolver },
               );
               reconstruct = runtime.requiresReconstruction;
-              yield* provider.startSession(threadId, {
+              yield* provider.ensure(threadId, {
                 threadId,
                 provider: selected.harness,
                 modelSelection: input.modelSelection,
