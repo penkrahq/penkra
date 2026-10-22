@@ -114,6 +114,7 @@
     },
     "claudeAgent": {
       "version": "2.1.307",
+      "sdkVersion": "0.3.307",
       "adapterVersion": "1",
       "protocolVersion": "claude-agent-sdk-0.3",
       "artifacts": {
@@ -225,6 +226,7 @@
     },
     "opencode": {
       "version": "1.19.3",
+      "sdkVersion": "1.19.3",
       "adapterVersion": "1",
       "protocolVersion": "opencode-http-v1",
       "artifacts": {

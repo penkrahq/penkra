@@ -4,6 +4,7 @@ import { EventEmitter } from "node:events";
 import { mkdir, rm, writeFile } from "node:fs/promises";
 import * as Path from "node:path";
 import { StringDecoder } from "node:string_decoder";
+import type { ClientRequest as PinnedCodexRequest } from "./provider/generated/codex/ClientRequest.ts";
 
 import {
   EventId,
@@ -3707,7 +3708,7 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
   private async sendRequest<TResponse>(
     transport: CodexAccountProcess,
     ownerThreadId: ThreadId | null,
-    method: string,
+    method: PinnedCodexRequest["method"],
     params: unknown,
     timeoutMs = 20_000,
     signal?: AbortSignal,

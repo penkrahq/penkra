@@ -43,7 +43,11 @@ const runtime = Schema.Struct({
 });
 const manifest = Schema.Struct({
   schemaVersion: Schema.Literal(1),
-  providers: Schema.Struct({ codex: runtime, claudeAgent: runtime, opencode: runtime }),
+  providers: Schema.Struct({
+    codex: runtime,
+    claudeAgent: Schema.Struct({ ...runtime.fields, sdkVersion: version }),
+    opencode: Schema.Struct({ ...runtime.fields, sdkVersion: version }),
+  }),
 });
 export type ProviderRuntimeLock = typeof manifest.Type;
 

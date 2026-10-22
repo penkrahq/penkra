@@ -1,5 +1,7 @@
 import { describe, expect, it } from "vitest";
 import lock from "../../../../providerRuntimes.json" with { type: "json" };
+import serverPackage from "../../package.json" with { type: "json" };
+import scriptsPackage from "../../../../scripts/package.json" with { type: "json" };
 import {
   PINNED_PROVIDER_KINDS,
   PINNED_PROVIDER_RUNTIMES,
@@ -9,6 +11,15 @@ import {
 } from "./pinnedProviderRuntimes.ts";
 
 describe("pinned provider runtime manifest", () => {
+  it("keeps the SDK dependencies exact and paired with the release manifest", () => {
+    expect(serverPackage.dependencies["@anthropic-ai/claude-agent-sdk"]).toBe(
+      lock.providers.claudeAgent.sdkVersion,
+    );
+    expect(scriptsPackage.dependencies["@anthropic-ai/claude-agent-sdk"]).toBe(
+      lock.providers.claudeAgent.sdkVersion,
+    );
+    expect(serverPackage.dependencies["@opencode-ai/sdk"]).toBe(lock.providers.opencode.sdkVersion);
+  });
   it("locks an exact version and official SHA-256 artifact for every supported target", () => {
     expect(PINNED_PROVIDER_RUNTIMES).toEqual(lock);
     for (const provider of PINNED_PROVIDER_KINDS) {
