@@ -635,18 +635,11 @@ function sessionErrorMessage(error: unknown): string {
 }
 
 function isOpenCodeContextOverflowError(error: unknown): boolean {
-  if (!error || typeof error !== "object") {
-    return false;
-  }
-  if ("name" in error && error.name === "ContextOverflowError") {
-    return true;
-  }
-  const data = "data" in error && error.data && typeof error.data === "object" ? error.data : null;
-  const message = data && "message" in data ? data.message : undefined;
   return (
-    typeof message === "string" &&
-    /context|token/i.test(message) &&
-    /overflow|too large|maximum context|context length|size limit/i.test(message)
+    typeof error === "object" &&
+    error !== null &&
+    "name" in error &&
+    error.name === "ContextOverflowError"
   );
 }
 
@@ -2347,7 +2340,12 @@ export function makeOpenCodeAdapterLive(options?: OpenCodeAdapterLiveOptions) {
               break;
             }
             const expectedAbortTurnId = context.pendingAbortErrorTurnId;
-            if (expectedAbortTurnId !== undefined && /abort/i.test(message)) {
+            if (
+              expectedAbortTurnId !== undefined &&
+              context.activeTurnId === expectedAbortTurnId &&
+              event.properties.sessionID === context.openCodeSessionId &&
+              event.properties.error?.name === "MessageAbortedError"
+            ) {
               // OpenCode reports a user-requested session.abort as a session
               // error before the abort RPC has actually finished. Suppress the
               // echo here, but let interruptTurn publish the terminal event
