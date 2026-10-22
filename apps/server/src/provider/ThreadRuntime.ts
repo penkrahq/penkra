@@ -61,7 +61,28 @@ export function makeThreadRuntime() {
   const lifecycle = makeProviderLifecycleCoordinator();
   const owners = new Map<ThreadId, RuntimeOwner>();
   const closedProfileRoots = new Set<string>();
+  const idleJobs = new Map<
+    ThreadId,
+    { timer?: ReturnType<typeof setTimeout>; running?: Promise<void> }
+  >();
   let closing = false;
+
+  const cancelIdle = (threadId: ThreadId): void => {
+    const job = idleJobs.get(threadId);
+    if (job?.timer !== undefined) {
+      clearTimeout(job.timer);
+      idleJobs.delete(threadId);
+    }
+  };
+  const waitIdle = (threadId: ThreadId): Effect.Effect<void> =>
+    Effect.promise(() => idleJobs.get(threadId)?.running ?? Promise.resolve());
+  const quiesceIdle = Effect.suspend(() => {
+    closing = true;
+    for (const threadId of idleJobs.keys()) cancelIdle(threadId);
+    return Effect.forEach([...idleJobs.keys()], waitIdle, { concurrency: "unbounded" }).pipe(
+      Effect.asVoid,
+    );
+  });
 
   const transition = (
     threadId: ThreadId,
@@ -369,6 +390,25 @@ export function makeThreadRuntime() {
     startNative,
     dispose,
     cancelStart,
+    cancelIdle,
+    waitIdle,
+    hasIdleJob: (threadId: ThreadId) => idleJobs.has(threadId),
+    quiesceIdle,
+    scheduleIdle: (threadId: ThreadId, delayMs: number, operation: Effect.Effect<void>) => {
+      cancelIdle(threadId);
+      if (closing || delayMs <= 0 || idleJobs.has(threadId)) return;
+      const job: { timer?: ReturnType<typeof setTimeout>; running?: Promise<void> } = {};
+      job.timer = setTimeout(() => {
+        delete job.timer;
+        // The job remains owned until native disposal and its persistence settle.
+        // Shutdown joins it before the database or event consumer can close.
+        job.running = Effect.runPromise(operation).finally(() => {
+          if (idleJobs.get(threadId) === job) idleJobs.delete(threadId);
+        });
+      }, delayMs);
+      job.timer.unref();
+      idleJobs.set(threadId, job);
+    },
     retireProfile: (profileRoot: string) =>
       Effect.sync(() => {
         closedProfileRoots.add(profileRoot);
@@ -391,19 +431,23 @@ export function makeThreadRuntime() {
       const threadIds = [...owners]
         .filter(([, owner]) => owner.state !== "none" || owner.start !== undefined)
         .map(([threadId]) => threadId);
-      return Effect.forEach(
-        threadIds,
-        (threadId) =>
-          cancelStart(threadId, "app-quit").pipe(
-            Effect.catchCause((cause) =>
-              Effect.logWarning("provider.session.shutdown_cancel_failed", {
-                threadId,
-                cause: Cause.pretty(cause),
-              }),
-            ),
-          ),
-        { concurrency: "unbounded" },
-      ).pipe(Effect.as(threadIds));
+      return quiesceIdle.pipe(
+        Effect.andThen(
+          Effect.forEach(
+            threadIds,
+            (threadId) =>
+              cancelStart(threadId, "app-quit").pipe(
+                Effect.catchCause((cause) =>
+                  Effect.logWarning("provider.session.shutdown_cancel_failed", {
+                    threadId,
+                    cause: Cause.pretty(cause),
+                  }),
+                ),
+              ),
+            { concurrency: "unbounded" },
+          ).pipe(Effect.as(threadIds)),
+        ),
+      );
     }),
     closeProcesses: (adapters: ReadonlyArray<ProviderAdapterShape<ProviderAdapterError>>) =>
       Effect.gen(function* () {

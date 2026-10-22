@@ -452,3 +452,19 @@ account-pool fixture. Its explicit auto-close control now sends `thread/closed`
 after unsubscribe for the shutdown test; the separate held-close test still
 requires an explicit release. No product deadline was weakened to pass the test.
 These are controlled fixtures, not Production disconnection or visual-QA evidence.
+
+## 10. Idle ownership evidence (2026-10-22)
+
+The owner now retains each scheduled or running idle job until disposal and its
+binding write settle. Quiescing cancels waiting timers and joins jobs that already
+fired. New work waits for an already-started idle disposal, rather than invalidating
+its writes through a second set of generations. The service's idle-generation map,
+in-flight promise map, displaced-stop bookkeeping, and detached stop launcher were
+deleted. The approved Claude-only 30-minute resource policy is unchanged.
+
+Production checks the canonical thread's queue, active turn and open questions at
+idle disposal, in one thread-keyed query. This query does not run per streaming
+delta. Background native tasks and the durable native cursor remain eligibility
+guards. The existing service idle-race tests passed after the refactor; a controlled
+owner test holds idle disposal open and verifies shutdown waits for its release.
+Its fake clock replaces only timeout APIs, leaving Effect's scheduler live.

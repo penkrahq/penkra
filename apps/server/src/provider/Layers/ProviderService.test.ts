@@ -4424,6 +4424,37 @@ const boundedFanout = makeProviderServiceLayer({
   runtimeEventBufferCapacity: 1,
 });
 const shutdownOwnership = makeProviderServiceLayer();
+const idleEligibilityChecked = Effect.runSync(Deferred.make<void>());
+const ineligibleIdle = makeProviderServiceLayer({
+  threadSessionIdleMs: 1,
+  canIdleStop: () => Deferred.succeed(idleEligibilityChecked, undefined).pipe(Effect.as(false)),
+});
+ineligibleIdle.layer("ProviderServiceLive canonical idle eligibility", (it) => {
+  it.effect("retains a ready runtime when canonical pending work prevents idle disposal", () =>
+    Effect.gen(function* () {
+      const provider = yield* ProviderService;
+      const threadId = asThreadId("canonical-work-keeps-runtime");
+      yield* provider.ensure(threadId, {
+        threadId,
+        provider: "claudeAgent",
+        runtimeMode: "full-access",
+      });
+      yield* ineligibleIdle.claude.waitForRuntimeSubscribers();
+      ineligibleIdle.claude.emit({
+        type: "session.state.changed",
+        eventId: asEventId("canonical-idle-ready"),
+        provider: "claudeAgent",
+        threadId,
+        createdAt: new Date().toISOString(),
+        payload: { state: "ready" },
+      });
+      yield* Deferred.await(idleEligibilityChecked);
+      yield* provider.listSessions();
+      assert.equal(ineligibleIdle.claude.stopSession.mock.calls.length, 0);
+      assert.equal(yield* ineligibleIdle.claude.hasSession(threadId), true);
+    }),
+  );
+});
 const connectionOwnership = makeProviderServiceLayer();
 connectionOwnership.layer("ProviderServiceLive Connection ownership", (it) => {
   it.effect("disconnects only the selected Connection's live threads", () =>
