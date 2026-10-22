@@ -8,6 +8,52 @@ import { PassThrough } from "node:stream";
 import { query, type SDKMessage, type SDKUserMessage } from "@anthropic-ai/claude-agent-sdk";
 import { it } from "vitest";
 import { contractFixture, listen } from "./support.ts";
+import { Cause } from "effect";
+import { isClaudeMissingResumeConversationCause } from "../../src/provider/claudeErrorClassifier.ts";
+
+it("classifies the pinned SDK's real missing-resume error", async () => {
+  const fixture = await contractFixture("claudeAgent");
+  const sessionId = randomUUID();
+  const runtime = query({
+    prompt: "hello",
+    options: {
+      cwd: fixture.root,
+      pathToClaudeCodeExecutable: fixture.binary,
+      resume: sessionId,
+      settingSources: [],
+      env: fixture.environment("source", {
+        ANTHROPIC_API_KEY: "contract-only",
+        CLAUDE_CONFIG_DIR: path.join(fixture.root, "claude-config"),
+        CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: "1",
+      }),
+      spawnClaudeCodeProcess: (options) => {
+        assert(options.env);
+        return fixture.startProcess(options.args, fixture.root, options.env);
+      },
+    },
+  });
+  try {
+    const messages: SDKMessage[] = [];
+    let failure: unknown;
+    try {
+      for await (const message of runtime) messages.push(message);
+    } catch (error) {
+      failure = error;
+    }
+    const result = messages.find((message) => message.type === "result");
+    assert(result?.type === "result" && result.subtype === "error_during_execution");
+    assert.deepEqual(result.errors, [`No conversation found with session ID: ${sessionId}`]);
+    assert(failure instanceof Error);
+    assert.equal(
+      failure.message,
+      `Claude Code returned an error result: No conversation found with session ID: ${sessionId}`,
+    );
+    assert.equal(isClaudeMissingResumeConversationCause(Cause.fail(failure)), true);
+  } finally {
+    runtime.close();
+    await fixture.close();
+  }
+});
 
 it("uses the pinned SDK/CLI for catalogs, turns, questions, interruption and a later turn", async () => {
   const fixture = await contractFixture("claudeAgent");
@@ -302,6 +348,10 @@ it("uses the pinned SDK/CLI for catalogs, turns, questions, interruption and a l
       "The pinned CLI must acknowledge the interrupt with its typed receipt.",
     );
     assert.equal(interrupted.type, "result");
+    assert.equal(
+      interrupted.type === "result" ? interrupted.terminal_reason : undefined,
+      "aborted_streaming",
+    );
     const laterOffset = messages.length;
     phase = "later-turn";
     send("Reply normally again.");

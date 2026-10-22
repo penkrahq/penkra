@@ -571,6 +571,35 @@ describe("Claude Penkra harness policy", () => {
 });
 
 describe("ClaudeAdapterLive", () => {
+  for (const detail of ["Failed to interrupt the remote worker", "The cancel operation failed"])
+    it.effect(`does not classify an ordinary result error by a verb: ${detail}`, () => {
+      const harness = makeHarness();
+      return Effect.gen(function* () {
+        const adapter = yield* ClaudeAdapter;
+        const events = yield* adapter.streamEvents.pipe(
+          Stream.takeUntil((event) => event.type === "turn.completed"),
+          Stream.runCollect,
+          Effect.forkChild,
+        );
+        yield* adapter.startSession({
+          threadId: THREAD_ID,
+          provider: "claudeAgent",
+          runtimeMode: "full-access",
+        });
+        yield* adapter.sendTurn({ threadId: THREAD_ID, input: "hello", attachments: [] });
+        harness.query.emit({
+          type: "result",
+          subtype: "error_during_execution",
+          is_error: true,
+          errors: [detail],
+          session_id: "native",
+          uuid: "result-error",
+        } as unknown as SDKMessage);
+        const result = (yield* Fiber.join(events)).find((event) => event.type === "turn.completed");
+        assert.equal(result?.type, "turn.completed");
+        if (result?.type === "turn.completed") assert.equal(result.payload.state, "failed");
+      }).pipe(Effect.provide(harness.layer));
+    });
   for (const detail of [
     "Task file not found",
     "Remote stream closed",
@@ -4028,6 +4057,7 @@ await agent("Draft the spec", { label: "delta-agent", phase: "Two" });
         is_error: false,
         errors: ["Error: Request was aborted."],
         stop_reason: "tool_use",
+        terminal_reason: "aborted_streaming",
         session_id: "sdk-session-abort",
         uuid: "result-abort",
       } as unknown as SDKMessage);
@@ -4104,6 +4134,7 @@ await agent("Draft the spec", { label: "delta-agent", phase: "Two" });
         errors: ["Error: Request was aborted."],
         stop_reason: "tool_use",
         session_id: "sdk-session-abort",
+        terminal_reason: "aborted_streaming",
         uuid: "result-abort",
       } as unknown as SDKMessage);
 
@@ -4293,7 +4324,9 @@ await agent("Draft the spec", { label: "delta-agent", phase: "Two" });
       });
 
       harness.query.fail(
-        new Error("No conversation found with session ID: 44c0b890-8775-4f30-b47f-0709d29cc9e1"),
+        new Error(
+          "Claude Code returned an error result: No conversation found with session ID: 44c0b890-8775-4f30-b47f-0709d29cc9e1",
+        ),
       );
 
       const runtimeEvents = Array.from(yield* Fiber.join(runtimeEventsFiber));

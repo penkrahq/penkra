@@ -88,6 +88,17 @@ import {
 
 import { renderPenkraHostPolicy } from "../../agentGateway/harnessPolicy.ts";
 import {
+  CLAUDE_BENIGN_TERMINATION_MESSAGE,
+  interruptionMessageFromClaudeCause,
+  isClaudeBenignTerminationCause,
+  isClaudeInterruptedCause,
+  isClaudeMissingResumeConversationCause,
+  messageFromClaudeStreamCause,
+  normalizeClaudeUserVisibleErrorMessage,
+  sanitizeClaudeDisplayText,
+  turnStatusFromResult,
+} from "../claudeErrorClassifier.ts";
+import {
   AgentGatewayCredentials,
   type AgentGatewayCredentialsShape,
 } from "../../agentGateway/Services/AgentGatewayCredentials.ts";
@@ -575,94 +586,6 @@ function toError(cause: unknown, fallback: string): Error {
   return cause instanceof Error ? cause : new Error(toMessage(cause, fallback));
 }
 
-function normalizeClaudeStreamMessages(cause: Cause.Cause<Error>): ReadonlyArray<string> {
-  const errors = Cause.prettyErrors(cause)
-    .map((error) => error.message.trim())
-    .filter((message) => message.length > 0);
-  if (errors.length > 0) {
-    return errors;
-  }
-
-  const squashed = toMessage(Cause.squash(cause), "").trim();
-  return squashed.length > 0 ? [squashed] : [];
-}
-
-function isClaudeInterruptedMessage(message: string): boolean {
-  const normalized = message.toLowerCase();
-  return (
-    normalized.includes("all fibers interrupted without error") ||
-    normalized.includes("request was aborted") ||
-    normalized.includes("interrupted by user")
-  );
-}
-
-function isClaudeInterruptedCause(cause: Cause.Cause<Error>): boolean {
-  return (
-    Cause.hasInterruptsOnly(cause) ||
-    normalizeClaudeStreamMessages(cause).some(isClaudeInterruptedMessage)
-  );
-}
-
-function messageFromClaudeStreamCause(cause: Cause.Cause<Error>, fallback: string): string {
-  return normalizeClaudeStreamMessages(cause)[0] ?? fallback;
-}
-
-function interruptionMessageFromClaudeCause(cause: Cause.Cause<Error>): string {
-  const message = messageFromClaudeStreamCause(cause, "Claude runtime interrupted.");
-  return isClaudeInterruptedMessage(message) ? "Claude runtime interrupted." : message;
-}
-
-// SIGINT (130) and SIGTERM (143) are graceful stop requests, not crashes. When the
-// Claude subprocess receives one from outside our own stop path (an idle reaper, the
-// OS, or a parent process tearing the process group down), the SDK stream throws
-// "Claude Code process exited with code 143". Treat that as a suspend-and-resume,
-// not a hard failure with an error toast. SIGKILL (137) is intentionally excluded:
-// it usually signals an OOM/forced kill that is worth surfacing.
-const CLAUDE_BENIGN_TERMINATION_EXIT_CODES = new Set([130, 143]);
-
-const CLAUDE_BENIGN_TERMINATION_MESSAGE =
-  "Claude runtime stopped and will resume on your next message.";
-
-function isClaudeBenignTerminationMessage(message: string): boolean {
-  const normalized = message.toLowerCase();
-  const exitCode = normalized.match(/exited with code (\d+)/)?.[1];
-  if (exitCode !== undefined) {
-    return CLAUDE_BENIGN_TERMINATION_EXIT_CODES.has(Number.parseInt(exitCode, 10));
-  }
-  return normalized.includes("signal sigterm") || normalized.includes("signal sigint");
-}
-
-function isClaudeBenignTerminationCause(cause: Cause.Cause<Error>): boolean {
-  return normalizeClaudeStreamMessages(cause).some(isClaudeBenignTerminationMessage);
-}
-
-function isClaudeMissingResumeConversationCause(cause: Cause.Cause<Error>): boolean {
-  return normalizeClaudeStreamMessages(cause).some((message) =>
-    message.toLowerCase().includes("no conversation found with session id"),
-  );
-}
-
-function resultErrorsText(result: SDKResultMessage): string {
-  return "errors" in result && Array.isArray(result.errors)
-    ? result.errors.join(" ").toLowerCase()
-    : "";
-}
-
-function isInterruptedResult(result: SDKResultMessage): boolean {
-  const errors = resultErrorsText(result);
-  if (errors.includes("interrupt")) {
-    return true;
-  }
-
-  return (
-    result.subtype === "error_during_execution" &&
-    result.is_error === false &&
-    (errors.includes("request was aborted") ||
-      errors.includes("interrupted by user") ||
-      errors.includes("aborted"))
-  );
-}
-
 function hasPendingUserInterrupt(context: ClaudeSessionContext): boolean {
   const activeTurnId = context.turnState?.turnId;
   return activeTurnId !== undefined && context.interruptRequestedTurnId === activeTurnId;
@@ -1096,23 +1019,6 @@ function buildUserMessageEffect(
   });
 }
 
-function turnStatusFromResult(result: SDKResultMessage): ProviderRuntimeTurnStatus {
-  if (result.subtype === "success") {
-    // The SDK can finish normally while the API request failed (for example,
-    // insufficient credit). The envelope subtype alone is not turn success.
-    return result.is_error ? "failed" : "completed";
-  }
-
-  const errors = resultErrorsText(result);
-  if (isInterruptedResult(result)) {
-    return "interrupted";
-  }
-  if (errors.includes("cancel")) {
-    return "cancelled";
-  }
-  return "failed";
-}
-
 function nativeProviderRefs(
   context: ClaudeSessionContext,
   options?: {
@@ -1153,55 +1059,6 @@ function extractAssistantTextBlocks(message: SDKMessage): Array<string> {
   }
 
   return fragments;
-}
-
-function sanitizeClaudeDisplayText(text: string): string {
-  if (text.length === 0) {
-    return text;
-  }
-
-  const lines = text.split(/\r?\n/);
-  const filteredLines = lines.filter((line) => {
-    const normalized = line.trim().toLowerCase();
-    return !(
-      normalized.startsWith("[ede_diagnostic]") &&
-      normalized.includes("result_type=") &&
-      normalized.includes("stop_reason=")
-    );
-  });
-
-  if (
-    filteredLines.length === 0 &&
-    lines.some((line) => line.trim().toLowerCase().startsWith("[ede_diagnostic]"))
-  ) {
-    return "";
-  }
-
-  return filteredLines.join("\n");
-}
-
-function normalizeClaudeUserVisibleErrorMessage(
-  text: string | undefined,
-  status: ProviderRuntimeTurnStatus,
-): string | undefined {
-  if (typeof text !== "string") {
-    return undefined;
-  }
-
-  const sanitized = sanitizeClaudeDisplayText(text).trim();
-  if (sanitized.length === 0) {
-    return undefined;
-  }
-
-  if (sanitized === "User interrupted response.") {
-    return status === "interrupted" ? "Claude runtime interrupted." : undefined;
-  }
-
-  if (/^[\]})"'`.,;:!?_-]+$/.test(sanitized)) {
-    return status === "interrupted" ? "Claude runtime interrupted." : "Claude turn failed.";
-  }
-
-  return sanitized;
 }
 
 function extractContentBlockText(block: unknown): string {
@@ -4064,7 +3921,7 @@ function makeClaudeAdapter(options?: ClaudeAdapterLiveOptions) {
                 interruptionMessageFromClaudeCause(exit.cause),
               );
             }
-          } else if (isClaudeBenignTerminationCause(exit.cause)) {
+          } else if (isClaudeBenignTerminationCause(exit.cause, context.processOwner.process)) {
             // External SIGTERM/SIGINT: a graceful stop, not a crash. Suspend the turn
             // without an error toast so the session resumes on the next message.
             // Marker for how often the expensive path fires: the next message on
