@@ -5,6 +5,7 @@ export * from "./cleanCore";
 export * from "./ipc";
 export * from "./provider";
 export * from "./providerDiscovery";
+export * from "./providerCatalog";
 export * from "./providerRuntime";
 export * from "./providerConnections";
 export * from "./model";
