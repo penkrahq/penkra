@@ -125,11 +125,12 @@ const OpenCodeRuntimeTestDouble: OpenCodeRuntimeShape = {
         },
       },
     }) as unknown as ReturnType<OpenCodeRuntimeShape["createOpenCodeSdkClient"]>,
-  loadOpenCodeInventory: () =>
+  loadOpenCodeProviderList: () =>
     Effect.fail(
       new OpenCodeRuntimeError({
-        operation: "loadOpenCodeInventory",
-        detail: "OpenCodeRuntimeTestDouble.loadOpenCodeInventory should not be used in this test",
+        operation: "loadOpenCodeProviderList",
+        detail:
+          "OpenCodeRuntimeTestDouble.loadOpenCodeProviderList should not be used in this test",
         cause: null,
       }),
     ),

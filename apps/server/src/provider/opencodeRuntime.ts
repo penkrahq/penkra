@@ -13,9 +13,7 @@ import {
 
 import type { ChatAttachment, RuntimeMode, ProviderConnectionId } from "@penkra/contracts";
 import {
-  type ConsoleState,
   createOpencodeClient,
-  type Agent,
   type FilePartInput,
   type OpencodeClient,
   type PermissionRuleset,
@@ -149,12 +147,6 @@ export interface OpenCodeCommandResult {
   readonly code: number;
 }
 
-export interface OpenCodeInventory {
-  readonly providerList: ProviderListResponse;
-  readonly agents: ReadonlyArray<Agent>;
-  readonly consoleState: ConsoleState | null;
-}
-
 export interface ParsedOpenCodeModelSlug {
   readonly providerID: string;
   readonly modelID: string;
@@ -230,9 +222,9 @@ export interface OpenCodeRuntimeShape {
     readonly cliSpec?: OpenCodeCompatibleCliSpec;
     readonly serverPassword?: string;
   }) => OpencodeClient;
-  readonly loadOpenCodeInventory: (
+  readonly loadOpenCodeProviderList: (
     client: OpencodeClient,
-  ) => Effect.Effect<OpenCodeInventory, OpenCodeRuntimeError>;
+  ) => Effect.Effect<ProviderListResponse, OpenCodeRuntimeError>;
   readonly loadOpenCodeCredentialProviderIDs: (
     client: OpencodeClient,
     cliSpec?: OpenCodeCompatibleCliSpec,
@@ -1088,7 +1080,7 @@ const makeOpenCodeRuntime = (options?: OpenCodeRuntimeLiveOptions) =>
         throwOnError: true,
       });
 
-    const loadProviders = (client: OpencodeClient) =>
+    const loadOpenCodeProviderList: OpenCodeRuntimeShape["loadOpenCodeProviderList"] = (client) =>
       runOpenCodeSdk("provider.list", () => client.provider.list()).pipe(
         Effect.filterMapOrFail(
           (list) =>
@@ -1102,40 +1094,6 @@ const makeOpenCodeRuntime = (options?: OpenCodeRuntimeLiveOptions) =>
                 ),
           (result) => result,
         ),
-      );
-
-    const loadAgents = (client: OpencodeClient) =>
-      runOpenCodeSdk("app.agents", () => client.app.agents()).pipe(
-        Effect.map((result) => result.data ?? []),
-      );
-
-    const loadOptionalAgents = (client: OpencodeClient) =>
-      loadAgents(client).pipe(
-        Effect.timeoutOption("2 seconds"),
-        Effect.map(Option.getOrElse((): ReadonlyArray<Agent> => [])),
-        Effect.catch((cause) =>
-          Effect.logDebug("OpenCode agent discovery skipped", {
-            reason: openCodeRuntimeErrorDetail(cause),
-          }).pipe(Effect.as([] as ReadonlyArray<Agent>)),
-        ),
-      );
-
-    const loadConsoleState = (client: OpencodeClient) =>
-      runOpenCodeSdk("experimental.console.get", () => client.experimental.console.get()).pipe(
-        Effect.map((result) => result.data ?? null),
-        // Console metadata is optional and should not block model discovery.
-        Effect.catch(() => Effect.succeed(null)),
-      );
-
-    const loadOpenCodeInventory: OpenCodeRuntimeShape["loadOpenCodeInventory"] = (client) =>
-      Effect.all([loadProviders(client), loadOptionalAgents(client), loadConsoleState(client)], {
-        concurrency: "unbounded",
-      }).pipe(
-        Effect.map(([providerList, agents, consoleState]) => ({
-          providerList,
-          agents,
-          consoleState,
-        })),
       );
 
     const loadOpenCodePaths = (client: OpencodeClient) =>
@@ -1191,7 +1149,7 @@ const makeOpenCodeRuntime = (options?: OpenCodeRuntimeLiveOptions) =>
       stopAll,
       runOpenCodeCommand,
       createOpenCodeSdkClient,
-      loadOpenCodeInventory,
+      loadOpenCodeProviderList,
       loadOpenCodeCredentialProviderIDs,
     } satisfies OpenCodeRuntimeShape;
   });

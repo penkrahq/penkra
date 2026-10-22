@@ -6,6 +6,8 @@ import type {
   Part,
   PermissionRequest,
   Provider,
+  ProviderListResponse,
+  ConsoleState,
   QuestionRequest,
 } from "@opencode-ai/sdk/v2";
 import { Deferred, Effect, Exit, Fiber, Layer, Scope, Stream } from "effect";
@@ -25,11 +27,7 @@ import {
   AgentGatewayCredentials,
   type AgentGatewayCredentialsShape,
 } from "../../agentGateway/Services/AgentGatewayCredentials.ts";
-import {
-  OpenCodeRuntimeError,
-  type OpenCodeInventory,
-  type OpenCodeRuntimeShape,
-} from "../opencodeRuntime.ts";
+import { OpenCodeRuntimeError, type OpenCodeRuntimeShape } from "../opencodeRuntime.ts";
 import { OpenCodeAdapter } from "../Services/OpenCodeAdapter.ts";
 import {
   makeOpenCodeAdapterLive as makeOpenCodeAdapterLiveBase,
@@ -66,6 +64,11 @@ function makeOpenCodeAdapterLive(options?: OpenCodeAdapterLiveOptions) {
 }
 
 const asThreadId = (value: string): ThreadId => ThreadId.makeUnsafe(value);
+interface OpenCodeInventory {
+  readonly providerList: ProviderListResponse;
+  readonly agents: ReadonlyArray<Agent>;
+  readonly consoleState: ConsoleState | null;
+}
 function createMockOpenCodeRuntime(options?: {
   readonly inventory?: OpenCodeInventory;
   readonly inventoryError?: OpenCodeRuntimeError;
@@ -306,15 +309,11 @@ function createMockOpenCodeRuntime(options?: {
       }),
     runOpenCodeCommand: () => unexpectedOperation("runOpenCodeCommand"),
     createOpenCodeSdkClient,
-    loadOpenCodeInventory: () =>
+    loadOpenCodeProviderList: () =>
       options?.inventoryError
         ? Effect.fail(options.inventoryError)
         : Effect.succeed(
-            options?.inventory ?? {
-              providerList: { connected: [], all: [], default: {} },
-              agents: [],
-              consoleState: null,
-            },
+            options?.inventory?.providerList ?? { connected: [], all: [], default: {} },
           ),
     loadOpenCodeCredentialProviderIDs: () => Effect.succeed([]),
   };

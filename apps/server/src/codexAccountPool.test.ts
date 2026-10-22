@@ -582,12 +582,8 @@ it.each(["codex", "opencode"] as const)(
             runtime: {
               ...runtime,
               createOpenCodeSdkClient: () => client,
-              loadOpenCodeInventory: () =>
-                Effect.succeed({
-                  providerList: { connected: [], all: [], default: {} },
-                  agents: [],
-                  consoleState: null,
-                }),
+              loadOpenCodeProviderList: () =>
+                Effect.succeed({ connected: [], all: [], default: {} }),
             },
           });
         }),

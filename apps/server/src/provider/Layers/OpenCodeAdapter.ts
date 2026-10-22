@@ -60,7 +60,6 @@ import {
 import {
   buildOpenCodePermissionRules,
   type OpenCodeCompatibleCliSpec,
-  type OpenCodeInventory,
   OPENCODE_CLI_SPEC,
   type OpenCodeRuntimeShape,
   OpenCodeRuntime,
@@ -2658,9 +2657,11 @@ export function makeOpenCodeAdapterLive(options?: OpenCodeAdapterLiveOptions) {
                           ),
                         );
                     const loadModelContextLimits = openCodeRuntime
-                      .loadOpenCodeInventory(client)
+                      .loadOpenCodeProviderList(client)
                       .pipe(
-                        Effect.map(buildOpenCodeModelContextLimitMap),
+                        Effect.map((providerList) =>
+                          buildOpenCodeModelContextLimitMap({ providerList }),
+                        ),
                         Effect.catchCause(() => Effect.succeed(new Map<string, number>())),
                       );
                     // Session creation and metadata discovery are independent once the server is up.
