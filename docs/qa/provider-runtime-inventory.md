@@ -892,3 +892,23 @@ transfer, stale existing-part reproduction, exact replacement, preserved tool
 output and native undo after old-root removal. Formatting, lint (869 warnings,
 zero errors) and workspace typecheck passed. These components and contracts do
 not yet switch the installed Production storage layout.
+
+## 28. Verified import routine
+
+The transfer routine now validates native message/part ownership, prepares
+owned tool-output and file-attachment references and snapshot trees before
+target deletion, imports through the pinned CLI, then re-exports and compares
+all messages/parts and non-location session metadata. It retains the source
+and removes its own temporary export on every exit. Native non-Git plan files
+are copied using the pinned session timestamp/slug filename and verified.
+Relocated artifact files are grouped by native session id for explicit thread
+ownership, rather than sharing content-addressed paths across threads.
+
+The real pinned contract uses this routine twice on the same warm target,
+then removes the old fixture storage and verifies readable full tool output,
+snapshot objects and native Undo. It passed (33.29 seconds). Eight focused
+filesystem/admission tests passed, including missing-file failure before any
+target deletion, plan preservation, foreign part ownership, corrupted import
+verification and message/tool file attachments. Formatting, lint (869
+warnings, zero errors) and workspace typecheck passed. Production is unchanged;
+startup, switch and delete callers are not activated by this utility alone.
