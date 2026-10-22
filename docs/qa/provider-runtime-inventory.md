@@ -730,3 +730,17 @@ passed (24.76 seconds native test time together), covering concurrent gateway
 attribution, images/tools/history, lifecycle failures, shared-process death,
 and a healthy independent process. Formatting, typechecking and lint (870
 warnings, zero errors) passed. Shared conversation storage remains unchanged.
+
+## 20. Codex session ownership errors are typed
+
+The manager's own missing-session and closed-session outcomes are explicit
+Error classes. CodexAdapter maps those classes (and the existing stopped-request
+class), not provider wording. A failed remote tool mentioning `unknown session`,
+`session is closed`, or `stdin closed` remains an ordinary request failure; it
+cannot cause Penkra to infer that its own session disappeared.
+
+The changed adapter tests exercise all three misleading messages and the typed
+manager outcome. The focused adapter/manager run passed 171 tests, with the
+single pre-existing real-account test remaining opt-in. Formatting, lint (870
+warnings, zero errors), and workspace typecheck passed. No provider protocol or
+Production process was changed by this local checkpoint.

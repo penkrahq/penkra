@@ -102,6 +102,18 @@ export class CodexSessionStoppedRequestError extends Error {
   }
 }
 
+export class CodexSessionNotFoundError extends Error {
+  constructor(readonly threadId: ThreadId) {
+    super(`Unknown session for thread: ${threadId}`);
+  }
+}
+
+export class CodexSessionClosedError extends Error {
+  constructor(readonly threadId: ThreadId) {
+    super(`Session is closed for thread: ${threadId}`);
+  }
+}
+
 export function recordCodexCapabilityPreflightFailure(input: {
   readonly stopping: boolean;
   readonly threadId: ThreadId;
@@ -2304,14 +2316,12 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
   private requireSession(threadId: ThreadId): CodexSessionContext {
     const context = this.sessions.get(threadId);
     if (!context) {
-      throw new Error(`Unknown session for thread: ${threadId}`);
+      throw new CodexSessionNotFoundError(threadId);
     }
 
-    // "Session is closed" is the phrase CodexAdapter maps to the typed
-    // recoverable session error. A failed turn may leave a healthy process with
-    // status "error", so only transport/process health controls routability.
+    // A failed turn can leave a healthy process; transport health owns routing.
     if (!this.isContextRoutable(context)) {
-      throw new Error(`Session is closed for thread: ${threadId}`);
+      throw new CodexSessionClosedError(threadId);
     }
 
     return context;
