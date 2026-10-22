@@ -10,6 +10,7 @@ import { it } from "vitest";
 import { ThreadId } from "@penkra/contracts";
 import type { Part } from "@opencode-ai/sdk/v2";
 import { relocateOpenCodeToolOutputFiles } from "../../src/provider/openCodeToolOutputFiles.ts";
+import { preserveOpenCodeNativeSnapshots } from "../../src/provider/openCodeNativeSnapshots.ts";
 import { makeAgentGatewaySessionRegistry } from "../../src/agentGateway/Layers/AgentGatewaySessionRegistry.ts";
 import {
   PENKRA_EXEC_COMMAND_DESCRIPTION,
@@ -32,6 +33,7 @@ interface NativeSession {
   projectID?: string;
 }
 interface NativePart {
+  id?: string;
   type: string;
   snapshot?: string;
   hash?: string;
@@ -466,6 +468,27 @@ export const Proof = async () => ({tool:{proof:{description:'Return the native s
       fixture.signal,
     );
     assert.deepEqual(liveTarget, updated.messages);
+    // Import inserts new rows, but it does not update a part already present
+    // in a previously used Connection. Prove the replacement boundary too.
+    const sourceUser = updated.messages.find((message) => message.info.role === "user");
+    const sourceText = sourceUser?.parts.find((part) => part.type === "text");
+    assert(sourceUser?.info.id && sourceText?.id);
+    await api(
+      `/session/${source.session.id}/message/${sourceUser.info.id}/part/${sourceText.id}`,
+      source.directory,
+      { ...sourceText, text: "Updated existing native part." },
+      "PATCH",
+    );
+    const changedPart = JSON.parse(
+      (await fixture.command(["export", source.session.id], source.directory, env)).stdout,
+    ) as ExportedSession;
+    await writeFile(file, JSON.stringify(changedPart));
+    await fixture.command(["import", file], target, targetEnv);
+    const retainedOldPart = JSON.parse(
+      (await fixture.command(["export", source.session.id], target, targetEnv)).stdout,
+    ) as ExportedSession;
+    assert.notDeepEqual(retainedOldPart.messages, changedPart.messages);
+    assert.deepEqual(retainedOldPart.messages, updated.messages);
     await fixture.command(["--pure", "session", "delete", source.session.id], target, targetEnv);
     assert.equal(
       (
@@ -481,6 +504,15 @@ export const Proof = async () => ({tool:{proof:{description:'Return the native s
       { method: "DELETE", signal: fixture.signal },
     );
     assert.equal(repeatedDelete.status, 404);
+    await fixture.command(["import", file], target, targetEnv);
+    const replacedPart = await nativeJson<NativeMessage[]>(
+      targetServer.origin,
+      `/session/${source.session.id}/message`,
+      target,
+      fixture.signal,
+    );
+    assert.deepEqual(replacedPart, changedPart.messages);
+    await fixture.command(["--pure", "session", "delete", source.session.id], target, targetEnv);
     await fixture.stop(targetServer.child);
     assert.equal(
       await api(`/session/${source.session.id}`, source.directory, undefined, "DELETE"),
@@ -516,22 +548,17 @@ export const Proof = async () => ({tool:{proof:{description:'Return the native s
     await writeFile(file, JSON.stringify(preserved));
     await fixture.command(["import", file], source.directory, preservedEnv);
     const targetSnapshot = path.join(preservedEnv.XDG_DATA_HOME!, "opencode", snapshotRelative);
-    await mkdir(path.dirname(targetSnapshot), { recursive: true });
-    await promisify(execFile)("git", ["init", "--bare", "--quiet", targetSnapshot], {
+    const snapshotCopy = {
+      parts: exported.messages.flatMap((message) => message.parts) as Part[],
+      projectID: exported.info.projectID!,
+      worktree: source.directory,
+      sourceDataRoot: path.join(env.XDG_DATA_HOME!, "opencode"),
+      targetDataRoot: path.join(preservedEnv.XDG_DATA_HOME!, "opencode"),
+      env: preservedEnv,
       signal: fixture.signal,
-    });
-    await promisify(execFile)(
-      "git",
-      [
-        "--git-dir",
-        targetSnapshot,
-        "fetch",
-        "--no-write-fetch-head",
-        sourceSnapshot,
-        ...new Set(snapshotHashes),
-      ],
-      { signal: fixture.signal },
-    );
+    };
+    await preserveOpenCodeNativeSnapshots(snapshotCopy);
+    await preserveOpenCodeNativeSnapshots(snapshotCopy);
     const preservedRoundtrip = JSON.parse(
       (await fixture.command(["export", source.session.id], source.directory, preservedEnv)).stdout,
     ) as ExportedSession;
