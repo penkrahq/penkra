@@ -81,6 +81,9 @@ describe("OpenCode verified import", () => {
           deleteTarget: async () => {
             deletes++;
           },
+          exportConversation: async () => {
+            throw new Error("Must not export");
+          },
           command: async () => {
             throw new Error("Must not import");
           },
@@ -116,6 +119,10 @@ describe("OpenCode verified import", () => {
             stdout: args[1] === "export" ? JSON.stringify(imported) : "",
           };
         },
+        exportConversation: async () => {
+          calls.push("export");
+          return imported!;
+        },
       });
       expect(calls).toEqual(["delete", "import", "export"]);
       expect(await readFile(path.join(root, "target", "plans", "1-plan.md"), "utf8")).toBe(
@@ -140,6 +147,7 @@ describe("OpenCode verified import", () => {
           env: {},
           signal: new AbortController().signal,
           deleteTarget: async () => {},
+          exportConversation: async () => corrupted,
           command: async (args) => ({
             code: 0,
             stderr: "",

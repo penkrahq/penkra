@@ -71,6 +71,7 @@ export async function importOpenCodeConversation(input: {
   readonly signal: AbortSignal;
   readonly deleteTarget: () => Promise<void>;
   readonly command: (args: string[]) => Promise<{ stdout: string; stderr: string; code: number }>;
+  readonly exportConversation: (sessionID: string) => Promise<OpenCodeConversationExport>;
 }): Promise<void> {
   const source = decodeOpenCodeConversationExport(input.conversation, input.conversation.info.id);
   if (input.sourceDataRoot === input.targetDataRoot)
@@ -127,10 +128,10 @@ export async function importOpenCodeConversation(input: {
     const imported = await input.command(["--pure", "import", file]);
     if (imported.code !== 0)
       throw new Error(`OpenCode import failed (${imported.code}): ${imported.stderr}`);
-    const result = await input.command(["--pure", "export", source.info.id]);
-    if (result.code !== 0)
-      throw new Error(`OpenCode import verification failed (${result.code}): ${result.stderr}`);
-    const verified = decodeOpenCodeConversationExport(JSON.parse(result.stdout), source.info.id);
+    const verified = decodeOpenCodeConversationExport(
+      await input.exportConversation(source.info.id),
+      source.info.id,
+    );
     if (
       !isDeepStrictEqual(verified.messages, target.messages) ||
       !isDeepStrictEqual(conversationMetadata(verified.info), conversationMetadata(target.info))

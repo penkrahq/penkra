@@ -89,6 +89,13 @@ const OpenCodeRuntimeTestDouble: OpenCodeRuntimeShape = {
         cause: null,
       }),
     ),
+  exportConversation: () =>
+    Effect.fail(
+      new OpenCodeRuntimeError({
+        operation: "storage.export",
+        detail: "Unexpected export in text-generation test",
+      }),
+    ),
   createOpenCodeSdkClient: ({ baseUrl, serverPassword }) =>
     ({
       session: {

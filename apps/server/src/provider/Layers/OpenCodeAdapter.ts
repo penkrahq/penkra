@@ -3,7 +3,6 @@ import { makeKeyedRuntimeLock } from "../keyedRuntimeLock.ts";
 import { rm } from "node:fs/promises";
 import path from "node:path";
 import {
-  decodeOpenCodeConversationExport,
   importOpenCodeConversation,
   type OpenCodeConversationExport,
 } from "../openCodeConversationTransfer.ts";
@@ -3196,30 +3195,13 @@ export function makeOpenCodeAdapterLive(options?: OpenCodeAdapterLiveOptions) {
         sessionID: string,
         binaryPath: string,
       ) =>
-        openCodeRuntime
-          .runOpenCodeCommand({
-            binaryPath,
-            args: ["--pure", "export", sessionID],
-            cwd: source.root,
-            processEnv: source.env,
-          })
-          .pipe(
-            Effect.flatMap((result) =>
-              Effect.try({
-                try: () => {
-                  if (result.code !== 0)
-                    throw new Error(`OpenCode export failed (${result.code}): ${result.stderr}`);
-                  return decodeOpenCodeConversationExport(JSON.parse(result.stdout), sessionID);
-                },
-                catch: (cause) =>
-                  new OpenCodeRuntimeError({
-                    operation: "storage.export",
-                    detail: "Could not export the exact native conversation.",
-                    cause,
-                  }),
-              }),
-            ),
-          );
+        openCodeRuntime.exportConversation({
+          binaryPath,
+          sessionID,
+          cwd: source.root,
+          processEnv: source.env,
+          temporaryRoot: source.root,
+        });
 
       const importNativeConversation = (
         client: OpencodeClient,
@@ -3265,6 +3247,17 @@ export function makeOpenCodeAdapterLive(options?: OpenCodeAdapterLiveOptions) {
                       args,
                       cwd: conversation.info.directory,
                       processEnv: launch.childEnvironment(process.env),
+                    }),
+                    { signal },
+                  ),
+                exportConversation: (sessionID) =>
+                  Effect.runPromise(
+                    openCodeRuntime.exportConversation({
+                      binaryPath: launch.binaryPath,
+                      sessionID,
+                      cwd: conversation.info.directory,
+                      processEnv: launch.childEnvironment(process.env),
+                      temporaryRoot: launch.profileRoot,
                     }),
                     { signal },
                   ),

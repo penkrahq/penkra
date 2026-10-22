@@ -11,6 +11,7 @@ import { ThreadId } from "@penkra/contracts";
 import { createOpencodeClient, type Part } from "@opencode-ai/sdk/v2";
 import { relocateOpenCodeToolOutputFiles } from "../../src/provider/openCodeToolOutputFiles.ts";
 import { preserveOpenCodeNativeSnapshots } from "../../src/provider/openCodeNativeSnapshots.ts";
+import { exportOpenCodeConversation } from "../../src/provider/openCodeFileExport.ts";
 import {
   importOpenCodeConversation,
   type OpenCodeConversationExport,
@@ -62,6 +63,86 @@ interface ExportedSession {
 interface ModelMessage {
   role: string;
 }
+
+it("exports and verifies a large native conversation through a regular file", async () => {
+  const fixture = await contractFixture("opencode");
+  try {
+    const sessionID = "ses_contract_large";
+    const text = "世界🦉".repeat(1_200_000);
+    const conversation = {
+      info: {
+        id: sessionID,
+        slug: "large-export",
+        projectID: "global",
+        directory: fixture.root,
+        title: "Large export contract",
+        version: "1.19.3",
+        time: { created: 1, updated: 1 },
+      },
+      messages: [
+        {
+          info: {
+            id: "msg_contract_large",
+            sessionID,
+            role: "user",
+            time: { created: 1 },
+            agent: "build",
+            model: { providerID: "contract", modelID: "contract" },
+          },
+          parts: [
+            {
+              id: "prt_contract_large",
+              sessionID,
+              messageID: "msg_contract_large",
+              type: "text",
+              text,
+            },
+          ],
+        },
+      ],
+    } as OpenCodeConversationExport;
+    const file = path.join(fixture.root, "large.json");
+    await writeFile(file, JSON.stringify(conversation), { mode: 0o600 });
+    const sourceEnv = fixture.environment("source");
+    await fixture.command(["--pure", "import", file], fixture.root, sourceEnv);
+    const exported = await exportOpenCodeConversation({
+      binaryPath: fixture.binary,
+      sessionID,
+      cwd: fixture.root,
+      processEnv: sourceEnv,
+      temporaryRoot: fixture.root,
+      signal: fixture.signal,
+    });
+    assert.deepEqual(exported.messages, conversation.messages);
+    assert(Buffer.byteLength(JSON.stringify(exported)) > 8 * 1024 * 1024);
+    const targetEnv = fixture.environment("target");
+    await importOpenCodeConversation({
+      conversation: exported,
+      sourceDataRoot: path.join(sourceEnv.XDG_DATA_HOME!, "opencode"),
+      targetDataRoot: path.join(targetEnv.XDG_DATA_HOME!, "opencode"),
+      worktree: fixture.root,
+      temporaryRoot: fixture.root,
+      env: targetEnv,
+      signal: fixture.signal,
+      deleteTarget: async () => {},
+      command: async (args) => ({
+        ...(await fixture.command(args, fixture.root, targetEnv)),
+        code: 0,
+      }),
+      exportConversation: (nativeID) =>
+        exportOpenCodeConversation({
+          binaryPath: fixture.binary,
+          sessionID: nativeID,
+          cwd: fixture.root,
+          processEnv: targetEnv,
+          temporaryRoot: fixture.root,
+          signal: fixture.signal,
+        }),
+    });
+  } finally {
+    await fixture.close();
+  }
+});
 
 it("routes simultaneous sessions by native sessionID/directory and preserves tools/images through export/import", async () => {
   const fixture = await contractFixture("opencode");
@@ -590,6 +671,15 @@ export const Proof = async () => ({tool:{proof:{description:'Return the native s
         ...(await fixture.command(args, source.directory, preservedEnv)),
         code: 0,
       }),
+      exportConversation: (sessionID: string) =>
+        exportOpenCodeConversation({
+          binaryPath: fixture.binary,
+          sessionID,
+          cwd: source.directory,
+          processEnv: preservedEnv,
+          temporaryRoot: path.join(fixture.root, "transfer"),
+          signal: fixture.signal,
+        }),
     };
     await importOpenCodeConversation(transfer);
     await importOpenCodeConversation(transfer);
