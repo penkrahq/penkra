@@ -697,3 +697,36 @@ The entire changed ClaudeAdapter test file passed 120 tests. The real pinned
 Claude 2.1.307/SDK 0.3.307 contract passed independently, including native context
 usage and interruption. Formatting and lint passed; the fixture's missing
 required `apiUsage` field was corrected before the final typecheck.
+
+## 19. OpenCode completion and admission use native boundaries
+
+The ordered-event reproduction supplies completed assistant parts, final native
+metadata, idle, then an explicit retry-status marker. Before the change the
+sixth projected event was the later warning instead of turn completion: idle
+had scheduled a quiet-window job. With the job removed, completion is sixth and
+the following event cannot overtake it. No sleep was needed for this reproduction.
+
+Idle and the existing native terminal step events now complete turns directly.
+The quiet-window loops, two-stage idle recovery, message-read recovery ladder,
+60-second activity failure, recovery baselines/counters, unused synchronous
+prompt recovery, and their tuning options are removed. The four tests supporting
+early-idle/late-part quiet-window recovery are removed with that deleted feature:
+`recovers final parts before settling an early idle`, `recovers delayed parts
+when final metadata arrives before idle`, `waits for every late final-message
+part before completing a turn`, and `does not recover a final snapshot until
+all assistant text parts are complete`. Normal cumulative text/part reconciliation
+and late tool-item attribution remain covered by the surviving tests.
+
+Prompt submission awaits `session.promptAsync`'s HTTP response rather than
+forking it and returning after a 500 ms window. The controlled admission test
+holds the response, advances virtual time, verifies the caller still awaits
+acceptance, then releases it. Immediate rejection remains on the send failure
+path and uses the existing aborted event. The real pinned lifecycle contract
+now submits through `/prompt_async`, receives HTTP 204 while inference is held
+open, and proves interruption produces `MessageAbortedError` plus native idle.
+
+The changed adapter file passed all 55 tests. Both real pinned OpenCode contracts
+passed (24.76 seconds native test time together), covering concurrent gateway
+attribution, images/tools/history, lifecycle failures, shared-process death,
+and a healthy independent process. Formatting, typechecking and lint (870
+warnings, zero errors) passed. Shared conversation storage remains unchanged.
