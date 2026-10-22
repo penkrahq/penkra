@@ -68,13 +68,13 @@ export const makeProviderUsage = (
       refresh,
       observe: (id: ProviderConnectionId, snapshot: ServerProviderUsageSnapshot) =>
         Effect.sync(() => {
-          snapshots.set(
-            id,
-            mergeConnectionUsageSnapshots({
+          snapshots.set(id, {
+            ...mergeConnectionUsageSnapshots({
               runtime: snapshots.get(id) ?? null,
               fetched: snapshot,
             }),
-          );
+            source: snapshot.source,
+          });
           changes.publish(id);
         }),
       snapshot: Effect.sync(() => [...snapshots.values()]),
