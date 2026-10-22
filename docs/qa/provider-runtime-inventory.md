@@ -744,3 +744,26 @@ manager outcome. The focused adapter/manager run passed 171 tests, with the
 single pre-existing real-account test remaining opt-in. Formatting, lint (870
 warnings, zero errors), and workspace typecheck passed. No provider protocol or
 Production process was changed by this local checkpoint.
+
+## 21. OpenCode error discriminants and typed directory absence
+
+Two controlled OpenCode cases failed before the change. An `APIError` whose
+message mentioned a context size limit was incorrectly treated as compaction;
+it now remains a failed request/turn. An exact `MessageAbortedError` with wording
+that did not contain `abort` was incorrectly treated as a provider failure; it
+now matches only the pending abort for that exact active turn and root native
+session, with the interrupt RPC still owning terminal acknowledgement.
+
+Overflow classification uses only `name === ContextOverflowError`; the prose
+regex is deleted. Abort classification uses only the native error name plus
+the existing pending-abort identity; its prose regex is deleted. All 56 changed
+adapter tests passed after these two prior failures. The pinned native lifecycle
+contract already establishes MessageAbortedError, APIError/400, native idle,
+and healthy independent work.
+
+The shared stop path reads the directory's `Option` directly and selects the
+registered adapter, or the still-live startup adapter when no binding exists.
+It no longer catches a validation error by searching its text for the absence
+phrase. The service/owner files passed 91 tests including pending-start,
+disconnect, idle-disposal and shutdown ownership cases. Formatting, lint (870
+warnings, zero errors), and workspace typecheck passed.

@@ -1772,7 +1772,10 @@ describe("OpenCodeAdapter runtime lifecycle", () => {
           type: "session.error",
           properties: {
             sessionID: "opencode-session-1",
-            error: { name: "AbortError", message: "Aborted" },
+            error: {
+              name: "MessageAbortedError",
+              data: { message: "The requested execution ended." },
+            },
           },
         });
         markAbortStarted();
@@ -4384,6 +4387,70 @@ describe("OpenCodeAdapter runtime lifecycle", () => {
       payload: {
         reason: "prompt rejected",
       },
+    });
+  });
+
+  it("does not reinterpret API error wording as native context overflow", async () => {
+    const eventQueue = createSubscribedEventQueue();
+    const runtime = createMockOpenCodeRuntime({ events: eventQueue.stream });
+    const observed = await Effect.runPromise(
+      Effect.gen(function* () {
+        const adapter = yield* OpenCodeAdapter;
+        const events = yield* adapter.streamEvents.pipe(
+          Stream.takeUntil(
+            (event) =>
+              event.type === "runtime.warning" && event.payload.message === "ORDER_BARRIER",
+          ),
+          Stream.runCollect,
+          Effect.forkChild,
+        );
+        const threadId = asThreadId("thread-typed-overflow");
+        yield* adapter.startSession({
+          managedLaunch: managedLaunchForTest(threadId),
+          provider: "opencode",
+          threadId,
+          runtimeMode: "full-access",
+        });
+        yield* adapter.sendTurn({
+          threadId,
+          input: "hello",
+          attachments: [],
+          modelSelection: { provider: "opencode", model: "openai/gpt-5.4" },
+        });
+        eventQueue.push({
+          type: "session.error",
+          properties: {
+            sessionID: "opencode-session-1",
+            error: {
+              name: "APIError",
+              data: { message: "A tool reported maximum context size limit", statusCode: 400 },
+            },
+          },
+        });
+        eventQueue.push({
+          type: "session.status",
+          properties: {
+            sessionID: "opencode-session-1",
+            status: { type: "retry", attempt: 1, message: "ORDER_BARRIER", next: 0 },
+          },
+        });
+        const result = Array.from(yield* Fiber.join(events));
+        eventQueue.close();
+        return result;
+      }).pipe(
+        Effect.provide(
+          makeOpenCodeAdapterLive({ runtime: runtime.runtime }).pipe(
+            Layer.provideMerge(
+              ServerConfig.layerTest(process.cwd(), { prefix: "opencode-error-type-" }),
+            ),
+            Layer.provideMerge(NodeServices.layer),
+          ),
+        ),
+      ),
+    );
+    expect(observed.some((event) => event.type === "runtime.error")).toBe(true);
+    expect(observed.find((event) => event.type === "turn.completed")).toMatchObject({
+      payload: { state: "failed" },
     });
   });
 

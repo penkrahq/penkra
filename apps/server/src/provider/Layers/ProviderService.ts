@@ -1864,18 +1864,11 @@ const makeProviderService = (options?: ProviderServiceLiveOptions) =>
         clearRuntimeIdleTimer(input.threadId);
         return yield* lifecycle.stop(input.threadId, rawInput.reason, (lease) =>
           Effect.gen(function* () {
-            const routed = yield* resolveRoutableSession({
-              threadId: input.threadId,
-              operation: "ProviderService.stop",
-              allowRecovery: false,
-            }).pipe(
-              Effect.catchTag("ProviderValidationError", (error) =>
-                error.issue.includes("no persisted provider binding exists")
-                  ? Effect.succeed(null)
-                  : Effect.fail(error),
-              ),
-            );
-            if (routed === null) {
+            const binding = yield* directory.getBinding(input.threadId);
+            const adapter = Option.isSome(binding)
+              ? yield* registry.getByProvider(binding.value.provider)
+              : yield* findLiveSessionAdapter(input.threadId);
+            if (adapter === null) {
               liveRuntimeTaskIds.delete(input.threadId);
               lease.retire();
               return;
@@ -1883,13 +1876,13 @@ const makeProviderService = (options?: ProviderServiceLiveOptions) =>
             // Adapter stop is an idempotent cleanup barrier. Even when the
             // routable session is inactive, the adapter may retain ownership
             // from a teardown whose exit proof previously failed.
-            yield* lifecycle.dispose(routed.adapter, input.threadId, rawInput.reason);
+            yield* lifecycle.dispose(adapter, input.threadId, rawInput.reason);
             liveRuntimeTaskIds.delete(input.threadId);
             yield* waitForRuntimeIdleStop(input.threadId);
             yield* withBindingWriteLock(input.threadId, directory.remove(input.threadId));
             lease.retire();
             yield* analytics.record("provider.session.stopped", {
-              provider: routed.adapter.provider,
+              provider: adapter.provider,
             });
           }),
         );
