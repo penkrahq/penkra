@@ -25,6 +25,7 @@ export const AGENT_GATEWAY_MCP_MAX_BODY_BYTES = 1024 * 1024;
  * state. A missing header cannot inherit a successor turn at ingress.
  */
 export const AGENT_GATEWAY_ORIGIN_TURN_HEADER = "x-penkra-origin-turn-id";
+export const AGENT_GATEWAY_NATIVE_SESSION_HEADER = "x-penkra-native-session-id";
 
 const BODY_TOO_LARGE = Symbol("AgentGatewayMcpBodyTooLarge");
 
@@ -93,7 +94,12 @@ const postRouteLayer = HttpRouter.add(
     const request = yield* HttpServerRequest.HttpServerRequest;
     const gateway = yield* AgentGateway;
     const credentials = yield* AgentGatewayCredentials;
-    const token = extractBearerToken(request.headers.authorization);
+    const presentedToken = extractBearerToken(request.headers.authorization);
+    const nativeSessionId = request.headers[AGENT_GATEWAY_NATIVE_SESSION_HEADER];
+    const token =
+      presentedToken && nativeSessionId !== undefined
+        ? credentials.processes.resolve(presentedToken, nativeSessionId)
+        : presentedToken;
     if (!token || credentials.verifySession(token) === null) {
       return unauthorizedResponse();
     }
@@ -118,7 +124,7 @@ const postRouteLayer = HttpRouter.add(
     }
     const originTurnId = request.headers[AGENT_GATEWAY_ORIGIN_TURN_HEADER];
     const result = yield* gateway.handleMcpPost({
-      authorizationHeader: request.headers.authorization,
+      authorizationHeader: `Bearer ${token}`,
       body: bodyResult.body,
       ingressWriteAuthority,
       ...(originTurnId ? { originTurnId } : {}),

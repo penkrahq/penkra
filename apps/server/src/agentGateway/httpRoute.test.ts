@@ -1,4 +1,5 @@
 import http from "node:http";
+import { makeAgentGatewaySessionRegistry } from "./Layers/AgentGatewaySessionRegistry.ts";
 
 import * as NodeHttpServer from "@effect/platform-node/NodeHttpServer";
 import * as NodeServices from "@effect/platform-node/NodeServices";
@@ -15,6 +16,7 @@ import {
 import {
   AGENT_GATEWAY_MCP_MAX_BODY_BYTES,
   AGENT_GATEWAY_ORIGIN_TURN_HEADER,
+  AGENT_GATEWAY_NATIVE_SESSION_HEADER,
   agentGatewayRouteLayer,
 } from "./httpRoute.ts";
 
@@ -30,10 +32,15 @@ async function withGatewayServer(
     readonly handledAuthorities: ReadonlyArray<AgentGatewayWriteAuthority | null | undefined>;
     readonly setActiveTurn: (turnId: string | null) => void;
     readonly onNextBinding: () => Promise<void>;
+    readonly processToken: string;
+    readonly foreignProcessToken: string;
+    readonly handledAuthorizations: ReadonlyArray<string | undefined>;
+    readonly revokeProcess: () => void;
   }) => Promise<void>,
 ): Promise<void> {
   const scope = await Effect.runPromise(Scope.make("sequential"));
   const handledBodies: unknown[] = [];
+  const handledAuthorizations: Array<string | undefined> = [];
   const handledOrigins: Array<string | undefined> = [];
   const handledAuthorities: Array<AgentGatewayWriteAuthority | null | undefined> = [];
   let activeTurnId: string | null = "turn-http-old";
@@ -41,8 +48,17 @@ async function withGatewayServer(
   let nodeServer: http.Server | null = null;
   try {
     const threadId = ThreadId.makeUnsafe("thread-http-route-test");
+    let sequence = 0;
+    const registry = makeAgentGatewaySessionRegistry({
+      randomId: () => (++sequence === 2 ? "http_route_test" : `http-route-${sequence}`),
+    });
+    registry.issue(threadId, "opencode");
+    const processToken = registry.processes.issue("opencode");
+    const foreignProcessToken = registry.processes.issue("opencode");
+    registry.processes.register(processToken, "native-http-session", VALID_TOKEN);
     const credentials: AgentGatewayCredentialsShape = {
       mcpEndpointUrl: "http://127.0.0.1/mcp",
+      processes: registry.processes,
       setListeningPort: () => undefined,
       issueSessionToken: () => VALID_TOKEN,
       verifySessionToken: (token) => (token === VALID_TOKEN ? threadId : null),
@@ -86,6 +102,7 @@ async function withGatewayServer(
       toolDefinitions: [],
       invokeTool: () => Effect.die("Direct tool invocation is not used by this test."),
       handleMcpPost: (input) => {
+        handledAuthorizations.push(input.authorizationHeader);
         handledBodies.push(input.body);
         handledOrigins.push(input.originTurnId);
         handledAuthorities.push(input.ingressWriteAuthority?.authority);
@@ -123,6 +140,10 @@ async function withGatewayServer(
       throw new Error("Expected agent gateway test server to expose an address");
     }
     await run({
+      processToken,
+      foreignProcessToken,
+      handledAuthorizations,
+      revokeProcess: () => registry.processes.revoke(processToken),
       origin: `http://127.0.0.1:${address.port}`,
       handledBodies,
       handledOrigins,
@@ -141,6 +162,39 @@ async function withGatewayServer(
 }
 
 describe("agentGatewayRouteLayer", () => {
+  it("resolves a registered native session before binding ingress authority and rejects other process scopes", async () => {
+    await withGatewayServer(
+      async ({
+        origin,
+        processToken,
+        foreignProcessToken,
+        handledAuthorizations,
+        revokeProcess,
+      }) => {
+        const send = (token: string, nativeSessionId?: string) =>
+          fetch(`${origin}/mcp`, {
+            method: "POST",
+            headers: {
+              authorization: `Bearer ${token}`,
+              "Content-Type": "application/json",
+              ...(nativeSessionId === undefined
+                ? {}
+                : { [AGENT_GATEWAY_NATIVE_SESSION_HEADER]: nativeSessionId }),
+            },
+            body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "tools/list", params: {} }),
+          });
+        expect((await send(processToken, "native-http-session")).status).toBe(200);
+        expect(handledAuthorizations).toEqual([`Bearer ${VALID_TOKEN}`]);
+        expect((await send(foreignProcessToken, "native-http-session")).status).toBe(401);
+        expect((await send(processToken, "unregistered")).status).toBe(401);
+        expect((await send(processToken)).status).toBe(401);
+        expect((await send(VALID_TOKEN, "native-http-session")).status).toBe(401);
+        revokeProcess();
+        expect((await send(processToken, "native-http-session")).status).toBe(401);
+        expect(handledAuthorizations).toHaveLength(1);
+      },
+    );
+  });
   it("authenticates before reading the body and enforces the 1 MiB limit", async () => {
     await withGatewayServer(async ({ origin, handledBodies, handledOrigins }) => {
       const oversizedBody = "x".repeat(AGENT_GATEWAY_MCP_MAX_BODY_BYTES + 1);

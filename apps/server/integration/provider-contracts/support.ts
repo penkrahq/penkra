@@ -69,7 +69,9 @@ export async function contractFixture(provider: PinnedProviderKind) {
     async startServer(args: string[], cwd: string, env: NodeJS.ProcessEnv, ready: RegExp) {
       const child = startProcess(args, cwd, env);
       let diagnostic = "";
+      let startupDiagnostic = "";
       child.stderr.on("data", (chunk: Buffer) => {
+        startupDiagnostic = (startupDiagnostic + chunk.toString()).slice(0, 16000);
         diagnostic = (diagnostic + chunk.toString()).slice(-4000);
       });
       const origin = await new Promise<string>((resolve, reject) => {
@@ -105,7 +107,11 @@ export async function contractFixture(provider: PinnedProviderKind) {
         child.stdout.on("data", onData);
         signal.addEventListener("abort", onAbort, { once: true });
       });
-      return { child, origin };
+      return {
+        child,
+        origin,
+        diagnostics: () => startupDiagnostic + "\n--- recent ---\n" + diagnostic,
+      };
     },
     async stop(child: ChildProcessWithoutNullStreams) {
       await teardownChildProcessTree(child);

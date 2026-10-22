@@ -5,6 +5,8 @@ interface TestTurnCommand {
   message: any;
   [key: string]: any;
 }
+import { makeAgentGatewaySessionRegistry } from "./AgentGatewaySessionRegistry.ts";
+import { openCodeGatewayPluginSource } from "../../provider/openCodeGatewayPlugin.ts";
 type OrchestrationCommand = TestTurnCommand;
 import * as NodeSqliteClient from "../../persistence/NodeSqliteClient.ts";
 import { ThreadPublisherLive } from "../../cleanCore/ThreadPublisher.ts";
@@ -304,6 +306,7 @@ function makeHarnessLayer(
 
   const credentialsLayer = Layer.succeed(AgentGatewayCredentials, {
     mcpEndpointUrl: "http://127.0.0.1:3773/mcp",
+    processes: makeAgentGatewaySessionRegistry().processes,
     setListeningPort: () => undefined,
     beginTurn: (threadId, provider, turnId) => {
       activeTurnByScope.set(`${threadId}:${provider}`, turnId);
@@ -1126,6 +1129,15 @@ describe("AgentGateway", () => {
     makeThreadShell("thread-child"),
     makeThreadShell("thread-archived", { archivedAt: NOW }),
   ];
+  it.effect("generates native declarations for every canonical gateway tool", () => {
+    const { gatewayLayer } = makeHarnessLayer(baseThreads);
+    return Effect.gen(function* () {
+      const gateway = yield* AgentGateway;
+      const source = openCodeGatewayPluginSource(gateway.toolDefinitions);
+      for (const definition of gateway.toolDefinitions)
+        assert.include(source, JSON.stringify(definition.name));
+    }).pipe(Effect.provide(gatewayLayer));
+  });
 
   for (const projection of ["terminal", "missing", "running"] as const) {
     it.effect(`accepts a live provider turn with ${projection} projection evidence`, () => {

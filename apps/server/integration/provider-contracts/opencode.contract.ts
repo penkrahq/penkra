@@ -4,6 +4,15 @@ import http from "node:http";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
 import { it } from "vitest";
+import { ThreadId } from "@penkra/contracts";
+import { makeAgentGatewaySessionRegistry } from "../../src/agentGateway/Layers/AgentGatewaySessionRegistry.ts";
+import {
+  PENKRA_EXEC_COMMAND_DESCRIPTION,
+  PENKRA_EXEC_COMMAND_INPUT_SCHEMA,
+  PENKRA_EXEC_COMMAND_NAME,
+} from "../../src/agentGateway/hostToolContract.ts";
+import { openCodeGatewayPluginSource } from "../../src/provider/openCodeGatewayPlugin.ts";
+import { extractBearerToken } from "../../src/agentGateway/bearerToken.ts";
 import {
   contractFixture,
   listen,
@@ -21,7 +30,7 @@ interface NativePart {
   tool?: string;
   url?: string;
   text?: string;
-  state?: { status: string };
+  state?: { status: string; attachments?: unknown[] };
 }
 interface NativeMessage {
   info: { role: string; path?: { cwd: string } };
@@ -43,10 +52,66 @@ it("routes simultaneous sessions by native sessionID/directory and preserves too
     release = resolve;
   });
   let journal: Awaited<ReturnType<typeof nativeEventJournal>> | undefined;
+  const registry = makeAgentGatewaySessionRegistry();
+  const processToken = registry.processes.issue("opencode");
+  const nativeDirectories = new Map<string, string>();
+  const gatewayCalls: Array<{ threadId: string; sessionID: string; directory: string }> = [];
+  const imageBytes = (
+    await readFile(path.join(repositoryRoot, "apps/marketing/public/favicon-32x32.png"))
+  ).toString("base64");
+  const gateway = http.createServer(async (request, response) => {
+    let text = "";
+    for await (const chunk of request) text += chunk;
+    const body = JSON.parse(text) as { id: string; method: string };
+    const token = extractBearerToken(request.headers.authorization);
+    const sessionID = request.headers["x-penkra-native-session-id"];
+    const childToken =
+      token && typeof sessionID === "string" ? registry.processes.resolve(token, sessionID) : null;
+    const identity = childToken ? registry.verify(childToken) : null;
+    if (!identity || typeof sessionID !== "string") {
+      response.writeHead(401);
+      response.end(JSON.stringify({ error: { message: "Unregistered native session" } }));
+      return;
+    }
+    if (body.method === "initialize") {
+      response.writeHead(200, { "Content-Type": "application/json" });
+      response.end(
+        JSON.stringify({
+          jsonrpc: "2.0",
+          id: body.id,
+          result: { instructions: "GATEWAY_MANUAL_CONTRACT" },
+        }),
+      );
+      return;
+    }
+    const directory = nativeDirectories.get(sessionID)!;
+    gatewayCalls.push({ threadId: identity.threadId, sessionID, directory });
+    response.writeHead(200, { "Content-Type": "application/json" });
+    response.end(
+      JSON.stringify({
+        jsonrpc: "2.0",
+        id: body.id,
+        result: {
+          content: [
+            {
+              type: "text",
+              text: JSON.stringify({ threadId: identity.threadId, sessionID, directory }),
+            },
+            { type: "image", mimeType: "image/png", data: imageBytes },
+          ],
+        },
+      }),
+    );
+  });
   const model = http.createServer(async (req, res) => {
     let text = "";
     for await (const chunk of req) text += chunk;
     const body = JSON.parse(text) as { messages: ModelMessage[] };
+    assert(
+      JSON.stringify(body.messages.filter((message) => message.role === "system")).includes(
+        "GATEWAY_MANUAL_CONTRACT",
+      ),
+    );
     const hasToolResult = body.messages.some((message) => message.role === "tool");
     if (!hasToolResult) {
       initialCount++;
@@ -64,6 +129,15 @@ it("routes simultaneous sessions by native sessionID/directory and preserves too
               type: "function",
               function: { name: "proof", arguments: "{}" },
             },
+            {
+              index: 1,
+              id: "call_gateway",
+              type: "function",
+              function: {
+                name: PENKRA_EXEC_COMMAND_NAME,
+                arguments: JSON.stringify({ command: "identity" }),
+              },
+            },
           ],
         };
     res.writeHead(200, { "Content-Type": "text/event-stream" });
@@ -78,17 +152,31 @@ it("routes simultaneous sessions by native sessionID/directory and preserves too
   });
   try {
     const upstream = await listen(model);
+    const gatewayOrigin = await listen(gateway);
     const calls = path.join(fixture.root, "calls.jsonl");
-    const plugin = path.join(fixture.root, "proof.js");
+    const plugin = path.join(fixture.root, "source/config/opencode/plugins/proof.js");
+    await mkdir(path.dirname(plugin), { recursive: true });
     await writeFile(
       plugin,
       `import {appendFile} from 'node:fs/promises';
-export const Proof = async () => ({tool:{proof:{description:'Return the native session and directory.',args:{},async execute(args,context){const row={sessionID:context.sessionID,directory:context.directory};await appendFile(${JSON.stringify(calls)},JSON.stringify(row)+'\\n');return JSON.stringify(row);}}}});
+import {tool} from '@opencode-ai/plugin';
+export const Proof = async () => ({tool:{proof:{description:'Return the native session and directory.',args:{marker:tool.schema.string().optional()},async execute(args,context){const row={sessionID:context.sessionID,directory:context.directory};await appendFile(${JSON.stringify(calls)},JSON.stringify(row)+'\\n');return JSON.stringify(row);}}}});
 `,
+    );
+    const gatewayPlugin = path.join(path.dirname(plugin), "gateway.js");
+    await writeFile(
+      gatewayPlugin,
+      openCodeGatewayPluginSource([
+        {
+          name: PENKRA_EXEC_COMMAND_NAME,
+          description: PENKRA_EXEC_COMMAND_DESCRIPTION,
+          inputSchema: PENKRA_EXEC_COMMAND_INPUT_SCHEMA,
+        },
+      ]),
     );
     const env = fixture.environment("source", {
       OPENCODE_CONFIG_CONTENT: JSON.stringify({
-        plugin: [pathToFileURL(plugin).href],
+        plugin: [pathToFileURL(plugin).href, pathToFileURL(gatewayPlugin).href],
         model: "contract/contract",
         small_model: "contract/contract",
         provider: {
@@ -108,8 +196,10 @@ export const Proof = async () => ({tool:{proof:{description:'Return the native s
         permission: { "*": "allow" },
       }),
     });
+    env.PENKRA_GATEWAY_URL = `${gatewayOrigin}/mcp`;
+    env.PENKRA_GATEWAY_PROCESS_TOKEN = processToken;
     const server = await fixture.startServer(
-      ["serve", "--port", "0", "--hostname", "127.0.0.1"],
+      ["serve", "--print-logs", "--port", "0", "--hostname", "127.0.0.1"],
       fixture.root,
       env,
       /opencode server listening on (http:\/\/[^\s]+)/,
@@ -124,11 +214,25 @@ export const Proof = async () => ({tool:{proof:{description:'Return the native s
         const session = await api<NativeSession>("/session", directory, {
           title: `Contract ${name}`,
         });
+        const identity = registry.issue(ThreadId.makeUnsafe(`thread-${name}`), "opencode");
+        registry.processes.register(processToken, session.id, identity.token);
+        nativeDirectories.set(session.id, directory);
         const reply = await api<NativeMessage>(`/session/${session.id}/message`, directory, {
           model: { providerID: "contract", modelID: "contract" },
           parts: [{ type: "text", text: "Call proof, then finish." }],
         });
         assert.equal(reply.info.path?.cwd, directory);
+        const history = await api<NativeMessage[]>(`/session/${session.id}/message`, directory);
+        const toolParts = history
+          .flatMap((message) => message.parts)
+          .filter((part) => part.type === "tool");
+        const failedTools = toolParts.filter((part) => part.state?.status === "error");
+        assert.equal(failedTools.length, 0, JSON.stringify(failedTools));
+        assert.equal(
+          toolParts.find((part) => part.tool === PENKRA_EXEC_COMMAND_NAME)?.state?.attachments
+            ?.length,
+          1,
+        );
         assert(reply.parts.some((part) => part.type === "text" && part.text === "CONTRACT_DONE"));
         return { session, directory };
       }),
@@ -157,11 +261,21 @@ export const Proof = async () => ({tool:{proof:{description:'Return the native s
         "Native message completion must precede session.idle.",
       );
     }
-    const actualCalls = (await readFile(calls, "utf8"))
+    const actualCalls = (
+      await readFile(calls, "utf8").catch((cause) => {
+        throw new Error(server.diagnostics(), { cause });
+      })
+    )
       .trim()
       .split("\n")
       .map((line) => JSON.parse(line) as { sessionID: string; directory: string });
     assert.equal(actualCalls.length, 2);
+    assert.equal(gatewayCalls.length, 2);
+    for (const { session, directory } of sessions) {
+      const call = gatewayCalls.find((entry) => entry.sessionID === session.id);
+      assert.equal(call?.directory, directory);
+      assert.equal(call?.threadId, `thread-${path.basename(directory)}`);
+    }
     for (const { session, directory } of sessions)
       assert.deepEqual(
         actualCalls.find((call) => call.sessionID === session.id),
@@ -226,6 +340,9 @@ export const Proof = async () => ({tool:{proof:{description:'Return the native s
     release();
     model.closeAllConnections();
     model.close();
+    gateway.closeAllConnections();
+    gateway.close();
+    registry.processes.revoke(processToken);
     try {
       await journal?.close();
     } finally {

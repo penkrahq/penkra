@@ -13,6 +13,7 @@ import { ServiceMap } from "effect";
 import type {
   AgentGatewaySessionIdentity,
   AgentGatewayWriteAuthority,
+  AgentGatewayProcessRegistry,
 } from "./AgentGatewaySessionRegistry.ts";
 
 export interface AgentGatewayMcpConnection {
@@ -30,6 +31,7 @@ export interface AgentGatewayStdioProxySpawn {
 }
 
 export interface AgentGatewayCredentialsShape {
+  readonly processes: AgentGatewayProcessRegistry;
   /** Streamable-HTTP MCP endpoint served by this Penkra instance. */
   readonly mcpEndpointUrl: string;
   /** Update the endpoint after the HTTP server resolves a dynamic listen port. */

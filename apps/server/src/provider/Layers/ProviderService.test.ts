@@ -379,6 +379,7 @@ function makeProviderServiceLayer(
   const gatewayCredentialsLayer = gatewayRegistry
     ? Layer.succeed(AgentGatewayCredentials, {
         mcpEndpointUrl: "http://127.0.0.1/mcp",
+        processes: gatewayRegistry.processes,
         setListeningPort: () => undefined,
         issueSessionToken: (threadId, provider, generation) =>
           gatewayRegistry.issue(threadId, provider, generation).token,
