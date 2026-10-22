@@ -1325,33 +1325,7 @@ function toolResultBlocksFromUserMessage(message: SDKMessage): Array<{
   return blocks;
 }
 
-function toSessionError(
-  threadId: ThreadId,
-  cause: unknown,
-): ProviderAdapterSessionNotFoundError | ProviderAdapterSessionClosedError | undefined {
-  const normalized = toMessage(cause, "").toLowerCase();
-  if (normalized.includes("unknown session") || normalized.includes("not found")) {
-    return new ProviderAdapterSessionNotFoundError({
-      provider: PROVIDER,
-      threadId,
-      cause,
-    });
-  }
-  if (normalized.includes("closed")) {
-    return new ProviderAdapterSessionClosedError({
-      provider: PROVIDER,
-      threadId,
-      cause,
-    });
-  }
-  return undefined;
-}
-
-function toRequestError(threadId: ThreadId, method: string, cause: unknown): ProviderAdapterError {
-  const sessionError = toSessionError(threadId, cause);
-  if (sessionError) {
-    return sessionError;
-  }
+function toRequestError(method: string, cause: unknown): ProviderAdapterRequestError {
   return new ProviderAdapterRequestError({
     provider: PROVIDER,
     method,
@@ -4924,7 +4898,7 @@ function makeClaudeAdapter(options?: ClaudeAdapterLiveOptions) {
           if (apiModelId !== context.currentApiModelId) {
             yield* Effect.tryPromise({
               try: () => context.query.setModel(apiModelId),
-              catch: (cause) => toRequestError(input.threadId, "turn/setModel", cause),
+              catch: (cause) => toRequestError("turn/setModel", cause),
             });
           }
           context.currentApiModelId = apiModelId;
@@ -4940,7 +4914,7 @@ function makeClaudeAdapter(options?: ClaudeAdapterLiveOptions) {
               context.query.applyFlagSettings({
                 autoCompactWindow: requestedAutoCompactWindow ?? null,
               }),
-            catch: (cause) => toRequestError(input.threadId, "turn/applyFlagSettings", cause),
+            catch: (cause) => toRequestError("turn/applyFlagSettings", cause),
           });
           context.currentAutoCompactWindow = requestedAutoCompactWindow;
           context.lastKnownAutoCompactThreshold = requestedAutoCompactWindow;
@@ -4975,7 +4949,7 @@ function makeClaudeAdapter(options?: ClaudeAdapterLiveOptions) {
               context.query.applyFlagSettings({
                 alwaysThinkingEnabled: requestedThinking ?? null,
               }),
-            catch: (cause) => toRequestError(input.threadId, "turn/applyFlagSettings", cause),
+            catch: (cause) => toRequestError("turn/applyFlagSettings", cause),
           });
           context.currentAlwaysThinkingEnabled = requestedThinking;
         }
@@ -5007,7 +4981,7 @@ function makeClaudeAdapter(options?: ClaudeAdapterLiveOptions) {
                   ...(ultracodeChanged ? { ultracode: requestedUltracode ? true : null } : {}),
                   ...(fastModeChanged ? { fastMode: requestedFastMode ? true : null } : {}),
                 }),
-              catch: (cause) => toRequestError(input.threadId, "turn/applyFlagSettings", cause),
+              catch: (cause) => toRequestError("turn/applyFlagSettings", cause),
             });
             if (effortChanged) {
               context.currentEffort = requestedEffort;
@@ -5027,7 +5001,7 @@ function makeClaudeAdapter(options?: ClaudeAdapterLiveOptions) {
         if (desiredPermissionMode !== undefined && !canSkipRedundantSpawnModeRequest) {
           yield* Effect.tryPromise({
             try: () => context.query.setPermissionMode(desiredPermissionMode),
-            catch: (cause) => toRequestError(input.threadId, "turn/setPermissionMode", cause),
+            catch: (cause) => toRequestError("turn/setPermissionMode", cause),
           });
         }
 
@@ -5100,7 +5074,7 @@ function makeClaudeAdapter(options?: ClaudeAdapterLiveOptions) {
           type: "message",
           message,
         }).pipe(
-          Effect.mapError((cause) => toRequestError(input.threadId, "turn/start", cause)),
+          Effect.mapError((cause) => toRequestError("turn/start", cause)),
           Effect.onExit((exit) =>
             Exit.isFailure(exit)
               ? Effect.sync(
@@ -5158,7 +5132,7 @@ function makeClaudeAdapter(options?: ClaudeAdapterLiveOptions) {
               context.pendingSteers.delete(uuid);
             }),
           ),
-          Effect.mapError((cause) => toRequestError(input.threadId, "turn/steer", cause)),
+          Effect.mapError((cause) => toRequestError("turn/steer", cause)),
         );
 
         const steerText = input.input?.trim();
@@ -5194,7 +5168,7 @@ function makeClaudeAdapter(options?: ClaudeAdapterLiveOptions) {
         }
         const acknowledged = yield* Effect.tryPromise({
           try: () => context.query.interrupt(),
-          catch: (cause) => toRequestError(threadId, "turn/interrupt", cause),
+          catch: (cause) => toRequestError("turn/interrupt", cause),
         }).pipe(Effect.timeoutOption(CLAUDE_INTERRUPT_TIMEOUT));
         if (Option.isNone(acknowledged)) {
           return yield* new ProviderAdapterRequestError({
@@ -5214,7 +5188,7 @@ function makeClaudeAdapter(options?: ClaudeAdapterLiveOptions) {
         const context = yield* requireSession(threadId);
         yield* Effect.tryPromise({
           try: () => context.query.stopTask(taskId),
-          catch: (cause) => toRequestError(threadId, "task/stop", cause),
+          catch: (cause) => toRequestError("task/stop", cause),
         });
       });
 
@@ -5226,7 +5200,7 @@ function makeClaudeAdapter(options?: ClaudeAdapterLiveOptions) {
         const context = yield* requireSession(threadId);
         yield* Effect.tryPromise({
           try: () => context.query.backgroundTasks(toolUseId).then(() => undefined),
-          catch: (cause) => toRequestError(threadId, "task/background", cause),
+          catch: (cause) => toRequestError("task/background", cause),
         });
       });
 

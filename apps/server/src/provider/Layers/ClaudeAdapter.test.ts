@@ -571,6 +571,34 @@ describe("Claude Penkra harness policy", () => {
 });
 
 describe("ClaudeAdapterLive", () => {
+  for (const detail of [
+    "Task file not found",
+    "Remote stream closed",
+    "Unknown session in remote tool",
+  ])
+    it.effect(`keeps remote wording request-local: ${detail}`, () => {
+      const harness = makeHarness();
+      const cause = new Error(detail);
+      Object.defineProperty(harness.query, "stopTask", {
+        value: async () => {
+          throw cause;
+        },
+      });
+      return Effect.gen(function* () {
+        const adapter = yield* ClaudeAdapter;
+        yield* adapter.startSession({
+          threadId: THREAD_ID,
+          provider: "claudeAgent",
+          runtimeMode: "full-access",
+        });
+        const error = yield* Effect.flip(adapter.stopTask(THREAD_ID, "task"));
+        assert.ok(error instanceof ProviderAdapterRequestError);
+        assert.equal(error.cause, cause);
+        assert.equal(error.detail, detail);
+        assert.equal(yield* adapter.hasSession(THREAD_ID), true);
+        yield* adapter.readThread(THREAD_ID);
+      }).pipe(Effect.provide(harness.layer));
+    });
   it.effect("probes with an isolated tool-free query on the selected model", () => {
     const query = new FakeClaudeQuery();
     query.emit({
