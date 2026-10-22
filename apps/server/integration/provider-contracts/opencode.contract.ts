@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import http from "node:http";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
@@ -30,7 +30,12 @@ interface NativePart {
   tool?: string;
   url?: string;
   text?: string;
-  state?: { status: string; attachments?: unknown[] };
+  state?: {
+    status: string;
+    attachments?: unknown[];
+    metadata?: Record<string, unknown>;
+    output?: string;
+  };
 }
 interface NativeMessage {
   info: { role: string; path?: { cwd: string } };
@@ -174,7 +179,7 @@ it("routes simultaneous sessions by native sessionID/directory and preserves too
       plugin,
       `import {appendFile} from 'node:fs/promises';
 import {tool} from '@opencode-ai/plugin';
-export const Proof = async () => ({tool:{proof:{description:'Return the native session and directory.',args:{marker:tool.schema.string().optional()},async execute(args,context){const row={sessionID:context.sessionID,directory:context.directory};await appendFile(${JSON.stringify(calls)},JSON.stringify(row)+'\\n');return JSON.stringify(row);}}}});
+export const Proof = async () => ({tool:{proof:{description:'Return the native session and directory.',args:{marker:tool.schema.string().optional()},async execute(args,context){const row={sessionID:context.sessionID,directory:context.directory};await appendFile(${JSON.stringify(calls)},JSON.stringify(row)+'\\n');return JSON.stringify(row)+'\\n'+'NATIVE_SPILL_PROOF\\n'.repeat(4000);}}}});
 `,
     );
     const gatewayPlugin = path.join(path.dirname(plugin), "gateway.js");
@@ -220,7 +225,11 @@ export const Proof = async () => ({tool:{proof:{description:'Return the native s
     );
     journal = await nativeEventJournal(server.origin, fixture.signal);
     const api = <T>(route: string, directory: string, body?: unknown, method?: string) =>
-      nativeJson<T>(server.origin, route, directory, fixture.signal, body, method);
+      nativeJson<T>(server.origin, route, directory, fixture.signal, body, method).catch(
+        (cause) => {
+          throw new Error(`${String(cause)}\n${server.diagnostics()}`, { cause });
+        },
+      );
     const sessions = await Promise.all(
       ["a", "b"].map(async (name) => {
         const directory = path.join(fixture.root, name);
@@ -340,6 +349,16 @@ export const Proof = async () => ({tool:{proof:{description:'Return the native s
       ),
     );
     const file = path.join(fixture.root, "export.json");
+    const proofPart = exported.messages
+      .flatMap((message) => message.parts)
+      .find((part) => part.type === "tool" && part.tool === "proof");
+    assert.equal(proofPart?.state?.metadata?.truncated, true);
+    assert.equal(typeof proofPart.state.metadata.outputPath, "string");
+    assert(
+      (await readFile(proofPart.state.metadata.outputPath as string, "utf8")).includes(
+        "NATIVE_SPILL_PROOF",
+      ),
+    );
     await writeFile(file, JSON.stringify(exported));
     const target = path.join(fixture.root, "target-workspace");
     await mkdir(target);
@@ -350,6 +369,12 @@ export const Proof = async () => ({tool:{proof:{description:'Return the native s
       (await fixture.command(["export", source.session.id], target, targetEnv)).stdout,
     ) as ExportedSession;
     assert.deepEqual(roundtrip.messages, exported.messages);
+    const spillPath = proofPart.state.metadata.outputPath as string;
+    assert(spillPath.startsWith(path.join(fixture.root, "source") + path.sep));
+    const importedProof = roundtrip.messages
+      .flatMap((message) => message.parts)
+      .find((part) => part.type === "tool" && part.tool === "proof");
+    assert.equal(importedProof?.state?.metadata?.outputPath, spillPath);
     assert.equal(roundtrip.info.directory, target);
     const targetServer = await fixture.startServer(
       ["serve", "--port", "0", "--hostname", "127.0.0.1"],
@@ -385,6 +410,21 @@ export const Proof = async () => ({tool:{proof:{description:'Return the native s
       fixture.signal,
     );
     assert.deepEqual(liveTarget, updated.messages);
+    await fixture.command(["--pure", "session", "delete", source.session.id], target, targetEnv);
+    assert.equal(
+      (
+        await fetch(
+          `${targetServer.origin}/session/${source.session.id}?directory=${encodeURIComponent(target)}`,
+          { signal: fixture.signal },
+        )
+      ).status,
+      404,
+    );
+    const repeatedDelete = await fetch(
+      `${targetServer.origin}/session/${source.session.id}?directory=${encodeURIComponent(target)}`,
+      { method: "DELETE", signal: fixture.signal },
+    );
+    assert.equal(repeatedDelete.status, 404);
     await fixture.stop(targetServer.child);
     assert.equal(
       await api(`/session/${source.session.id}`, source.directory, undefined, "DELETE"),
@@ -403,6 +443,10 @@ export const Proof = async () => ({tool:{proof:{description:'Return the native s
     await journal.close();
     journal = undefined;
     await fixture.stop(server.child);
+    // Native export/import preserves an absolute spill reference, not its file.
+    // Removing the old isolated data root therefore invalidates that reference.
+    await rm(path.join(fixture.root, "source"), { recursive: true, force: true });
+    await assert.rejects(readFile(spillPath), { code: "ENOENT" });
   } finally {
     release();
     model.closeAllConnections();
