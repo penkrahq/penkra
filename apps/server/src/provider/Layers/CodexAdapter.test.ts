@@ -887,6 +887,8 @@ lifecycleLayer("CodexAdapterLive lifecycle", (it) => {
           },
         ],
         ["item/completed", { item: { type: "sleep", id: "sleep_1", durationMs: 10 } }],
+        ["item/completed", { item: { type: "not_a_command", id: "unknown_command" } }],
+        ["item/completed", { item: { type: "not_an_assistant", id: "unknown_assistant" } }],
         [
           "item/started",
           {
@@ -1029,11 +1031,14 @@ lifecycleLayer("CodexAdapterLive lifecycle", (it) => {
         itemId: asItemId("img_call_1"),
         payload: {
           item: {
-            type: "image_generation_call",
+            type: "imageGeneration",
             id: "img_call_1",
-            saved_path: "/tmp/provider-thread-1/img_call_1.png",
+            status: "completed",
+            revisedPrompt: null,
+            failure: null,
+            savedPath: "/tmp/provider-thread-1/img_call_1.png",
             result: "large-inline-base64",
-          },
+          } satisfies import("../generated/codex/v2/ThreadItem.ts").ThreadItem,
         },
       } satisfies ProviderEvent);
 

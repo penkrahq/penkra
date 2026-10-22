@@ -70,7 +70,6 @@ import {
   codexGeneratedImageArtifact,
   extractCodexGeneratedImageReference,
   firstStringValue,
-  isCodexGeneratedImageItemType,
   sanitizeNestedCodexGeneratedImagePayloads,
 } from "../../codexGeneratedImages.ts";
 import { isCodexToolAttemptFailure } from "../../codexErrorClassification.ts";
@@ -355,37 +354,35 @@ function toTurnStatus(value: unknown): "completed" | "failed" | "cancelled" | "i
   }
 }
 
-function normalizeItemType(raw: unknown): string {
-  const type = asString(raw);
-  if (!type) return "item";
-  return type
-    .replace(/([a-z0-9])([A-Z])/g, "$1 $2")
-    .replace(/[._/-]/g, " ")
-    .replace(/\s+/g, " ")
-    .trim()
-    .toLowerCase();
-}
+const CODEX_ITEM_TYPES = {
+  userMessage: "user_message",
+  hookPrompt: "unknown",
+  agentMessage: "assistant_message",
+  functionCallOutput: "unknown",
+  plan: "plan",
+  reasoning: "reasoning",
+  commandExecution: "command_execution",
+  fileChange: "file_change",
+  mcpToolCall: "mcp_tool_call",
+  dynamicToolCall: "dynamic_tool_call",
+  collabAgentToolCall: "collab_agent_tool_call",
+  subAgentActivity: "unknown",
+  webSearch: "web_search",
+  imageView: "image_view",
+  sleep: "unknown",
+  imageGeneration: "image_generation",
+  enteredReviewMode: "review_entered",
+  exitedReviewMode: "review_exited",
+  contextCompaction: "context_compaction",
+} satisfies Record<
+  import("../generated/codex/v2/ThreadItem.ts").ThreadItem["type"],
+  CanonicalItemType
+>;
 
 function toCanonicalItemType(raw: unknown): CanonicalItemType {
-  const type = normalizeItemType(raw);
-  if (isCodexGeneratedImageItemType(raw)) return "image_generation";
-  if (type.includes("user")) return "user_message";
-  if (type.includes("agent message") || type.includes("assistant")) return "assistant_message";
-  if (type.includes("reasoning") || type.includes("thought")) return "reasoning";
-  if (type.includes("plan") || type.includes("todo")) return "plan";
-  if (type.includes("command")) return "command_execution";
-  if (type.includes("file change") || type.includes("patch") || type.includes("edit"))
-    return "file_change";
-  if (type.includes("mcp")) return "mcp_tool_call";
-  if (type.includes("dynamic tool")) return "dynamic_tool_call";
-  if (type.includes("collab")) return "collab_agent_tool_call";
-  if (type.includes("web search")) return "web_search";
-  if (type.includes("image")) return "image_view";
-  if (type.includes("review entered") || type.includes("entered review")) return "review_entered";
-  if (type.includes("review exited") || type.includes("exited review")) return "review_exited";
-  if (type.includes("compact")) return "context_compaction";
-  if (type.includes("error")) return "error";
-  return "unknown";
+  return typeof raw === "string" && Object.hasOwn(CODEX_ITEM_TYPES, raw)
+    ? CODEX_ITEM_TYPES[raw as keyof typeof CODEX_ITEM_TYPES]
+    : "unknown";
 }
 
 function itemTitle(itemType: CanonicalItemType): string | undefined {
