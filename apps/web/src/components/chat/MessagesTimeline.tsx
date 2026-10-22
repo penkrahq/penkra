@@ -28,7 +28,7 @@ import {
   type RefObject,
   type ReactNode,
 } from "react";
-import { deriveTimelineEntries, type WorkLogEntry } from "../../session-logic";
+import { deriveTimelineEntries, formatClockElapsed, type WorkLogEntry } from "../../session-logic";
 import {
   areChatScrollDiagnosticsEnabled,
   recordChatPaginationDiagnostic,
@@ -1210,7 +1210,13 @@ export const MessagesTimeline = memo(function MessagesTimeline({
             className="-ml-0.5 pb-2 text-muted-foreground/70"
             style={{ fontSize: chatTypographyStyle.fontSize }}
           >
-            Working
+            {/* Counts up from the turn's start (P10 startedAt), so it keeps counting after a resume. */}
+            Working for{" "}
+            {nowIso ? (
+              (formatClockElapsed(row.createdAt, nowIso) ?? "0s")
+            ) : (
+              <WorkingTimer createdAt={row.createdAt} />
+            )}
           </div>
         )}
 
@@ -1306,6 +1312,25 @@ function reconcileStableTimelineRows(
   const nextState = computeStableMessagesTimelineRows(rows, previousStateRef.current);
   previousStateRef.current = nextState;
   return nextState.result;
+}
+
+// The live clock is a tiny leaf so an active turn does not re-render the transcript every second.
+const WORKING_TIMER_TICK_MS = 1_000;
+function WorkingTimer({ createdAt }: { createdAt: string }) {
+  const textRef = useRef<HTMLSpanElement>(null);
+  useEffect(() => {
+    const update = () => {
+      if (textRef.current) textRef.current.textContent = formatWorkingTimerNow(createdAt);
+    };
+    update();
+    const id = window.setInterval(update, WORKING_TIMER_TICK_MS);
+    return () => window.clearInterval(id);
+  }, [createdAt]);
+  return <span ref={textRef}>{formatWorkingTimerNow(createdAt)}</span>;
+}
+
+function formatWorkingTimerNow(startIso: string): string {
+  return formatClockElapsed(startIso, new Date().toISOString()) ?? "0s";
 }
 
 const UserImageAttachmentThumbnail = memo(function UserImageAttachmentThumbnail(props: {
