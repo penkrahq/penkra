@@ -1,6 +1,6 @@
 import { ProviderConnectionId, ThreadId, type ProviderRuntimeEvent } from "@penkra/contracts";
 import { Deferred, Effect, Fiber } from "effect";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
 import { makeThreadRuntime } from "./ThreadRuntime.ts";
 import { ProviderAdapterProcessError, type ProviderAdapterError } from "./Errors.ts";
@@ -10,6 +10,40 @@ const thread = ThreadId.makeUnsafe("runtime-owner");
 const peer = ThreadId.makeUnsafe("runtime-peer");
 
 describe("ThreadRuntime ownership", () => {
+  it("joins an already-fired idle disposal before shutdown completes", async () => {
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    try {
+      await Effect.runPromise(
+        Effect.gen(function* () {
+          const runtime = makeThreadRuntime();
+          yield* runtime.ensure(thread, "claudeAgent", (lease) => Effect.sync(lease.commit));
+          const entered = yield* Deferred.make<void>();
+          const release = yield* Deferred.make<void>();
+          runtime.scheduleIdle(
+            thread,
+            100,
+            runtime.stop(thread, "idle", (lease) =>
+              Deferred.succeed(entered, undefined).pipe(
+                Effect.andThen(Deferred.await(release)),
+                Effect.andThen(Effect.sync(lease.retire)),
+              ),
+            ),
+          );
+          yield* Effect.promise(() => vi.advanceTimersByTimeAsync(100));
+          yield* Deferred.await(entered);
+          expect(runtime.state(thread)).toBe("stopping");
+          const shutdown = yield* runtime.beginShutdown.pipe(Effect.forkChild);
+          expect(shutdown.pollUnsafe()).toBeUndefined();
+          yield* Deferred.succeed(release, undefined);
+          yield* Fiber.join(shutdown);
+          expect(runtime.state(thread)).toBe("none");
+          expect(runtime.hasIdleJob(thread)).toBe(false);
+        }),
+      );
+    } finally {
+      vi.useRealTimers();
+    }
+  });
   it("rejects a retired credential profile before invoking native startup", async () => {
     await Effect.runPromise(
       Effect.gen(function* () {
