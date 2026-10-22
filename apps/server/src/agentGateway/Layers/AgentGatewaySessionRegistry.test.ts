@@ -4,6 +4,32 @@ import { ThreadId } from "@penkra/contracts";
 import { makeAgentGatewaySessionRegistry } from "./AgentGatewaySessionRegistry.ts";
 
 describe("AgentGatewaySessionRegistry", () => {
+  it("attributes native sessions only within their registered process and revokes both boundaries", () => {
+    let id = 0;
+    const registry = makeAgentGatewaySessionRegistry({ randomId: () => String(++id) });
+    const a = registry.issue(ThreadId.makeUnsafe("thread-a"), "opencode", "generation-a");
+    const b = registry.issue(ThreadId.makeUnsafe("thread-b"), "opencode", "generation-b");
+    const processA = registry.processes.issue("opencode");
+    const processB = registry.processes.issue("opencode");
+    const releaseA = registry.processes.register(processA, "native-a", a.token);
+    registry.processes.register(processB, "native-b", b.token);
+    assert.equal(registry.processes.resolve(processA, "native-a"), a.token);
+    assert.isNull(registry.processes.resolve(processA, "native-b"));
+    assert.isNull(registry.processes.resolve(processB, "native-a"));
+    assert.isNull(registry.processes.resolve(processA, "unregistered"));
+    assert.isNull(registry.verify(processA));
+    assert.throws(() => registry.processes.register(processA, "native-a", b.token));
+    const wrongProvider = registry.processes.issue("codex");
+    assert.throws(() => registry.processes.register(wrongProvider, "native-a", a.token));
+    releaseA();
+    assert.isNull(registry.processes.resolve(processA, "native-a"));
+    registry.processes.register(processA, "native-a", a.token);
+    registry.revoke(a.token);
+    assert.isNull(registry.processes.resolve(processA, "native-a"));
+    registry.processes.revoke(processB);
+    assert.isNull(registry.processes.resolve(processB, "native-b"));
+    assert.equal(registry.verify(b.token)?.threadId, "thread-b");
+  });
   it("binds only the active execution and rejects an ended or replaced turn", () => {
     let nextId = 0;
     const registry = makeAgentGatewaySessionRegistry({ randomId: () => String(++nextId) });

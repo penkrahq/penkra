@@ -460,6 +460,7 @@ function makeGatewayCredentialsHarness() {
   const revokedTokens: string[] = [];
   const credentials = {
     mcpEndpointUrl: "http://127.0.0.1:48123/mcp",
+    processes: makeAgentGatewaySessionRegistry().processes,
     setListeningPort: () => undefined,
     issueSessionToken: () => `gateway-token-${++sequence}`,
     verifySessionToken: () => null,

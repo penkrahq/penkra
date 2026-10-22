@@ -24,7 +24,20 @@ export interface AgentGatewayWriteAuthority {
   readonly turnId: string;
 }
 
+/** Native-session attribution is scoped to one actual provider process. */
+export interface AgentGatewayProcessRegistry {
+  readonly issue: (provider: ProviderKind) => string;
+  readonly register: (
+    processToken: string,
+    nativeSessionId: string,
+    sessionToken: string,
+  ) => () => void;
+  readonly resolve: (processToken: string, nativeSessionId: string) => string | null;
+  readonly revoke: (processToken: string) => void;
+}
+
 export interface AgentGatewaySessionRegistryShape {
+  readonly processes: AgentGatewayProcessRegistry;
   readonly issue: (
     threadId: ThreadId,
     provider: ProviderKind,

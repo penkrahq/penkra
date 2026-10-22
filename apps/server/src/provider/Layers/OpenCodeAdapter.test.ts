@@ -311,6 +311,7 @@ function makeGatewayCredentials() {
   const ownerByToken = new Map<string, string>();
   const credentials: AgentGatewayCredentialsShape = {
     mcpEndpointUrl: "http://127.0.0.1:3773/mcp",
+    processes: makeAgentGatewaySessionRegistry().processes,
     setListeningPort: () => undefined,
     issueSessionToken: (threadId) => {
       const token = `gateway-token-${String(++nextToken)}`;

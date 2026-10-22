@@ -710,6 +710,7 @@ it.effect("authorizes a Codex tool request immediately after native turn start",
   const bridge = makeAgentGatewayToolBridge();
   const credentials: AgentGatewayCredentialsShape = {
     mcpEndpointUrl: "http://127.0.0.1/mcp",
+    processes: registry.processes,
     setListeningPort: () => undefined,
     issueSessionToken: (threadId, provider, generation) =>
       registry.issue(threadId, provider, generation).token,

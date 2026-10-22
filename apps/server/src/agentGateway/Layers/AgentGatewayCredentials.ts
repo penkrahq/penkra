@@ -62,6 +62,7 @@ export const makeAgentGatewayCredentials = Effect.gen(function* () {
     sessionRegistry.verify(token)?.threadId ?? null;
 
   return {
+    processes: sessionRegistry.processes,
     get mcpEndpointUrl() {
       return endpoint.url;
     },

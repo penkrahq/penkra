@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import type { ProviderKind } from "@penkra/contracts";
 
 import { Layer } from "effect";
 
@@ -19,8 +20,45 @@ export function makeAgentGatewaySessionRegistry(options?: {
   const sessionsByKey = new Map<string, AgentGatewaySessionIdentity>();
   const endedTurnsBySession = new Map<string, Set<string>>();
   const endedSessions = new Set<string>();
+  const processes = new Map<string, { provider: ProviderKind; sessions: Map<string, string> }>();
 
   return {
+    processes: {
+      issue: (provider) => {
+        const token = `sagw_process_${randomId()}`;
+        processes.set(token, { provider, sessions: new Map() });
+        return token;
+      },
+      register: (processToken, nativeSessionId, sessionToken) => {
+        const process = processes.get(processToken);
+        const session = sessions.get(sessionToken);
+        if (
+          !process ||
+          !session ||
+          session.provider !== process.provider ||
+          nativeSessionId.length === 0
+        ) {
+          throw new Error(
+            "Cannot register a native session without matching process and session ownership.",
+          );
+        }
+        const existing = process.sessions.get(nativeSessionId);
+        if (existing !== undefined && existing !== sessionToken)
+          throw new Error("The native session is already registered to another runtime.");
+        process.sessions.set(nativeSessionId, sessionToken);
+        return () => {
+          if (process.sessions.get(nativeSessionId) === sessionToken)
+            process.sessions.delete(nativeSessionId);
+        };
+      },
+      resolve: (processToken, nativeSessionId) => {
+        const token = processes.get(processToken)?.sessions.get(nativeSessionId);
+        return token !== undefined && sessions.has(token) ? token : null;
+      },
+      revoke: (processToken) => {
+        processes.delete(processToken);
+      },
+    },
     issue: (threadId, provider, lifecycleGeneration) => {
       // Every provider runtime owns an independent credential. Replacement
       // runtimes overlap their predecessor during startup, and the outgoing
@@ -158,6 +196,11 @@ export function makeAgentGatewaySessionRegistry(options?: {
       sessionsByKey.delete(identity.sessionKey);
       endedTurnsBySession.delete(identity.sessionKey);
       endedSessions.delete(identity.sessionKey);
+      for (const process of processes.values()) {
+        for (const [nativeSessionId, sessionToken] of process.sessions) {
+          if (sessionToken === token) process.sessions.delete(nativeSessionId);
+        }
+      }
     },
   };
 }

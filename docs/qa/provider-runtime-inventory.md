@@ -468,3 +468,34 @@ delta. Background native tasks and the durable native cursor remain eligibility
 guards. The existing service idle-race tests passed after the refactor; a controlled
 owner test holds idle disposal open and verifies shutdown waits for its release.
 Its fake clock replaces only timeout APIs, leaving Effect's scheduler live.
+
+## 11. OpenCode native gateway boundary (2026-10-22)
+
+The process registry issues independent process credentials and registers exact
+native-session-to-provider-session mappings. The HTTP route resolves that mapping
+before capturing write authority or reading the body. Missing mappings, another
+process's native session, a revoked process and a session token presented as a
+process credential are rejected. Revoking a provider session removes its native
+mapping without revoking other sessions on the process.
+
+Native plugin declarations are generated from the canonical gateway schemas,
+not separately maintained copies. Unknown schema keywords fail generation.
+The pinned plugin package's Zod 4.1.8 does not expose `fromJSONSchema`; a real
+binary experiment rejected that proposed helper. Generation instead emits the
+documented primitive schema declarations. The complete current gateway surface
+passes generation in `AgentGateway.test.ts`.
+
+The expanded pinned OpenCode contract ran two concurrent directories with the
+generated gateway plugin, one process credential and separately registered native
+sessions. Calls reached their own thread mappings, image tool results survived
+as native tool attachments, and canonical gateway initialize instructions reached
+the model's system prompt. The original export/import/deletion assertions remain.
+Native API message submission returns the final assistant message, so tool-result
+assertions read the native message history rather than assuming the final message
+contains earlier tool parts. Process environment injection occurs explicitly
+after the inherited-environment scrub, never by allowing inherited Penkra secrets.
+
+At this checkpoint, 385 tests across the changed gateway/adapter fixtures passed,
+as did the expanded real-binary contract and formatting/lint/typechecking. These
+primitives are not yet wired into the Production OpenCode pool or its storage
+migration and do not establish that integration's completion.
