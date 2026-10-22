@@ -24,6 +24,11 @@ import { ThreadReads, type ThreadReadsShape } from "./cleanCore/ThreadReads";
 import { AnalyticsService } from "./telemetry/Services/AnalyticsService";
 import { Server, type ServerShape } from "./effectServer";
 import { makeServerShutdownController } from "./serverShutdown";
+import { ensurePinnedProviderRuntimes } from "./provider/ensurePinnedProviderRuntimes";
+
+vi.mock("./provider/ensurePinnedProviderRuntimes", () => ({
+  ensurePinnedProviderRuntimes: vi.fn(() => Effect.void),
+}));
 
 import {
   CliConfig,
@@ -51,6 +56,7 @@ const serverStart = Effect.acquireRelease(
     const sql = yield* SqlClient.SqlClient;
     retainedSqlClient = sql;
     resolvedConfig = yield* ServerConfig;
+    assert.isAbove(vi.mocked(ensurePinnedProviderRuntimes).mock.calls.length, 0);
     start();
     return { server: {} as unknown as Http.Server, sql };
   }),
