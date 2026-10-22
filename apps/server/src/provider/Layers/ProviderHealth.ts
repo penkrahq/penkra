@@ -22,7 +22,6 @@ import { decodeJsonResult } from "@penkra/shared/schemaJson";
 import { prepareWindowsSafeProcess } from "@penkra/shared/windowsProcess";
 import {
   Array,
-  Duration,
   Effect,
   Exit,
   Fiber,
@@ -33,7 +32,6 @@ import {
   PubSub,
   Ref,
   Result,
-  Schedule,
   Schema,
   Scope,
   Stream,
@@ -77,8 +75,7 @@ import {
   writeProviderStatusCache,
 } from "../providerStatusCache";
 import { resolveProviderBinary } from "../managedProviderRuntime";
-import { compareSemverVersions, parseGenericCliVersion } from "../providerVersion";
-import { resolveManagedProviderArtifact } from "../managedProviderArtifact";
+import { parseGenericCliVersion } from "../providerVersion";
 import { buildCodexProcessEnv } from "../../codexProcessEnv.ts";
 
 export { parseClaudeAuthStatusFromOutput } from "../claudeAuthStatus";
@@ -976,16 +973,6 @@ export const checkOpenCodeProviderStatus = makeCheckOpenCodeProviderStatus();
 
 // ── Snapshot helpers ────────────────────────────────────────────────
 
-function comparableProviderVersionAdvisory(
-  advisory: ServerProviderStatus["versionAdvisory"] | undefined,
-): Omit<NonNullable<ServerProviderStatus["versionAdvisory"]>, "checkedAt"> | null {
-  if (!advisory) {
-    return null;
-  }
-  const { checkedAt: _checkedAt, ...comparableAdvisory } = advisory;
-  return comparableAdvisory;
-}
-
 export function providerStatusesEqual(
   left: ReadonlyArray<ServerProviderStatus>,
   right: ReadonlyArray<ServerProviderStatus>,
@@ -1005,10 +992,7 @@ export function providerStatusesEqual(
       (status.authLabel ?? null) === (next.authLabel ?? null) &&
       status.voiceTranscriptionAvailable === next.voiceTranscriptionAvailable &&
       (status.version ?? null) === (next.version ?? null) &&
-      (status.message ?? null) === (next.message ?? null) &&
-      JSON.stringify(comparableProviderVersionAdvisory(status.versionAdvisory)) ===
-        JSON.stringify(comparableProviderVersionAdvisory(next.versionAdvisory)) &&
-      JSON.stringify(status.updateState ?? null) === JSON.stringify(next.updateState ?? null)
+      (status.message ?? null) === (next.message ?? null)
     );
   });
 }
@@ -1051,7 +1035,6 @@ export function stabilizeProviderStatusesAgainstTransientTimeouts(
     return {
       ...previous,
       checkedAt: status.checkedAt,
-      ...(status.updateState !== undefined ? { updateState: status.updateState } : {}),
     };
   });
 }
@@ -1110,22 +1093,6 @@ function mergeProviderStatusUpdates(
   return orderProviderStatuses([...statusByProvider.values()]);
 }
 
-// Keeps local CLI version/status visible while removing network-backed update metadata.
-function makeSuppressedProviderVersionAdvisory(
-  status: ServerProviderStatus,
-  currentVersion?: string | null,
-): NonNullable<ServerProviderStatus["versionAdvisory"]> {
-  return {
-    status: "unknown",
-    currentVersion: currentVersion ?? status.version ?? null,
-    latestVersion: null,
-    updateCommand: null,
-    canUpdate: false,
-    checkedAt: status.checkedAt,
-    message: null,
-  };
-}
-
 // Disabled providers are a settings overlay, not a probe result. Keep the raw
 // cached/probed status intact so re-enabling a provider can reuse it immediately.
 export function projectProviderStatusesForSettings(
@@ -1140,15 +1107,7 @@ export function projectProviderStatusesForSettings(
     const status = statusByProvider.get(provider);
     if (!isProviderEnabledForSettings(provider, settings)) {
       const disabledStatus = makeDisabledProviderStatus(provider, status?.checkedAt ?? checkedAt);
-      const disabledStatusWithAdvisory = {
-        ...disabledStatus,
-        versionAdvisory: makeSuppressedProviderVersionAdvisory(disabledStatus, status?.version),
-      } satisfies ServerProviderStatus;
-      projected.push(
-        status?.updateState
-          ? { ...disabledStatusWithAdvisory, updateState: status.updateState }
-          : disabledStatusWithAdvisory,
-      );
+      projected.push(disabledStatus);
       continue;
     }
 
@@ -1162,12 +1121,7 @@ export function projectProviderStatusesForSettings(
 
 // ── Layer ───────────────────────────────────────────────────────────
 
-// Latest-release metadata is checked once daily, not on window focus (operator decision 7).
-export const PROVIDER_RELEASE_CHECK_INTERVAL = Duration.hours(24);
-
-export function makeProviderHealthLive(options?: {
-  readonly resolveManagedArtifact?: typeof resolveManagedProviderArtifact;
-}) {
+export function makeProviderHealthLive() {
   return Layer.effect(
     ProviderHealth,
     Effect.gen(function* () {
@@ -1227,22 +1181,12 @@ export function makeProviderHealthLive(options?: {
           Effect.map((resolution) => resolution.binaryPath),
         );
 
-      const applyVolatileProviderState = (status: ServerProviderStatus) => {
-        const { updateState: _obsoleteUpdateState, ...statusWithoutUpdateState } = status;
-        return Effect.succeed(statusWithoutUpdateState);
-      };
-
       const projectStatusesForCurrentSettings = Effect.fn(
         "projectProviderStatusesForCurrentSettings",
       )(function* (statuses: ReadonlyArray<ServerProviderStatus>) {
         return yield* serverSettings.getSettings.pipe(
           Effect.map((settings) => projectProviderStatusesForSettings(statuses, settings)),
           Effect.catch(() => Effect.succeed(statuses)),
-          Effect.flatMap((projected) =>
-            Effect.forEach(projected, applyVolatileProviderState, {
-              concurrency: "unbounded",
-            }),
-          ),
         );
       });
 
@@ -1251,51 +1195,6 @@ export function makeProviderHealthLive(options?: {
         const projectedStatuses = yield* projectStatusesForCurrentSettings(rawStatuses);
         yield* PubSub.publish(changesPubSub, projectedStatuses);
         return projectedStatuses;
-      });
-
-      const latestReleases = yield* Ref.make<
-        ReadonlyMap<ProviderKind, { readonly version: string; readonly checkedAt: string }>
-      >(new Map());
-
-      const applyReleaseAdvisories = (
-        statuses: ReadonlyArray<ServerProviderStatus>,
-        releases: ReadonlyMap<
-          ProviderKind,
-          { readonly version: string; readonly checkedAt: string }
-        >,
-      ): ProviderStatuses =>
-        statuses.map((status) => {
-          const currentVersion = status.version ?? null;
-          const release = releases.get(status.provider);
-          if (currentVersion === null || !release) {
-            return {
-              ...status,
-              versionAdvisory: makeSuppressedProviderVersionAdvisory(status),
-            };
-          }
-          const behind = compareSemverVersions(currentVersion, release.version) < 0;
-          return {
-            ...status,
-            versionAdvisory: {
-              status: behind ? "behind_latest" : "current",
-              currentVersion,
-              latestVersion: release.version,
-              updateCommand: null,
-              canUpdate: false,
-              checkedAt: release.checkedAt,
-              message: behind ? "A managed provider update is available." : null,
-            },
-          };
-        });
-
-      const enrichStatuses = Effect.fn("enrichProviderStatuses")(function* (
-        statuses: ReadonlyArray<ServerProviderStatus>,
-      ) {
-        const releases = yield* Ref.get(latestReleases);
-        return yield* Effect.forEach(
-          applyReleaseAdvisories(statuses, releases),
-          applyVolatileProviderState,
-        );
       });
 
       const checkManagedProviderWhenEnabled = <R>(
@@ -1342,17 +1241,15 @@ export function makeProviderHealthLive(options?: {
               statuses.flatMap((status) => (Option.isSome(status) ? [status.value] : [])),
             ),
           ),
-          Effect.flatMap(enrichStatuses),
         );
 
       const persistStatuses = (statuses: ProviderStatuses) =>
         Effect.forEach(
           statuses,
           (status) => {
-            const { updateState: _updateState, ...statusToPersist } = status;
             return writeProviderStatusCache({
               filePath: cachePathByProvider.get(status.provider)!,
-              provider: statusToPersist,
+              provider: status,
             }).pipe(
               Effect.provideService(FileSystem.FileSystem, fileSystem),
               Effect.provideService(Path.Path, path),
@@ -1415,44 +1312,6 @@ export function makeProviderHealthLive(options?: {
 
       yield* serverSettings.streamChanges.pipe(
         Stream.runForEach(() => publishProjectedStatuses().pipe(Effect.asVoid)),
-        Effect.forkIn(refreshScope),
-      );
-
-      const checkLatestReleases = Effect.gen(function* () {
-        yield* serverSettings.ready;
-        const settings = yield* serverSettings.getSettings;
-        yield* Effect.forEach(
-          PROVIDERS.filter((provider) => isProviderEnabledForSettings(provider, settings)),
-          (provider) =>
-            (options?.resolveManagedArtifact ?? resolveManagedProviderArtifact)({
-              provider,
-              version: "latest",
-            }).pipe(
-              Effect.tap((artifact) =>
-                Ref.update(latestReleases, (releases) =>
-                  new Map(releases).set(provider, {
-                    version: artifact.version,
-                    checkedAt: new Date().toISOString(),
-                  }),
-                ),
-              ),
-              Effect.catch((cause) =>
-                Effect.logWarning("provider latest-release check failed", { provider, cause }),
-              ),
-            ),
-          { concurrency: "unbounded", discard: true },
-        );
-        // Apply against the current snapshot, including any probe completed during the lookup.
-        const releases = yield* Ref.get(latestReleases);
-        yield* Ref.update(statusesRef, (statuses) => applyReleaseAdvisories(statuses, releases));
-        yield* Ref.get(statusesRef).pipe(Effect.flatMap(persistStatuses));
-        yield* publishProjectedStatuses();
-      });
-      yield* checkLatestReleases.pipe(
-        Effect.catch((cause) =>
-          Effect.logWarning("provider release-check iteration failed", { cause }),
-        ),
-        Effect.repeat(Schedule.spaced(PROVIDER_RELEASE_CHECK_INTERVAL)),
         Effect.forkIn(refreshScope),
       );
 
