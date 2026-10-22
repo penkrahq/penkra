@@ -34,6 +34,10 @@ it("reports native completion, rollout path, steer, questions, interrupt and loc
   const model = http.createServer(async (req, res) => {
     if (req.method === "GET") {
       res.writeHead(200, { "Content-Type": "application/json" });
+      if (req.url === "/api/codex/profiles/me") {
+        res.end(JSON.stringify({ stats: {} }));
+        return;
+      }
       res.end(
         JSON.stringify({
           plan_type: "plus",
@@ -180,7 +184,15 @@ it("reports native completion, rollout path, steer, questions, interrupt and loc
       chatgptAccountId: "contract-account",
       chatgptPlanType: "plus",
     });
-    await rpc.request("account/rateLimits/read", {});
+    const limits = await rpc.request<{
+      rateLimits: { credits: { hasCredits: boolean; balance: string } | null };
+    }>("account/rateLimits/read", {});
+    assert.equal(limits.rateLimits.credits?.hasCredits, true);
+    assert.equal(limits.rateLimits.credits?.balance, "10");
+    const usage = await rpc.request<{ summary: Record<string, unknown> }>("account/usage/read", {});
+    assert(usage.summary);
+    assert("lifetimeTokens" in usage.summary);
+    assert.equal("credits" in usage.summary, false);
     await rpc.request("skills/extraRoots/set", { extraRoots: [fixture.root] });
     await rpc.request("plugin/list", { cwds: [fixture.root], marketplaceKinds: ["local"] });
     const models = await rpc.request<{ data: unknown[] }>("model/list", {});

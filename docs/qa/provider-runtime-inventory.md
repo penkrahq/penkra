@@ -331,3 +331,67 @@ identifies the one request that could be failed instead.
 P26 step 1 requires planner review of this evidence and an amended root plan
 before step 2. No runtime refactor or Production installation is part of this
 inventory commit.
+
+## 7. Follow-up native and ownership evidence (2026-10-22)
+
+These experiments are separate from the original source inventory above. The
+root TODO remains the implementation authority.
+
+### Shared OpenCode exit boundary
+
+`1786fa643` exercises the pinned OpenCode 1.19.3 executable with two isolated
+server profiles. Two sessions on the first server enter blocked upstream
+requests; the second server has a live question awaiting an answer. A deliberate
+SIGKILL of the first child produces its OS exit and rejects both of its active
+HTTP requests. The second server retains its question, accepts the answer,
+finishes that turn and accepts a later turn. Its process never exits.
+
+A killed process cannot emit terminal native events after death. The native
+boundary proved here is OS child exit plus failed requests, not a per-session
+exit notification. Penkra must attribute that exit using its own exact process
+membership. This experiment does not prove the future adapter mapping.
+
+### Cancellation settlement is part of ownership
+
+`ffa554c90` reproduces an adapter cancellation race using a manager whose abort
+cleanup is held behind an explicit barrier. Before the change, `Fiber.interrupt`
+returns while that native cleanup remains blocked. The corrected callback
+finalizer waits for startup settlement and session teardown. A second test lets
+startup return a ready session after abort: teardown still completes before
+cancellation returns. A cancellation during managed-resume preparation is
+checked before entering native startup. The shared account process is not
+terminated by this cleanup.
+
+All 37 tests in the changed Codex adapter file pass. This is controlled evidence
+of the ownership mechanism, not proof that it caused a particular historical
+Production stall. It does not by itself implement the ThreadRuntime owner or
+change urgent routing.
+
+### Connection-local usage protocol
+
+The pinned Codex 0.163.0 contract now reads both native account methods through
+an isolated app-server with externally supplied fixture credentials and a local
+HTTP backend. `account/rateLimits/read` returns the fixture's remaining credit
+balance (`"10"`, `hasCredits: true`). `account/usage/read` instead returns a
+token-activity summary with `lifetimeTokens`; it is not the credits endpoint.
+Its backend profile response requires `stats`, unlike the rate-limit response.
+
+This distinction agrees with the generated pinned protocol types
+`GetAccountTokenUsageResponse` and `RateLimitSnapshot`, and the official
+[account and usage documentation](https://learn.chatgpt.com/docs/app-server).
+The initial new test failed because the fixture returned the rate-limit shape
+to the token-profile endpoint; giving that endpoint its own `stats` response
+made the real native request succeed. This was a fixture defect, not a provider
+or Production failure.
+
+The pinned Claude CLI 2.1.307 / SDK 0.3.307 contract successfully calls
+`usage_EXPERIMENTAL_MAY_CHANGE_DO_NOT_RELY_ON_THIS_API_YET({skipBehaviors:true})`
+on its managed query. In this API-key fixture, session cost is numeric,
+`rate_limits_available` is false, and `rate_limits` and `behaviors` are null.
+That establishes a real callable native method and its no-plan shape, not
+Claude subscription-account parity. The SDK explicitly labels the method
+experimental; version pinning does not establish its behavior for later SDKs.
+
+Neither experiment reads personal credential files or proves the application
+usage wiring, multi-Connection account parity, or the personal-credential
+isolation acceptance cases. No Production installation is part of this evidence.
