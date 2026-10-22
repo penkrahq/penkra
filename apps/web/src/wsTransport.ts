@@ -420,6 +420,16 @@ export function shouldKeepServerLifecycleStream(activeChannels: ReadonlySet<stri
   );
 }
 
+export function isServerConfigPushChannel(channel: string): boolean {
+  return (
+    channel === WS_CHANNELS.serverConfigUpdated || channel === WS_CHANNELS.providerCatalogChanged
+  );
+}
+
+export function shouldKeepServerConfigStream(activeChannels: ReadonlySet<string>): boolean {
+  return [...activeChannels].some(isServerConfigPushChannel);
+}
+
 export class WsTransport {
   subscribeConnectionLogin(
     input: GetProviderConnectionLoginInput,
@@ -974,20 +984,8 @@ export class WsTransport {
           );
         } else if (isServerLifecyclePushChannel(channel)) {
           this.startLifecycleStream(client);
-        } else if (channel === WS_CHANNELS.serverConfigUpdated) {
-          this.startStream(
-            client,
-            "server.config",
-            client[WS_METHODS.subscribeServerConfig]({}),
-            (event: ServerConfigStreamEvent) => {
-              if (event.type === "snapshot") {
-                this.emit(WS_CHANNELS.serverConfigUpdated, {
-                  providers: event.config.providers,
-                });
-              }
-            },
-            restartChannel,
-          );
+        } else if (isServerConfigPushChannel(channel)) {
+          this.startConfigStream(client);
         } else if (channel === WS_CHANNELS.serverProviderStatusesUpdated) {
           this.startStream(
             client,
@@ -1032,8 +1030,10 @@ export class WsTransport {
   private stopChannelStream(channel: WsPushChannel): void {
     if (isServerLifecyclePushChannel(channel)) {
       if (!this.shouldKeepLifecycleStream()) this.stopStream("server.lifecycle");
-    } else if (channel === WS_CHANNELS.serverConfigUpdated) this.stopStream("server.config");
-    else if (channel === WS_CHANNELS.serverProviderStatusesUpdated)
+    } else if (isServerConfigPushChannel(channel)) {
+      if (!shouldKeepServerConfigStream(new Set(this.listeners.keys())))
+        this.stopStream("server.config");
+    } else if (channel === WS_CHANNELS.serverProviderStatusesUpdated)
       this.stopStream("server.providers");
     else if (channel === WS_CHANNELS.serverProviderUsageUpdated)
       this.stopStream("server.providerUsage");
@@ -1044,6 +1044,33 @@ export class WsTransport {
 
   private shouldKeepLifecycleStream(): boolean {
     return shouldKeepServerLifecycleStream(new Set(this.listeners.keys()));
+  }
+
+  private startConfigStream(client: RpcClientInstance): void {
+    const restart = () => {
+      if (!shouldKeepServerConfigStream(new Set(this.listeners.keys()))) return;
+      void this.getClient()
+        .then((next) => this.startConfigStream(next))
+        .catch((error) => {
+          console.warn("WebSocket RPC config stream failed to restart", error);
+        });
+    };
+    this.startStream(
+      client,
+      "server.config",
+      client[WS_METHODS.subscribeServerConfig]({}),
+      (event: ServerConfigStreamEvent) => {
+        if (event.type === "snapshot")
+          this.emit(WS_CHANNELS.serverConfigUpdated, { providers: event.config.providers });
+        else if (event.type === "catalog.changed")
+          this.emit(WS_CHANNELS.providerCatalogChanged, {
+            _tag: "catalog.changed",
+            scope: event.scope,
+            version: event.version,
+          });
+      },
+      restart,
+    );
   }
 
   private startLifecycleStream(client: RpcClientInstance): void {

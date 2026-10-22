@@ -48,7 +48,7 @@ function currentClaudeModels(
   });
 }
 
-/** Provider metadata is filtered here for picker display only. Validation keeps the source catalog. */
+/** Picker presentation only. Native selection validation keeps the full catalog. */
 export function filterProviderModelsForPicker(
   provider: ProviderKind,
   catalog: ProviderListModelsResult,

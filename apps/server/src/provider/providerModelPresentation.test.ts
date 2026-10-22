@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { filterProviderModelsForPicker } from "./providerModelPresentation.ts";
+import { filterProviderModelsForPicker } from "@penkra/shared/providerModelPresentation";
 import {
   claudeDefaultModelId,
   claudeModelsListFixture,

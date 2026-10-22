@@ -52,7 +52,6 @@ export function useComposerSlashCommands(input: {
   supportsTextNativeReviewCommand: boolean;
   fastModeEnabled: boolean;
   providerNativeCommands: readonly ProviderNativeCommandDescriptor[];
-  providerCommandDiscoveryCwd: string | null;
   selectedProvider: ProviderKind;
   currentProviderModelOptions: ProviderModelOptions[ProviderKind] | undefined;
   selectedModelSelection: ModelSelection;
@@ -97,7 +96,6 @@ export function useComposerSlashCommands(input: {
     supportsTextNativeReviewCommand,
     fastModeEnabled,
     providerNativeCommands,
-    providerCommandDiscoveryCwd,
     selectedProvider,
     currentProviderModelOptions,
     selectedModelSelection,
@@ -304,7 +302,7 @@ export function useComposerSlashCommands(input: {
 
   const checkClaudeFastSlashCommandAvailability = useCallback(async (): Promise<boolean> => {
     const api = readNativeApi();
-    if (!api || !providerCommandDiscoveryCwd) {
+    if (!api || !activeProject || selectedConnectionId === undefined) {
       editorActions.clearComposerSlashDraft();
       toastManager.add({
         type: "warning",
@@ -315,16 +313,17 @@ export function useComposerSlashCommands(input: {
     }
 
     try {
-      const result = await api.provider.listCommands({
+      const result = await api.provider.getCatalog({
         provider: "claudeAgent",
-        cwd: providerCommandDiscoveryCwd,
-        threadId,
-        forceReload: true,
+        connectionId: selectedConnectionId,
+        folderId: activeProject.id,
+        kinds: ["commands"],
       });
+      if (result.error !== null) throw new Error(result.error);
       if (
         hasProviderNativeSlashCommand(
           "claudeAgent",
-          result.commands.map((command) => command.name),
+          (result.commands ?? []).map((command) => command.name),
           "fast",
         )
       ) {
@@ -347,7 +346,7 @@ export function useComposerSlashCommands(input: {
       description: "Claude did not expose /fast for this account or environment.",
     });
     return false;
-  }, [editorActions, providerCommandDiscoveryCwd, threadId]);
+  }, [editorActions, activeProject, selectedConnectionId]);
 
   const runExportSlashCommand = useCallback(() => {
     // Re-validate at call time (mirrors /compact): menu selections and stale

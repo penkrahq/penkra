@@ -21,6 +21,7 @@ import {
 
 import {
   shouldKeepServerLifecycleStream,
+  shouldKeepServerConfigStream,
   getStreamCapacityRetryDelayMs,
   getStreamDuplicateRetryDelayMs,
   getStreamFailureCode,
@@ -587,6 +588,18 @@ describe("WsTransport", () => {
       ),
     ).toBe(true);
     expect(shouldKeepServerLifecycleStream(new Set([WS_CHANNELS.serverConfigUpdated]))).toBe(false);
+  });
+
+  it("keeps one config stream while either config or catalog changes are consumed", () => {
+    expect(shouldKeepServerConfigStream(new Set([WS_CHANNELS.serverConfigUpdated]))).toBe(true);
+    expect(shouldKeepServerConfigStream(new Set([WS_CHANNELS.providerCatalogChanged]))).toBe(true);
+    expect(
+      shouldKeepServerConfigStream(
+        new Set([WS_CHANNELS.serverConfigUpdated, WS_CHANNELS.providerCatalogChanged]),
+      ),
+    ).toBe(true);
+    expect(shouldKeepServerConfigStream(new Set([WS_CHANNELS.serverWelcome]))).toBe(false);
+    expect(shouldKeepServerConfigStream(new Set())).toBe(false);
   });
 
   it("opens the stable bootstrap endpoint before the feature RPC socket", async () => {

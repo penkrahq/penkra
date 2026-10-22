@@ -133,14 +133,6 @@ const OpenCodeRuntimeTestDouble: OpenCodeRuntimeShape = {
         cause: null,
       }),
     ),
-  listOpenCodeCliModels: () =>
-    Effect.fail(
-      new OpenCodeRuntimeError({
-        operation: "listOpenCodeCliModels",
-        detail: "OpenCodeRuntimeTestDouble.listOpenCodeCliModels should not be used in this test",
-        cause: null,
-      }),
-    ),
   loadOpenCodeCredentialProviderIDs: () => Effect.succeed([]),
 };
 

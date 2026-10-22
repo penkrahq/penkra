@@ -20,6 +20,66 @@ afterEach(async () => {
 });
 
 describe("AppCommandPipeServer", () => {
+  it("streams App skill changes only to an authenticated backend subscriber", async () => {
+    const directory = FS.mkdtempSync(Path.join(OS.tmpdir(), "penkra-skill-changes-"));
+    const path =
+      process.platform === "win32"
+        ? resolveAppCommandPipePath(directory)
+        : Path.join(directory, "command.sock");
+    const server = new AppCommandPipeServer({
+      path,
+      token: "secret",
+      adminToken: "backend-secret",
+      readFolderTabs: async () => [],
+      catalog: {} as never,
+      broker: {} as never,
+      observer: {} as never,
+      providerCredentialVault: {} as never,
+      tabs: { list: () => [], hostedPageState: vi.fn(), current: () => null, close: vi.fn() },
+      presentation: () => ({ state: "background" }),
+    });
+    await server.start();
+    disposers.push(async () => {
+      await server.dispose();
+      FS.rmSync(directory, { recursive: true, force: true });
+    });
+    await expect(
+      send(path, { id: "denied", token: "secret", method: "skills.subscribe" }),
+    ).resolves.toMatchObject({ ok: false });
+    const socket = Net.createConnection(path);
+    disposers.push(async () => {
+      socket.destroy();
+    });
+    let bytes = "";
+    const frames: unknown[] = [];
+    let next!: () => void;
+    const received = () =>
+      new Promise<void>((resolve) => {
+        next = resolve;
+      });
+    socket.setEncoding("utf8");
+    socket.on("data", (chunk) => {
+      bytes += chunk;
+      let newline: number;
+      while ((newline = bytes.indexOf("\n")) >= 0) {
+        frames.push(JSON.parse(bytes.slice(0, newline)));
+        bytes = bytes.slice(newline + 1);
+        next();
+      }
+    });
+    const acknowledged = received();
+    socket.write(
+      `${JSON.stringify({ id: "watch", token: "secret", adminToken: "backend-secret", method: "skills.subscribe" })}\n`,
+    );
+    await acknowledged;
+    expect(frames).toEqual([{ ok: true, id: "watch", result: { subscribed: true } }]);
+    const changed = received();
+    server.publishSkillsChanged();
+    await changed;
+    expect(frames.at(-1)).toEqual({ type: "skills.changed" });
+    expect(socket.destroyed).toBe(false);
+    socket.destroy();
+  });
   it("lists an unloaded tab's saved title and URL without opening its renderer", async () => {
     if (process.platform === "win32") return;
     const directory = FS.mkdtempSync(Path.join(OS.tmpdir(), "penkra-app-command-retained-"));

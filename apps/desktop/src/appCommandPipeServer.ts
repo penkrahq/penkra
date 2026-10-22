@@ -31,6 +31,7 @@ export const PENKRA_APP_COMMAND_PIPE_ENV = "PENKRA_APP_COMMAND_PIPE";
 export const PENKRA_APP_COMMAND_TOKEN_ENV = "PENKRA_APP_COMMAND_TOKEN";
 export const PENKRA_APP_COMMAND_ADMIN_TOKEN_ENV = "PENKRA_APP_COMMAND_ADMIN_TOKEN";
 const MAX_REQUEST_BYTES = 1024 * 1024;
+const SKILLS_SUBSCRIBED = Symbol("skills subscribed");
 
 export function assertAppTabAgentAddressable(
   tab: Pick<DesktopAppTabDescriptor, "agentAddressable" | "name">,
@@ -50,6 +51,7 @@ type Request = {
     | "catalog.list"
     | "catalog.help"
     | "skills.list"
+    | "skills.subscribe"
     | "core.open"
     | "thread.home.inherit"
     | "operations.invoke"
@@ -158,6 +160,7 @@ export function resolveAppCommandPipePath(_userDataPath: string): string {
 export class AppCommandPipeServer {
   readonly #server: Net.Server;
   readonly #sockets = new Set<Net.Socket>();
+  readonly #skillSubscribers = new Map<Net.Socket, { blocked: boolean; dirty: boolean }>();
   readonly #path: string;
   readonly #token: string;
   readonly #adminToken: string;
@@ -341,6 +344,7 @@ export class AppCommandPipeServer {
   async dispose(): Promise<void> {
     for (const socket of this.#sockets) socket.destroy();
     this.#sockets.clear();
+    this.#skillSubscribers.clear();
     if (this.#started) {
       await new Promise<void>((resolve) => this.#server.close(() => resolve()));
       this.#started = false;
@@ -363,8 +367,9 @@ export class AppCommandPipeServer {
       if (newline < 0) return;
       const raw = bytes.subarray(0, newline).toString("utf8");
       socket.pause();
-      void this.#handle(raw, controller.signal)
+      void this.#handle(raw, controller.signal, socket)
         .then((response) => {
+          if (response === SKILLS_SUBSCRIBED) return;
           completed = true;
           socket.end(`${JSON.stringify(response)}\n`);
         })
@@ -375,6 +380,7 @@ export class AppCommandPipeServer {
     });
     const release = () => {
       this.#sockets.delete(socket);
+      this.#skillSubscribers.delete(socket);
       if (!completed && !controller.signal.aborted) {
         controller.abort(new Error("The App command caller disconnected."));
       }
@@ -383,7 +389,24 @@ export class AppCommandPipeServer {
     socket.on("error", release);
   }
 
-  async #handle(raw: string, signal: AbortSignal): Promise<unknown> {
+  publishSkillsChanged(): void {
+    for (const [socket, state] of this.#skillSubscribers) {
+      if (state.blocked) state.dirty = true;
+      else state.blocked = !socket.write(`${JSON.stringify({ type: "skills.changed" })}\n`);
+    }
+  }
+
+  #requireBackend(request: Request): void {
+    const supplied = Buffer.from(typeof request.adminToken === "string" ? request.adminToken : "");
+    const expected = Buffer.from(this.#adminToken);
+    if (supplied.length !== expected.length || !Crypto.timingSafeEqual(supplied, expected)) {
+      throw Object.assign(new Error("This App command requires backend authority."), {
+        code: "APP_COMMAND_FORBIDDEN",
+      });
+    }
+  }
+
+  async #handle(raw: string, signal: AbortSignal, socket: Net.Socket): Promise<unknown> {
     const request = JSON.parse(raw) as Request;
     if (!request || typeof request !== "object" || typeof request.id !== "string") {
       throw new Error("Invalid App command request.");
@@ -395,6 +418,24 @@ export class AppCommandPipeServer {
     }
     const params = asRecord(request.params);
     switch (request.method) {
+      case "skills.subscribe": {
+        this.#requireBackend(request);
+        socket.removeAllListeners("data");
+        socket.resume();
+        const state = { blocked: false, dirty: false };
+        this.#skillSubscribers.set(socket, state);
+        state.blocked = !socket.write(
+          `${JSON.stringify({ ok: true, id: request.id, result: { subscribed: true } })}\n`,
+        );
+        socket.on("drain", () => {
+          state.blocked = false;
+          if (state.dirty) {
+            state.dirty = false;
+            state.blocked = !socket.write(`${JSON.stringify({ type: "skills.changed" })}\n`);
+          }
+        });
+        return SKILLS_SUBSCRIBED;
+      }
       case "providers.credentials.store":
         return {
           ok: true,
@@ -665,18 +706,7 @@ export class AppCommandPipeServer {
           result: await this.#catalog.skills(requiredString(params.spaceId, "spaceId")),
         };
       case "thread.home.inherit": {
-        const suppliedAdmin = Buffer.from(
-          typeof request.adminToken === "string" ? request.adminToken : "",
-        );
-        const expectedAdmin = Buffer.from(this.#adminToken);
-        if (
-          suppliedAdmin.length !== expectedAdmin.length ||
-          !Crypto.timingSafeEqual(suppliedAdmin, expectedAdmin)
-        ) {
-          throw Object.assign(new Error("Thread home inheritance requires backend authority."), {
-            code: "APP_COMMAND_FORBIDDEN",
-          });
-        }
+        this.#requireBackend(request);
         if (!this.#inheritThreadHome) throw new Error("Thread home inheritance is unavailable.");
         this.#inheritThreadHome(
           requiredString(params.creatorThreadId, "creatorThreadId"),

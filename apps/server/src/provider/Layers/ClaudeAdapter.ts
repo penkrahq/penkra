@@ -54,11 +54,7 @@ import {
   type UserInputQuestion,
   type ProviderComposerCapabilities,
   type ProviderCatalogData,
-  type ProviderListCommandsInput,
   type ProviderListCommandsResult,
-  type ProviderListSkillsInput,
-  type ProviderListSkillsResult,
-  type ProviderListAgentsResult,
   type ProviderListModelsResult,
   getAgentMentionAliases,
 } from "@penkra/contracts";
@@ -5346,133 +5342,6 @@ function makeClaudeAdapter(options?: ClaudeAdapterLiveOptions) {
           }),
       });
 
-    // Native command discovery cache — avoids spawning a process per query.
-    let commandsCache: {
-      result: ProviderListCommandsResult;
-      cwd: string;
-    } | null = null;
-    let pendingCommandDiscovery: Promise<ProviderListCommandsResult> | null = null;
-
-    async function discoverCommandsViaTemporaryProcess(
-      cwd: string,
-      env: NodeJS.ProcessEnv,
-    ): Promise<ProviderListCommandsResult> {
-      // Never spawn another discovery process until every previously unproven
-      // process tree has been reaped successfully.
-      await Effect.runPromise(teardownFailedCommandDiscoveryProcesses());
-
-      // Spawn a lightweight Claude Code process for native command discovery.
-      // The SDK's supportedCommands() awaits an internal initialization promise
-      // that only resolves when the async generator is iterated (driving the
-      // subprocess handshake). We iterate in the background to unblock it.
-      const processOwner: ClaudeProcessOwner = {};
-      let tempQuery: ClaudeQueryRuntime | undefined;
-
-      try {
-        // Query construction itself may invoke the spawn callback before
-        // throwing, so it belongs inside the same ownership boundary.
-        tempQuery = await createQuery({
-          prompt: neverResolvingUserMessageStream(),
-          options: {
-            cwd,
-            pathToClaudeCodeExecutable: "claude",
-            settingSources: [...CLAUDE_SETTING_SOURCES],
-            permissionMode: "plan" as PermissionMode,
-            persistSession: false,
-            env,
-            spawnClaudeCodeProcess: bindClaudeProcessOwner(processOwner),
-          },
-        });
-        const queryRuntime = tempQuery;
-
-        // Drive the iterator so the subprocess completes its init handshake.
-        // This runs in the background; close() in the finally block stops it.
-        void (async () => {
-          for await (const message of queryRuntime) {
-            void message;
-            /* consume until closed */
-          }
-        })().catch(() => undefined);
-
-        const commands = await queryRuntime.supportedCommands();
-        return mapSupportedCommands(commands);
-      } finally {
-        try {
-          tempQuery?.close();
-        } finally {
-          await Effect.runPromise(teardownCommandDiscoveryProcess(processOwner));
-        }
-      }
-    }
-
-    const listCommands: NonNullable<ClaudeAdapterShape["listCommands"]> = (
-      input: ProviderListCommandsInput,
-    ) =>
-      Effect.gen(function* () {
-        // 1. Try an active session first (cheapest path).
-        const context = input.threadId
-          ? sessions.get(ThreadId.makeUnsafe(input.threadId))
-          : [...sessions.values()].find((s) => !s.stopped);
-
-        if (context && !context.stopped) {
-          const commands = yield* Effect.tryPromise({
-            try: () => context.query.supportedCommands(),
-            catch: (cause) => toRequestError(context.session.threadId, "listCommands", cause),
-          });
-          const result = mapSupportedCommands(commands);
-          commandsCache = { result, cwd: input.cwd };
-          return result;
-        }
-
-        // 2. Return from cache if valid and not force-reloading.
-        if (commandsCache && commandsCache.cwd === input.cwd && !input.forceReload) {
-          return {
-            ...commandsCache.result,
-            cached: true,
-          } satisfies ProviderListCommandsResult;
-        }
-
-        // 3. Spawn a temporary process for discovery (deduplicating concurrent requests).
-        const claudeSdkEnv = yield* resolveClaudeSdkEnv;
-        const discoveryPromise =
-          pendingCommandDiscovery ?? discoverCommandsViaTemporaryProcess(input.cwd, claudeSdkEnv);
-        pendingCommandDiscovery = discoveryPromise;
-
-        const result = yield* Effect.tryPromise({
-          try: () => discoveryPromise,
-          catch: (cause) =>
-            new ProviderAdapterProcessError({
-              provider: PROVIDER,
-              threadId: ThreadId.makeUnsafe("discovery"),
-              detail: toMessage(cause, "Failed to discover Claude commands."),
-              cause,
-            }),
-        }).pipe(
-          Effect.tap(() =>
-            Effect.sync(() => {
-              pendingCommandDiscovery = null;
-            }),
-          ),
-          Effect.tapError(() =>
-            Effect.sync(() => {
-              pendingCommandDiscovery = null;
-            }),
-          ),
-        );
-
-        commandsCache = { result, cwd: input.cwd };
-        return result;
-      });
-
-    const listSkills: NonNullable<ClaudeAdapterShape["listSkills"]> = (
-      _input: ProviderListSkillsInput,
-    ) =>
-      Effect.succeed({
-        skills: [],
-        source: "unsupported",
-        cached: false,
-      } satisfies ProviderListSkillsResult);
-
     const stopAll: ClaudeAdapterShape["stopAll"] = () =>
       Effect.gen(function* () {
         yield* Effect.forEach(
@@ -5546,136 +5415,6 @@ function makeClaudeAdapter(options?: ClaudeAdapterLiveOptions) {
           }),
       });
 
-    const pendingModelDiscoveries = new Map<string, Promise<ProviderListModelsResult>>();
-
-    async function discoverModelsViaTemporaryProcess(
-      cwd: string,
-      binaryPath: string,
-      env: NodeJS.ProcessEnv,
-    ): Promise<ProviderListModelsResult> {
-      await Effect.runPromise(teardownFailedCommandDiscoveryProcesses());
-
-      const processOwner: ClaudeProcessOwner = {};
-      let tempQuery: ClaudeQueryRuntime | undefined;
-      try {
-        tempQuery = await createQuery({
-          prompt: neverResolvingUserMessageStream(),
-          options: {
-            cwd,
-            pathToClaudeCodeExecutable: binaryPath,
-            settingSources: [...CLAUDE_SETTING_SOURCES],
-            permissionMode: "plan" as PermissionMode,
-            persistSession: false,
-            env,
-            spawnClaudeCodeProcess: bindClaudeProcessOwner(processOwner),
-          },
-        });
-        const queryRuntime = tempQuery;
-        void (async () => {
-          for await (const message of queryRuntime) {
-            void message;
-          }
-        })().catch(() => undefined);
-
-        return mapSupportedModels(await queryRuntime.supportedModels());
-      } finally {
-        try {
-          tempQuery?.close();
-        } finally {
-          await Effect.runPromise(teardownCommandDiscoveryProcess(processOwner));
-        }
-      }
-    }
-
-    async function discoverAgentsViaTemporaryProcess(
-      cwd: string,
-      binaryPath: string,
-      env: NodeJS.ProcessEnv,
-    ): Promise<ProviderListAgentsResult> {
-      await Effect.runPromise(teardownFailedCommandDiscoveryProcesses());
-
-      const processOwner: ClaudeProcessOwner = {};
-      let tempQuery: ClaudeQueryRuntime | undefined;
-      try {
-        tempQuery = await createQuery({
-          prompt: neverResolvingUserMessageStream(),
-          options: {
-            cwd,
-            pathToClaudeCodeExecutable: binaryPath,
-            settingSources: [...CLAUDE_SETTING_SOURCES],
-            permissionMode: "plan" as PermissionMode,
-            persistSession: false,
-            env,
-            spawnClaudeCodeProcess: bindClaudeProcessOwner(processOwner),
-          },
-        });
-        const queryRuntime = tempQuery;
-        void (async () => {
-          for await (const message of queryRuntime) void message;
-        })().catch(() => undefined);
-        const agents = await queryRuntime.supportedAgents();
-        return {
-          agents: agents.map((agent) => ({
-            name: agent.name,
-            displayName: agent.name,
-            ...(agent.description ? { description: agent.description } : {}),
-            ...(agent.model ? { model: agent.model } : {}),
-          })),
-          source: "sdk",
-          cached: false,
-        };
-      } finally {
-        try {
-          tempQuery?.close();
-        } finally {
-          await Effect.runPromise(teardownCommandDiscoveryProcess(processOwner));
-        }
-      }
-    }
-
-    const listModels: NonNullable<ClaudeAdapterShape["listModels"]> = (input) =>
-      Effect.gen(function* () {
-        const binaryPath = input.managedLaunch?.binaryPath ?? input.binaryPath ?? "claude";
-        const discoveryIdentity = input.managedLaunch?.isolationKey ?? binaryPath;
-        const claudeSdkEnv = input.managedLaunch
-          ? input.managedLaunch.childEnvironment(process.env)
-          : yield* resolveClaudeSdkEnv;
-        const pending =
-          pendingModelDiscoveries.get(discoveryIdentity) ??
-          discoverModelsViaTemporaryProcess(
-            input.cwd ?? serverConfig.cwd,
-            binaryPath,
-            claudeSdkEnv,
-          );
-        pendingModelDiscoveries.set(discoveryIdentity, pending);
-
-        const result = yield* Effect.tryPromise({
-          try: () => pending,
-          catch: (cause) =>
-            new ProviderAdapterProcessError({
-              provider: PROVIDER,
-              threadId: ThreadId.makeUnsafe("discovery"),
-              detail: toMessage(cause, "Failed to discover Claude models."),
-              cause,
-            }),
-        }).pipe(
-          Effect.tap(() =>
-            Effect.sync(() => {
-              if (pendingModelDiscoveries.get(discoveryIdentity) === pending)
-                pendingModelDiscoveries.delete(discoveryIdentity);
-            }),
-          ),
-          Effect.tapError(() =>
-            Effect.sync(() => {
-              if (pendingModelDiscoveries.get(discoveryIdentity) === pending)
-                pendingModelDiscoveries.delete(discoveryIdentity);
-            }),
-          ),
-        );
-
-        return result;
-      });
-
     const probeTurnEndpoint: NonNullable<ClaudeAdapterShape["probeTurnEndpoint"]> = (input) =>
       Effect.tryPromise({
         try: async () => {
@@ -5739,26 +5478,6 @@ function makeClaudeAdapter(options?: ClaudeAdapterLiveOptions) {
           }),
       });
 
-    const listAgents: NonNullable<ClaudeAdapterShape["listAgents"]> = (input) =>
-      Effect.gen(function* () {
-        const binaryPath = input.managedLaunch?.binaryPath ?? input.binaryPath ?? "claude";
-        const env = input.managedLaunch
-          ? input.managedLaunch.childEnvironment(process.env)
-          : yield* resolveClaudeSdkEnv;
-        const result = yield* Effect.tryPromise({
-          try: () =>
-            discoverAgentsViaTemporaryProcess(input.cwd ?? serverConfig.cwd, binaryPath, env),
-          catch: (cause) =>
-            new ProviderAdapterProcessError({
-              provider: PROVIDER,
-              threadId: ThreadId.makeUnsafe("agent-discovery"),
-              detail: toMessage(cause, "Failed to discover Claude agents."),
-              cause,
-            }),
-        });
-        return result;
-      });
-
     return {
       provider: PROVIDER,
       capabilities: {
@@ -5791,11 +5510,7 @@ function makeClaudeAdapter(options?: ClaudeAdapterLiveOptions) {
       getComposerCapabilities,
       getCapabilityHealth,
       loadCatalog,
-      listCommands,
-      listSkills,
-      listModels,
       probeTurnEndpoint,
-      listAgents,
       streamEvents: Stream.fromQueue(runtimeEventQueue),
     } satisfies ClaudeAdapterShape;
   });

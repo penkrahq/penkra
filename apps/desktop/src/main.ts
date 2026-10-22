@@ -8327,6 +8327,7 @@ async function bootstrap(): Promise<void> {
     console.error("Unable to bootstrap configured Apps.", error);
   }
   desktopAppRuntime.installations.subscribe((state) => {
+    appCommandPipeServer?.publishSkillsChanged();
     void toDesktopAppInstallationSnapshot(state).then((snapshot) => {
       broadcastToShellWindows(IPC.appInstallations.state, snapshot);
     });

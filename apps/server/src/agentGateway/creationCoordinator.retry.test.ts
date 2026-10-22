@@ -116,10 +116,6 @@ function makeHarness() {
     probeConnection: () => Effect.die("unused discovery method"),
     getComposerCapabilities: () => Effect.die("unused discovery method"),
     getCapabilityHealth: () => Effect.die("unused discovery method"),
-    listCommands: () => Effect.die("unused discovery method"),
-    listSkills: () => Effect.die("unused discovery method"),
-    listPlugins: () => Effect.die("unused discovery method"),
-    readPlugin: () => Effect.die("unused discovery method"),
     listModels: (input) => {
       modelDiscoveryCalls.push(input);
       if (discoveryFailure) {
@@ -135,7 +131,6 @@ function makeHarness() {
         source: "synthetic",
       });
     },
-    listAgents: () => Effect.die("unused discovery method"),
   };
 
   const dependencies: Parameters<typeof makeCreateThreadHandler>[0] = {

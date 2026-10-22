@@ -37,8 +37,8 @@ describe("WsConnectionSessions", () => {
         const methods = [
           WS_METHODS.cleanCoreGetBootstrap,
           WS_METHODS.cleanCoreListThreadItemsPage,
-          WS_METHODS.providerListModels,
-          WS_METHODS.providerListCommands,
+          WS_METHODS.providerGetCatalog,
+          WS_METHODS.providerReloadCatalog,
           WS_METHODS.filesystemBrowse,
         ];
         let started = 0;

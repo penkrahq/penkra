@@ -7,6 +7,7 @@ import type { TestProviderUpdate as OrchestrationEvent } from "./storeTestFixtur
 import {
   type ContextMenuItem,
   EventId,
+  ProviderConnectionId,
   FolderId,
   SpaceId,
   ThreadId,
@@ -258,6 +259,33 @@ describe("wsNativeApi", () => {
     expect(listener).toHaveBeenLastCalledWith({
       providers: defaultProviders,
     });
+  });
+
+  it("routes catalog RPCs and scoped change notifications without a thread ID", async () => {
+    const { createWsNativeApi, onProviderCatalogChanged } = await import("./wsNativeApi");
+    const api = createWsNativeApi();
+    const scope = {
+      provider: "codex" as const,
+      connectionId: ProviderConnectionId.makeUnsafe("account"),
+      folderId: FolderId.makeUnsafe("folder"),
+    };
+    requestMock.mockResolvedValue({ version: 1, error: null, commands: [] });
+    await api.provider.getCatalog({ ...scope, kinds: ["commands"] });
+    await api.provider.reloadCatalog(scope);
+    expect(requestMock).toHaveBeenCalledWith(WS_METHODS.providerGetCatalog, {
+      ...scope,
+      kinds: ["commands"],
+    });
+    expect(requestMock).toHaveBeenCalledWith(WS_METHODS.providerReloadCatalog, scope);
+    const listener = vi.fn();
+    const unsubscribe = onProviderCatalogChanged(listener);
+    emitPush(WS_CHANNELS.providerCatalogChanged, { _tag: "catalog.changed", scope, version: 1 });
+    expect(listener).toHaveBeenCalledExactlyOnceWith({
+      _tag: "catalog.changed",
+      scope,
+      version: 1,
+    });
+    unsubscribe();
   });
 
   it("delivers and caches provider-only status updates", async () => {

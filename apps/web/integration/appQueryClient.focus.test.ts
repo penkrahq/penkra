@@ -1,98 +1,54 @@
 // @vitest-environment happy-dom
-import { mkdtemp, mkdir, readFile, rm, writeFile } from "node:fs/promises";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
-import { QueryObserver } from "@tanstack/react-query";
-import type { NativeApi } from "@penkra/contracts";
+import { FolderId, type NativeApi } from "@penkra/contracts";
+import { QueryObserver, focusManager } from "@tanstack/react-query";
 import { afterEach, expect, it, vi } from "vitest";
-import { CodexAppServerManager } from "../../server/src/codexAppServerManager";
-import {
-  discoverSkillsCatalog,
-  resetSkillsCatalogForTests,
-} from "../../server/src/provider/skillsCatalog";
 import { createAppQueryClient } from "../src/lib/appQueryClient";
 import {
-  providerSkillsQueryOptions,
-  skillsCatalogQueryOptions,
-} from "../src/lib/providerDiscoveryReactQuery";
+  invalidateProviderCatalog,
+  providerCatalogQueryOptions,
+} from "../src/hooks/useProviderCatalog";
 import * as nativeApi from "../src/nativeApi";
 
 afterEach(() => {
   vi.restoreAllMocks();
-  resetSkillsCatalogForTests();
+  focusManager.setFocused(undefined);
 });
 
-it("refreshes Infinity-fresh Codex skills and the catalog on two real focus events after disk edits", async () => {
-  const root = await mkdtemp(join(tmpdir(), "penkra-focus-skills-"));
-  const base = join(root, "penkra");
-  const home = join(root, "home");
-  const skillDir = join(base, "skills", "focus-skill");
-  await mkdir(skillDir, { recursive: true });
-  await mkdir(home);
-  const file = join(skillDir, "SKILL.md");
-  const edit = (name: string) =>
-    writeFile(file, `---\nname: ${name}\ndescription: Focus regression\n---\n`);
-  const manager = new CodexAppServerManager();
-  // Only the native protocol transport is substituted; catalog parsing and both server reads are real.
-  vi.spyOn(
-    manager as unknown as { resolveProcessForDiscovery: () => Promise<unknown> },
-    "resolveProcessForDiscovery",
-  ).mockResolvedValue({});
-  const request = vi
-    .spyOn(
-      manager as unknown as { sendRequest: (...args: unknown[]) => Promise<unknown> },
-      "sendRequest",
-    )
-    .mockImplementation(async (_transport, _owner, method, params) => {
-      expect(method).toBe("skills/list");
-      expect(params).toEqual({ cwds: [root], forceReload: true });
-      const text = await readFile(file, "utf8");
-      return { skills: [{ name: text.match(/name: (.+)/)![1], path: file }] };
-    });
+it("keeps a loaded catalog on focus and refreshes it only on its scoped change event", async () => {
+  const scope = {
+    provider: "codex" as const,
+    connectionId: null,
+    folderId: FolderId.makeUnsafe("folder"),
+  };
+  let name = "first";
+  const getCatalog = vi.fn(async () => ({
+    version: 1,
+    error: null,
+    skills: [{ name, path: "/skill/SKILL.md", enabled: true }],
+  }));
   vi.spyOn(nativeApi, "ensureNativeApi").mockReturnValue({
-    provider: {
-      listSkills: (input) => manager.listSkills(input),
-      listSkillsCatalog: async () => ({
-        skills: await discoverSkillsCatalog({ homeDir: home, penkraBaseDir: base }),
-      }),
-    },
+    provider: { getCatalog },
   } as unknown as NativeApi);
-  await edit("first");
   const client = createAppQueryClient();
   client.mount();
-  const options = [
-    providerSkillsQueryOptions({ provider: "codex", cwd: root }),
-    skillsCatalogQueryOptions({ cwd: root }),
-  ];
-  const observers = options.map((option) => new QueryObserver(client, option));
-  const subscriptions = observers.map((observer) => observer.subscribe(() => {}));
+  const options = providerCatalogQueryOptions(scope, ["skills"]);
+  const observer = new QueryObserver(client, options);
+  const unsubscribe = observer.subscribe(() => {});
   try {
-    await Promise.all(options.map((option) => client.fetchQuery(option)));
-    for (const name of ["second", "third"]) {
-      await edit(name);
-      const refreshed = observers.map(
-        (observer) =>
-          new Promise<void>((resolve, reject) => {
-            const unsubscribe = observer.subscribe((result) => {
-              if (result.error) {
-                unsubscribe();
-                reject(result.error);
-              } else if (!result.isFetching && result.data?.skills[0]?.name === name) {
-                unsubscribe();
-                resolve();
-              }
-            });
-          }),
-      );
-      window.dispatchEvent(new Event("focus"));
-      await Promise.all(refreshed);
-    }
-    expect(request).toHaveBeenCalledTimes(3);
+    await client.fetchQuery(options);
+    name = "second";
+    focusManager.setFocused(false);
+    focusManager.setFocused(true);
+    window.dispatchEvent(new Event("focus"));
+    await client.fetchQuery(options);
+    expect(getCatalog).toHaveBeenCalledTimes(1);
+    await invalidateProviderCatalog(client, { _tag: "catalog.changed", scope, version: 2 });
+    expect(getCatalog).toHaveBeenCalledTimes(2);
+    expect(client.getQueryData(options.queryKey)?.skills?.[0]?.name).toBe("second");
   } finally {
-    subscriptions.forEach((unsubscribe) => unsubscribe());
+    unsubscribe();
     client.unmount();
     client.clear();
-    await rm(root, { recursive: true, force: true });
   }
 });
 

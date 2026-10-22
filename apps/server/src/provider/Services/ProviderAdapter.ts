@@ -14,20 +14,8 @@ import type {
   ProviderCatalogData,
   ProviderConnectionId,
   ProviderKind,
-  ProviderListAgentsInput,
-  ProviderListAgentsResult,
-  ProviderListCommandsInput,
-  ProviderListCommandsResult,
-  ProviderListModelsInput,
-  ProviderListModelsResult,
-  ProviderListPluginsInput,
-  ProviderListPluginsResult,
   ProviderGetCapabilityHealthInput,
   ProviderGetCapabilityHealthResult,
-  ProviderReadPluginInput,
-  ProviderReadPluginResult,
-  ProviderListSkillsResult,
-  ProviderListSkillsInput,
   ProviderStartReviewInput,
   ProviderUserInputAnswers,
   ProviderRuntimeEvent,
@@ -67,6 +55,12 @@ export const awaitProviderRuntimeEventsDrained = (
     ),
   );
 export type ProviderConversationRollbackMode = "native" | "unsupported";
+
+export interface ProviderCatalogInvalidation {
+  readonly provider: ProviderKind;
+  readonly connectionId: ProviderConnectionId | null;
+  readonly kinds: ReadonlyArray<ProviderCatalogKind>;
+}
 
 export interface ProviderAdapterCapabilities {
   /**
@@ -258,44 +252,7 @@ export interface ProviderAdapterShape<TError> {
     readonly managedLaunch: ProviderManagedLaunchContext;
     readonly internalProviderId: string | null;
   }) => Effect.Effect<ProviderCatalogData, TError>;
-
-  /**
-   * List skills available for a given cwd.
-   */
-  readonly listSkills?: (
-    input: ProviderListSkillsInput,
-  ) => Effect.Effect<ProviderListSkillsResult, TError>;
-
-  /**
-   * List provider-native slash commands available for a given cwd.
-   */
-  readonly listCommands?: (
-    input: ProviderListCommandsInput,
-  ) => Effect.Effect<ProviderListCommandsResult, TError>;
-
-  /**
-   * List plugins available for the current provider/runtime.
-   */
-  readonly listPlugins?: (
-    input: ProviderListPluginsInput,
-  ) => Effect.Effect<ProviderListPluginsResult, TError>;
-
-  /**
-   * Read one plugin in detail from a marketplace entry.
-   */
-  readonly readPlugin?: (
-    input: ProviderReadPluginInput,
-  ) => Effect.Effect<ProviderReadPluginResult, TError>;
-
-  /**
-   * List models directly from the provider runtime when supported.
-   */
-  readonly listModels?: (
-    input: ProviderListModelsInput & {
-      readonly managedLaunch?: ProviderManagedLaunchContext;
-      readonly internalProviderId?: string | null;
-    },
-  ) => Effect.Effect<ProviderListModelsResult, TError>;
+  readonly catalogChanges?: Stream.Stream<ProviderCatalogInvalidation>;
 
   /** Verify the provider's turn endpoint with an isolated, minimal request. */
   readonly probeTurnEndpoint?: (input: {
@@ -304,16 +261,6 @@ export interface ProviderAdapterShape<TError> {
     readonly model: string;
     readonly effort?: string;
   }) => Effect.Effect<boolean, TError>;
-
-  /**
-   * List agents/subagents directly from the provider runtime when supported.
-   */
-  readonly listAgents?: (
-    input: ProviderListAgentsInput & {
-      readonly managedLaunch?: ProviderManagedLaunchContext;
-      readonly internalProviderId?: string | null;
-    },
-  ) => Effect.Effect<ProviderListAgentsResult, TError>;
 
   /**
    * Transcribe one captured voice clip into plain text when supported.

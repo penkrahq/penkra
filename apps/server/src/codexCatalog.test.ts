@@ -30,6 +30,28 @@ function setup() {
 }
 
 describe("Codex account catalog", () => {
+  it("routes native catalog invalidations to account Connections even without an active thread", () => {
+    const manager = new CodexAppServerManager();
+    const internals = manager as unknown as {
+      handleStdoutLine(transport: unknown, line: string): void;
+    };
+    const events: unknown[] = [];
+    manager.on("catalogInvalidated", (event) => events.push(event));
+    const transport = { connectionIds: new Set(["account-a", "account-b"]), threads: new Set() };
+    internals.handleStdoutLine(transport, JSON.stringify({ method: "skills/changed", params: {} }));
+    internals.handleStdoutLine(
+      transport,
+      JSON.stringify({ method: "account/updated", params: {} }),
+    );
+    expect(events).toEqual([
+      { connectionId: "account-a", kinds: ["skills"] },
+      { connectionId: "account-b", kinds: ["skills"] },
+      { connectionId: "account-a", kinds: ["models"] },
+      { connectionId: "account-b", kinds: ["models"] },
+    ]);
+    expect(manager.listSessions()).toEqual([]);
+  });
+
   it("uses installed plugins and scoped skills without an active thread", async () => {
     const { manager, account, request, transport } = setup();
     request.mockImplementation(async (_transport, _thread, method) =>

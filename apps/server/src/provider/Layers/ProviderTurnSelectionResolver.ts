@@ -9,8 +9,7 @@ import { ProviderConnectionRepository } from "../../persistence/Services/Provide
 import { ProviderInstallationRepository } from "../../persistence/Services/ProviderInstallations.ts";
 import { readThreadNativeState } from "../../cleanCore/threadNativeState.ts";
 import * as SqlClient from "effect/unstable/sql/SqlClient";
-import { ProviderAdapterRegistry } from "../Services/ProviderAdapterRegistry.ts";
-import { ProviderLaunchResolver } from "../Services/ProviderLaunchResolver.ts";
+import { ProviderCatalogService } from "../Services/ProviderCatalog.ts";
 import {
   claudeAccountsMatch,
   readClaudeThreadAccount,
@@ -19,7 +18,6 @@ import {
 import { parseOpenCodeModelSlug } from "../opencodeRuntime.ts";
 import { ServerSettingsService } from "../../serverSettings.ts";
 import { resolveDefaultConnection } from "../defaultConnection.ts";
-import { providerModelDiscoveryStateIdentity } from "../providerDiscoveryStateIdentity.ts";
 import {
   findConnectionAuthenticationMethod,
   findManagedLoginMethod,
@@ -74,8 +72,7 @@ export const makeProviderTurnSelectionResolver = Effect.gen(function* () {
   const connections = yield* ProviderConnectionRepository;
   const installations = yield* ProviderInstallationRepository;
   const sql = yield* SqlClient.SqlClient;
-  const registry = yield* ProviderAdapterRegistry;
-  const launchResolver = yield* ProviderLaunchResolver;
+  const providerCatalog = yield* ProviderCatalogService;
   const serverSettings = yield* ServerSettingsService;
 
   const requireAvailableModel = Effect.fnUntraced(function* (input: {
@@ -85,42 +82,8 @@ export const makeProviderTurnSelectionResolver = Effect.gen(function* () {
     readonly internalProviderId: string | null;
     readonly modelId: string;
   }) {
-    const adapter = yield* registry.getByProvider(input.harness).pipe(
-      Effect.mapError(
-        (cause) =>
-          new ProviderTurnSelectionResolutionError({
-            detail: "Could not resolve the selected managed provider.",
-            cause,
-          }),
-      ),
-    );
-    if (!adapter.listModels) return yield* fail("The managed provider has no model catalog.");
-    const managedLaunch = yield* launchResolver
-      .resolveProfile({
-        harness: input.harness,
-        connectionId: input.connectionId,
-        installationId: input.installationId,
-        internalProviderId: input.internalProviderId,
-        nativeStateIdentity: providerModelDiscoveryStateIdentity({
-          provider: input.harness,
-          connectionId: input.connectionId,
-        }),
-      })
-      .pipe(
-        Effect.mapError(
-          (cause) =>
-            new ProviderTurnSelectionResolutionError({
-              detail: cause.detail,
-              cause,
-            }),
-        ),
-      );
-    const catalog = yield* adapter
-      .listModels({
-        provider: input.harness,
-        managedLaunch,
-        internalProviderId: input.internalProviderId,
-      })
+    const catalog = yield* providerCatalog
+      .get({ provider: input.harness, connectionId: input.connectionId }, ["models"])
       .pipe(
         Effect.mapError(
           (cause) =>
@@ -130,7 +93,13 @@ export const makeProviderTurnSelectionResolver = Effect.gen(function* () {
             }),
         ),
       );
-    const selectedModel = catalog.models.find((model) => model.slug === input.modelId);
+    if (catalog.error !== null && catalog.models === undefined)
+      return yield* fail(
+        "Could not verify the selected model for this Connection.",
+        "selection_failed",
+        catalog.error,
+      );
+    const selectedModel = catalog.models?.find((model) => model.slug === input.modelId);
     if (!selectedModel) {
       yield* Effect.logWarning("managed Connection model verification failed", {
         harness: input.harness,
@@ -138,9 +107,9 @@ export const makeProviderTurnSelectionResolver = Effect.gen(function* () {
         installationId: input.installationId,
         internalProviderId: input.internalProviderId,
         requestedModelId: input.modelId,
-        availableModelIds: catalog.models.map((model) => model.slug),
-        catalogSource: catalog.source,
-        catalogCached: catalog.cached,
+        availableModelIds: catalog.models?.map((model) => model.slug) ?? [],
+        catalogVersion: catalog.version,
+        catalogError: catalog.error,
       });
       return yield* fail(
         "This model isn't available on the selected Connection.",

@@ -2110,9 +2110,17 @@ function resolveWsRpc(body: WsRequestEnvelope["body"]): unknown {
       supportsThreadImport: false,
     };
   }
-  if (tag === WS_METHODS.providerListAgents) return { agents: [], source: "test", cached: false };
-  if (tag === WS_METHODS.providerListModels && body.provider === "codex") {
+  if (
+    tag === WS_METHODS.providerGetCatalog &&
+    Array.isArray(body.kinds) &&
+    !body.kinds.includes("models")
+  ) {
+    return { version: 1, error: null, commands: [], skills: [], plugins: [], agents: [] };
+  }
+  if (tag === WS_METHODS.providerGetCatalog && body.provider === "codex") {
     return {
+      version: 1,
+      error: null,
       models: [
         {
           slug: "gpt-5.5",
@@ -2147,8 +2155,10 @@ function resolveWsRpc(body: WsRequestEnvelope["body"]): unknown {
       cached: false,
     };
   }
-  if (tag === WS_METHODS.providerListModels && body.provider === "opencode") {
+  if (tag === WS_METHODS.providerGetCatalog && body.provider === "opencode") {
     return {
+      version: 1,
+      error: null,
       models: [
         {
           slug: "opencode/deepseek-v4-flash-free",

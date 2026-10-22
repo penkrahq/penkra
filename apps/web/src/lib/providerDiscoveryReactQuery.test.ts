@@ -1,40 +1,9 @@
-// FILE: providerDiscoveryReactQuery.test.ts
-// Purpose: Locks provider model discovery query semantics — retry policy,
-//          stale-catalog preservation, and initial-vs-background pending (#103).
-// Layer: Web data fetching tests
-
-import type { NativeApi } from "@penkra/contracts";
-import { createAppQueryClient } from "./appQueryClient";
-import { afterEach, describe, expect, it, vi } from "vitest";
-
+import { describe, expect, it } from "vitest";
 import {
   isInitialModelDiscoveryPending,
-  providerDiscoveryQueryKeys,
-  providerModelsQueryOptions,
+  providerComposerCapabilitiesQueryOptions,
+  skillsCatalogQueryOptions,
 } from "./providerDiscoveryReactQuery";
-import * as nativeApi from "../nativeApi";
-
-function mockListModels(listModels: ReturnType<typeof vi.fn>) {
-  vi.spyOn(nativeApi, "ensureNativeApi").mockReturnValue({
-    provider: { listModels },
-  } as unknown as NativeApi);
-  return listModels;
-}
-
-afterEach(() => {
-  vi.restoreAllMocks();
-  vi.unstubAllGlobals();
-});
-
-function stubLocalStorage() {
-  const values = new Map<string, string>();
-  vi.stubGlobal("localStorage", {
-    getItem: (key: string) => values.get(key) ?? null,
-    removeItem: (key: string) => values.delete(key),
-    setItem: (key: string, value: string) => values.set(key, value),
-  });
-  return values;
-}
 
 describe("isInitialModelDiscoveryPending", () => {
   it("is pending only for the first fetch (loading or placeholder fetch)", () => {
@@ -70,145 +39,15 @@ describe("isInitialModelDiscoveryPending", () => {
   });
 });
 
-describe("providerModelsQueryOptions", () => {
-  it("keeps discovery fresh until a data-change event invalidates it", () => {
-    expect(providerModelsQueryOptions({ provider: "codex" }).staleTime).toBe(Infinity);
-  });
-
-  it("requests the picker-only presentation catalog", async () => {
-    const listModels = mockListModels(vi.fn().mockResolvedValue({ models: [] }));
-    await createAppQueryClient().fetchQuery(
-      providerModelsQueryOptions({ provider: "claudeAgent" }),
-    );
-    expect(listModels).toHaveBeenCalledWith({
-      provider: "claudeAgent",
-      presentation: "picker",
-    });
-  });
-
-  it("invalidates a cached Claude catalog on server welcome without touching other providers", async () => {
-    const queryClient = createAppQueryClient();
-    const claude = providerModelsQueryOptions({ provider: "claudeAgent" });
-    const codex = providerModelsQueryOptions({ provider: "codex" });
-    const result = { models: [{ slug: "old", name: "Old" }], source: "test", cached: true };
-    queryClient.setQueryData(claude.queryKey, result);
-    queryClient.setQueryData(codex.queryKey, result);
-
-    await queryClient.invalidateQueries({
-      queryKey: providerDiscoveryQueryKeys.modelsForProvider("claudeAgent"),
-    });
-
-    expect(queryClient.getQueryState(claude.queryKey)?.isInvalidated).toBe(true);
-    expect(queryClient.getQueryState(codex.queryKey)?.isInvalidated).toBe(false);
-  });
-
-  it("fails once and allows an explicit retry without a timed retry", async () => {
-    const catalog = { models: [{ slug: "auto", name: "Auto" }], source: "test", cached: false };
-    const listModels = mockListModels(
-      vi.fn().mockRejectedValueOnce(new Error("discovery exploded")).mockResolvedValueOnce(catalog),
-    );
-    const options = providerModelsQueryOptions({ provider: "codex" });
-    const client = createAppQueryClient();
-    await expect(client.fetchQuery(options)).rejects.toThrow("discovery exploded");
-    expect(listModels).toHaveBeenCalledTimes(1);
-    expect(client.getQueryState(options.queryKey)?.error?.message).toBe("discovery exploded");
-    await expect(client.fetchQuery(options)).resolves.toEqual(catalog);
-    expect(listModels).toHaveBeenCalledTimes(2);
-    client.clear();
-  });
-
-  it("surfaces real errors instead of masking them as empty catalogs", async () => {
-    mockListModels(vi.fn().mockRejectedValue(new Error("discovery exploded")));
-    const options = providerModelsQueryOptions({ provider: "opencode", enabled: true });
-
-    const queryClient = createAppQueryClient();
-    await expect(queryClient.fetchQuery(options)).rejects.toThrow("discovery exploded");
-    expect(queryClient.getQueryData(options.queryKey)).toBeUndefined();
-  });
-
-  it("preserves the cached catalog when a background refetch fails", async () => {
-    const catalog = {
-      models: [{ slug: "auto", name: "Auto" }],
-      source: "managed-connections",
-      cached: false,
-    };
-    const listModels = mockListModels(
-      vi.fn().mockResolvedValueOnce(catalog).mockRejectedValue(new Error("provider went away")),
-    );
-    const options = providerModelsQueryOptions({ provider: "opencode", enabled: true });
-
-    const queryClient = createAppQueryClient();
-    await expect(queryClient.fetchQuery(options)).resolves.toEqual(catalog);
-    await queryClient.refetchQueries({ queryKey: options.queryKey });
-
-    expect(listModels).toHaveBeenCalledTimes(2);
-    expect(queryClient.getQueryData(options.queryKey)).toEqual(catalog);
-  });
-
-  it("hydrates OpenCode from its persisted catalog until a change invalidates it", async () => {
-    stubLocalStorage();
-    const catalog = {
-      models: [{ slug: "opencode/big-pickle", name: "Big Pickle" }],
-      source: "managed-connections",
-      cached: false,
-    };
-    const listModels = mockListModels(vi.fn().mockResolvedValue(catalog));
-    const input = { provider: "opencode" as const, cwd: "/repo", enabled: true };
-
-    const firstOptions = providerModelsQueryOptions(input);
-    await expect(createAppQueryClient().fetchQuery(firstOptions)).resolves.toEqual(catalog);
-
-    const cachedOptions = providerModelsQueryOptions(input);
-    const initialData =
-      typeof cachedOptions.initialData === "function"
-        ? cachedOptions.initialData()
-        : cachedOptions.initialData;
-
-    expect(initialData).toEqual({ ...catalog, cached: true });
-    expect(listModels).toHaveBeenCalledTimes(1);
-  });
-
-  it("clears a persisted OpenCode catalog after a successful empty refresh", async () => {
-    const storage = stubLocalStorage();
-    const input = { provider: "opencode" as const, cwd: "/repo", enabled: true };
-    const listModels = mockListModels(
-      vi
-        .fn()
-        .mockResolvedValueOnce({
-          models: [{ slug: "opencode/big-pickle", name: "Big Pickle" }],
-          source: "managed-connections",
-          cached: false,
-        })
-        .mockResolvedValueOnce({ models: [], source: "managed-connections", cached: false }),
-    );
-
-    const client = createAppQueryClient();
-    await client.fetchQuery(providerModelsQueryOptions(input));
-    expect(storage.size).toBe(1);
-    await client.invalidateQueries({ queryKey: providerDiscoveryQueryKeys.all });
-    await client.fetchQuery(providerModelsQueryOptions(input));
-    client.clear();
-
-    expect(listModels).toHaveBeenCalledTimes(2);
-    expect(storage.size).toBe(0);
-    const emptyOptions = providerModelsQueryOptions(input);
-    const initialData =
-      typeof emptyOptions.initialData === "function"
-        ? emptyOptions.initialData()
-        : emptyOptions.initialData;
-    expect(initialData).toBeUndefined();
-  });
-
-  it("returns successful catalogs unchanged", async () => {
-    const catalog = {
-      models: [{ slug: "gpt-5.4", name: "GPT-5.4" }],
-      source: "codex",
-      cached: false,
-    };
-    mockListModels(vi.fn().mockResolvedValue(catalog));
-    const options = providerModelsQueryOptions({ provider: "codex", enabled: true });
-
-    const queryClient = createAppQueryClient();
-    await expect(queryClient.fetchQuery(options)).resolves.toEqual(catalog);
+describe("non-catalog discovery metadata", () => {
+  it("keeps static composer capabilities and the settings inventory separate from Connection catalogs", () => {
+    expect(providerComposerCapabilitiesQueryOptions("codex").queryKey).toEqual([
+      "provider-discovery",
+      "composer-capabilities",
+      "codex",
+    ]);
+    const inventory = skillsCatalogQueryOptions({ cwd: "/folder" });
+    expect(inventory.queryKey).toEqual(["provider-discovery", "skills-catalog", "/folder"]);
+    expect(inventory.refetchOnWindowFocus).toBe(false);
   });
 });

@@ -13,7 +13,10 @@ import { useProviderModelCatalog } from "./useProviderModelCatalog";
 const mocks = vi.hoisted(() => ({
   useAppSettings: vi.fn(),
   useQuery: vi.fn(),
+  useCatalog: vi.fn(),
 }));
+
+vi.mock("./useProviderCatalog", () => ({ useProviderCatalog: mocks.useCatalog }));
 
 vi.mock("@tanstack/react-query", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@tanstack/react-query")>();
@@ -36,6 +39,7 @@ interface QueryResultLike {
     readonly cached?: boolean;
     readonly models?: ReadonlyArray<ProviderModelDescriptor>;
     readonly source?: string;
+    readonly error?: string | null;
   };
   readonly isFetching: boolean;
   readonly isError: boolean;
@@ -50,7 +54,6 @@ const EMPTY_QUERY: QueryResultLike = {
   isPlaceholderData: false,
 };
 const modelQueries = new Map<ProviderKind, QueryResultLike>();
-const agentQueries = new Map<ProviderKind, QueryResultLike>();
 const MODEL_HINTS = { opencode: "openai/gpt-5" } as const;
 const SETTINGS = {
   customClaudeModels: [],
@@ -77,27 +80,22 @@ function readCatalogRenders(
   return results;
 }
 
-function readAgentQueryEnabled(provider: ProviderKind): boolean | undefined {
-  const call = mocks.useQuery.mock.calls.find(([value]) => {
-    const queryKey = (value as QueryOptionsLike).queryKey;
-    return queryKey[1] === "agents" && queryKey[2] === provider;
-  });
-  return call ? (call[0] as QueryOptionsLike).enabled : undefined;
-}
-
 beforeEach(() => {
   modelQueries.clear();
-  agentQueries.clear();
   mocks.useAppSettings.mockReset().mockReturnValue({ settings: SETTINGS });
-  mocks.useQuery.mockReset().mockImplementation((value: QueryOptionsLike) => {
-    const [, resource, provider] = value.queryKey;
-    if (resource === "models") {
-      return modelQueries.get(provider as ProviderKind) ?? EMPTY_QUERY;
-    }
-    if (resource === "agents") {
-      return agentQueries.get(provider as ProviderKind) ?? EMPTY_QUERY;
-    }
-    throw new Error(`Unexpected provider catalog query: ${String(resource)}`);
+  mocks.useQuery.mockReset().mockReturnValue({
+    data: {
+      anonymousRoutes: [],
+      connections: ["codex", "claudeAgent", "opencode"].map((harness) => ({
+        id: `connection-${harness}`,
+        harness,
+        lifecycle: "active",
+      })),
+    },
+  });
+  mocks.useCatalog.mockReset().mockImplementation((scope: { provider: ProviderKind } | null) => {
+    const query = (scope ? modelQueries.get(scope.provider) : undefined) ?? EMPTY_QUERY;
+    return Object.assign(query, { loadFailed: query.isError || query.data?.error != null });
   });
 });
 
@@ -115,22 +113,19 @@ describe("useProviderModelCatalog", () => {
     expect(second?.loadingModelProviders).toBe(first?.loadingModelProviders);
     expect(second?.unavailableModelProviders).toBe(first?.unavailableModelProviders);
     expect(second?.runtimeModelsByProvider).toBe(first?.runtimeModelsByProvider);
-    expect(second?.selectedRuntimeAgents).toBe(first?.selectedRuntimeAgents);
   });
 
-  it("discovers core agents only when selected unless eager-core is requested", () => {
+  it("loads models only; folder agents are left to the lazy composer catalog", () => {
     readCatalogRenders({ selectedProvider: "opencode", discoveryEnabled: false });
-    expect(readAgentQueryEnabled("claudeAgent")).toBe(false);
-    expect(readAgentQueryEnabled("codex")).toBe(false);
-
-    mocks.useQuery.mockClear();
-    readCatalogRenders({
-      selectedProvider: "opencode",
-      discoveryEnabled: false,
-      agentDiscoveryPolicy: "eager-core",
-    });
-    expect(readAgentQueryEnabled("claudeAgent")).toBe(true);
-    expect(readAgentQueryEnabled("codex")).toBe(true);
+    expect(
+      mocks.useCatalog.mock.calls.every(([, kinds]) => JSON.stringify(kinds) === '["models"]'),
+    ).toBe(true);
+    expect(mocks.useCatalog.mock.calls.find(([scope]) => scope?.provider === "opencode")?.[2]).toBe(
+      true,
+    );
+    expect(
+      mocks.useCatalog.mock.calls.find(([scope]) => scope?.provider === "claudeAgent")?.[2],
+    ).toBe(false);
   });
 
   it("merges a settled runtime catalog with custom models without reporting loading", () => {

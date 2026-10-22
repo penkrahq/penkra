@@ -1,4 +1,9 @@
 import type {
+  ProviderCatalogScope,
+  ProviderCatalogSnapshot,
+  ProviderGetCatalogInput,
+} from "./providerCatalog";
+import type {
   CleanCoreFolderAppTabsResult,
   CleanCoreListArchivedNavigationResult,
   CleanCoreListArchivedThreadsInput,
@@ -99,20 +104,8 @@ import type {
   ProviderGetComposerCapabilitiesInput,
   ProviderGetCapabilityHealthInput,
   ProviderGetCapabilityHealthResult,
-  ProviderListAgentsInput,
-  ProviderListAgentsResult,
-  ProviderListCommandsInput,
-  ProviderListCommandsResult,
-  ProviderListModelsInput,
-  ProviderListModelsResult,
-  ProviderListPluginsInput,
-  ProviderListPluginsResult,
-  ProviderListSkillsInput,
-  ProviderListSkillsResult,
   ProviderSkillsCatalogInput,
   ProviderSkillsCatalogResult,
-  ProviderReadPluginInput,
-  ProviderReadPluginResult,
 } from "./providerDiscovery";
 import type { ProviderCompactThreadInput } from "./provider";
 import type {
@@ -997,6 +990,8 @@ export interface NativeApi {
     ) => Promise<ServerVoiceTranscriptionResult>;
   };
   provider: {
+    getCatalog: (input: ProviderGetCatalogInput) => Promise<ProviderCatalogSnapshot>;
+    reloadCatalog: (input: ProviderCatalogScope) => Promise<ProviderCatalogSnapshot>;
     getComposerCapabilities: (
       input: ProviderGetComposerCapabilitiesInput,
     ) => Promise<ProviderComposerCapabilities>;
@@ -1004,13 +999,7 @@ export interface NativeApi {
       input: ProviderGetCapabilityHealthInput,
     ) => Promise<ProviderGetCapabilityHealthResult>;
     compactThread: (input: ProviderCompactThreadInput) => Promise<void>;
-    listCommands: (input: ProviderListCommandsInput) => Promise<ProviderListCommandsResult>;
-    listSkills: (input: ProviderListSkillsInput) => Promise<ProviderListSkillsResult>;
     listSkillsCatalog: (input: ProviderSkillsCatalogInput) => Promise<ProviderSkillsCatalogResult>;
-    listPlugins: (input: ProviderListPluginsInput) => Promise<ProviderListPluginsResult>;
-    readPlugin: (input: ProviderReadPluginInput) => Promise<ProviderReadPluginResult>;
-    listModels: (input: ProviderListModelsInput) => Promise<ProviderListModelsResult>;
-    listAgents: (input: ProviderListAgentsInput) => Promise<ProviderListAgentsResult>;
     getConnections: (
       input?: ProviderConnectionsSnapshotInput,
     ) => Promise<ProviderConnectionsSnapshot>;

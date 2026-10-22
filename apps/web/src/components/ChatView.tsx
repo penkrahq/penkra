@@ -2,6 +2,7 @@ import { Schema } from "effect";
 import { KEYBINDINGS } from "@penkra/shared/keybindings";
 import { loadThread, useThreadList, getThreadListById, useThreadSummary } from "../threadListStore";
 import { useThreadStop } from "../hooks/useThreadStop";
+import { useProviderCatalog } from "../hooks/useProviderCatalog";
 import { useAttachmentPreviewHandoffs } from "../hooks/useAttachmentPreviewHandoffs";
 import {
   CleanCoreQueuedMessage,
@@ -54,15 +55,8 @@ import {
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Debouncer, useDebouncedValue } from "@tanstack/react-pacer";
 import { useNavigate } from "@tanstack/react-router";
-import { resolveProviderDiscoveryCwd } from "~/lib/providerDiscovery";
 import {
   providerComposerCapabilitiesQueryOptions,
-  providerCommandsQueryOptions,
-  providerPluginsQueryOptions,
-  providerSkillsQueryOptions,
-  supportsNativeSlashCommandDiscovery,
-  supportsPluginDiscovery,
-  supportsSkillDiscovery,
   supportsThreadCompaction,
 } from "~/lib/providerDiscoveryReactQuery";
 import { providerConnectionsQueryOptions } from "~/lib/providerConnectionsReactQuery";
@@ -1698,22 +1692,15 @@ function ChatViewContent({
     selectedConnectionByProvider,
     serverThread,
   ]);
-  const providerModelDiscoveryCwd = resolveProviderDiscoveryCwd({
-    activeProjectCwd: activeProject?.cwd ?? null,
-    serverCwd: serverConfigQuery.data?.cwd ?? null,
-  });
   const {
     customModelsByProvider,
     modelOptionsByProvider,
     unavailableModelProviders,
     runtimeModelsByProvider,
-    selectedRuntimeAgents: discoveredRuntimeAgents,
   } = useProviderModelCatalog({
     selectedProvider,
     discoveryEnabled: isModelPickerOpen,
-    cwd: providerModelDiscoveryCwd,
     modelHintByProvider: composerModelHintByProvider,
-    agentDiscoveryPolicy: "eager-core",
     routeByProvider: discoveryRouteByProvider,
   });
   const selectableModelOptionsByProvider = useMemo(() => {
@@ -1817,15 +1804,26 @@ function ChatViewContent({
     selectedProvider,
     selectedModelSelection.model,
   );
+  const folderCatalog = useProviderCatalog(
+    selectedConnectionId === undefined || activeFolderId === null
+      ? null
+      : {
+          provider: selectedProvider,
+          connectionId: selectedConnectionId,
+          folderId: activeFolderId,
+        },
+    ["commands", "skills", "plugins", "agents"],
+    composerTrigger !== null || composerCommandPicker !== null,
+  );
   const dynamicAgents = useMemo(
     () =>
-      discoveredRuntimeAgents.filter(
+      (folderCatalog.data?.agents ?? []).filter(
         (agent) =>
           agent.availableConnectionIds === undefined ||
           (selectedConnectionId !== undefined &&
             agent.availableConnectionIds.includes(selectedConnectionId)),
       ),
-    [discoveredRuntimeAgents, selectedConnectionId],
+    [folderCatalog.data?.agents, selectedConnectionId],
   );
   const composerConnectionCandidates = useMemo(() => {
     const snapshot = providerConnectionsQuery.data;
@@ -2308,62 +2306,14 @@ function ChatViewContent({
     composerCommandPicker === null &&
     isMentionTrigger &&
     isLocalFolderMentionQuery(mentionTriggerQuery);
-  const isSkillTrigger = composerTriggerKind === "skill";
   const [debouncedPathQuery, composerPathQueryDebouncer] = useDebouncedValue(
     mentionTriggerQuery,
     { wait: COMPOSER_PATH_QUERY_DEBOUNCE_MS },
     (debouncerState) => ({ isPending: debouncerState.isPending }),
   );
   const effectiveMentionQuery = mentionTriggerQuery.length > 0 ? debouncedPathQuery : "";
-  const composerSkillCwd = providerModelDiscoveryCwd;
   const providerComposerCapabilitiesQuery = useQuery(
     providerComposerCapabilitiesQueryOptions(selectedProvider),
-  );
-  const providerCommandsQuery = useQuery(
-    providerCommandsQueryOptions({
-      provider: selectedProvider,
-      cwd: composerSkillCwd,
-      threadId,
-      binaryPath:
-        (selectedProvider === "opencode"
-          ? providerOptionsForDispatch?.opencode?.binaryPath
-          : null) ?? null,
-      serverUrl:
-        (selectedProvider === "opencode"
-          ? providerOptionsForDispatch?.opencode?.serverUrl
-          : null) ?? null,
-      experimentalWebSockets:
-        selectedProvider === "opencode"
-          ? providerOptionsForDispatch?.opencode?.experimentalWebSockets
-          : undefined,
-      enabled:
-        (composerTriggerKind === "slash-command" || composerTriggerKind === "slash-model") &&
-        supportsNativeSlashCommandDiscovery(providerComposerCapabilitiesQuery.data) &&
-        composerSkillCwd !== null,
-    }),
-  );
-  const canDiscoverProviderSkills = supportsSkillDiscovery(providerComposerCapabilitiesQuery.data);
-  const providerSkillsQuery = useQuery(
-    providerSkillsQueryOptions({
-      provider: selectedProvider,
-      cwd: composerSkillCwd,
-      threadId,
-      spaceId: selectedSpaceId,
-      enabled:
-        (isSkillTrigger || composerTriggerKind === "slash-command") &&
-        canDiscoverProviderSkills &&
-        composerSkillCwd !== null,
-    }),
-  );
-  const providerPluginsQuery = useQuery(
-    providerPluginsQueryOptions({
-      provider: selectedProvider,
-      cwd: composerSkillCwd,
-      threadId,
-      enabled:
-        supportsPluginDiscovery(providerComposerCapabilitiesQuery.data) &&
-        composerSkillCwd !== null,
-    }),
   );
   const workspaceEntriesQuery = useQuery(
     projectSearchEntriesQueryOptions({
@@ -2377,7 +2327,7 @@ function ChatViewContent({
   // Keep plugin suggestions referentially stable so prompt-sync effects do not loop on rerender.
   const providerPlugins = useMemo(
     () =>
-      providerPluginsQuery.data?.marketplaces.flatMap((marketplace) =>
+      folderCatalog.data?.plugins?.flatMap((marketplace) =>
         marketplace.plugins.map((plugin) => ({
           plugin,
           mention: {
@@ -2386,14 +2336,14 @@ function ChatViewContent({
           } satisfies ProviderMentionReference,
         })),
       ) ?? EMPTY_COMPOSER_PLUGIN_SUGGESTIONS,
-    [providerPluginsQuery.data],
+    [folderCatalog.data?.plugins],
   );
   const providerNativeCommands = useMemo(
     () =>
-      (providerCommandsQuery.data?.commands ?? EMPTY_PROVIDER_NATIVE_COMMANDS).filter(
+      (folderCatalog.data?.commands ?? EMPTY_PROVIDER_NATIVE_COMMANDS).filter(
         (command) => !["plan", "default"].includes(command.name.toLowerCase()),
       ),
-    [providerCommandsQuery.data?.commands],
+    [folderCatalog.data?.commands],
   );
   const providerNativeCommandNames = useMemo(
     () => providerNativeCommands.map((command) => command.name),
@@ -2417,7 +2367,7 @@ function ChatViewContent({
     () => providerSupportsTextNativeReviewCommand(selectedProvider, providerNativeCommands),
     [providerNativeCommands, selectedProvider],
   );
-  const providerSkills = providerSkillsQuery.data?.skills ?? EMPTY_PROVIDER_SKILLS;
+  const providerSkills = folderCatalog.data?.skills ?? EMPTY_PROVIDER_SKILLS;
   const selectedModelCaps = useMemo(
     () => getModelCapabilities(selectedProvider, selectedModel),
     [selectedModel, selectedProvider],
@@ -4219,17 +4169,18 @@ function ChatViewContent({
         selectedConnectionIdForSend = await resolveComposerConnectionAtAdmission({
           snapshot: providerConnectionsQuery.data,
           refreshSnapshot: async () => (await providerConnectionsQuery.refetch()).data,
-          refreshAvailableConnectionIds: async () =>
-            (
-              await api.provider.listModels({
-                provider: selectedModelSelectionForSend.provider,
-                ...(selectedModelSelectionForSend.provider === "opencode" &&
-                providerModelDiscoveryCwd
-                  ? { cwd: providerModelDiscoveryCwd }
-                  : {}),
-              })
-            ).models.find((model) => model.slug === selectedModelSelectionForSend.model)
-              ?.availableConnectionIds,
+          refreshAvailableConnectionIds: async () => {
+            const route = discoveryRouteByProvider[selectedModelSelectionForSend.provider];
+            if (route === undefined) return undefined;
+            const catalog = await api.provider.getCatalog({
+              provider: selectedModelSelectionForSend.provider,
+              connectionId: route.connectionId,
+              kinds: ["models"],
+            });
+            return catalog.models?.find(
+              (model) => model.slug === selectedModelSelectionForSend.model,
+            )?.availableConnectionIds;
+          },
           provider: selectedModelSelectionForSend.provider,
           model: selectedModelSelectionForSend.model,
           ...availableConnectionOptions,
@@ -5433,7 +5384,6 @@ function ChatViewContent({
     supportsTextNativeReviewCommand,
     fastModeEnabled,
     providerNativeCommands,
-    providerCommandDiscoveryCwd: composerSkillCwd,
     selectedProvider,
     currentProviderModelOptions,
     selectedModelSelection,
@@ -5611,18 +5561,15 @@ function ChatViewContent({
       ((mentionTriggerQuery.length > 0 && composerPathQueryDebouncer.state.isPending) ||
         workspaceEntriesQuery.isLoading ||
         workspaceEntriesQuery.isFetching ||
-        providerPluginsQuery.isLoading ||
-        providerPluginsQuery.isFetching)) ||
+        folderCatalog.isLoading ||
+        folderCatalog.isFetching)) ||
     (composerTriggerKind === "slash-command" &&
-      (providerCommandsQuery.isLoading ||
-        providerCommandsQuery.isFetching ||
-        providerSkillsQuery.isLoading ||
-        providerSkillsQuery.isFetching)) ||
+      (folderCatalog.isLoading || folderCatalog.isFetching)) ||
     (composerTriggerKind === "skill" &&
       (providerComposerCapabilitiesQuery.isLoading ||
         providerComposerCapabilitiesQuery.isFetching ||
-        providerSkillsQuery.isLoading ||
-        providerSkillsQuery.isFetching));
+        folderCatalog.isLoading ||
+        folderCatalog.isFetching));
 
   const onPromptChange = useCallback(
     (
@@ -6071,6 +6018,19 @@ function ChatViewContent({
                         items={composerMenuItems}
                         resolvedTheme={resolvedTheme}
                         isLoading={isComposerMenuLoading}
+                        loadFailed={
+                          folderCatalog.loadFailed
+                            ? {
+                                onRetry: () => {
+                                  void folderCatalog
+                                    .reload()
+                                    .catch((error) =>
+                                      console.error("Provider catalog retry failed", error),
+                                    );
+                                },
+                              }
+                            : null
+                        }
                         triggerKind={
                           composerCommandPicker !== null
                             ? "slash-command"

@@ -23,6 +23,10 @@ const keyFor = (scope: ProviderCatalogScope) =>
 export class ProviderCatalog {
   private readonly entries = new Map<string, Entry>();
 
+  get scopes(): ReadonlyArray<ProviderCatalogScope> {
+    return [...this.entries.values()].map((entry) => entry.scope);
+  }
+
   constructor(
     private readonly load: (
       scope: ProviderCatalogScope,

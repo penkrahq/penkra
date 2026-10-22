@@ -1,4 +1,5 @@
 import { Schema } from "effect";
+import { ProviderCatalogScope } from "./providerCatalog";
 import {
   IsoDateTime,
   NonNegativeInt,
@@ -221,6 +222,11 @@ export const ServerLifecycleStreamEvent = Schema.Union([
 export type ServerLifecycleStreamEvent = typeof ServerLifecycleStreamEvent.Type;
 
 export const ServerConfigStreamEvent = Schema.Union([
+  Schema.Struct({
+    type: Schema.Literal("catalog.changed"),
+    scope: ProviderCatalogScope,
+    version: NonNegativeInt,
+  }),
   Schema.Struct({
     type: Schema.Literal("snapshot"),
     config: ServerConfig,

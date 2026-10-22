@@ -265,7 +265,7 @@ it("coalesces concurrent starts and discovery per account and attributes interle
     const [sa, sb] = await Promise.all([
       f.manager.startSession(a),
       f.manager.startSession(b),
-      f.manager.listModels(undefined, { cwd: f.root, managedLaunch: a.managedLaunch }),
+      f.manager.loadCatalog({ cwd: f.root, managedLaunch: a.managedLaunch, kinds: ["models"] }),
     ]);
     const nativeA = (sa.resumeCursor as { threadId: string }).threadId;
     const nativeB = (sb.resumeCursor as { threadId: string }).threadId;
