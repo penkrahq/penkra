@@ -1,4 +1,4 @@
-import { ThreadId, type ProviderRuntimeEvent } from "@penkra/contracts";
+import { ProviderConnectionId, ThreadId, type ProviderRuntimeEvent } from "@penkra/contracts";
 import { Deferred, Effect, Fiber } from "effect";
 import { describe, expect, it } from "vitest";
 
@@ -10,6 +10,98 @@ const thread = ThreadId.makeUnsafe("runtime-owner");
 const peer = ThreadId.makeUnsafe("runtime-peer");
 
 describe("ThreadRuntime ownership", () => {
+  it("rejects a retired credential profile before invoking native startup", async () => {
+    await Effect.runPromise(
+      Effect.gen(function* () {
+        const runtime = makeThreadRuntime();
+        let nativeStarts = 0;
+        const adapter = {
+          provider: "claudeAgent",
+          hasSession: () => Effect.succeed(false),
+          startSession: () =>
+            Effect.sync(() => {
+              nativeStarts++;
+              throw new Error("must not start");
+            }),
+        } as unknown as ProviderAdapterShape<ProviderAdapterError>;
+        yield* runtime.retireProfile("/retired/profile");
+        const result = yield* Effect.result(
+          runtime.ensure(thread, "claudeAgent", (lease) =>
+            runtime.startNative(adapter, {
+              threadId: thread,
+              runtimeMode: "full-access",
+              lifecycleGeneration: lease.generation,
+              managedLaunch: {
+                binaryPath: "/managed/claude",
+                isolationKey: "old",
+                profileRoot: "/retired/profile",
+                nativeStateRoot: "/native/thread",
+                childEnvironment: (environment) => environment,
+              },
+            }),
+          ),
+        );
+        expect(result._tag).toBe("Failure");
+        expect(nativeStarts).toBe(0);
+        expect(runtime.state(thread)).toBe("none");
+      }),
+    );
+  });
+  it("tracks Connection ownership before native startup acknowledges and waits for cancellation cleanup", async () => {
+    await Effect.runPromise(
+      Effect.gen(function* () {
+        const runtime = makeThreadRuntime();
+        const connectionId = ProviderConnectionId.makeUnsafe("pending-connection");
+        const entered = yield* Deferred.make<void>();
+        const cleaning = yield* Deferred.make<void>();
+        const release = yield* Deferred.make<void>();
+        const adapter = {
+          provider: "codex",
+          hasSession: () => Effect.succeed(false),
+          startSession: () =>
+            Deferred.succeed(entered, undefined).pipe(
+              Effect.andThen(Effect.never),
+              Effect.onInterrupt(() =>
+                Deferred.succeed(cleaning, undefined).pipe(Effect.andThen(Deferred.await(release))),
+              ),
+            ),
+          stopSession: () => Effect.void,
+        } as unknown as ProviderAdapterShape<ProviderAdapterError>;
+        const startup = yield* runtime
+          .ensure(thread, "codex", (lease) =>
+            runtime.startNative(adapter, {
+              threadId: thread,
+              runtimeMode: "full-access",
+              lifecycleGeneration: lease.generation,
+              managedLaunch: {
+                connectionId,
+                binaryPath: "/managed/codex",
+                isolationKey: connectionId,
+                profileRoot: "/managed/profile",
+                nativeStateRoot: "/native/thread",
+                childEnvironment: (environment) => environment,
+              },
+            }),
+          )
+          .pipe(Effect.forkChild);
+        yield* Deferred.await(entered);
+        expect(runtime.threadsForConnection(connectionId)).toEqual([thread]);
+        const cancellation = yield* runtime
+          .cancelStart(thread, "connection-removed")
+          .pipe(Effect.forkChild);
+        yield* Deferred.await(cleaning);
+        expect(cancellation.pollUnsafe()).toBeUndefined();
+        yield* runtime.ensure(peer, "codex", (lease) => Effect.sync(lease.commit));
+        expect(runtime.state(peer)).toBe("ready");
+        yield* Deferred.succeed(release, undefined);
+        expect(yield* Fiber.join(cancellation)).toBe(true);
+        yield* Fiber.await(startup);
+        expect(runtime.threadsForConnection(connectionId)).toEqual([]);
+        expect(runtime.state(thread)).toBe("none");
+        expect(runtime.state(peer)).toBe("ready");
+      }),
+    );
+  });
   it("quiesces pending startup before shutdown and rejects later admission", async () => {
     await Effect.runPromise(
       Effect.gen(function* () {

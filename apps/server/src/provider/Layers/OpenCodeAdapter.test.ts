@@ -871,7 +871,7 @@ describe("OpenCodeAdapter runtime lifecycle", () => {
             });
           }
           if (!adapter.stopAccount) throw new Error("OpenCode must close an account program");
-          yield* adapter.stopAccount(a);
+          yield* adapter.stopAccount(a, "/isolated/profile");
           expect(runtime.stoppedAccounts).toEqual([a]);
           expect(yield* adapter.hasSession(threadA)).toBe(false);
           expect(yield* adapter.hasSession(threadB)).toBe(true);

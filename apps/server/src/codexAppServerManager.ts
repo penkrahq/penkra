@@ -174,6 +174,7 @@ interface CodexAccountProcess {
   readonly token: symbol;
   readonly cwd: string;
   readonly connectionIds: Set<ProviderConnectionId>;
+  readonly profileRoot: string | undefined;
   readonly threads: Set<CodexSessionContext>;
   readonly pendingCloses: Map<string, { resolve: () => void; reject: (cause: Error) => void }>;
   authProbeThreadId?: string;
@@ -884,6 +885,7 @@ function safeTemporaryResourceName(value: string | undefined): string {
 }
 
 export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEvents> {
+  private readonly closedProfileRoots = new Set<string>();
   private readonly sessions = new Map<ThreadId, CodexSessionContext>();
   private readonly accountProcesses = new Map<
     string,
@@ -1116,6 +1118,7 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
         cwd: resolvedCwd,
         env,
         connectionId: input.managedLaunch?.connectionId ?? null,
+        profileRoot: input.managedLaunch?.profileRoot,
       });
 
       context = {
@@ -2494,16 +2497,21 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
       binaryPath: launch.binaryPath,
       env: await this.buildSessionProcessEnv(undefined, launch),
       connectionId: launch.connectionId ?? null,
+      profileRoot: launch.profileRoot,
     });
   }
 
   private async getOrCreateAccountProcess(input: {
+    readonly profileRoot: string | undefined;
     readonly key: string;
     readonly cwd: string;
     readonly binaryPath: string;
     readonly env: NodeJS.ProcessEnv;
     readonly connectionId: ProviderConnectionId | null;
   }): Promise<CodexAccountProcess> {
+    if (input.profileRoot !== undefined && this.closedProfileRoots.has(input.profileRoot)) {
+      throw new Error("The Connection's credential profile has been closed.");
+    }
     const existing = this.accountProcesses.get(input.key);
     if (existing) {
       const transport =
@@ -2553,6 +2561,7 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
 
   private async startAccountProcess(
     input: {
+      readonly profileRoot: string | undefined;
       readonly key: string;
       readonly cwd: string;
       readonly binaryPath: string;
@@ -2568,6 +2577,7 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
       token,
       cwd: input.cwd,
       connectionIds: new Set(input.connectionId === null ? [] : [input.connectionId]),
+      profileRoot: input.profileRoot,
       threads: new Set(),
       probes: new Map(),
       pendingCloses: new Map(),
@@ -2677,10 +2687,14 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
     return transport.stopPromise;
   }
 
-  async stopAccount(connectionId: ProviderConnectionId): Promise<void> {
+  async stopAccount(connectionId: ProviderConnectionId, profileRoot: string): Promise<void> {
+    this.closedProfileRoots.add(profileRoot);
     for (const entry of this.accountProcesses.values()) {
       const transport = await entry.process;
-      if (transport.connectionIds.has(connectionId)) await this.closeAccountProcess(transport);
+      if (transport.connectionIds.has(connectionId)) {
+        if (transport.profileRoot !== undefined) this.closedProfileRoots.add(transport.profileRoot);
+        await this.closeAccountProcess(transport);
+      }
     }
   }
 

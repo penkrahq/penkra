@@ -17,6 +17,7 @@ import type {
 } from "@penkra/contracts";
 import {
   EventId,
+  ProviderConnectionId,
   type ProviderKind,
   ProviderSessionStartInput,
   ThreadId,
@@ -4423,6 +4424,45 @@ const boundedFanout = makeProviderServiceLayer({
   runtimeEventBufferCapacity: 1,
 });
 const shutdownOwnership = makeProviderServiceLayer();
+const connectionOwnership = makeProviderServiceLayer();
+connectionOwnership.layer("ProviderServiceLive Connection ownership", (it) => {
+  it.effect("disconnects only the selected Connection's live threads", () =>
+    Effect.gen(function* () {
+      const provider = yield* ProviderService;
+      const first = asThreadId("connection-first");
+      const second = asThreadId("connection-second");
+      const firstConnection = ProviderConnectionId.makeUnsafe("connection-a");
+      const secondConnection = ProviderConnectionId.makeUnsafe("connection-b");
+      for (const [threadId, connectionId] of [
+        [first, firstConnection],
+        [second, secondConnection],
+      ] as const) {
+        yield* provider.ensure(threadId, {
+          threadId,
+          provider: "codex",
+          runtimeMode: "full-access",
+          managedLaunch: {
+            connectionId,
+            binaryPath: "/managed/codex",
+            isolationKey: connectionId,
+            profileRoot: `/managed/${connectionId}`,
+            nativeStateRoot: `/native/${threadId}`,
+            childEnvironment: (environment) => environment,
+          },
+        });
+      }
+      yield* provider.stopConnection(firstConnection, "codex", `/managed/${firstConnection}`);
+      assert.equal(yield* connectionOwnership.codex.hasSession(first), false);
+      assert.equal(yield* connectionOwnership.codex.hasSession(second), true);
+      assert.equal(provider.getRuntimeState(first), "none");
+      assert.equal(provider.getRuntimeState(second), "ready");
+      assert.deepEqual(
+        connectionOwnership.codex.stopSession.mock.calls.map(([id]) => id),
+        [first],
+      );
+    }),
+  );
+});
 shutdownOwnership.layer("ProviderServiceLive shutdown ownership", (it) => {
   it.effect(
     "closes every provider despite one thread cleanup failure and does not rewrite stopped history",

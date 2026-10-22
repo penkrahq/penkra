@@ -1,5 +1,6 @@
 import type {
   ProviderKind,
+  ProviderConnectionId,
   ProviderRuntimeEvent,
   ProviderSession,
   ThreadId,
@@ -42,6 +43,7 @@ interface RuntimeOwner {
   readonly turns: Set<string>;
   activate?: (() => void) | undefined;
   generation?: string | undefined;
+  connectionId?: ProviderConnectionId | null | undefined;
   failure?: unknown;
 }
 
@@ -58,6 +60,7 @@ const PROVIDER_FAILED_START_CLEANUP_TIMEOUT = Duration.seconds(10);
 export function makeThreadRuntime() {
   const lifecycle = makeProviderLifecycleCoordinator();
   const owners = new Map<ThreadId, RuntimeOwner>();
+  const closedProfileRoots = new Set<string>();
   let closing = false;
 
   const transition = (
@@ -110,6 +113,7 @@ export function makeThreadRuntime() {
             turns: new Set(),
             activate: lease.activate,
             generation: lease.generation,
+            connectionId: previous?.connectionId,
           };
           owners.set(threadId, owner);
           yield* transition(threadId, owner, "starting");
@@ -118,12 +122,7 @@ export function makeThreadRuntime() {
             Effect.gen(function* () {
               const exit = yield* Effect.exit(runInterruptibly(operation(lease)));
               owner.start = undefined;
-              if (
-                !owner.nativeTouched &&
-                previous &&
-                previous.state !== "none" &&
-                !owner.cancelled
-              ) {
+              if (!owner.nativeTouched && previous && previous.state !== "none") {
                 owner.provider = previous.provider;
                 yield* transition(threadId, owner, previous.state);
                 owners.set(threadId, previous);
@@ -230,7 +229,11 @@ export function makeThreadRuntime() {
     operation: (generation: string | undefined) => Effect.Effect<A, E, R>,
   ): Effect.Effect<A | undefined, E | ProviderValidationError, R> =>
     Effect.gen(function* () {
-      if (yield* cancelStart(threadId, "user-stop")) return;
+      if (yield* cancelStart(threadId, "user-stop")) {
+        if (owners.get(threadId)?.state === "running")
+          return yield* operation(lifecycle.currentGeneration(threadId));
+        return;
+      }
       const owner = owners.get(threadId);
       // Disposal already owns interruption. Do not wait on it, race its native
       // close, or start another cleanup path from a repeated Stop click.
@@ -251,6 +254,7 @@ export function makeThreadRuntime() {
       if (event.type === "session.exited") {
         owner.turns.clear();
         owner.nativeCleaned = true;
+        owner.connectionId = undefined;
         return transition(event.threadId, owner, "none");
       }
       if (owner.state === "stopping" || owner.state === "none") return Effect.void;
@@ -285,6 +289,7 @@ export function makeThreadRuntime() {
             return Effect.void;
           }
           owner.nativeCleaned = true;
+          owner.connectionId = undefined;
           owner.failure = undefined;
           owner.turns.clear();
           return transition(threadId, owner, "none", reason);
@@ -303,12 +308,26 @@ export function makeThreadRuntime() {
           operation: "ThreadRuntime.ensure",
           issue: "Native startup is not bound to its runtime owner.",
         });
+      if (input.managedLaunch && closedProfileRoots.has(input.managedLaunch.profileRoot)) {
+        return yield* new ProviderValidationError({
+          operation: "ThreadRuntime.ensure",
+          issue: "The Connection's credential profile has been closed.",
+        });
+      }
       if (yield* adapter.hasSession(input.threadId))
         yield* dispose(adapter, input.threadId, "selection-change");
+      // Native disposal can yield while disconnection retires this profile.
+      if (input.managedLaunch && closedProfileRoots.has(input.managedLaunch.profileRoot)) {
+        return yield* new ProviderValidationError({
+          operation: "ThreadRuntime.ensure",
+          issue: "The Connection's credential profile has been closed.",
+        });
+      }
       owner.activate();
       owner.provider = adapter.provider;
       owner.nativeTouched = true;
       owner.nativeCleaned = false;
+      owner.connectionId = input.managedLaunch?.connectionId;
       yield* transition(input.threadId, owner, "starting");
       return yield* Effect.gen(function* () {
         const started = yield* adapter
@@ -349,6 +368,24 @@ export function makeThreadRuntime() {
     observe,
     startNative,
     dispose,
+    cancelStart,
+    retireProfile: (profileRoot: string) =>
+      Effect.sync(() => {
+        closedProfileRoots.add(profileRoot);
+      }),
+    threadsForConnection: (connectionId: ProviderConnectionId) =>
+      [...owners]
+        .filter(
+          ([, owner]) =>
+            owner.connectionId === connectionId &&
+            (owner.state !== "none" || owner.start !== undefined),
+        )
+        .map(([threadId]) => threadId),
+    closeAccount: (
+      adapter: ProviderAdapterShape<ProviderAdapterError>,
+      connectionId: ProviderConnectionId,
+      profileRoot: string,
+    ) => (adapter.stopAccount ? adapter.stopAccount(connectionId, profileRoot) : Effect.void),
     beginShutdown: Effect.suspend(() => {
       closing = true;
       const threadIds = [...owners]

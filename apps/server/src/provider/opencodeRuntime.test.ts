@@ -416,7 +416,17 @@ describe("OpenCodeRuntime local server pool", () => {
 
           yield* Scope.close(firstScope, Exit.void);
           expect(state.killUrls).toEqual([]);
-          yield* runtime.stopAccount(ProviderConnectionId.makeUnsafe("account-a"));
+          yield* runtime.stopAccount(ProviderConnectionId.makeUnsafe("account-a"), "/profiles/a");
+          const late = yield* Effect.result(
+            runtime.connectToOpenCodeServer({
+              binaryPath: "opencode",
+              cwd: "/repo",
+              poolIsolationKey: "late-a",
+              connectionId: ProviderConnectionId.makeUnsafe("account-a"),
+              profileRoot: "/profiles/a",
+            }),
+          );
+          expect(late._tag).toBe("Failure");
           expect(state.killUrls).toEqual(["http://127.0.0.1:59000"]);
           const sameAccount = yield* runtime.connectToOpenCodeServer({
             binaryPath: "opencode",
@@ -429,6 +439,14 @@ describe("OpenCodeRuntime local server pool", () => {
           expect(state.killUrls).toEqual(["http://127.0.0.1:59000"]);
           yield* runtime.stopAll();
           expect(state.killUrls).toEqual(["http://127.0.0.1:59000", "http://127.0.0.1:59001"]);
+          const refreshed = yield* runtime.connectToOpenCodeServer({
+            binaryPath: "opencode",
+            cwd: "/repo",
+            poolIsolationKey: "new-profile-a",
+            connectionId: ProviderConnectionId.makeUnsafe("account-a"),
+            profileRoot: "/profiles/new-a",
+          });
+          expect(refreshed.url).toBe("http://127.0.0.1:59002");
         }),
       ).pipe(Effect.provide(openCodeRuntimePoolTestLayer(state))),
     );
