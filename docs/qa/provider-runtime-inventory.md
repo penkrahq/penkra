@@ -864,3 +864,31 @@ session revert and restores the edited file from `changed by native tool` to
 warnings, zero errors) and workspace typecheck passed. This establishes a
 preservation mechanism for the shared-store implementation; Production and
 the currently active storage layout remain unchanged.
+
+## 27. Snapshot transfer primitive and existing-part import limitation
+
+The snapshot transfer tested above is now a reusable primitive, exercised twice
+against the same destination by the native contract. It collects only the
+pinned snapshot/step/patch fields and an optional revert snapshot, validates
+the project/path/hash identities, batch-checks the exact source trees, fetches
+them into the destination's object store and batch-checks the destination.
+Hash lists go over stdin rather than growing the process argument list. Git
+automatic maintenance/GC is disabled for these bounded transfers; no peer
+repository or refs are replaced. The caller supplies its cancellation signal.
+Three admission tests cover no-snapshot work, invalid identities and identical
+source/destination including a revert-only snapshot.
+
+An additional native experiment corrected the scope of the earlier warm-target
+import proof. Appended messages import correctly, but an update to an existing
+text part is ignored by OpenCode's insert-on-conflict behavior. The contract
+now explicitly demonstrates that stale result. Deleting the exact inactive
+target session before import produces the complete updated history, visible
+through the already-running target server. The authoritative source remains
+available throughout this experiment. This is not permission to delete a
+source before complete destination verification and binding commit.
+
+The final native contract passed (23.65 seconds), including repeated snapshot
+transfer, stale existing-part reproduction, exact replacement, preserved tool
+output and native undo after old-root removal. Formatting, lint (869 warnings,
+zero errors) and workspace typecheck passed. These components and contracts do
+not yet switch the installed Production storage layout.
