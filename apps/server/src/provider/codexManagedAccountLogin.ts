@@ -2,6 +2,7 @@
 // Purpose: Runs one Codex-owned browser login without exposing OAuth credentials to Penkra.
 
 import { type ChildProcessWithoutNullStreams, spawn } from "node:child_process";
+import type { ClientRequest as PinnedCodexRequest } from "./generated/codex/ClientRequest.ts";
 
 import { prepareWindowsSafeProcess } from "@penkra/shared/windowsProcess";
 
@@ -105,7 +106,9 @@ function optionalString(value: unknown): string | null {
   return typeof value === "string" && value.trim().length > 0 ? value : null;
 }
 
-async function readRateLimits(request: (method: string, params: unknown) => Promise<unknown>) {
+async function readRateLimits(
+  request: (method: PinnedCodexRequest["method"], params: unknown) => Promise<unknown>,
+) {
   try {
     return await request("account/rateLimits/read", {});
   } catch {
@@ -127,7 +130,10 @@ export async function readCodexManagedAccount(
     for (const request of pending.values()) request.reject(error);
     pending.clear();
   };
-  const request = async (method: string, params: unknown): Promise<unknown> => {
+  const request = async (
+    method: PinnedCodexRequest["method"],
+    params: unknown,
+  ): Promise<unknown> => {
     const id = nextId++;
     const result = new Promise<unknown>((resolve, reject) =>
       pending.set(id, { method, resolve, reject }),
@@ -209,7 +215,10 @@ export async function startCodexManagedAccountLogin(
     pending.clear();
     rejectCompletion(error);
   };
-  const request = async (method: string, params: unknown): Promise<unknown> => {
+  const request = async (
+    method: PinnedCodexRequest["method"],
+    params: unknown,
+  ): Promise<unknown> => {
     const id = nextId++;
     const result = new Promise<unknown>((resolve, reject) =>
       pending.set(id, { method, resolve, reject }),
