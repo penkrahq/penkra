@@ -767,3 +767,20 @@ It no longer catches a validation error by searching its text for the absence
 phrase. The service/owner files passed 91 tests including pending-start,
 disconnect, idle-disposal and shutdown ownership cases. Formatting, lint (870
 warnings, zero errors), and workspace typecheck passed.
+
+## 22. OpenCode startup reads only the model provider list
+
+A controlled runtime test recorded three requests before this change:
+`provider.list`, `app.agents`, and `experimental.console.get`. The session
+startup caller consumes only provider model context limits, so the latter two
+requests had no consumer. The test failed with those extra calls and now passes
+with only `provider.list`.
+
+The broad runtime inventory API and its unused agent/console readers are
+deleted, including the two-second agent timeout-to-empty behavior and console
+failure-to-null behavior. Startup uses the narrowly typed provider-list API.
+Agent catalog loading remains in the existing catalog path; this does not add
+a second cache or claim that all provider-list reads are deduplicated.
+
+The four changed fixture files passed 91 tests. Formatting, lint (869 warnings,
+zero errors), and workspace typecheck passed. Production was not changed.

@@ -7,6 +7,7 @@ import { ProviderConnectionId } from "@penkra/contracts";
 import { Deferred, Effect, Exit, Fiber, Layer, Scope, Sink, Stream } from "effect";
 import { ChildProcessSpawner } from "effect/unstable/process";
 import type { ChatAttachment } from "@penkra/contracts";
+import type { OpencodeClient } from "@opencode-ai/sdk/v2";
 import { describe, expect, it } from "vitest";
 
 import {
@@ -187,6 +188,47 @@ describe("buildOpenCodeServerProcessEnv", () => {
 });
 
 describe("OpenCodeRuntime startup diagnostics", () => {
+  it("reads only provider models for session startup", async () => {
+    const calls: string[] = [];
+    const client = {
+      provider: {
+        list: async () => {
+          calls.push("provider.list");
+          return { data: { connected: [], all: [], default: {} } };
+        },
+      },
+      app: {
+        agents: async () => {
+          calls.push("app.agents");
+          return { data: [] };
+        },
+      },
+      experimental: {
+        console: {
+          get: async () => {
+            calls.push("experimental.console.get");
+            return { data: null };
+          },
+        },
+      },
+    } as unknown as OpencodeClient;
+    await Effect.runPromise(
+      Effect.scoped(
+        Effect.gen(function* () {
+          const runtime = yield* OpenCodeRuntime;
+          yield* runtime.loadOpenCodeProviderList(client);
+        }),
+      ).pipe(
+        Effect.provide(
+          makeOpenCodeRuntimeLive().pipe(
+            Layer.provide(mockOpenCodeServerSpawnerLayer({ stdout: "", stderr: "" })),
+          ),
+        ),
+      ),
+    );
+    expect(calls).toEqual(["provider.list"]);
+  });
+
   it("lets the provider bind an ephemeral port instead of probing and releasing one", async () => {
     const error = await Effect.runPromise(
       Effect.scoped(
