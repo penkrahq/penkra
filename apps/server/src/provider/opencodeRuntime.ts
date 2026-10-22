@@ -202,9 +202,11 @@ export interface OpenCodeRuntimeShape {
     /** Isolates the managed program; the runtime retains it until explicit close. */
     readonly poolIsolationKey?: string;
     readonly connectionId?: ProviderConnectionId;
+    readonly profileRoot?: string;
   }) => Effect.Effect<OpenCodeServerConnection, OpenCodeRuntimeError, Scope.Scope>;
   readonly stopAccount: (
     connectionId: ProviderConnectionId,
+    profileRoot: string,
   ) => Effect.Effect<void, OpenCodeRuntimeError>;
   readonly stopAll: () => Effect.Effect<void, OpenCodeRuntimeError>;
   readonly runOpenCodeCommand: (input: {
@@ -504,6 +506,7 @@ const makeOpenCodeRuntime = (options?: OpenCodeRuntimeLiveOptions) =>
     );
     const pooledServerMutex = yield* Semaphore.make(1);
     const pooledServers = new Map<string, PooledOpenCodeServer>();
+    const closedProfileRoots = new Set<string>();
 
     const runOpenCodeCommand: OpenCodeRuntimeShape["runOpenCodeCommand"] = (input) =>
       Effect.gen(function* () {
@@ -835,10 +838,17 @@ const makeOpenCodeRuntime = (options?: OpenCodeRuntimeLiveOptions) =>
       readonly experimentalWebSockets?: boolean;
       readonly poolIsolationKey?: string;
       readonly connectionId?: ProviderConnectionId;
+      readonly profileRoot?: string;
       readonly processEnv?: NodeJS.ProcessEnv;
     }) =>
       pooledServerMutex.withPermit(
         Effect.gen(function* () {
+          if (input.profileRoot !== undefined && closedProfileRoots.has(input.profileRoot)) {
+            return yield* new OpenCodeRuntimeError({
+              operation: "connectToOpenCodeServer",
+              detail: "The Connection's credential profile has been closed.",
+            });
+          }
           const key = pooledOpenCodeServerKey(input);
           const existing = pooledServers.get(key);
           if (existing) {
@@ -897,9 +907,10 @@ const makeOpenCodeRuntime = (options?: OpenCodeRuntimeLiveOptions) =>
             yield* closePooledServer(pooledServer);
         }),
       );
-    const stopAccount: OpenCodeRuntimeShape["stopAccount"] = (connectionId) =>
+    const stopAccount: OpenCodeRuntimeShape["stopAccount"] = (connectionId, profileRoot) =>
       pooledServerMutex.withPermit(
         Effect.gen(function* () {
+          closedProfileRoots.add(profileRoot);
           for (const pooledServer of Array.from(pooledServers.values())) {
             if (pooledServer.connectionIds.has(connectionId))
               yield* closePooledServer(pooledServer);
@@ -941,6 +952,7 @@ const makeOpenCodeRuntime = (options?: OpenCodeRuntimeLiveOptions) =>
             : {}),
           ...(input.processEnv !== undefined ? { processEnv: input.processEnv } : {}),
           ...(input.connectionId !== undefined ? { connectionId: input.connectionId } : {}),
+          ...(input.profileRoot !== undefined ? { profileRoot: input.profileRoot } : {}),
         });
         yield* Scope.addFinalizer(callerScope, releasePooledServer(pooledServer));
         return {

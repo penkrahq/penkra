@@ -424,3 +424,31 @@ At this checkpoint, 113 tests across the owner, generation, service, retention,
 account-pool and fixture-integration files passed. This does not establish
 completion of idle-policy migration, application/Connection shutdown routing,
 OpenCode's shared-process integration, or Production visual QA.
+
+## 9. Connection disposal evidence (2026-10-22)
+
+Disconnect now retires the exact immutable credential profile, cancels its
+pending native starts, stops its owned threads with `connection-removed`, and
+then closes its account process. Membership comes from the runtime that actually
+started, not the thread's potentially changed stored selection. Cleanup failures
+are collected without skipping the account-process close attempt.
+
+The account-pool reproduction initially failed: starting with a cached launch
+after disconnect spawned a replacement Codex process. Codex and OpenCode pools
+now reject acquisition of the retired profile. A new profile for the same
+Connection remains admissible. The owner applies the same profile boundary to
+per-thread Claude startup. No provider error-message matching or automatic
+restart implements this boundary.
+
+Focused owner/service tests verify pending startup cancellation waits for cleanup,
+another thread can start during that wait, and disconnecting one Connection leaves
+the other Connection's thread ready. The five changed pool/adapter/owner/service
+files passed 171 tests; a subsequent owner rejection test and OpenCode re-sign-in
+case passed their 28-test subset. Formatting, lint (873 existing warnings, no
+errors), workspace typechecking, and server typechecking passed at this checkpoint.
+
+The new shutdown path exposed a missing native close acknowledgement in the
+account-pool fixture. Its explicit auto-close control now sends `thread/closed`
+after unsubscribe for the shutdown test; the separate held-close test still
+requires an explicit release. No product deadline was weakened to pass the test.
+These are controlled fixtures, not Production disconnection or visual-QA evidence.

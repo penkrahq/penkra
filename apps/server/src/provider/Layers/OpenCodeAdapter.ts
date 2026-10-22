@@ -3285,6 +3285,7 @@ export function makeOpenCodeAdapterLive(options?: OpenCodeAdapterLiveOptions) {
                         ? { experimentalWebSockets: true }
                         : {}),
                       poolIsolationKey,
+                      profileRoot: launch.profileRoot,
                       ...(launch.connectionId ? { connectionId: launch.connectionId } : {}),
                       processEnv: managedProcessEnv,
                     });
@@ -3838,6 +3839,7 @@ export function makeOpenCodeAdapterLive(options?: OpenCodeAdapterLiveOptions) {
                 cliSpec: adapterConfig.cliSpec,
                 cwd: input.cwd,
                 poolIsolationKey: input.managedLaunch.isolationKey,
+                profileRoot: input.managedLaunch.profileRoot,
                 ...(input.managedLaunch.connectionId
                   ? { connectionId: input.managedLaunch.connectionId }
                   : {}),
@@ -4011,13 +4013,16 @@ export function makeOpenCodeAdapterLive(options?: OpenCodeAdapterLiveOptions) {
           );
         });
 
-      const stopAccount: NonNullable<OpenCodeAdapterShape["stopAccount"]> = (connectionId) =>
+      const stopAccount: NonNullable<OpenCodeAdapterShape["stopAccount"]> = (
+        connectionId,
+        profileRoot,
+      ) =>
         Effect.gen(function* () {
           for (const context of sessions.values()) {
             if (context.connectionId !== connectionId) continue;
             yield* stopSession(context.session.threadId);
           }
-          yield* openCodeRuntime.stopAccount(connectionId).pipe(
+          yield* openCodeRuntime.stopAccount(connectionId, profileRoot).pipe(
             Effect.mapError(
               (cause) =>
                 new ProviderAdapterRequestError({

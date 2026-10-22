@@ -131,7 +131,7 @@ async function createPool() {
     script,
     `
 const fs=require('node:fs'),rl=require('node:readline');
-const configs=new Map(),tools=new Map(),turns=new Map(); let next=0;
+const configs=new Map(),tools=new Map(),turns=new Map(); let next=0,autoClose=false;
 const out=message=>process.stdout.write(JSON.stringify(message)+'\\n');
 fs.appendFileSync(${JSON.stringify(trace)},JSON.stringify({pid:process.pid,event:'spawn',unloadImmediate:fs.readFileSync(process.env.CODEX_HOME+'/config.toml','utf8').includes('thread_unload_delay_secs = 0')})+'\\n');
 rl.createInterface({input:process.stdin}).on('line',async line=>{
@@ -161,6 +161,8 @@ rl.createInterface({input:process.stdin}).on('line',async line=>{
     result=await reply;
   }
   if(request.method==='test/close')out({method:'thread/closed',params:{threadId:p.threadId}});
+  if(request.method==='test/autoClose')autoClose=true;
+  if(request.method==='thread/unsubscribe'&&autoClose)out({method:'thread/closed',params:{threadId:p.threadId}});
   if(request.method==='test/exit')process.exit(7);
   out({id:request.id,result});
 });
@@ -291,10 +293,20 @@ it("coalesces concurrent starts and discovery per account and attributes interle
     expect((await f.events())[0].unloadImmediate).toBe(true);
     await f.manager.startSession(await f.input("c", "account-b"));
     expect((await f.events()).filter((event) => event.event === "spawn")).toHaveLength(2);
-    await f.manager.stopAccount(ProviderConnectionId.makeUnsafe("account-a"));
+    await f.manager.stopAccount(
+      ProviderConnectionId.makeUnsafe("account-a"),
+      a.managedLaunch.profileRoot,
+    );
     expect(f.manager.hasSession(a.threadId)).toBe(false);
     expect(f.manager.hasSession(b.threadId)).toBe(false);
     expect(f.manager.hasSession(ThreadId.makeUnsafe("c"))).toBe(true);
+    await expect(
+      f.manager.startSession({ ...a, threadId: ThreadId.makeUnsafe("late-old-profile") }),
+    ).rejects.toThrow();
+    const refreshed = await f.input("reauthenticated-a", "new-profile-a");
+    refreshed.managedLaunch.connectionId = a.managedLaunch.connectionId;
+    await f.manager.startSession(refreshed);
+    expect(f.manager.hasSession(refreshed.threadId)).toBe(true);
     await f.manager.sendTurn({
       threadId: ThreadId.makeUnsafe("c"),
       input: "Sibling account still works",
@@ -666,7 +678,7 @@ it.each(["codex", "opencode"] as const)(
           }
           const adapter = yield* registry.getByProvider(provider);
           if (!adapter.stopAccount) throw new Error("Expected account shutdown");
-          yield* adapter.stopAccount(accounts[0]!);
+          yield* adapter.stopAccount(accounts[0]!, join(f.root, accounts[0]!));
           expect(yield* adapter.hasSession(ids[0]!)).toBe(false);
           expect(yield* adapter.hasSession(ids[1]!)).toBe(true);
           if (provider === "codex") {
@@ -675,6 +687,7 @@ it.each(["codex", "opencode"] as const)(
             yield* Effect.tryPromise(() =>
               f.manager.sendTurn({ threadId: ids[1]!, input: "Other account still works" }),
             );
+            yield* Effect.tryPromise(() => f.command(ids[1]!, "test/autoClose", {}));
           } else {
             expect(spawnUrls).toHaveLength(2);
             expect(stoppedUrls).toEqual([spawnUrls[0]]);

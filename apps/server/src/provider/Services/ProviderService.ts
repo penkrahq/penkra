@@ -15,6 +15,7 @@ import type {
   ProviderBackgroundTaskInput,
   ProviderInterruptTurnInput,
   ProviderKind,
+  ProviderConnectionId,
   ProviderRespondToUserInputInput,
   ProviderRuntimeEvent,
   ProviderSendTurnInput,
@@ -54,6 +55,12 @@ export type ProviderServiceSessionStartInput = ProviderSessionStartInput & {
 export interface ProviderServiceShape {
   /** Live native ownership, including startup before a turn/binding exists. */
   readonly getRuntimeState: (threadId: ThreadId) => ThreadRuntimeState;
+  /** Retire only the live runtimes owned by this Connection, then its process. */
+  readonly stopConnection: (
+    connectionId: ProviderConnectionId,
+    provider: ProviderKind,
+    profileRoot: string,
+  ) => Effect.Effect<void, ProviderServiceError>;
   /**
    * Start a provider session.
    */

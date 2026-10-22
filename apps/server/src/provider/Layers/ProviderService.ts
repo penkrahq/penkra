@@ -1954,6 +1954,35 @@ const makeProviderService = (options?: ProviderServiceLiveOptions) =>
         );
       });
 
+    const stopConnection: ProviderServiceShape["stopConnection"] = (
+      connectionId,
+      provider,
+      profileRoot,
+    ) =>
+      Effect.gen(function* () {
+        yield* lifecycle.retireProfile(profileRoot);
+        const threadIds = lifecycle.threadsForConnection(connectionId);
+        const exits = yield* Effect.forEach(
+          threadIds,
+          (threadId) =>
+            Effect.exit(
+              lifecycle
+                .cancelStart(threadId, "connection-removed")
+                .pipe(Effect.andThen(stop({ threadId, reason: "connection-removed" }))),
+            ),
+          { concurrency: "unbounded" },
+        );
+        const adapter = yield* registry.getByProvider(provider);
+        const process = yield* Effect.exit(
+          lifecycle.closeAccount(adapter, connectionId, profileRoot),
+        );
+        let failure: Cause.Cause<ProviderServiceError> | undefined;
+        for (const exit of [...exits, process])
+          if (Exit.isFailure(exit))
+            failure = failure === undefined ? exit.cause : Cause.combine(failure, exit.cause);
+        if (failure !== undefined) return yield* Effect.failCause(failure);
+      });
+
     const stopRuntimeSessionInternal = (
       rawInput: StopRuntimeSessionInput,
       expectedIdleGeneration?: symbol,
@@ -2451,6 +2480,7 @@ const makeProviderService = (options?: ProviderServiceLiveOptions) =>
 
     return {
       getRuntimeState: lifecycle.state,
+      stopConnection,
       ensure,
       sendTurn,
       steerTurn,

@@ -1816,9 +1816,12 @@ const makeCodexAdapter = (options?: CodexAdapterLiveOptions) =>
     const hasSession: CodexAdapterShape["hasSession"] = (threadId) =>
       Effect.sync(() => manager.hasSession(threadId));
 
-    const stopAccount: NonNullable<CodexAdapterShape["stopAccount"]> = (connectionId) =>
+    const stopAccount: NonNullable<CodexAdapterShape["stopAccount"]> = (
+      connectionId,
+      profileRoot,
+    ) =>
       Effect.tryPromise({
-        try: () => manager.stopAccount(connectionId),
+        try: () => manager.stopAccount(connectionId, profileRoot),
         catch: (cause) =>
           new ProviderAdapterRequestError({
             provider: PROVIDER,
