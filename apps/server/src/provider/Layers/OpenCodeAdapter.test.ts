@@ -347,6 +347,7 @@ function managedLaunchForTest(threadId: ThreadId) {
     binaryPath: "/managed/opencode",
     profileRoot: "/isolated/profile",
     nativeStateRoot: "/isolated/native/" + threadId,
+    assertCurrentCredentials: Effect.void,
     isolationKey: "test-installation:profile",
     connectionId: null,
     childEnvironment: () => ({}),
@@ -649,6 +650,7 @@ describe("OpenCodeAdapter runtime lifecycle", () => {
           internalProviderId: "openai",
           managedLaunch: {
             binaryPath: "/managed/opencode",
+            assertCurrentCredentials: Effect.void,
             isolationKey: "selected",
             profileRoot: "/profile",
             nativeStateRoot: "/native",
@@ -704,6 +706,7 @@ describe("OpenCodeAdapter runtime lifecycle", () => {
           internalProviderId: null,
           managedLaunch: {
             binaryPath: "/managed/opencode",
+            assertCurrentCredentials: Effect.void,
             isolationKey: "selected",
             connectionId: ProviderConnectionId.makeUnsafe("selected"),
             profileRoot: "/profile",
@@ -757,6 +760,7 @@ describe("OpenCodeAdapter runtime lifecycle", () => {
             internalProviderId: "opencode",
             managedLaunch: {
               binaryPath: "/managed/opencode",
+              assertCurrentCredentials: Effect.void,
               isolationKey: "anonymous",
               profileRoot: "/profile",
               nativeStateRoot: "/native",
@@ -793,6 +797,7 @@ describe("OpenCodeAdapter runtime lifecycle", () => {
           effort: "low",
           managedLaunch: {
             binaryPath: "/managed/opencode",
+            assertCurrentCredentials: Effect.void,
             isolationKey: "connection:probe",
             profileRoot: "/isolated/profile",
             nativeStateRoot: "/isolated/native",
@@ -917,13 +922,14 @@ describe("OpenCodeAdapter runtime lifecycle", () => {
                 profileRoot: "/isolated/profile",
                 nativeStateRoot: "/isolated/native",
                 connectionId,
+                assertCurrentCredentials: Effect.void,
                 isolationKey: connectionId,
                 childEnvironment: () => ({}),
               },
             });
           }
           if (!adapter.stopAccount) throw new Error("OpenCode must close an account program");
-          yield* adapter.stopAccount(a, "/isolated/profile");
+          yield* adapter.stopAccount(a);
           expect(runtime.stoppedAccounts).toEqual([a]);
           expect(yield* adapter.hasSession(threadA)).toBe(false);
           expect(yield* adapter.hasSession(threadB)).toBe(true);
@@ -1152,6 +1158,7 @@ describe("OpenCodeAdapter runtime lifecycle", () => {
           },
           managedLaunch: {
             binaryPath: "/managed/opencode",
+            assertCurrentCredentials: Effect.void,
             isolationKey: "managed:connection-1",
             profileRoot: "/isolated/profile",
             nativeStateRoot: "/isolated/native",

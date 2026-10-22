@@ -59,7 +59,6 @@ export interface ProviderServiceShape {
   readonly stopConnection: (
     connectionId: ProviderConnectionId,
     provider: ProviderKind,
-    profileRoot: string,
   ) => Effect.Effect<void, ProviderServiceError>;
   /**
    * Start a provider session.

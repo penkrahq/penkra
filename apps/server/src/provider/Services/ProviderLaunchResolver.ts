@@ -10,6 +10,7 @@ import {
 import { Data, Effect, ServiceMap } from "effect";
 
 export interface ProviderLaunchSpec {
+  readonly assertCurrentCredentials: Effect.Effect<void, ProviderLaunchResolutionError>;
   readonly binaryPath: string;
   readonly isolationKey: string;
   readonly profileRoot: string;

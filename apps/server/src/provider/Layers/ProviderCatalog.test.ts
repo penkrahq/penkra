@@ -40,6 +40,7 @@ function harness(
   const resolve = vi.fn((input: { connectionId: ProviderConnectionId | null }) =>
     Effect.succeed({
       binaryPath: "/managed/codex",
+      assertCurrentCredentials: Effect.void,
       isolationKey: String(input.connectionId),
       profileRoot: "/profile",
       nativeStateRoot: "/native",

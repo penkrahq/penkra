@@ -1,3 +1,4 @@
+import { Effect } from "effect";
 import { describe, expect, it, vi } from "vitest";
 import { CodexAppServerManager } from "./codexAppServerManager.ts";
 import type { ProviderManagedLaunchContext } from "./provider/Services/ProviderAdapter.ts";
@@ -5,6 +6,7 @@ import { CodexResponseTooLargeError } from "./codexAppServerTransport.ts";
 
 const launch: ProviderManagedLaunchContext = {
   binaryPath: "/managed/codex",
+  assertCurrentCredentials: Effect.void,
   isolationKey: "account-a",
   profileRoot: "/profile",
   nativeStateRoot: "/native",

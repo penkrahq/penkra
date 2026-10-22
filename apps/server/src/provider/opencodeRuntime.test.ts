@@ -311,6 +311,7 @@ describe("OpenCodeRuntime local server pool", () => {
           const entered = yield* Deferred.make<void>();
           const release = yield* Deferred.make<void>();
           const revoked: string[] = [];
+          let credentialsCurrent = true;
           const spawner = Layer.succeed(
             ChildProcessSpawner.ChildProcessSpawner,
             ChildProcessSpawner.make(() =>
@@ -333,7 +334,9 @@ describe("OpenCodeRuntime local server pool", () => {
             const input = {
               binaryPath: "opencode",
               poolIsolationKey: "pending-profile",
-              profileRoot: "/pending-profile",
+              assertCurrentCredentials: Effect.suspend(() =>
+                credentialsCurrent ? Effect.void : Effect.fail(new Error("Credential retired")),
+              ),
               connectionId: ProviderConnectionId.makeUnsafe("pending-account"),
               gateway: {
                 url: "http://gateway/mcp",
@@ -347,8 +350,9 @@ describe("OpenCodeRuntime local server pool", () => {
               .connectToOpenCodeServer(input)
               .pipe(Effect.forkChild({ startImmediately: true }));
             yield* Deferred.await(entered);
+            credentialsCurrent = false;
             const stopping = yield* runtime
-              .stopAccount(input.connectionId, input.profileRoot)
+              .stopAccount(input.connectionId)
               .pipe(Effect.forkChild({ startImmediately: true }));
             yield* Effect.sync(() => expect(stopping.pollUnsafe()).toBeUndefined()).pipe(
               Effect.ensuring(Deferred.succeed(release, undefined)),
@@ -437,7 +441,7 @@ describe("OpenCodeRuntime local server pool", () => {
             binaryPath: "opencode",
             cwd: "/repo/a",
             poolIsolationKey: "installation:profile-a",
-            profileRoot: "/profile/a",
+            assertCurrentCredentials: Effect.void,
             connectionId: ProviderConnectionId.makeUnsafe("a"),
             gateway,
           });
@@ -445,7 +449,7 @@ describe("OpenCodeRuntime local server pool", () => {
             binaryPath: "opencode",
             cwd: "/repo/b",
             poolIsolationKey: "installation:profile-a",
-            profileRoot: "/profile/a",
+            assertCurrentCredentials: Effect.void,
             connectionId: ProviderConnectionId.makeUnsafe("a"),
             gateway,
           });
@@ -455,7 +459,7 @@ describe("OpenCodeRuntime local server pool", () => {
           expect(issued).toBe(1);
           expect(state.spawnUrls).toHaveLength(1);
           expect(revoked).toEqual([]);
-          yield* runtime.stopAccount(ProviderConnectionId.makeUnsafe("a"), "/profile/a");
+          yield* runtime.stopAccount(ProviderConnectionId.makeUnsafe("a"));
           expect(revoked).toEqual(["process-1"]);
           expect(state.killUrls).toEqual(state.spawnUrls);
         }),
@@ -562,7 +566,7 @@ describe("OpenCodeRuntime local server pool", () => {
               cwd: "/repo",
               poolIsolationKey: "penkra-thread-a",
               connectionId: ProviderConnectionId.makeUnsafe("account-a"),
-              profileRoot: "/profiles/a",
+              assertCurrentCredentials: Effect.void,
             })
             .pipe(Effect.provideService(Scope.Scope, firstScope));
           const second = yield* runtime
@@ -571,7 +575,7 @@ describe("OpenCodeRuntime local server pool", () => {
               cwd: "/repo",
               poolIsolationKey: "penkra-thread-b",
               connectionId: ProviderConnectionId.makeUnsafe("account-b"),
-              profileRoot: "/profiles/b",
+              assertCurrentCredentials: Effect.void,
             })
             .pipe(Effect.provideService(Scope.Scope, secondScope));
 
@@ -580,14 +584,14 @@ describe("OpenCodeRuntime local server pool", () => {
 
           yield* Scope.close(firstScope, Exit.void);
           expect(state.killUrls).toEqual([]);
-          yield* runtime.stopAccount(ProviderConnectionId.makeUnsafe("account-a"), "/profiles/a");
+          yield* runtime.stopAccount(ProviderConnectionId.makeUnsafe("account-a"));
           const late = yield* Effect.result(
             runtime.connectToOpenCodeServer({
               binaryPath: "opencode",
               cwd: "/repo",
               poolIsolationKey: "late-a",
               connectionId: ProviderConnectionId.makeUnsafe("account-a"),
-              profileRoot: "/profiles/a",
+              assertCurrentCredentials: Effect.fail(new Error("Credential retired")),
             }),
           );
           expect(late._tag).toBe("Failure");
@@ -597,7 +601,7 @@ describe("OpenCodeRuntime local server pool", () => {
             cwd: "/repo",
             poolIsolationKey: "penkra-thread-b",
             connectionId: ProviderConnectionId.makeUnsafe("account-b"),
-            profileRoot: "/profiles/b",
+            assertCurrentCredentials: Effect.void,
           });
           expect(sameAccount.url).toBe(second.url);
           yield* Scope.close(secondScope, Exit.void);
@@ -609,7 +613,7 @@ describe("OpenCodeRuntime local server pool", () => {
             cwd: "/repo",
             poolIsolationKey: "new-profile-a",
             connectionId: ProviderConnectionId.makeUnsafe("account-a"),
-            profileRoot: "/profiles/new-a",
+            assertCurrentCredentials: Effect.void,
           });
           expect(refreshed.url).toBe("http://127.0.0.1:59002");
         }),

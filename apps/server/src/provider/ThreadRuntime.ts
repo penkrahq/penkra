@@ -44,6 +44,7 @@ interface RuntimeOwner {
   activate?: (() => void) | undefined;
   generation?: string | undefined;
   connectionId?: ProviderConnectionId | null | undefined;
+  pendingConnectionId?: ProviderConnectionId | null | undefined;
   failure?: unknown;
 }
 
@@ -60,7 +61,6 @@ const PROVIDER_FAILED_START_CLEANUP_TIMEOUT = Duration.seconds(10);
 export function makeThreadRuntime() {
   const lifecycle = makeProviderLifecycleCoordinator();
   const owners = new Map<ThreadId, RuntimeOwner>();
-  const closedProfileRoots = new Set<string>();
   const idleJobs = new Map<
     ThreadId,
     { timer?: ReturnType<typeof setTimeout>; running?: Promise<void> }
@@ -143,6 +143,7 @@ export function makeThreadRuntime() {
             Effect.gen(function* () {
               const exit = yield* Effect.exit(runInterruptibly(operation(lease)));
               owner.start = undefined;
+              owner.pendingConnectionId = undefined;
               if (!owner.nativeTouched && previous && previous.state !== "none") {
                 owner.provider = previous.provider;
                 yield* transition(threadId, owner, previous.state);
@@ -329,21 +330,20 @@ export function makeThreadRuntime() {
           operation: "ThreadRuntime.ensure",
           issue: "Native startup is not bound to its runtime owner.",
         });
-      if (input.managedLaunch && closedProfileRoots.has(input.managedLaunch.profileRoot)) {
-        return yield* new ProviderValidationError({
-          operation: "ThreadRuntime.ensure",
-          issue: "The Connection's credential profile has been closed.",
-        });
-      }
+      owner.pendingConnectionId = input.managedLaunch?.connectionId;
+      if (input.managedLaunch)
+        yield* input.managedLaunch.assertCurrentCredentials.pipe(
+          Effect.mapError(
+            (cause) =>
+              new ProviderValidationError({
+                operation: "ThreadRuntime.ensure",
+                issue: "The Connection is no longer current for native admission.",
+                cause,
+              }),
+          ),
+        );
       if (yield* adapter.hasSession(input.threadId))
         yield* dispose(adapter, input.threadId, "selection-change");
-      // Native disposal can yield while disconnection retires this profile.
-      if (input.managedLaunch && closedProfileRoots.has(input.managedLaunch.profileRoot)) {
-        return yield* new ProviderValidationError({
-          operation: "ThreadRuntime.ensure",
-          issue: "The Connection's credential profile has been closed.",
-        });
-      }
       owner.activate();
       owner.provider = adapter.provider;
       owner.nativeTouched = true;
@@ -409,23 +409,22 @@ export function makeThreadRuntime() {
       job.timer.unref();
       idleJobs.set(threadId, job);
     },
-    retireProfile: (profileRoot: string) =>
-      Effect.sync(() => {
-        closedProfileRoots.add(profileRoot);
-      }),
+    ownsConnection: (threadId: ThreadId, connectionId: ProviderConnectionId) => {
+      const owner = owners.get(threadId);
+      return owner?.connectionId === connectionId && owner.state !== "none";
+    },
     threadsForConnection: (connectionId: ProviderConnectionId) =>
       [...owners]
         .filter(
           ([, owner]) =>
-            owner.connectionId === connectionId &&
+            (owner.connectionId === connectionId || owner.pendingConnectionId === connectionId) &&
             (owner.state !== "none" || owner.start !== undefined),
         )
         .map(([threadId]) => threadId),
     closeAccount: (
       adapter: ProviderAdapterShape<ProviderAdapterError>,
       connectionId: ProviderConnectionId,
-      profileRoot: string,
-    ) => (adapter.stopAccount ? adapter.stopAccount(connectionId, profileRoot) : Effect.void),
+    ) => (adapter.stopAccount ? adapter.stopAccount(connectionId) : Effect.void),
     beginShutdown: Effect.suspend(() => {
       closing = true;
       const threadIds = [...owners]

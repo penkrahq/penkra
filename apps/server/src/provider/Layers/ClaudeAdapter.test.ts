@@ -79,6 +79,7 @@ it.effect("loads a Claude folder catalog in one selected managed query and close
       internalProviderId: null,
       managedLaunch: {
         binaryPath: "/managed/claude",
+        assertCurrentCredentials: Effect.void,
         isolationKey: "selected",
         profileRoot: "/profile",
         nativeStateRoot: "/native",
@@ -122,6 +123,7 @@ it.effect("a Claude catalog metadata failure closes only its discovery query", (
         internalProviderId: null,
         managedLaunch: {
           binaryPath: "/managed/claude",
+          assertCurrentCredentials: Effect.void,
           isolationKey: "selected",
           profileRoot: "/profile",
           nativeStateRoot: "/native",
@@ -151,6 +153,7 @@ function claudeCatalogInput(
     internalProviderId: null,
     managedLaunch: {
       binaryPath: "/managed/claude",
+      assertCurrentCredentials: Effect.void,
       isolationKey: connectionId,
       profileRoot: "/profile",
       nativeStateRoot: "/native",
@@ -591,6 +594,7 @@ describe("ClaudeAdapterLive", () => {
         effort: "low",
         managedLaunch: {
           binaryPath: "/managed/claude",
+          assertCurrentCredentials: Effect.void,
           isolationKey: "connection:probe",
           profileRoot: "/isolated/profile",
           nativeStateRoot: "/isolated/native",
@@ -7704,6 +7708,7 @@ await agent("Draft the spec", { label: "delta-agent", phase: "Two" });
         ...claudeCatalogInput("/tmp/claude-model-discovery", ["models"]),
         managedLaunch: {
           binaryPath: "/managed/claude",
+          assertCurrentCredentials: Effect.void,
           isolationKey: "connection:work:discovery",
           profileRoot: "/isolated/profile",
           nativeStateRoot: "/isolated/native",
@@ -7774,6 +7779,7 @@ await agent("Draft the spec", { label: "delta-agent", phase: "Two" });
         ...claudeCatalogInput("/tmp", ["agents"], "personal"),
         managedLaunch: {
           binaryPath: "/managed/claude",
+          assertCurrentCredentials: Effect.void,
           isolationKey: "connection:personal:agents",
           profileRoot: "/profiles/personal",
           nativeStateRoot: "/native/personal",
@@ -7786,6 +7792,7 @@ await agent("Draft the spec", { label: "delta-agent", phase: "Two" });
         ...claudeCatalogInput("/tmp", ["agents"], "work"),
         managedLaunch: {
           binaryPath: "/managed/claude",
+          assertCurrentCredentials: Effect.void,
           isolationKey: "connection:work:agents",
           profileRoot: "/profiles/work",
           nativeStateRoot: "/native/work",

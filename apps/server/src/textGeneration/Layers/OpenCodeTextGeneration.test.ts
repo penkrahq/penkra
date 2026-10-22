@@ -286,6 +286,7 @@ it.layer(OpenCodeTextGenerationTestLayer)("OpenCodeTextGenerationServiceLive", (
     Effect.gen(function* () {
       const textGeneration = yield* OpenCodeTextGeneration;
       const managedLaunch = (isolationKey: string, credential: string) => ({
+        assertCurrentCredentials: Effect.void,
         binaryPath: "/managed/opencode",
         isolationKey,
         profileRoot: `/profiles/${isolationKey}`,

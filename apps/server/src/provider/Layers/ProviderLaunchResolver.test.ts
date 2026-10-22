@@ -42,6 +42,7 @@ let activeLaunchInstallationId = installationId;
 const qaFixtureInstallationId = ProviderInstallationId.makeUnsafe("launch-qa-fixture");
 const timestamp = "2026-08-08T00:00:00.000Z";
 const codexProfileRef = "provider-profile:credential-generation-two";
+let currentStaticCredentialRef = "provider-secret:launch";
 
 const configLayer = ServerConfig.layerTest(process.cwd(), {
   prefix: "penkra-launch-resolver-test-",
@@ -107,7 +108,7 @@ const dependencies = Layer.mergeAll(
           authenticationTargetId: "opencode-go",
           authenticationMethodId: "api-key",
           label: "Go",
-          credentialRef: "provider-secret:launch",
+          credentialRef: currentStaticCredentialRef,
           profileRef: null,
           providerIdentityId: null,
           health: "ready",
@@ -130,6 +131,29 @@ const resolverLayer = ProviderLaunchResolverLive.pipe(Layer.provide(dependencies
 const layer = it.layer(Layer.mergeAll(NodeServices.layer, dependencies, resolverLayer));
 
 layer("ProviderLaunchResolver", (it) => {
+  it.effect(
+    "rejects a retired credential reference while admitting reauthentication into the same folder",
+    () =>
+      Effect.gen(function* () {
+        const resolver = yield* ProviderLaunchResolver;
+        const input = { threadId, connectionId, internalProviderId: "opencode-go" };
+        const old = yield* resolver.resolve(input);
+        yield* old.assertCurrentCredentials;
+        currentStaticCredentialRef = "provider-secret:reauthenticated";
+        const retired = yield* Effect.result(old.assertCurrentCredentials);
+        assert.strictEqual(retired._tag, "Failure");
+        const fresh = yield* resolver.resolve(input);
+        yield* fresh.assertCurrentCredentials;
+        assert.strictEqual(fresh.profileRoot, old.profileRoot);
+        assert.notStrictEqual(fresh.isolationKey, old.isolationKey);
+      }).pipe(
+        Effect.ensuring(
+          Effect.sync(() => {
+            currentStaticCredentialRef = "provider-secret:launch";
+          }),
+        ),
+      ),
+  );
   it.effect("launches only the selected OpenCode Go credential in isolated state", () =>
     Effect.gen(function* () {
       const resolver = yield* ProviderLaunchResolver;

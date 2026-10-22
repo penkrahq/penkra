@@ -10,6 +10,7 @@ const launch = {
   binaryPath: "/selected/provider",
   profileRoot: "/selected/profile",
   nativeStateRoot: "/conversation/generation",
+  assertCurrentCredentials: Effect.void,
   isolationKey: "selected-connection:generation",
   childEnvironment: () => ({
     CODEX_HOME: "/selected/profile/codex-home",

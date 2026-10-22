@@ -174,7 +174,6 @@ interface CodexAccountProcess {
   readonly token: symbol;
   readonly cwd: string;
   readonly connectionIds: Set<ProviderConnectionId>;
-  readonly profileRoot: string | undefined;
   readonly threads: Set<CodexSessionContext>;
   readonly pendingCloses: Map<string, { resolve: () => void; reject: (cause: Error) => void }>;
   authProbeThreadId?: string;
@@ -885,7 +884,6 @@ function safeTemporaryResourceName(value: string | undefined): string {
 }
 
 export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEvents> {
-  private readonly closedProfileRoots = new Set<string>();
   private readonly sessions = new Map<ThreadId, CodexSessionContext>();
   private readonly accountProcesses = new Map<
     string,
@@ -1118,7 +1116,9 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
         cwd: resolvedCwd,
         env,
         connectionId: input.managedLaunch?.connectionId ?? null,
-        profileRoot: input.managedLaunch?.profileRoot,
+        assertCurrentCredentials: input.managedLaunch
+          ? input.managedLaunch.assertCurrentCredentials
+          : Effect.void,
       });
 
       context = {
@@ -2497,23 +2497,21 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
       binaryPath: launch.binaryPath,
       env: await this.buildSessionProcessEnv(undefined, launch),
       connectionId: launch.connectionId ?? null,
-      profileRoot: launch.profileRoot,
+      assertCurrentCredentials: launch.assertCurrentCredentials,
     });
   }
 
   private async getOrCreateAccountProcess(input: {
-    readonly profileRoot: string | undefined;
+    readonly assertCurrentCredentials: Effect.Effect<void, unknown>;
     readonly key: string;
     readonly cwd: string;
     readonly binaryPath: string;
     readonly env: NodeJS.ProcessEnv;
     readonly connectionId: ProviderConnectionId | null;
   }): Promise<CodexAccountProcess> {
-    if (input.profileRoot !== undefined && this.closedProfileRoots.has(input.profileRoot)) {
-      throw new Error("The Connection's credential profile has been closed.");
-    }
     const existing = this.accountProcesses.get(input.key);
     if (existing) {
+      await Effect.runPromise(input.assertCurrentCredentials);
       const transport =
         existing.transport?.stopping || existing.transport?.protocolClosed
           ? existing.transport
@@ -2561,7 +2559,7 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
 
   private async startAccountProcess(
     input: {
-      readonly profileRoot: string | undefined;
+      readonly assertCurrentCredentials: Effect.Effect<void, unknown>;
       readonly key: string;
       readonly cwd: string;
       readonly binaryPath: string;
@@ -2571,13 +2569,13 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
     token: symbol,
     publishTransport: (transport: CodexAccountProcess) => void,
   ): Promise<CodexAccountProcess> {
+    await Effect.runPromise(input.assertCurrentCredentials);
     const child = spawnCodexAppServer(input);
     const transport: CodexAccountProcess = {
       key: input.key,
       token,
       cwd: input.cwd,
       connectionIds: new Set(input.connectionId === null ? [] : [input.connectionId]),
-      profileRoot: input.profileRoot,
       threads: new Set(),
       probes: new Map(),
       pendingCloses: new Map(),
@@ -2687,12 +2685,10 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
     return transport.stopPromise;
   }
 
-  async stopAccount(connectionId: ProviderConnectionId, profileRoot: string): Promise<void> {
-    this.closedProfileRoots.add(profileRoot);
+  async stopAccount(connectionId: ProviderConnectionId): Promise<void> {
     for (const entry of this.accountProcesses.values()) {
-      const transport = await entry.process;
-      if (transport.connectionIds.has(connectionId)) {
-        if (transport.profileRoot !== undefined) this.closedProfileRoots.add(transport.profileRoot);
+      const transport = await entry.process.catch(() => entry.transport);
+      if (transport?.connectionIds.has(connectionId)) {
         await this.closeAccountProcess(transport);
       }
     }

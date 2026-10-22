@@ -635,6 +635,7 @@ gatewayTurnRouting.layer("gateway turn ownership", (it) => {
 });
 const managedLaunch = {
   binaryPath: "/managed/codex",
+  assertCurrentCredentials: Effect.void,
   isolationKey: "managed:test",
   profileRoot: "/managed/profile",
   nativeStateRoot: "/managed/native",
@@ -4476,6 +4477,7 @@ connectionOwnership.layer("ProviderServiceLive Connection ownership", (it) => {
           managedLaunch: {
             connectionId,
             binaryPath: "/managed/codex",
+            assertCurrentCredentials: Effect.void,
             isolationKey: connectionId,
             profileRoot: `/managed/${connectionId}`,
             nativeStateRoot: `/native/${threadId}`,
@@ -4483,7 +4485,7 @@ connectionOwnership.layer("ProviderServiceLive Connection ownership", (it) => {
           },
         });
       }
-      yield* provider.stopConnection(firstConnection, "codex", `/managed/${firstConnection}`);
+      yield* provider.stopConnection(firstConnection, "codex");
       assert.equal(yield* connectionOwnership.codex.hasSession(first), false);
       assert.equal(yield* connectionOwnership.codex.hasSession(second), true);
       assert.equal(provider.getRuntimeState(first), "none");

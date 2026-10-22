@@ -167,10 +167,23 @@ const makeOpenCodeCompatibleTextGeneration = (config: OpenCodeCompatibleTextGene
       readonly isolationKey: string;
       readonly processEnv?: NodeJS.ProcessEnv;
       readonly dedicated?: boolean;
+      readonly assertCurrentCredentials?: Effect.Effect<void, unknown>;
     }) =>
       sharedServerMutex.withPermit(
         Effect.gen(function* () {
           const startServer = Effect.fn("startOpenCodeTextGenerationServer")(function* () {
+            if (input.assertCurrentCredentials) {
+              yield* input.assertCurrentCredentials.pipe(
+                Effect.mapError(
+                  (cause) =>
+                    new TextGenerationError({
+                      operation: input.operation,
+                      detail: "The Connection is no longer current for native admission.",
+                      cause,
+                    }),
+                ),
+              );
+            }
             const serverScope = yield* Scope.make();
             const startedExit = yield* Effect.exit(
               openCodeRuntime
@@ -433,6 +446,9 @@ const makeOpenCodeCompatibleTextGeneration = (config: OpenCodeCompatibleTextGene
                 operation: input.operation,
                 isolationKey,
                 dedicated: input.managedLaunch !== undefined,
+                ...(input.managedLaunch
+                  ? { assertCurrentCredentials: input.managedLaunch.assertCurrentCredentials }
+                  : {}),
                 ...(processEnv ? { processEnv } : {}),
               }),
               (acquired) => runAgainstServer(acquired.server),

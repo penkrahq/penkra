@@ -34,6 +34,7 @@ function harness(
   const resolve = vi.fn(() =>
     Effect.succeed({
       binaryPath: "/managed/provider",
+      assertCurrentCredentials: Effect.void,
       isolationKey: "selected",
       profileRoot: "/profile",
       nativeStateRoot: "/native",

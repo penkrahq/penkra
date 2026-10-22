@@ -229,6 +229,7 @@ validationLayer("CodexAdapterLive validation", (it) => {
 
       const managedLaunch = {
         binaryPath: "/managed/codex",
+        assertCurrentCredentials: Effect.void,
         isolationKey: "managed:first-turn:generation-1",
         profileRoot,
         nativeStateRoot,
@@ -268,6 +269,7 @@ validationLayer("CodexAdapterLive validation", (it) => {
         internalProviderId: null,
         managedLaunch: {
           binaryPath: "/managed/codex",
+          assertCurrentCredentials: Effect.void,
           isolationKey: "connection:personal:discovery",
           profileRoot: "/isolated/profile",
           nativeStateRoot: "/isolated/native",

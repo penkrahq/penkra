@@ -405,6 +405,7 @@ it.layer(CodexTextGenerationTestLayer)("CodexTextGenerationLive", (it) => {
             message: "Use the selected managed Codex Connection",
             managedLaunch: {
               binaryPath: "codex",
+              assertCurrentCredentials: Effect.void,
               isolationKey: "managed-codex-connection",
               profileRoot: path.dirname(managedHome),
               nativeStateRoot: path.join(path.dirname(managedHome), "native-state"),

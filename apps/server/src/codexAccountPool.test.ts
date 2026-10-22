@@ -209,7 +209,12 @@ rl.createInterface({input:process.stdin}).on('line',async line=>{
       }),
     },
   });
+  const credentialGenerations = new Map<string, number>();
+  let nextCredentialGeneration = 0;
+  const retireCredentials = (account: string) => credentialGenerations.delete(account);
   const launch = async (account: string) => {
+    const generation = credentialGenerations.get(account) ?? ++nextCredentialGeneration;
+    credentialGenerations.set(account, generation);
     const profileRoot = join(root, account);
     await mkdir(profileRoot, { recursive: true });
     await prepareManagedCodexProfileConfig({
@@ -220,7 +225,12 @@ rl.createInterface({input:process.stdin}).on('line',async line=>{
       binaryPath,
       profileRoot,
       nativeStateRoot: join(root, account + "-native"),
-      isolationKey: account,
+      isolationKey: `${account}:${generation}`,
+      assertCurrentCredentials: Effect.suspend(() =>
+        credentialGenerations.get(account) === generation
+          ? Effect.void
+          : Effect.fail(new Error("Credential retired")),
+      ),
       connectionId: ProviderConnectionId.makeUnsafe(account),
       childEnvironment: (env: NodeJS.ProcessEnv) => ({
         ...env,
@@ -257,7 +267,18 @@ rl.createInterface({input:process.stdin}).on('line',async line=>{
         .split("\n")
         .map((line) => JSON.parse(line)),
     );
-  return { root, manager, server, credentials, input, launch, command, events, binaryPath };
+  return {
+    root,
+    manager,
+    server,
+    credentials,
+    input,
+    launch,
+    command,
+    events,
+    binaryPath,
+    retireCredentials,
+  };
 }
 
 it("coalesces concurrent starts and discovery per account and attributes interleaved MCP calls", () =>
@@ -299,18 +320,16 @@ it("coalesces concurrent starts and discovery per account and attributes interle
     expect((await f.events())[0].unloadImmediate).toBe(true);
     await f.manager.startSession(await f.input("c", "account-b"));
     expect((await f.events()).filter((event) => event.event === "spawn")).toHaveLength(2);
-    await f.manager.stopAccount(
-      ProviderConnectionId.makeUnsafe("account-a"),
-      a.managedLaunch.profileRoot,
-    );
+    f.retireCredentials("account-a");
+    await f.manager.stopAccount(ProviderConnectionId.makeUnsafe("account-a"));
     expect(f.manager.hasSession(a.threadId)).toBe(false);
     expect(f.manager.hasSession(b.threadId)).toBe(false);
     expect(f.manager.hasSession(ThreadId.makeUnsafe("c"))).toBe(true);
     await expect(
       f.manager.startSession({ ...a, threadId: ThreadId.makeUnsafe("late-old-profile") }),
     ).rejects.toThrow();
-    const refreshed = await f.input("reauthenticated-a", "new-profile-a");
-    refreshed.managedLaunch.connectionId = a.managedLaunch.connectionId;
+    const refreshed = await f.input("reauthenticated-a", "account-a");
+    expect(refreshed.managedLaunch.profileRoot).toBe(a.managedLaunch.profileRoot);
     await f.manager.startSession(refreshed);
     expect(f.manager.hasSession(refreshed.threadId)).toBe(true);
     await f.manager.sendTurn({
@@ -703,7 +722,7 @@ it.each(["codex", "opencode"] as const)(
           }
           const adapter = yield* registry.getByProvider(provider);
           if (!adapter.stopAccount) throw new Error("Expected account shutdown");
-          yield* adapter.stopAccount(accounts[0]!, join(f.root, accounts[0]!));
+          yield* adapter.stopAccount(accounts[0]!);
           expect(yield* adapter.hasSession(ids[0]!)).toBe(false);
           expect(yield* adapter.hasSession(ids[1]!)).toBe(true);
           if (provider === "codex") {
