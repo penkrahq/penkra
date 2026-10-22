@@ -170,6 +170,7 @@ export function mergeConnectionUsageSnapshots(input: {
   if (input.fetched.status === "error") {
     return {
       ...input.runtime,
+      status: "error",
       usageLines: [...input.runtime.usageLines, ...input.fetched.usageLines],
       ...(input.fetched.detail ? { detail: input.fetched.detail } : {}),
     };

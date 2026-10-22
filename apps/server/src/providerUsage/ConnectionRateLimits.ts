@@ -25,17 +25,20 @@ export class ConnectionRateLimits extends ServiceMap.Service<
     readonly update: (observation: ConnectionRateLimitObservation) => Effect.Effect<void, Error>;
     readonly refreshUsage: (connectionId: ProviderConnectionId) => Effect.Effect<void>;
     readonly changes: Stream.Stream<ProviderConnectionId>;
+    readonly refreshRequests: Stream.Stream<ProviderConnectionId>;
   }
 >()("penkra/providerUsage/ConnectionRateLimits") {}
 
 export const makeConnectionRateLimits = Effect.sync(() => {
   const observations = new Map<ProviderConnectionId, ConnectionRateLimitObservation>();
   const changes = makeInvalidationHub<ProviderConnectionId>((id) => id);
+  const refreshRequests = makeInvalidationHub<ProviderConnectionId>((id) => id);
   return {
     changes: changes.stream(),
-    close: changes.close,
+    refreshRequests: refreshRequests.stream(),
+    close: Effect.all([changes.close, refreshRequests.close], { discard: true }),
     refreshUsage: (connectionId: ProviderConnectionId) =>
-      Effect.sync(() => changes.publish(connectionId)),
+      Effect.sync(() => refreshRequests.publish(connectionId)),
     get: (connectionId: ProviderConnectionId) =>
       Effect.sync(() => Option.fromUndefinedOr(observations.get(connectionId))),
     update: (observation: ConnectionRateLimitObservation) =>

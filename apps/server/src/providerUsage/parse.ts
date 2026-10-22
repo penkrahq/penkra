@@ -1,7 +1,5 @@
 // FILE: providerUsage/parse.ts
-// Purpose: Small, dependency-free parsing/formatting helpers and snapshot builders shared by
-// the per-provider usage fetchers. Kept pure so the per-provider parsers can be unit-tested
-// without touching the network, filesystem, or keychain.
+// Pure parsing, formatting and snapshot builders for native Connection usage reports.
 
 import type {
   ProviderKind,
@@ -28,28 +26,11 @@ export function asFiniteNumber(value: unknown): number | undefined {
   return undefined;
 }
 
-export function asNonNegativeNumber(value: unknown): number | undefined {
-  const parsed = asFiniteNumber(value);
-  return parsed !== undefined && parsed >= 0 ? parsed : undefined;
-}
-
-export function asString(value: unknown): string | undefined {
-  return typeof value === "string" && value.trim().length > 0 ? value.trim() : undefined;
-}
-
 export function clampPercent(value: number | undefined): number | undefined {
   if (value === undefined || !Number.isFinite(value)) {
     return undefined;
   }
   return Math.min(100, Math.max(0, value));
-}
-
-/** Convert a fraction (0..1) or an already-percent value (0..100) into a clamped 0..100 percent. */
-export function toUsedPercent(value: number | undefined): number | undefined {
-  if (value === undefined || !Number.isFinite(value)) {
-    return undefined;
-  }
-  return clampPercent(value <= 1 ? value * 100 : value);
 }
 
 export function isoFromUnixSeconds(value: unknown): string | undefined {
@@ -59,24 +40,6 @@ export function isoFromUnixSeconds(value: unknown): string | undefined {
   }
   const date = new Date(seconds * 1000);
   return Number.isNaN(date.getTime()) ? undefined : date.toISOString();
-}
-
-export function isoFromUnixMillis(value: unknown): string | undefined {
-  const millis = asFiniteNumber(value);
-  if (millis === undefined || millis <= 0) {
-    return undefined;
-  }
-  const date = new Date(millis);
-  return Number.isNaN(date.getTime()) ? undefined : date.toISOString();
-}
-
-export function isoFromString(value: unknown): string | undefined {
-  const text = asString(value);
-  if (!text) {
-    return undefined;
-  }
-  const millis = Date.parse(text);
-  return Number.isNaN(millis) ? undefined : new Date(millis).toISOString();
 }
 
 export function titleCase(value: string): string {

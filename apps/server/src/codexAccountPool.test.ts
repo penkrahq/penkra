@@ -146,6 +146,12 @@ rl.createInterface({input:process.stdin}).on('line',async line=>{
   if(request.method===undefined){tools.get(request.id)?.(request.result);tools.delete(request.id);return;}
   let result={};const p=request.params;
   if(request.method==='initialize')fs.appendFileSync(${JSON.stringify(trace)},JSON.stringify({pid:process.pid,event:'initialize'})+'\\n');
+  if(request.method==='account/read')result={account:process.env.CODEX_HOME.endsWith('signed-out')?null:{type:'chatgpt',email:'fixture@example.test',planType:'pro'},requiresOpenaiAuth:true,workspaceRouting:null};
+  if(request.method==='account/rateLimits/read'){
+    fs.appendFileSync(${JSON.stringify(trace)},JSON.stringify({pid:process.pid,event:'usage'})+'\\n');
+    if(process.env.CODEX_HOME.endsWith('usage-error')){out({id:request.id,error:{code:-32000,message:'Usage rejected'}});return;}
+    result={rateLimits:{primary:{usedPercent:process.env.CODEX_HOME.endsWith('account-b')?67:12,windowDurationMins:300,resetsAt:2000000000},secondary:null,credits:{hasCredits:true,unlimited:false,balance:'10'},planType:'pro',limitId:'codex'},rateLimitsByLimitId:null,ordinaryUsageAllowed:true};
+  }
   if(request.method==='thread/start'||request.method==='thread/resume'){
     const id=p.threadId||'native-'+(++next);configs.set(id,p.config);result={thread:{id,status:'idle'}};
   }
@@ -768,3 +774,35 @@ it.each(["codex", "opencode"] as const)(
       );
     }),
 );
+
+it("reads usage on the exact shared account process without opening a conversation", () =>
+  withPool(async (f) => {
+    const a = await f.launch("account-a"),
+      b = await f.launch("account-b");
+    const result = await Promise.all(
+      [a, b].map((managedLaunch) => f.manager.readUsage({ cwd: f.root, managedLaunch })),
+    );
+    expect(result.map((value) => [value.connectionId, value.limits[0]?.usedPercent])).toEqual([
+      ["account-a", 12],
+      ["account-b", 67],
+    ]);
+    expect(f.manager.listSessions()).toEqual([]);
+    await f.manager.loadCatalog({ cwd: f.root, managedLaunch: a, kinds: ["models"] });
+    expect((await f.events()).filter((event) => event.event === "spawn")).toHaveLength(2);
+  }));
+
+it("keeps a rejected native usage read local and recognizes a native signed-out account", () =>
+  withPool(async (f) => {
+    const managedLaunch = await f.launch("usage-error");
+    await expect(f.manager.readUsage({ cwd: f.root, managedLaunch })).rejects.toThrow(
+      "Usage rejected",
+    );
+    await f.manager.loadCatalog({ cwd: f.root, managedLaunch, kinds: ["models"] });
+    expect((await f.events()).filter((event) => event.event === "spawn")).toHaveLength(1);
+    const signedOut = await f.manager.readUsage({
+      cwd: f.root,
+      managedLaunch: await f.launch("signed-out"),
+    });
+    expect(signedOut.status).toBe("needs-auth");
+    expect((await f.events()).filter((event) => event.event === "usage")).toHaveLength(1);
+  }));

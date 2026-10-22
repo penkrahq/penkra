@@ -173,8 +173,8 @@ describe("provider runtime usage facts", () => {
     });
 
     expect(merged).toMatchObject({
-      status: "ok",
       detail: "Usage fetch failed unexpectedly.",
+      status: "error",
       limits: [{ window: "5h", resetsAt: "2026-08-23T18:40:00.000Z" }],
     });
   });

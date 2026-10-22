@@ -98,6 +98,95 @@ it.effect("loads a Claude folder catalog in one selected managed query and close
   }).pipe(Effect.provide(layer));
 });
 
+it.effect(
+  "reads Claude usage with the selected managed binary and environment, without a turn",
+  () => {
+    const query = new FakeClaudeQuery();
+    let captured: ClaudeQueryOptions | undefined;
+    let received: unknown;
+    const original = query.usage_EXPERIMENTAL_MAY_CHANGE_DO_NOT_RELY_ON_THIS_API_YET;
+    Object.defineProperty(query, "usage_EXPERIMENTAL_MAY_CHANGE_DO_NOT_RELY_ON_THIS_API_YET", {
+      value: async (input: unknown) => {
+        received = input;
+        return original();
+      },
+    });
+    const layer = makeClaudeAdapterLive({
+      createQuery: (input) => {
+        captured = input.options;
+        return query;
+      },
+    }).pipe(
+      Layer.provideMerge(ServerConfig.layerTest("/tmp/claude-usage-test", "/tmp")),
+      Layer.provideMerge(NodeServices.layer),
+    );
+    return Effect.gen(function* () {
+      const adapter = yield* ClaudeAdapter;
+      assert.ok(adapter.readUsage);
+      const result = yield* adapter.readUsage({
+        cwd: "/tmp",
+        managedLaunch: {
+          binaryPath: "/managed/claude",
+          assertCurrentCredentials: Effect.void,
+          isolationKey: "selected",
+          profileRoot: "/profile",
+          nativeStateRoot: "/native",
+          childEnvironment: () => ({ CLAUDE_CODE_OAUTH_TOKEN: "selected-only" }),
+        },
+      });
+      assert.equal(result.status, "unsupported");
+      assert.equal(captured?.pathToClaudeCodeExecutable, "/managed/claude");
+      assert.deepEqual(captured?.env, { CLAUDE_CODE_OAUTH_TOKEN: "selected-only" });
+      assert.equal(captured?.persistSession, false);
+      assert.deepEqual(received, { skipBehaviors: true });
+      assert.equal(query.closeCalls, 1);
+      assert.deepEqual(yield* adapter.listSessions(), []);
+    }).pipe(Effect.provide(layer));
+  },
+);
+
+it.effect("a timed-out Claude usage read closes its query and does not poison a later read", () => {
+  const blocked = new FakeClaudeQuery(),
+    later = new FakeClaudeQuery();
+  let began!: () => void;
+  const started = new Promise<void>((resolve) => {
+    began = resolve;
+  });
+  Object.defineProperty(blocked, "usage_EXPERIMENTAL_MAY_CHANGE_DO_NOT_RELY_ON_THIS_API_YET", {
+    value: async () => {
+      began();
+      return new Promise(() => {});
+    },
+  });
+  const queries = [blocked, later];
+  const layer = makeClaudeAdapterLive({ createQuery: () => queries.shift()! }).pipe(
+    Layer.provideMerge(ServerConfig.layerTest("/tmp/claude-usage-timeout", "/tmp")),
+    Layer.provideMerge(NodeServices.layer),
+  );
+  return Effect.gen(function* () {
+    const adapter = yield* ClaudeAdapter;
+    assert.ok(adapter.readUsage);
+    const input = {
+      cwd: "/tmp",
+      managedLaunch: {
+        binaryPath: "/managed/claude",
+        assertCurrentCredentials: Effect.void,
+        isolationKey: "selected",
+        profileRoot: "/profile",
+        nativeStateRoot: "/native",
+        childEnvironment: () => ({}),
+      },
+    };
+    const first = yield* adapter.readUsage(input).pipe(Effect.exit, Effect.forkChild);
+    yield* Effect.promise(() => started);
+    yield* TestClock.adjust(Duration.seconds(20));
+    assert.isTrue(Exit.isFailure(yield* Fiber.join(first)));
+    assert.equal(blocked.closeCalls, 1);
+    assert.equal((yield* adapter.readUsage(input)).status, "unsupported");
+    assert.equal(later.closeCalls, 1);
+  }).pipe(Effect.provide(layer));
+});
+
 it.effect("a Claude catalog metadata failure closes only its discovery query", () => {
   const query = new FakeClaudeQuery();
   Object.defineProperty(query, "supportedCommands", {
@@ -293,6 +382,21 @@ class FakeClaudeQuery implements AsyncIterable<SDKMessage> {
     }
     return this.contextUsageResponse;
   };
+
+  readonly usage_EXPERIMENTAL_MAY_CHANGE_DO_NOT_RELY_ON_THIS_API_YET = async () => ({
+    subscription_type: null,
+    rate_limits_available: false,
+    rate_limits: null,
+    behaviors: null,
+    session: {
+      total_cost_usd: 0,
+      total_api_duration_ms: 0,
+      total_duration_ms: 0,
+      total_lines_added: 0,
+      total_lines_removed: 0,
+      model_usage: {},
+    },
+  });
 
   readonly supportedCommands = async (): Promise<
     Array<{ name: string; description: string; argumentHint: string }>

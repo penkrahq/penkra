@@ -1,222 +1,129 @@
-// FILE: providerUsage/index.ts
-// Purpose: Orchestrate the live provider-usage fetchers — defensive batch fetch (one failure never
-// blocks the others). Exposes both a plain async API
-// (for tests) and an Effect loader for the server-owned usage snapshots.
-
+// Server-owned Connection usage. Reads use only the selected managed runtime.
 import type {
   ProviderConnectionId,
   ServerListProviderUsageInput,
-  ServerListProviderUsageResult,
   ServerProviderUsageSnapshot,
 } from "@penkra/contracts";
 import { Effect, Option } from "effect";
-
-import { ServerConfig } from "../config";
+import { ServerConfig } from "../config.ts";
 import {
   ProviderConnectionRepository,
   type ProviderConnectionRecord,
-} from "../persistence/Services/ProviderConnections";
-import { ConnectionRateLimits, type ConnectionRateLimitObservation } from "./ConnectionRateLimits";
-import { buildProviderChildEnvironment } from "../providerChildEnvironment";
-import {
-  providerConnectionProfileRoot,
-  providerCredentialProfileIdentity,
-} from "../provider/providerNativeStatePaths";
+} from "../persistence/Services/ProviderConnections.ts";
+import { ProviderInstallationRepository } from "../persistence/Services/ProviderInstallations.ts";
+import { ProviderAdapterRegistry } from "../provider/Services/ProviderAdapterRegistry.ts";
+import { ProviderLaunchResolver } from "../provider/Services/ProviderLaunchResolver.ts";
 import {
   findManagedLoginMethod,
   findStaticCredentialMethod,
-  getProviderConnectionManifest,
-} from "../provider/providerConnectionManifests";
-import { errorSnapshot, unsupportedSnapshot } from "./parse";
-import { PROVIDER_USAGE_FETCHERS } from "./registry";
-import { mergeConnectionUsageSnapshots, snapshotFromConnectionRateLimitFact } from "./runtimeFacts";
-import type { ProviderUsageContext } from "./types";
+} from "../provider/providerConnectionManifests.ts";
+import { providerModelDiscoveryStateIdentity } from "../provider/providerDiscoveryStateIdentity.ts";
+import { ConnectionRateLimits } from "./ConnectionRateLimits.ts";
+import { errorSnapshot, unsupportedSnapshot } from "./parse.ts";
+import {
+  mergeConnectionUsageSnapshots,
+  snapshotFromConnectionRateLimitFact,
+} from "./runtimeFacts.ts";
 
-function buildContext(): ProviderUsageContext {
-  return {
-    homeDir: "",
-    env: process.env,
-    platform: process.platform,
-    nowMs: Date.now(),
-  };
-}
-
-function withConnectionId(
-  snapshot: ServerProviderUsageSnapshot,
-  connectionId: ProviderConnectionId,
-): ServerProviderUsageSnapshot {
-  return { ...snapshot, connectionId };
-}
-
-function buildManagedConnectionContext(input: {
-  connection: ProviderConnectionRecord;
-  stateDir: string;
-  base: ProviderUsageContext;
-}): ProviderUsageContext | null {
-  const manifest = getProviderConnectionManifest(input.connection.harness);
-  const profileIdentity = input.connection.profileRef
-    ? providerCredentialProfileIdentity(input.connection.profileRef)
-    : null;
-  if (!manifest || profileIdentity === null) return null;
-
-  const profileRoot = providerConnectionProfileRoot(input.stateDir, profileIdentity);
-  const environment = manifest.buildStateEnvironment({
-    profileRoot,
-    // Usage reads only the credential profile. Passing the profile root here
-    // avoids inventing thread state while satisfying adapter-owned path construction.
-    nativeStateRoot: profileRoot,
-  });
-  return {
-    ...input.base,
-    homeDir: environment.isolation.homePath,
-    credentialScope: "managed-connection",
-    env: buildProviderChildEnvironment({
-      provider: manifest.childKind,
-      baseEnv: input.base.env,
-      managedConnection: true,
-      isolation: environment.isolation,
-      ...(manifest.preserveOsHome === undefined ? {} : { preserveOsHome: manifest.preserveOsHome }),
-      overrides: environment.overrides,
-    }),
-  };
-}
-
-function apiKeyUsageSnapshot(
-  connection: ProviderConnectionRecord,
-  nowMs: number,
-): ServerProviderUsageSnapshot {
-  return withConnectionId(
-    unsupportedSnapshot(
-      connection.harness,
-      nowMs,
-      "connection-usage",
-      "Usage isn’t available for API keys.",
-    ),
-    connection.id,
-  );
-}
-
-async function fetchConnectionUsage(input: {
-  connection: ProviderConnectionRecord;
-  stateDir: string;
-  base: ProviderUsageContext;
-}): Promise<ServerProviderUsageSnapshot> {
-  const staticMethod = findStaticCredentialMethod(input.connection);
-  const managedMethod = findManagedLoginMethod(input.connection);
-  if (staticMethod || managedMethod?.loginMechanism === "secret-import") {
-    return apiKeyUsageSnapshot(input.connection, input.base.nowMs);
-  }
-  if (!managedMethod) {
-    return withConnectionId(
-      unsupportedSnapshot(
-        input.connection.harness,
-        input.base.nowMs,
-        "connection-usage",
-        "Usage isn’t available for this Connection.",
-      ),
-      input.connection.id,
-    );
-  }
-
-  // Managed Codex credentials are provider-owned and may live in the OS keychain.
-  // The legacy fetcher can only inspect auth.json, so absence there is not evidence
-  // that this already-verified Connection needs to reconnect. Login/runtime events
-  // hydrate provider-owned rate-limit facts; until then the honest state is pending.
-  if (input.connection.harness === "codex") {
-    return {
-      provider: "codex",
-      connectionId: input.connection.id,
-      updatedAt: new Date(input.base.nowMs).toISOString(),
-      limits: [],
-      usageLines: [],
-      source: "provider-runtime-awaiting-rate-limits",
-      status: "ok",
-      detail: "Usage hasn’t been reported for this account yet.",
-    };
-  }
-
-  const context = buildManagedConnectionContext(input);
-  const fetcher = PROVIDER_USAGE_FETCHERS[input.connection.harness];
-  if (!context || !fetcher) {
-    return withConnectionId(
-      errorSnapshot(
-        input.connection.harness,
-        input.base.nowMs,
-        "connection-usage",
-        "The Connection usage profile is unavailable.",
-      ),
-      input.connection.id,
-    );
-  }
-  const snapshot = await fetcher
-    .fetch(context)
-    .catch(() =>
-      errorSnapshot(
-        input.connection.harness,
-        input.base.nowMs,
-        "connection-usage",
-        "Usage fetch failed unexpectedly.",
-      ),
-    );
-  return withConnectionId(snapshot, input.connection.id);
-}
-
-/** Plain async Connection batch used by the RPC layer and isolation tests. Never throws. */
+/** Per-Connection failure isolation, with no ambient credential or filesystem inputs. */
 export async function collectProviderConnectionUsageSnapshots(input: {
   connections: ReadonlyArray<ProviderConnectionRecord>;
-  stateDir: string;
-  ctx: ProviderUsageContext;
-  rateLimitFacts?: ReadonlyMap<ProviderConnectionId, ConnectionRateLimitObservation>;
+  nowMs: number;
+  readUsage: (connection: ProviderConnectionRecord) => Promise<ServerProviderUsageSnapshot>;
 }): Promise<ServerProviderUsageSnapshot[]> {
   return Promise.all(
     input.connections.map(async (connection) => {
-      const fact = input.rateLimitFacts?.get(connection.id);
-      const runtimeSnapshot = fact ? snapshotFromConnectionRateLimitFact(fact) : null;
-      const fetchedSnapshot = await fetchConnectionUsage({
-        connection,
-        stateDir: input.stateDir,
-        base: input.ctx,
-      });
-      return mergeConnectionUsageSnapshots({
-        runtime: runtimeSnapshot,
-        fetched: fetchedSnapshot,
-      });
+      const managed = findManagedLoginMethod(connection);
+      let snapshot: ServerProviderUsageSnapshot;
+      if (findStaticCredentialMethod(connection) || managed?.loginMechanism === "secret-import") {
+        snapshot = unsupportedSnapshot(
+          connection.harness,
+          input.nowMs,
+          "provider-runtime",
+          "Usage isn’t available for API keys.",
+        );
+      } else if (!managed || connection.harness === "opencode") {
+        snapshot = unsupportedSnapshot(
+          connection.harness,
+          input.nowMs,
+          "provider-runtime",
+          "Usage isn’t available for this Connection.",
+        );
+      } else {
+        try {
+          snapshot = await input.readUsage(connection);
+        } catch {
+          snapshot = errorSnapshot(
+            connection.harness,
+            input.nowMs,
+            "provider-runtime",
+            "Usage is temporarily unavailable.",
+          );
+        }
+      }
+      return { ...snapshot, provider: connection.harness, connectionId: connection.id };
     }),
   );
 }
 
 export const listProviderUsage = Effect.fn(function* (input: ServerListProviderUsageInput) {
-  const serverConfig = yield* ServerConfig;
+  const config = yield* ServerConfig;
   const connections = yield* ProviderConnectionRepository;
-  const usageFacts = yield* ConnectionRateLimits;
-  const context = { ...buildContext(), homeDir: serverConfig.homeDir };
-  const uniqueConnectionIds = [...new Set(input.connectionIds)];
-  const records = yield* Effect.forEach(uniqueConnectionIds, (connectionId) =>
-    connections.getRecord(connectionId).pipe(Effect.map(Option.getOrNull)),
+  const installations = yield* ProviderInstallationRepository;
+  const registry = yield* ProviderAdapterRegistry;
+  const resolver = yield* ProviderLaunchResolver;
+  const facts = yield* ConnectionRateLimits;
+  const records = yield* Effect.forEach([...new Set(input.connectionIds)], (id) =>
+    connections.getRecord(id).pipe(Effect.map(Option.getOrNull)),
   );
-  const activeRecords = records.filter(
+  const active = records.filter(
     (record): record is ProviderConnectionRecord =>
       record !== null &&
       record.lifecycle === "active" &&
-      (input.provider === undefined || record.harness === input.provider),
+      (input.provider === undefined || input.provider === record.harness),
   );
-  const fetched = yield* Effect.tryPromise({
-    try: () =>
-      collectProviderConnectionUsageSnapshots({
-        connections: activeRecords,
-        stateDir: serverConfig.stateDir,
-        ctx: context,
-      }),
-    catch: () => [] as ServerListProviderUsageResult,
-  });
-  // Read runtime observations after the HTTP read so a fact received during it
-  // is not replaced with an observation captured before the request.
+  const runtime = yield* Effect.services<never>();
+  const fetched = yield* Effect.promise((signal) =>
+    collectProviderConnectionUsageSnapshots({
+      connections: active,
+      nowMs: Date.now(),
+      readUsage: (connection) =>
+        Effect.runPromiseWith(runtime)(
+          Effect.gen(function* () {
+            const installation = yield* installations.getActiveRecord(connection.harness);
+            const method = findManagedLoginMethod(connection);
+            if (Option.isNone(installation) || method?.internalProviderIds.length !== 1)
+              return yield* Effect.fail(new Error("The Connection runtime is unavailable."));
+            const managedLaunch = yield* resolver.resolveProfile({
+              harness: connection.harness,
+              connectionId: connection.id,
+              installationId: installation.value.id,
+              internalProviderId: method.internalProviderIds[0]!,
+              nativeStateIdentity: providerModelDiscoveryStateIdentity({
+                provider: connection.harness,
+                connectionId: connection.id,
+              }),
+            });
+            const adapter = yield* registry.getByProvider(connection.harness);
+            if (!adapter.readUsage)
+              return yield* Effect.fail(new Error("The provider has no native usage report."));
+            return yield* adapter.readUsage({ cwd: config.cwd, managedLaunch });
+          }).pipe(
+            Effect.tapError((cause) =>
+              Effect.logWarning("provider usage native read failed", {
+                connectionId: connection.id,
+                provider: connection.harness,
+                cause,
+              }),
+            ),
+          ),
+          { signal },
+        ),
+    }),
+  );
   return yield* Effect.forEach(fetched, (snapshot) =>
     Effect.gen(function* () {
-      const fact =
-        snapshot.connectionId === undefined
-          ? Option.none<ConnectionRateLimitObservation>()
-          : yield* usageFacts.get(snapshot.connectionId);
+      const fact = yield* facts.get(snapshot.connectionId as ProviderConnectionId);
       return mergeConnectionUsageSnapshots({
         fetched: snapshot,
         runtime: Option.isSome(fact) ? snapshotFromConnectionRateLimitFact(fact.value) : null,
