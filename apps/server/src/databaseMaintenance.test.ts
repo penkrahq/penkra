@@ -43,6 +43,42 @@ function captureOutput() {
 }
 
 describe("offline database maintenance CLI", () => {
+  it("reports live and archived native ownership, excludes deleted threads and transcript contents", async () => {
+    const fixture = makeDatabase();
+    const capture = captureOutput();
+    try {
+      const database = new DatabaseSync(fixture.dbPath);
+      try {
+        database.exec(`ALTER TABLE threads ADD COLUMN provider TEXT;
+          ALTER TABLE threads ADD COLUMN connection_id TEXT;
+          ALTER TABLE threads ADD COLUMN native_state_id TEXT;
+          ALTER TABLE threads ADD COLUMN provider_session_id TEXT;
+          ALTER TABLE threads ADD COLUMN archived_at TEXT;
+          ALTER TABLE threads ADD COLUMN deleted_at TEXT;
+          INSERT INTO threads VALUES ('live','opencode','c','n1','ses_1',NULL,NULL);
+          INSERT INTO threads VALUES ('archived','opencode','c','n2','ses_2','2026-10-22',NULL);
+          INSERT INTO threads VALUES ('deleted','opencode','c','n3','ses_3',NULL,'2026-10-22');`);
+      } finally {
+        database.close();
+      }
+      expect(await runDatabaseMaintenanceCli(["report", fixture.dbPath], capture.output)).toBe(0);
+      const report = JSON.parse(capture.logs.join("\n"));
+      expect(report.nativeOwners.map((owner: { threadId: string }) => owner.threadId)).toEqual([
+        "archived",
+        "live",
+      ]);
+      expect(report.nativeOwners[1]).toEqual({
+        threadId: "live",
+        provider: "opencode",
+        connectionId: "c",
+        nativeStateId: "n1",
+        providerSessionId: "ses_1",
+        archivedAt: null,
+      });
+    } finally {
+      fs.rmSync(fixture.directory, { recursive: true, force: true });
+    }
+  });
   it("ships the lifecycle-aware database command from the bundled server package", () => {
     const packageJson = JSON.parse(
       fs.readFileSync(new URL("../package.json", import.meta.url), "utf8"),
