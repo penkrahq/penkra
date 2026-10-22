@@ -140,15 +140,35 @@ it("reports real question, interrupt, and request-failure facts without stopping
     );
 
     const interruptedSession = await create();
-    const interrupting = prompt(interruptedSession.id, "BLOCK_CONTRACT");
+    const admission = await fetch(
+      `${server.origin}/session/${interruptedSession.id}/prompt_async?directory=${encodeURIComponent(fixture.root)}`,
+      {
+        method: "POST",
+        signal: fixture.signal,
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          model: { providerID: "contract", modelID: "contract" },
+          parts: [{ type: "text", text: "BLOCK_CONTRACT" }],
+        }),
+      },
+    );
+    assert.equal(
+      admission.status,
+      204,
+      "HTTP acceptance must finish while the model turn is held open.",
+    );
     await blockStarted;
     assert.equal(await api(`/session/${interruptedSession.id}/abort`, {}), true);
-    const interrupted = await interrupting;
-    assert.equal(interrupted.info.error?.name, "MessageAbortedError");
     await journal.waitFor(
       (event) =>
         event.payload.type === "session.idle" &&
         event.payload.properties.sessionID === interruptedSession.id,
+    );
+    const interruptedMessages = await api<NativeReply[]>(
+      `/session/${interruptedSession.id}/message`,
+    );
+    assert(
+      interruptedMessages.some((message) => message.info.error?.name === "MessageAbortedError"),
     );
 
     const failedSession = await create();
