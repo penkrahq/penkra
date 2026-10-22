@@ -1004,21 +1004,14 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
     if (!this.penkraSkillsDir) {
       return;
     }
-    try {
-      await this.sendRequest(
-        transport,
-        null,
-        "skills/extraRoots/set",
-        { extraRoots: [this.penkraSkillsDir] },
-        undefined,
-        signal,
-      );
-    } catch (error) {
-      if (signal?.aborted) throw error;
-      // Older codex builds (< extra-roots support) keep working; Penkra-only
-      // skills simply stay invisible to codex on those versions.
-      log.warn("skills/extraRoots/set unavailable", { error });
-    }
+    await this.sendRequest(
+      transport,
+      null,
+      "skills/extraRoots/set",
+      { extraRoots: [this.penkraSkillsDir] },
+      undefined,
+      signal,
+    );
   }
 
   /** Initialize the configured local plugin/skill snapshot before opening a native thread. */

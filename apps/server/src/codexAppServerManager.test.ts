@@ -255,6 +255,20 @@ describe("Codex capability preflight logging", () => {
 });
 
 describe("Codex Penkra harness policy", () => {
+  it("reports a rejected skill-root registration without compatibility suppression", async () => {
+    const manager = new CodexAppServerManager(undefined, { penkraSkillsDir: "/fixture/skills" });
+    const internals = manager as unknown as {
+      sendRequest: (...args: unknown[]) => Promise<unknown>;
+      registerPenkraSkillsRoot: (transport: unknown) => Promise<void>;
+    };
+    const error = new Error("Native request rejected");
+    const request = vi.spyOn(internals, "sendRequest").mockRejectedValue(error);
+    await expect(internals.registerPenkraSkillsRoot({})).rejects.toBe(error);
+    expect(request).toHaveBeenCalledTimes(1);
+    expect(request.mock.calls[0]?.[2]).toBe("skills/extraRoots/set");
+    expect(request.mock.calls[0]?.[3]).toEqual({ extraRoots: ["/fixture/skills"] });
+  });
+
   it("probes Responses with an isolated read-only turn and requires completion", async () => {
     const manager = new CodexAppServerManager();
     const context = {
