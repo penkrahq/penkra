@@ -1,6 +1,6 @@
 import { ProviderConnectionId } from "@penkra/contracts";
 import { assert, it } from "@effect/vitest";
-import { Effect, Option } from "effect";
+import { Effect, Fiber, Option, Stream } from "effect";
 import {
   ConnectionRateLimits,
   ConnectionRateLimitsLive,
@@ -10,6 +10,31 @@ import {
 const layer = it.layer(ConnectionRateLimitsLive);
 
 layer("ConnectionRateLimits", (it) => {
+  it.effect("keeps explicit refresh requests separate from native quota observations", () =>
+    Effect.gen(function* () {
+      const repository = yield* ConnectionRateLimits;
+      const connectionId = ProviderConnectionId.makeUnsafe("refresh-account");
+      const requested = yield* Stream.runHead(repository.refreshRequests).pipe(
+        Effect.forkChild({ startImmediately: true }),
+      );
+      yield* repository.refreshUsage(connectionId);
+      const request = yield* Fiber.join(requested);
+      assert.strictEqual(Option.getOrThrow(request), connectionId);
+      assert.isTrue(Option.isNone(yield* repository.get(connectionId)));
+      const changed = yield* Stream.runHead(repository.changes).pipe(
+        Effect.forkChild({ startImmediately: true }),
+      );
+      yield* repository.update({
+        connectionId,
+        provider: "codex",
+        limitsJson: '{"primary":{"usedPercent":38}}',
+        status: null,
+        sourceEventId: "native-event",
+        updatedAt: "2026-10-22T00:00:00.000Z",
+      });
+      assert.strictEqual(Option.getOrThrow(yield* Fiber.join(changed)), connectionId);
+    }),
+  );
   it.effect("stores quota buckets independently across login updates", () =>
     Effect.gen(function* () {
       const repository = yield* ConnectionRateLimits;

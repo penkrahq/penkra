@@ -1,16 +1,7 @@
-import { mkdtemp, mkdir, rm, writeFile } from "node:fs/promises";
-import { tmpdir } from "node:os";
-import path from "node:path";
-
-import { ProviderConnectionId } from "@penkra/contracts";
-import { outboundHttp } from "@penkra/shared/outboundHttp";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-
-import type { ProviderConnectionRecord } from "../persistence/Services/ProviderConnections";
-import type { ConnectionRateLimitObservation } from "./ConnectionRateLimits";
-import { providerConnectionProfileRoot } from "../provider/providerNativeStatePaths";
-import { collectProviderConnectionUsageSnapshots } from "./index";
-
+import { ProviderConnectionId, type ServerProviderUsageSnapshot } from "@penkra/contracts";
+import type { ProviderConnectionRecord } from "../persistence/Services/ProviderConnections.ts";
+import { describe, expect, it, vi } from "vitest";
+import { collectProviderConnectionUsageSnapshots } from "./index.ts";
 const timestamp = "2026-08-18T12:00:00.000Z";
 const createdRoots: string[] = [];
 
@@ -41,211 +32,107 @@ function connection(input: {
   };
 }
 
-async function writeClaudeAccount(
-  stateDir: string,
-  profileIdentity: string,
-  accessToken: string,
-): Promise<void> {
-  const root = providerConnectionProfileRoot(stateDir, profileIdentity);
-  const configDir = path.join(root, "claude-config");
-  await mkdir(configDir, { recursive: true });
-  await writeFile(
-    path.join(configDir, ".credentials.json"),
-    JSON.stringify({
-      claudeAiOauth: {
-        accessToken,
-        refreshToken: `${accessToken}-refresh`,
-        expiresAt: Date.parse("2099-01-01T00:00:00.000Z"),
-        scopes: ["user:profile"],
-      },
-    }),
-  );
-}
-
-describe("Connection-scoped provider usage", () => {
-  beforeEach(() => {
-    vi.restoreAllMocks();
+const managed = (id: string) =>
+  connection({
+    id,
+    harness: "claudeAgent",
+    target: "anthropic-first-party",
+    method: "claude-account",
+    profileRef: "provider-profile:" + id,
   });
+const snapshot = (usedPercent: number): ServerProviderUsageSnapshot => ({
+  provider: "claudeAgent",
+  updatedAt: timestamp,
+  limits: [{ window: "5h", usedPercent }],
+  usageLines: [],
+  source: "provider-runtime",
+  status: "ok",
+});
 
-  afterEach(async () => {
-    await Promise.all(createdRoots.splice(0).map((root) => rm(root, { recursive: true })));
-  });
-
-  it("fetches fresh values for both isolated account profiles on every read", async () => {
-    const stateDir = await mkdtemp(path.join(tmpdir(), "penkra-connection-usage-"));
-    createdRoots.push(stateDir);
-    await writeClaudeAccount(stateDir, "account-a", "token-a");
-    await writeClaudeAccount(stateDir, "account-b", "token-b");
-    const fetchMock = vi.spyOn(outboundHttp, "request").mockImplementation(async (input) => {
-      const authorization = new Headers(input.headers).get("authorization");
-      const utilization = authorization === "Bearer token-a" ? 12 : 67;
-      const body = new TextEncoder().encode(
-        JSON.stringify({
-          five_hour: { utilization, resets_at: "2099-01-01T01:00:00.000Z" },
-        }),
-      );
-      return {
-        status: 200,
-        headers: new Headers({ "content-type": "application/json" }),
-        body,
-        url: String(input.url),
-      };
-    });
-    const connections = [
-      connection({
-        id: "connection-a",
-        harness: "claudeAgent",
-        target: "anthropic-first-party",
-        method: "claude-account",
-        profileRef: "provider-profile:account-a",
-      }),
-      connection({
-        id: "connection-b",
-        harness: "claudeAgent",
-        target: "anthropic-first-party",
-        method: "claude-account",
-        profileRef: "provider-profile:account-b",
-      }),
-    ];
-    const ctx = {
-      homeDir: stateDir,
-      env: {},
-      platform: process.platform,
+describe("Connection-owned native usage", () => {
+  it("reads each exact Connection independently", async () => {
+    const readUsage = vi.fn(async (record: ProviderConnectionRecord) =>
+      snapshot(record.id === "a" ? 12 : 67),
+    );
+    const result = await collectProviderConnectionUsageSnapshots({
+      connections: [managed("a"), managed("b")],
       nowMs: Date.parse(timestamp),
-    } as const;
-
-    const first = await collectProviderConnectionUsageSnapshots({ connections, stateDir, ctx });
-    const second = await collectProviderConnectionUsageSnapshots({ connections, stateDir, ctx });
-
-    expect(
-      first.map((snapshot) => [snapshot.connectionId, snapshot.limits[0]?.usedPercent]),
-    ).toEqual([
-      [ProviderConnectionId.makeUnsafe("connection-a"), 12],
-      [ProviderConnectionId.makeUnsafe("connection-b"), 67],
+      readUsage,
+    });
+    expect(result.map((value) => [value.connectionId, value.limits[0]?.usedPercent])).toEqual([
+      ["a", 12],
+      ["b", 67],
     ]);
-    expect(second).toEqual(first);
-    expect(fetchMock).toHaveBeenCalledTimes(4);
+    expect(readUsage.mock.calls.map(([record]) => record.profileRef)).toEqual([
+      "provider-profile:a",
+      "provider-profile:b",
+    ]);
   });
-
-  it("never fetches usage for API-key Connections", async () => {
-    const stateDir = await mkdtemp(path.join(tmpdir(), "penkra-connection-usage-"));
-    createdRoots.push(stateDir);
-    const fetchMock = vi.spyOn(outboundHttp, "request");
-    const connections = [
-      connection({
-        id: "openai-key",
-        harness: "codex",
-        target: "openai-first-party",
-        method: "api-key",
-        profileRef: "provider-profile:openai-key",
-      }),
-      connection({
-        id: "opencode-key",
-        harness: "opencode",
-        target: "opencode-zen",
-        method: "api-key",
-      }),
-    ];
-
-    const snapshots = await collectProviderConnectionUsageSnapshots({
-      connections,
-      stateDir,
-      ctx: {
-        homeDir: stateDir,
-        env: {},
-        platform: process.platform,
-        nowMs: Date.parse(timestamp),
+  it("keeps a failed usage request local and does not invent an authentication failure", async () => {
+    const result = await collectProviderConnectionUsageSnapshots({
+      connections: [managed("a"), managed("b")],
+      nowMs: Date.parse(timestamp),
+      readUsage: async (record) => {
+        if (record.id === "a") throw new Error("401; not logged in; reconnect");
+        return snapshot(67);
       },
     });
-
-    expect(snapshots.map((snapshot) => snapshot.status)).toEqual(["unsupported", "unsupported"]);
-    expect(fetchMock).not.toHaveBeenCalled();
+    expect(result[0]).toMatchObject({
+      connectionId: "a",
+      status: "error",
+      detail: "Usage is temporarily unavailable.",
+    });
+    expect(result[1]).toMatchObject({
+      connectionId: "b",
+      status: "ok",
+      limits: [{ usedPercent: 67 }],
+    });
   });
-
-  it("does not invoke macOS Keychain access for automatic Codex usage", async () => {
-    const stateDir = await mkdtemp(path.join(tmpdir(), "penkra-connection-usage-"));
-    createdRoots.push(stateDir);
-    const snapshots = await collectProviderConnectionUsageSnapshots({
+  it("preserves a runtime-confirmed authentication result", async () => {
+    const result = await collectProviderConnectionUsageSnapshots({
+      connections: [managed("a")],
+      nowMs: Date.parse(timestamp),
+      readUsage: async () => ({ ...snapshot(0), status: "needs-auth" }),
+    });
+    expect(result[0]?.status).toBe("needs-auth");
+  });
+  it("does not invoke a usage runtime for static keys or OpenCode", async () => {
+    const readUsage = vi.fn(async () => snapshot(99));
+    const result = await collectProviderConnectionUsageSnapshots({
       connections: [
         connection({
-          id: "codex-account",
+          id: "key",
           harness: "codex",
           target: "openai-first-party",
-          method: "chatgpt",
-          profileRef: "provider-profile:codex-account",
+          method: "api-key",
         }),
+        connection({ id: "zen", harness: "opencode", target: "opencode-zen", method: "api-key" }),
       ],
-      stateDir,
-      ctx: {
-        homeDir: stateDir,
-        env: {},
-        platform: "darwin",
-        nowMs: Date.parse(timestamp),
-      },
+      nowMs: Date.parse(timestamp),
+      readUsage,
     });
-
-    expect(snapshots).toMatchObject([
-      {
-        connectionId: "codex-account",
-        status: "ok",
-        source: "provider-runtime-awaiting-rate-limits",
-      },
-    ]);
+    expect(readUsage).not.toHaveBeenCalled();
+    expect(result.map((value) => value.status)).toEqual(["unsupported", "unsupported"]);
   });
-
-  it("does not let a reset-only Claude runtime event shadow OAuth utilization", async () => {
-    const stateDir = await mkdtemp(path.join(tmpdir(), "penkra-connection-usage-"));
-    createdRoots.push(stateDir);
-    await writeClaudeAccount(stateDir, "claude-account", "claude-token");
-    vi.spyOn(outboundHttp, "request").mockResolvedValue({
-      status: 200,
-      headers: new Headers({ "content-type": "application/json" }),
-      body: new TextEncoder().encode(
-        JSON.stringify({
-          five_hour: { utilization: 44, resets_at: "2099-01-01T01:00:00.000Z" },
-        }),
-      ),
-      url: "https://api.anthropic.com/api/oauth/usage",
+  it("starts reads concurrently so one account cannot hold another account's result", async () => {
+    let release!: () => void;
+    const held = new Promise<void>((resolve) => {
+      release = resolve;
     });
-    const claudeConnection = connection({
-      id: "claude-account",
-      harness: "claudeAgent",
-      target: "anthropic-first-party",
-      method: "claude-account",
-      profileRef: "provider-profile:claude-account",
-    });
-    const runtimeFact: ConnectionRateLimitObservation = {
-      connectionId: claudeConnection.id,
-      provider: "claudeAgent",
-      limitsJson: JSON.stringify({
-        type: "rate_limit_event",
-        rate_limit_info: {
-          status: "allowed",
-          resetsAt: 4_071_003_600,
-          rateLimitType: "five_hour",
-        },
-      }),
-      status: null,
-      sourceEventId: "runtime-rate-limit",
-      updatedAt: timestamp,
-    };
-
-    const [snapshot] = await collectProviderConnectionUsageSnapshots({
-      connections: [claudeConnection],
-      stateDir,
-      ctx: {
-        homeDir: stateDir,
-        env: {},
-        platform: process.platform,
-        nowMs: Date.parse(timestamp),
+    let secondStarted = false;
+    const result = collectProviderConnectionUsageSnapshots({
+      connections: [managed("a"), managed("b")],
+      nowMs: Date.parse(timestamp),
+      readUsage: async (record) => {
+        if (record.id === "a") await held;
+        else {
+          secondStarted = true;
+          release();
+        }
+        return snapshot(20);
       },
-      rateLimitFacts: new Map([[claudeConnection.id, runtimeFact]]),
     });
-
-    expect(snapshot).toMatchObject({
-      connectionId: claudeConnection.id,
-      limits: [{ window: "5h", usedPercent: 44 }],
-      status: "ok",
-    });
+    expect((await result).length).toBe(2);
+    expect(secondStarted).toBe(true);
   });
 });

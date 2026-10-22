@@ -10,6 +10,8 @@ import { ConnectionRateLimits, ConnectionRateLimitsLive } from "./ConnectionRate
 import { ServerConfig } from "../config.ts";
 import { runMigrations } from "../persistence/Migrations.ts";
 import * as NodeSqliteClient from "../persistence/NodeSqliteClient.ts";
+import { ProviderAdapterRegistry } from "../provider/Services/ProviderAdapterRegistry.ts";
+import { ProviderLaunchResolver } from "../provider/Services/ProviderLaunchResolver.ts";
 
 const id = ProviderConnectionId.makeUnsafe("account");
 const snapshot = (usedPercent: number): ServerProviderUsageSnapshot => ({
@@ -30,6 +32,14 @@ const live = ProviderUsageLive.pipe(
       ProviderConnectionRepositoryLive,
       ProviderInstallationRepositoryLive,
       ConnectionRateLimitsLive,
+      Layer.succeed(ProviderAdapterRegistry, {
+        getByProvider: () => Effect.die("No active installation in this fixture"),
+        listProviders: () => Effect.succeed([]),
+      }),
+      Layer.succeed(ProviderLaunchResolver, {
+        resolve: () => Effect.die("Unexpected thread launch"),
+        resolveProfile: () => Effect.die("No active installation in this fixture"),
+      }),
       ServerConfig.layerTest(process.cwd(), { prefix: "usage-events-" }),
     ).pipe(Layer.provideMerge(migratedSql)),
   ),
@@ -96,6 +106,24 @@ it.effect("replays shared snapshots without fetching on subscription, then pushe
       [1, 2],
     );
     assert.strictEqual(loads, 2);
+  }).pipe(Effect.scoped),
+);
+
+it.effect("applies native usage pushes without issuing another request", () =>
+  Effect.gen(function* () {
+    let loads = 0;
+    const usage = yield* makeProviderUsage(() =>
+      Effect.sync(() => {
+        loads++;
+        return snapshot(10);
+      }),
+    );
+    yield* usage.refresh(id);
+    yield* Stream.runHead(usage.changes);
+    yield* usage.observe(id, snapshot(70));
+    const pushed = Option.getOrThrow(yield* Stream.runHead(usage.changes));
+    assert.strictEqual(pushed.snapshot.limits[0]?.usedPercent, 70);
+    assert.strictEqual(loads, 1);
   }).pipe(Effect.scoped),
 );
 

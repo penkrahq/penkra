@@ -26,6 +26,7 @@ import type {
   SDKMessage,
   SDKResultMessage,
   SDKControlGetContextUsageResponse,
+  SDKControlGetUsageResponse,
   Settings,
   SettingSource,
   SDKUserMessage,
@@ -87,6 +88,7 @@ import {
 } from "effect";
 
 import { renderPenkraHostPolicy } from "../../agentGateway/harnessPolicy.ts";
+import { claudeNativeUsage } from "../../providerUsage/nativeUsage.ts";
 import {
   CLAUDE_BENIGN_TERMINATION_MESSAGE,
   interruptionMessageFromClaudeCause,
@@ -423,6 +425,9 @@ interface ClaudeQueryRuntime extends AsyncIterable<ClaudeRuntimeMessage> {
     [K in keyof Settings]?: Settings[K] | null;
   }) => Promise<void>;
   readonly getContextUsage: () => Promise<SDKControlGetContextUsageResponse>;
+  readonly usage_EXPERIMENTAL_MAY_CHANGE_DO_NOT_RELY_ON_THIS_API_YET: (options: {
+    skipBehaviors: boolean;
+  }) => Promise<SDKControlGetUsageResponse>;
   readonly supportedCommands: () => Promise<SlashCommand[]>;
   readonly supportedModels: () => Promise<ModelInfo[]>;
   readonly supportedAgents: () => Promise<AgentInfo[]>;
@@ -859,6 +864,8 @@ const CLAUDE_SETTING_SOURCES = [
 ] as const satisfies ReadonlyArray<SettingSource>;
 // Non-turn native control request deadline; timing out never disables later reads.
 const CLAUDE_CONTEXT_USAGE_REQUEST_TIMEOUT_MS = 20_000;
+// P26 request category: a native usage read can hang; failure ends only this read.
+const CLAUDE_CONNECTION_USAGE_REQUEST_TIMEOUT_MS = 20_000;
 // Result or exit normally settles the probe; a live, silent process has no completion event.
 const CLAUDE_CONNECTIVITY_PROBE_DEADLINE_MS = 20_000;
 // The SDK's interrupt resolves only once the CLI acknowledges it; a wedged CLI
@@ -5117,64 +5124,93 @@ function makeClaudeAdapter(options?: ClaudeAdapterLiveOptions) {
         return context !== undefined && !context.stopped;
       });
 
+    const withReadonlyConnectionQuery = async <A>(
+      input: Parameters<NonNullable<ClaudeAdapterShape["readUsage"]>>[0],
+      read: (query: ClaudeQueryRuntime) => Promise<A>,
+      signal: AbortSignal,
+    ): Promise<A> => {
+      await Effect.runPromise(input.managedLaunch.assertCurrentCredentials);
+      await Effect.runPromise(teardownFailedCommandDiscoveryProcesses());
+      const owner: ClaudeProcessOwner = {};
+      const abortController = new AbortController();
+      let rejectAbort!: (reason: unknown) => void;
+      const aborted = new Promise<never>((_resolve, reject) => {
+        rejectAbort = reject;
+      });
+      void aborted.catch(() => undefined);
+      const abort = () => {
+        abortController.abort(signal.reason);
+        rejectAbort(signal.reason);
+      };
+      signal.addEventListener("abort", abort, { once: true });
+      if (signal.aborted) abort();
+      let query: ClaudeQueryRuntime | undefined;
+      try {
+        query = await createQuery({
+          prompt: neverResolvingUserMessageStream(),
+          options: {
+            cwd: input.cwd,
+            pathToClaudeCodeExecutable: input.managedLaunch.binaryPath,
+            settingSources: [...CLAUDE_SETTING_SOURCES],
+            permissionMode: "plan",
+            persistSession: false,
+            env: input.managedLaunch.childEnvironment(process.env),
+            spawnClaudeCodeProcess: bindClaudeProcessOwner(owner),
+            abortController,
+          },
+        });
+        const runtime = query;
+        const stream = (async (): Promise<never> => {
+          for await (const message of runtime) void message;
+          throw new Error("Claude Connection read ended before its result was available.");
+        })();
+        return await Promise.race([read(runtime), stream, aborted]);
+      } finally {
+        signal.removeEventListener("abort", abort);
+        try {
+          query?.close();
+        } finally {
+          await Effect.runPromise(teardownCommandDiscoveryProcess(owner));
+        }
+      }
+    };
+
     const loadCatalog: NonNullable<ClaudeAdapterShape["loadCatalog"]> = (input) =>
       Effect.tryPromise({
-        try: async () => {
+        try: async (signal) => {
           const kinds = new Set(input.kinds);
           if (!kinds.has("models") && !kinds.has("commands") && !kinds.has("agents")) return {};
-          await Effect.runPromise(teardownFailedCommandDiscoveryProcesses());
-          const owner: ClaudeProcessOwner = {};
-          let discovery: ClaudeQueryRuntime | undefined;
-          try {
-            discovery = await createQuery({
-              prompt: neverResolvingUserMessageStream(),
-              options: {
-                cwd: input.cwd,
-                pathToClaudeCodeExecutable: input.managedLaunch.binaryPath,
-                settingSources: [...CLAUDE_SETTING_SOURCES],
-                permissionMode: "plan",
-                persistSession: false,
-                env: input.managedLaunch.childEnvironment(process.env),
-                spawnClaudeCodeProcess: bindClaudeProcessOwner(owner),
-              },
-            });
-            const query = discovery;
-            const data: { -readonly [K in keyof ProviderCatalogData]: ProviderCatalogData[K] } = {};
-            const metadata = Promise.all([
-              kinds.has("models")
-                ? query.supportedModels().then((models) => {
-                    data.models = mapSupportedModels(models).models;
-                  })
-                : undefined,
-              kinds.has("commands")
-                ? query.supportedCommands().then((commands) => {
-                    data.commands = mapSupportedCommands(commands).commands;
-                  })
-                : undefined,
-              kinds.has("agents")
-                ? query.supportedAgents().then((agents) => {
-                    data.agents = agents.map((agent) => ({
-                      name: agent.name,
-                      displayName: agent.name,
-                      ...(agent.description ? { description: agent.description } : {}),
-                      ...(agent.model ? { model: agent.model } : {}),
-                    }));
-                  })
-                : undefined,
-            ]).then(() => data);
-            // Iteration drives the SDK handshake. Failure belongs to this load, not an active thread.
-            const stream = (async (): Promise<never> => {
-              for await (const message of query) void message;
-              throw new Error("Claude catalog discovery ended before its metadata was available.");
-            })();
-            return await Promise.race([metadata, stream]);
-          } finally {
-            try {
-              discovery?.close();
-            } finally {
-              await Effect.runPromise(teardownCommandDiscoveryProcess(owner));
-            }
-          }
+          return withReadonlyConnectionQuery(
+            input,
+            async (query) => {
+              const data: { -readonly [K in keyof ProviderCatalogData]: ProviderCatalogData[K] } =
+                {};
+              await Promise.all([
+                kinds.has("models")
+                  ? query.supportedModels().then((models) => {
+                      data.models = mapSupportedModels(models).models;
+                    })
+                  : undefined,
+                kinds.has("commands")
+                  ? query.supportedCommands().then((commands) => {
+                      data.commands = mapSupportedCommands(commands).commands;
+                    })
+                  : undefined,
+                kinds.has("agents")
+                  ? query.supportedAgents().then((agents) => {
+                      data.agents = agents.map((agent) => ({
+                        name: agent.name,
+                        displayName: agent.name,
+                        ...(agent.description ? { description: agent.description } : {}),
+                        ...(agent.model ? { model: agent.model } : {}),
+                      }));
+                    })
+                  : undefined,
+              ]);
+              return data;
+            },
+            signal,
+          );
         },
         catch: (cause) =>
           new ProviderAdapterRequestError({
@@ -5183,6 +5219,50 @@ function makeClaudeAdapter(options?: ClaudeAdapterLiveOptions) {
             detail: toMessage(cause, "Claude catalog load failed"),
             cause,
           }),
+      });
+
+    const readUsage: NonNullable<ClaudeAdapterShape["readUsage"]> = (input) =>
+      Effect.suspend(() => {
+        let pending: Promise<ReturnType<typeof claudeNativeUsage>> | undefined;
+        return Effect.tryPromise({
+          try: (signal) =>
+            (pending = withReadonlyConnectionQuery(
+              input,
+              async (query) =>
+                claudeNativeUsage(
+                  await query.usage_EXPERIMENTAL_MAY_CHANGE_DO_NOT_RELY_ON_THIS_API_YET({
+                    skipBehaviors: true,
+                  }),
+                  Date.now(),
+                ),
+              signal,
+            )),
+          catch: (cause) =>
+            new ProviderAdapterRequestError({
+              provider: PROVIDER,
+              method: "usage/read",
+              detail: toMessage(cause, "Claude usage read failed"),
+              cause,
+            }),
+        }).pipe(
+          Effect.onInterrupt(() =>
+            Effect.promise(async () => {
+              await pending?.catch(() => undefined);
+            }),
+          ),
+          Effect.timeoutOrElse({
+            duration: CLAUDE_CONNECTION_USAGE_REQUEST_TIMEOUT_MS,
+            onTimeout: () =>
+              Effect.fail(
+                new ProviderAdapterRequestError({
+                  provider: PROVIDER,
+                  method: "usage/read",
+                  cause: new Cause.TimeoutError(),
+                  detail: "Claude usage read timed out.",
+                }),
+              ),
+          }),
+        );
       });
 
     const stopAll: ClaudeAdapterShape["stopAll"] = () =>
@@ -5353,6 +5433,7 @@ function makeClaudeAdapter(options?: ClaudeAdapterLiveOptions) {
       getComposerCapabilities,
       getCapabilityHealth,
       loadCatalog,
+      readUsage,
       probeTurnEndpoint,
       streamEvents: Stream.fromQueue(runtimeEventQueue),
     } satisfies ClaudeAdapterShape;

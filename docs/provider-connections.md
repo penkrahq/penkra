@@ -139,9 +139,14 @@ authentication failures leave the old binding in place.
 - The composer owns a Connection control beside the model control and remembers
   the last explicit selection per harness. Connection switching is not nested
   inside model selection.
-- Account Connections show a user glyph. Opening their popup loads the
-  provider-reported usage windows for the exact isolated Connection profile;
-  usage is never prefetched or refreshed in the background.
+- Account Connections show a user glyph. Their popup subscribes to the server's
+  shared usage snapshot; opening it never starts a provider request. Connection
+  and installation changes refresh that Connection's snapshot, and native quota
+  events update it directly. Codex reads account/rate-limit reports from its
+  Connection process; Claude reads the managed SDK usage report with the selected
+  Connection profile. Neither path reads personal credential files, invokes a
+  binary from PATH, or calls an OAuth usage endpoint directly. Only native
+  signed-out evidence produces a reconnect state; a failed usage read is an error.
 - API-key Connections show a key glyph instead of the account glyph. Their
   popup explains that usage is unavailable in Penkra and opens the provider's
   usage dashboard through the default system URL handler.

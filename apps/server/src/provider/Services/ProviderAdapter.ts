@@ -8,6 +8,7 @@
  * @module ProviderAdapter
  */
 import type {
+  ServerProviderUsageSnapshot,
   ProviderComposerCapabilities,
   ProviderCatalogScope,
   ProviderCatalogKind,
@@ -271,6 +272,12 @@ export interface ProviderAdapterShape<TError> {
     readonly internalProviderId: string | null;
   }) => Effect.Effect<ProviderCatalogData, TError>;
   readonly catalogChanges?: Stream.Stream<ProviderCatalogInvalidation>;
+
+  /** Read usage through the exact managed Connection, without creating a conversation. */
+  readonly readUsage?: (input: {
+    readonly cwd: string;
+    readonly managedLaunch: ProviderManagedLaunchContext;
+  }) => Effect.Effect<ServerProviderUsageSnapshot, TError>;
 
   /** Verify the provider's turn endpoint with an isolated, minimal request. */
   readonly probeTurnEndpoint?: (input: {

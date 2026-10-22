@@ -7,6 +7,13 @@ import { ProviderInstallationRepository } from "../persistence/Services/Provider
 import { ConnectionRateLimits } from "./ConnectionRateLimits.ts";
 import { listProviderUsage } from "./index.ts";
 import { ServerConfig } from "../config.ts";
+import { ProviderAdapterRegistry } from "../provider/Services/ProviderAdapterRegistry.ts";
+import { ProviderLaunchResolver } from "../provider/Services/ProviderLaunchResolver.ts";
+import {
+  mergeConnectionUsageSnapshots,
+  snapshotFromConnectionRateLimitFact,
+} from "./runtimeFacts.ts";
+import { Option } from "effect";
 
 export type ProviderUsageChange = {
   readonly connectionId: ProviderConnectionId;
@@ -59,6 +66,17 @@ export const makeProviderUsage = (
       });
     return {
       refresh,
+      observe: (id: ProviderConnectionId, snapshot: ServerProviderUsageSnapshot) =>
+        Effect.sync(() => {
+          snapshots.set(
+            id,
+            mergeConnectionUsageSnapshots({
+              runtime: snapshots.get(id) ?? null,
+              fetched: snapshot,
+            }),
+          );
+          changes.publish(id);
+        }),
       snapshot: Effect.sync(() => [...snapshots.values()]),
       changes: changes.stream(undefined, null).pipe(
         Stream.flatMap((id) =>
@@ -92,6 +110,8 @@ export const ProviderUsageLive = Layer.effect(
     const scope = yield* Effect.scope;
     // Capture the loader's dependencies now; refresh fibers retain this service scope.
     const config = yield* ServerConfig;
+    const registry = yield* ProviderAdapterRegistry;
+    const resolver = yield* ProviderLaunchResolver;
     const usage = yield* makeProviderUsage((id) =>
       Effect.gen(function* () {
         const [snapshot] = yield* listProviderUsage({ connectionIds: [id] });
@@ -100,13 +120,28 @@ export const ProviderUsageLive = Layer.effect(
         Effect.provideService(ServerConfig, config),
         Effect.provideService(ProviderConnectionRepository, connections),
         Effect.provideService(ConnectionRateLimits, facts),
+        Effect.provideService(ProviderInstallationRepository, installations),
+        Effect.provideService(ProviderAdapterRegistry, registry),
+        Effect.provideService(ProviderLaunchResolver, resolver),
       ),
     );
     const refreshAll = Effect.gen(function* () {
       for (const connection of yield* connections.list()) yield* usage.refresh(connection.id);
     });
     yield* connections.changes.pipe(Stream.runForEach(usage.refresh), Effect.forkIn(scope));
-    yield* facts.changes.pipe(Stream.runForEach(usage.refresh), Effect.forkIn(scope));
+    yield* facts.refreshRequests.pipe(Stream.runForEach(usage.refresh), Effect.forkIn(scope));
+    yield* facts.changes.pipe(
+      Stream.runForEach((id) =>
+        Effect.gen(function* () {
+          const observed = yield* facts.get(id);
+          const snapshot = Option.isSome(observed)
+            ? snapshotFromConnectionRateLimitFact(observed.value)
+            : null;
+          if (snapshot) yield* usage.observe(id, snapshot);
+        }),
+      ),
+      Effect.forkIn(scope),
+    );
     yield* installations.changes.pipe(
       Stream.runForEach((provider) =>
         Effect.gen(function* () {

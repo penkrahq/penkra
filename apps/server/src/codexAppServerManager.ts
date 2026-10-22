@@ -5,6 +5,9 @@ import { mkdir, rm, writeFile } from "node:fs/promises";
 import * as Path from "node:path";
 import { StringDecoder } from "node:string_decoder";
 import type { ClientRequest as PinnedCodexRequest } from "./provider/generated/codex/ClientRequest.ts";
+import type { GetAccountResponse } from "./provider/generated/codex/v2/GetAccountResponse.ts";
+import type { GetAccountRateLimitsResponse } from "./provider/generated/codex/v2/GetAccountRateLimitsResponse.ts";
+import { codexNativeUsage } from "./providerUsage/nativeUsage.ts";
 
 import {
   EventId,
@@ -2029,6 +2032,29 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
     );
     if (failures.length > 0)
       throw new AggregateError(failures, "One or more Codex account process trees did not exit.");
+  }
+
+  /** Discovery uses the selected account process, without creating or requiring a thread. */
+  async readUsage(input: {
+    readonly cwd: string;
+    readonly managedLaunch: ProviderManagedLaunchContext;
+  }) {
+    const connectionId = input.managedLaunch.connectionId;
+    if (!connectionId) throw new Error("Usage requires an exact Connection.");
+    const transport = await this.getOrCreateManagedProcess(input.cwd, input.managedLaunch);
+    const account = await this.sendRequest<GetAccountResponse>(transport, null, "account/read", {
+      refreshToken: false,
+    });
+    const limits =
+      account.account === null
+        ? null
+        : await this.sendRequest<GetAccountRateLimitsResponse>(
+            transport,
+            null,
+            "account/rateLimits/read",
+            {},
+          );
+    return codexNativeUsage({ connectionId, nowMs: Date.now(), limits });
   }
 
   /** Discovery uses the selected account process, without creating or requiring a thread. */

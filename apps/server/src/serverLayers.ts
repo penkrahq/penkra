@@ -58,10 +58,6 @@ export function makeServerRuntimeServicesLayer(
     Layer.provideMerge(providerConnectionPersistenceLayer),
     Layer.provideMerge(ProviderCredentialBrokerLive),
   );
-  const providerUsageLayer = ProviderUsageLive.pipe(
-    Layer.provideMerge(providerConnectionPersistenceLayer),
-    Layer.provideMerge(ProviderInstallationRepositoryLive),
-  );
   const providerConnectionLoginCoordinatorLayer = ProviderConnectionLoginCoordinatorLive.pipe(
     Layer.provideMerge(providerConnectionPersistenceLayer),
     Layer.provideMerge(ProviderInstallationRepositoryLive),
@@ -80,6 +76,12 @@ export function makeServerRuntimeServicesLayer(
     Layer.provideMerge(providerConnectionPersistenceLayer),
     Layer.provideMerge(ProviderInstallationRepositoryLive),
     Layer.provideMerge(ThreadReadsLive),
+    Layer.provideMerge(providerLaunchResolverLayer),
+  );
+
+  const providerUsageLayer = ProviderUsageLive.pipe(
+    Layer.provideMerge(providerConnectionPersistenceLayer),
+    Layer.provideMerge(ProviderInstallationRepositoryLive),
     Layer.provideMerge(providerLaunchResolverLayer),
   );
 

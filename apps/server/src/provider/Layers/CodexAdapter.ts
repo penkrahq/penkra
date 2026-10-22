@@ -1874,6 +1874,18 @@ const makeCodexAdapter = (options?: CodexAdapterLiveOptions) =>
           }),
       });
 
+    const readUsage: NonNullable<CodexAdapterShape["readUsage"]> = (input) =>
+      Effect.tryPromise({
+        try: () => manager.readUsage(input),
+        catch: (cause) =>
+          new ProviderAdapterRequestError({
+            provider: PROVIDER,
+            method: "usage/read",
+            detail: toMessage(cause, "Codex usage read failed"),
+            cause,
+          }),
+      });
+
     const probeTurnEndpoint: NonNullable<CodexAdapterShape["probeTurnEndpoint"]> = (input) =>
       Effect.tryPromise({
         try: () => manager.probeResponses(input),
@@ -2051,6 +2063,7 @@ const makeCodexAdapter = (options?: CodexAdapterLiveOptions) =>
       getComposerCapabilities,
       getCapabilityHealth,
       loadCatalog,
+      readUsage,
       catalogChanges: catalogChanges.stream(),
       probeTurnEndpoint,
       transcribeVoice,
