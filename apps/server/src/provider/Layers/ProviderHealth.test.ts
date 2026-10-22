@@ -676,7 +676,7 @@ it.layer(NodeServices.layer)("ProviderHealth", (it) => {
             const joined = args.join(" ");
             if (joined === "--version") return { stdout: "codex 1.0.0\n", stderr: "", code: 0 };
             if (joined === "login status") {
-              return { stdout: "", stderr: "Not logged in. Run codex login.", code: 1 };
+              return { stdout: "", stderr: "Not logged in\n", code: 1 };
             }
             throw new Error(`Unexpected args: ${joined}`);
           }),
@@ -702,7 +702,7 @@ it.layer(NodeServices.layer)("ProviderHealth", (it) => {
             const joined = args.join(" ");
             if (joined === "--version") return { stdout: "codex 1.0.0\n", stderr: "", code: 0 };
             if (joined === "login status")
-              return { stdout: "Not logged in\n", stderr: "", code: 1 };
+              return { stdout: "", stderr: "Not logged in\n", code: 1 };
             throw new Error(`Unexpected args: ${joined}`);
           }),
         ),
@@ -719,7 +719,7 @@ it.layer(NodeServices.layer)("ProviderHealth", (it) => {
         assert.strictEqual(status.authStatus, "unknown");
         assert.strictEqual(
           status.message,
-          "Codex CLI authentication status command is unavailable in this Codex version.",
+          "Could not verify Codex authentication status. error: unknown command 'login'",
         );
       }).pipe(
         Effect.provide(
@@ -804,7 +804,7 @@ it.layer(NodeServices.layer)("ProviderHealth", (it) => {
             const joined = args.join(" ");
             if (joined === "--version") return { stdout: "codex 1.0.0\n", stderr: "", code: 0 };
             if (joined === "login status")
-              return { stdout: "Not logged in\n", stderr: "", code: 1 };
+              return { stdout: "", stderr: "Not logged in\n", code: 1 };
             throw new Error(`Unexpected args: ${joined}`);
           }),
         ),
@@ -815,6 +815,21 @@ it.layer(NodeServices.layer)("ProviderHealth", (it) => {
   // ── parseAuthStatusFromOutput pure tests ──────────────────────────
 
   describe("parseAuthStatusFromOutput", () => {
+    it("does not classify arbitrary failed command wording as signed out", () => {
+      assert.strictEqual(
+        parseAuthStatusFromOutput({ code: 1, stdout: "", stderr: "A remote tool is not logged in" })
+          .authStatus,
+        "unknown",
+      );
+    });
+    it("does not let unrelated error words override structured authentication", () => {
+      const parsed = parseAuthStatusFromOutput({
+        stdout: '{"authenticated":true,"authMethod":"chatgpt"}',
+        stderr: "A tool reported: authentication required; unknown command in its own output",
+        code: 0,
+      });
+      assert.strictEqual(parsed.authStatus, "authenticated");
+    });
     it("exit code 0 with no auth markers is ready", () => {
       const parsed = parseAuthStatusFromOutput({ stdout: "OK\n", stderr: "", code: 0 });
       assert.strictEqual(parsed.status, "ready");
@@ -1391,13 +1406,13 @@ it.layer(NodeServices.layer)("ProviderHealth", (it) => {
       ),
     );
 
-    it.effect("returns unauthenticated when output includes 'not logged in'", () =>
+    it.effect("returns unknown when output lacks the native loggedIn field", () =>
       Effect.gen(function* () {
         const status = yield* checkClaudeProviderStatus;
         assert.strictEqual(status.provider, "claudeAgent");
-        assert.strictEqual(status.status, "error");
+        assert.strictEqual(status.status, "warning");
         assert.strictEqual(status.available, true);
-        assert.strictEqual(status.authStatus, "unauthenticated");
+        assert.strictEqual(status.authStatus, "unknown");
       }).pipe(
         Effect.provide(
           mockSpawnerLayer((args) => {
@@ -1419,7 +1434,7 @@ it.layer(NodeServices.layer)("ProviderHealth", (it) => {
         assert.strictEqual(status.authStatus, "unknown");
         assert.strictEqual(
           status.message,
-          "Claude Agent authentication status command is unavailable in this version of Claude.",
+          "Could not verify Claude authentication status. error: unknown command 'auth'",
         );
       }).pipe(
         Effect.provide(
@@ -1486,10 +1501,18 @@ it.layer(NodeServices.layer)("ProviderHealth", (it) => {
   });
 
   describe("parseClaudeAuthStatusFromOutput", () => {
-    it("exit code 0 with no auth markers is ready", () => {
-      const parsed = parseClaudeAuthStatusFromOutput({ stdout: "OK\n", stderr: "", code: 0 });
-      assert.strictEqual(parsed.status, "ready");
+    it("does not let unrelated error words override the native loggedIn field", () => {
+      const parsed = parseClaudeAuthStatusFromOutput({
+        stdout: '{"loggedIn":true,"authMethod":"api_key"}',
+        stderr: "A tool reported: authentication required; unknown command in its own output",
+        code: 0,
+      });
       assert.strictEqual(parsed.authStatus, "authenticated");
+    });
+    it("exit code 0 without native JSON does not prove authentication", () => {
+      const parsed = parseClaudeAuthStatusFromOutput({ stdout: "OK\n", stderr: "", code: 0 });
+      assert.strictEqual(parsed.status, "warning");
+      assert.strictEqual(parsed.authStatus, "unknown");
     });
 
     it("JSON with loggedIn=true is authenticated", () => {

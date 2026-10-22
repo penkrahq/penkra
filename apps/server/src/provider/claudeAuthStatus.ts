@@ -1,7 +1,7 @@
 /**
  * claudeAuthStatus - Pure interpretation of `claude auth status` output.
  *
- * Decides authenticated/unauthenticated/unknown from the CLI's JSON or text
+ * Decides authenticated/unauthenticated/unknown from the CLI's JSON
  * output, detects the structured false negatives produced by refresh-token
  * rotation races, and derives subscription metadata labels. Pure functions
  * only; the health check in ProviderHealth owns spawning, locking, and
@@ -15,30 +15,6 @@ import {
   toTitleCaseWords,
   type CommandResult,
 } from "./providerCliOutput";
-
-function claudeAuthOutput(result: CommandResult): string {
-  return `${result.stdout}\n${result.stderr}`.toLowerCase();
-}
-
-function hasClaudeUnsupportedAuthStatusText(result: CommandResult): boolean {
-  const lowerOutput = claudeAuthOutput(result);
-  return (
-    lowerOutput.includes("unknown command") ||
-    lowerOutput.includes("unrecognized command") ||
-    lowerOutput.includes("unexpected argument")
-  );
-}
-
-function hasClaudeLoginRequiredText(result: CommandResult): boolean {
-  const lowerOutput = claudeAuthOutput(result);
-  return (
-    lowerOutput.includes("not logged in") ||
-    lowerOutput.includes("login required") ||
-    lowerOutput.includes("authentication required") ||
-    lowerOutput.includes("run `claude login`") ||
-    lowerOutput.includes("run claude login")
-  );
-}
 
 function readClaudeAuthStatusJsonMarker(result: CommandResult): {
   readonly attemptedJsonParse: boolean;
@@ -63,23 +39,6 @@ export function parseClaudeAuthStatusFromOutput(result: CommandResult): {
   readonly authStatus: ServerProviderAuthStatus;
   readonly message?: string;
 } {
-  if (hasClaudeUnsupportedAuthStatusText(result)) {
-    return {
-      status: "warning",
-      authStatus: "unknown",
-      message:
-        "Claude Agent authentication status command is unavailable in this version of Claude.",
-    };
-  }
-
-  if (hasClaudeLoginRequiredText(result)) {
-    return {
-      status: "error",
-      authStatus: "unauthenticated",
-      message: "Claude is not authenticated. Run `claude auth login` and try again.",
-    };
-  }
-
   // `claude auth status` returns JSON with a `loggedIn` boolean.
   const parsedAuth = readClaudeAuthStatusJsonMarker(result);
 
@@ -101,9 +60,6 @@ export function parseClaudeAuthStatusFromOutput(result: CommandResult): {
         "Could not verify Claude authentication status from JSON output (missing auth marker).",
     };
   }
-  if (result.code === 0) {
-    return { status: "ready", authStatus: "authenticated" };
-  }
 
   const detail = detailFromResult(result);
   return {
@@ -122,8 +78,7 @@ export function isStructuredClaudeAuthFalseNegativeCandidate(
   return (
     parsed.authStatus === "unauthenticated" &&
     result.code === 0 &&
-    readClaudeAuthStatusJsonMarker(result).auth === false &&
-    !hasClaudeLoginRequiredText(result)
+    readClaudeAuthStatusJsonMarker(result).auth === false
   );
 }
 

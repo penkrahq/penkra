@@ -10,6 +10,48 @@ import { it } from "vitest";
 import { contractFixture, listen } from "./support.ts";
 import { Cause } from "effect";
 import { isClaudeMissingResumeConversationCause } from "../../src/provider/claudeErrorClassifier.ts";
+import { parseClaudeAuthStatusFromOutput } from "../../src/provider/claudeAuthStatus.ts";
+
+it("classifies the pinned CLI's signed-out auth JSON", async () => {
+  const fixture = await contractFixture("claudeAgent");
+  try {
+    let failure: unknown;
+    try {
+      await fixture.command(
+        ["auth", "status"],
+        fixture.root,
+        fixture.environment("source", {
+          CLAUDE_CONFIG_DIR: path.join(fixture.root, "claude-config"),
+        }),
+      );
+    } catch (error) {
+      failure = error;
+    }
+    assert(
+      failure instanceof Error && "code" in failure && "stdout" in failure && "stderr" in failure,
+    );
+    assert.equal(failure.code, 1);
+    assert.equal(typeof failure.stdout, "string");
+    assert.equal(typeof failure.stderr, "string");
+    const stdout = failure.stdout as string;
+    const stderr = failure.stderr as string;
+    assert.equal(JSON.parse(stdout).loggedIn, false);
+    assert.equal(
+      parseClaudeAuthStatusFromOutput({ code: 1, stdout, stderr }).authStatus,
+      "unauthenticated",
+    );
+    assert.equal(
+      parseClaudeAuthStatusFromOutput({
+        code: 1,
+        stdout,
+        stderr: "Unrelated tool authentication required",
+      }).authStatus,
+      "unauthenticated",
+    );
+  } finally {
+    await fixture.close();
+  }
+});
 
 it("classifies the pinned SDK's real missing-resume error", async () => {
   const fixture = await contractFixture("claudeAgent");
