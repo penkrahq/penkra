@@ -38,31 +38,8 @@ export const ServerProviderStatus = Schema.Struct({
   version: Schema.optional(Schema.NullOr(TrimmedNonEmptyString)),
   checkedAt: IsoDateTime,
   message: Schema.optional(TrimmedNonEmptyString),
-  versionAdvisory: Schema.optionalKey(
-    Schema.Struct({
-      status: Schema.Literals(["unknown", "current", "behind_latest"]),
-      currentVersion: Schema.NullOr(TrimmedNonEmptyString),
-      latestVersion: Schema.NullOr(TrimmedNonEmptyString),
-      updateCommand: Schema.NullOr(TrimmedNonEmptyString),
-      canUpdate: Schema.Boolean,
-      checkedAt: Schema.NullOr(IsoDateTime),
-      message: Schema.NullOr(TrimmedNonEmptyString),
-    }),
-  ),
-  updateState: Schema.optionalKey(
-    Schema.Struct({
-      status: Schema.Literals(["idle", "queued", "running", "succeeded", "failed", "unchanged"]),
-      startedAt: Schema.NullOr(IsoDateTime),
-      finishedAt: Schema.NullOr(IsoDateTime),
-      message: Schema.NullOr(TrimmedNonEmptyString),
-      output: Schema.NullOr(Schema.String.check(Schema.isMaxLength(10_000))),
-    }),
-  ),
 });
 export type ServerProviderStatus = typeof ServerProviderStatus.Type;
-
-export type ServerProviderVersionAdvisory = NonNullable<ServerProviderStatus["versionAdvisory"]>;
-export type ServerProviderUpdateState = NonNullable<ServerProviderStatus["updateState"]>;
 
 const ServerProviderStatuses = Schema.Array(ServerProviderStatus);
 

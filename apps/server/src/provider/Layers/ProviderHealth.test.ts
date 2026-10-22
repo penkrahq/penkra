@@ -1,12 +1,11 @@
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import type { ServerProviderStatus } from "@penkra/contracts";
-import { DEFAULT_SERVER_SETTINGS, ServerSettingsError } from "@penkra/contracts";
+import { DEFAULT_SERVER_SETTINGS } from "@penkra/contracts";
 import { describe, it, assert } from "@effect/vitest";
-import { Deferred, Duration, Effect, Fiber, FileSystem, Layer, Path, Sink, Stream } from "effect";
+import { Effect, FileSystem, Layer, Path, Sink, Stream } from "effect";
 import * as PlatformError from "effect/PlatformError";
 import { ChildProcessSpawner } from "effect/unstable/process";
 import { vi } from "vitest";
-import { TestClock } from "effect/testing";
 
 import { PENKRA_CODEX_HOME_OVERLAY_DIR } from "../../codexHomePaths";
 import { ServerConfig } from "../../config";
@@ -26,12 +25,10 @@ import {
   makeCheckClaudeProviderStatus,
   makeCheckCodexProviderStatus,
   makeCheckOpenCodeProviderStatus,
-  makeProviderHealthLive,
   parseAuthStatusFromOutput,
   parseClaudeAuthStatusFromOutput,
   providerStatusesEqual,
   ProviderHealthLive,
-  PROVIDER_RELEASE_CHECK_INTERVAL,
   projectProviderStatusesForSettings,
   readCodexConfigModelProvider,
   stabilizeProviderStatusesAgainstTransientTimeouts,
@@ -221,36 +218,6 @@ it.layer(NodeServices.layer)("ProviderHealth", (it) => {
       assert.strictEqual(codex?.message, "Provider is disabled in Penkra settings.");
     });
 
-    it("keeps update advisories visible in notify mode", () => {
-      const statuses = projectProviderStatusesForSettings(
-        [
-          {
-            ...cachedReadyCodexStatus,
-            version: "0.129.0",
-            versionAdvisory: {
-              status: "behind_latest",
-              currentVersion: "0.129.0",
-              latestVersion: "0.130.0",
-              updateCommand: null,
-              canUpdate: false,
-              checkedAt: "2026-06-16T12:00:00.000Z",
-              message: "Update available.",
-            },
-          },
-        ],
-        DEFAULT_SERVER_SETTINGS,
-        "2026-06-16T12:05:00.000Z",
-      );
-      const codex = statuses.find((status) => status.provider === "codex");
-
-      assert.strictEqual(codex?.available, true);
-      assert.strictEqual(codex?.version, "0.129.0");
-      assert.strictEqual(codex?.versionAdvisory?.status, "behind_latest");
-      assert.strictEqual(codex?.versionAdvisory?.latestVersion, "0.130.0");
-      assert.strictEqual(codex?.versionAdvisory?.canUpdate, false);
-      assert.strictEqual(codex?.versionAdvisory?.updateCommand, null);
-    });
-
     it.effect("does not expose cached ready statuses for disabled providers", () =>
       Effect.gen(function* () {
         const fileSystem = yield* FileSystem.FileSystem;
@@ -346,7 +313,7 @@ it.layer(NodeServices.layer)("ProviderHealth", (it) => {
       }),
     );
 
-    it.effect("does not offer updates for disabled providers", () =>
+    it.effect("keeps disabled providers unavailable during refresh", () =>
       Effect.gen(function* () {
         const providerHealth = yield* ProviderHealth;
         const statuses = yield* providerHealth.refresh;
@@ -355,150 +322,12 @@ it.layer(NodeServices.layer)("ProviderHealth", (it) => {
         for (const status of statuses) {
           assert.strictEqual(status.available, false);
           assert.strictEqual(status.message, "Provider is disabled in Penkra settings.");
-          assert.strictEqual(status.versionAdvisory?.status, "unknown");
-          assert.strictEqual(status.versionAdvisory?.canUpdate, false);
-          assert.strictEqual(status.versionAdvisory?.updateCommand, null);
         }
       }).pipe(Effect.provide(disabledProviderHealthLayer)),
     );
   });
 
   describe("startup refresh behavior", () => {
-    it.effect(
-      "checks latest releases at startup without repeating lookups on foreground refresh",
-      () =>
-        Effect.gen(function* () {
-          const fileSystem = yield* FileSystem.FileSystem;
-          const baseDir = yield* fileSystem.makeTempDirectoryScoped({
-            prefix: "provider-release-check-",
-          });
-          yield* writeProviderStatusCache({
-            filePath: resolveProviderStatusCachePath({
-              stateDir: `${baseDir}/userdata`,
-              provider: "codex",
-            }),
-            provider: { ...cachedReadyCodexStatus, version: "1.0.0" },
-          });
-          const lookupStarted = yield* Deferred.make<void>();
-          const releaseLookup = yield* Deferred.make<void>();
-          let lookups = 0;
-          const settings = {
-            ...allProvidersDisabledSettings,
-            providers: {
-              ...allProvidersDisabledSettings.providers,
-              codex: { ...DEFAULT_SERVER_SETTINGS.providers.codex, enabled: true },
-            },
-          };
-          const layer = makeProviderHealthLive({
-            resolveManagedArtifact: (input) =>
-              Effect.gen(function* () {
-                assert.strictEqual(input.provider, "codex");
-                assert.strictEqual(input.version, "latest");
-                lookups += 1;
-                yield* Deferred.succeed(lookupStarted, undefined);
-                yield* Deferred.await(releaseLookup);
-                return {
-                  provider: "codex" as const,
-                  version: "2.0.0",
-                  platform: "darwin" as const,
-                  architecture: "arm64" as const,
-                  url: "https://example.test/codex",
-                  sha256: "a".repeat(64),
-                  assetName: "codex",
-                  archive: "raw" as const,
-                  executableRelativePath: "codex",
-                  metadataUrl: "https://example.test/releases/latest",
-                  source: "github-release" as const,
-                };
-              }),
-          }).pipe(
-            Layer.provideMerge(ServerSettingsService.layerTest(settings)),
-            Layer.provideMerge(ServerConfig.layerTest(process.cwd(), baseDir)),
-          );
-          yield* Effect.gen(function* () {
-            const health = yield* ProviderHealth;
-            yield* Deferred.await(lookupStarted);
-            const published = yield* health.streamChanges.pipe(
-              Stream.filter((statuses) =>
-                statuses.some((status) => status.versionAdvisory?.latestVersion === "2.0.0"),
-              ),
-              Stream.runHead,
-              Effect.forkChild,
-            );
-            yield* Deferred.succeed(releaseLookup, undefined);
-            const result = yield* Fiber.join(published);
-            assert.ok(result._tag === "Some");
-            assert.strictEqual(result.value[0]?.versionAdvisory?.status, "behind_latest");
-            assert.strictEqual(lookups, 1);
-            yield* health.refresh;
-            yield* health.refresh;
-            assert.strictEqual(lookups, 1);
-            assert.strictEqual(
-              Duration.toMillis(PROVIDER_RELEASE_CHECK_INTERVAL),
-              24 * 60 * 60 * 1000,
-            );
-          }).pipe(Effect.provide(layer));
-        }),
-    );
-
-    it.effect("keeps the daily schedule alive after settings fail on its first iteration", () =>
-      Effect.gen(function* () {
-        const failed = yield* Deferred.make<void>();
-        const lookedUp = yield* Deferred.make<void>();
-        let readyCalls = 0;
-        const settingsLayer = Layer.effect(
-          ServerSettingsService,
-          Effect.gen(function* () {
-            const settings = yield* ServerSettingsService;
-            return {
-              ...settings,
-              ready: Effect.suspend(() => {
-                readyCalls += 1;
-                return readyCalls === 1
-                  ? Deferred.succeed(failed, undefined).pipe(
-                      Effect.andThen(
-                        Effect.fail(
-                          new ServerSettingsError({
-                            settingsPath: "<memory>",
-                            detail: "first iteration fails",
-                          }),
-                        ),
-                      ),
-                    )
-                  : Effect.void;
-              }),
-            };
-          }),
-        ).pipe(
-          Layer.provide(
-            ServerSettingsService.layerTest({
-              ...allProvidersDisabledSettings,
-              providers: { ...allProvidersDisabledSettings.providers, codex: { enabled: true } },
-            }),
-          ),
-        );
-        const layer = makeProviderHealthLive({
-          resolveManagedArtifact: () =>
-            Deferred.succeed(lookedUp, undefined).pipe(
-              Effect.andThen(Effect.fail(new Error("fixture metadata failure"))),
-            ),
-        }).pipe(
-          Layer.provideMerge(settingsLayer),
-          Layer.provideMerge(
-            ServerConfig.layerTest(process.cwd(), { prefix: "provider-release-failed-iteration-" }),
-          ),
-        );
-        yield* Effect.gen(function* () {
-          yield* ProviderHealth;
-          yield* Deferred.await(failed);
-          assert.strictEqual(yield* Deferred.isDone(lookedUp), false);
-          yield* TestClock.adjust(PROVIDER_RELEASE_CHECK_INTERVAL);
-          yield* Deferred.await(lookedUp);
-          assert.strictEqual(readyCalls, 2);
-        }).pipe(Effect.provide(layer));
-      }).pipe(Effect.provide(TestClock.layer())),
-    );
-
     it.effect("serves cached statuses without spawning provider CLIs on layer startup", () =>
       Effect.gen(function* () {
         const fileSystem = yield* FileSystem.FileSystem;
@@ -657,18 +486,9 @@ it.layer(NodeServices.layer)("ProviderHealth", (it) => {
       checkedAt: "2026-06-04T17:00:00.000Z",
       message:
         "Cursor Agent CLI is installed. Sign in with Cursor if a session prompts for authentication.",
-      versionAdvisory: {
-        status: "current",
-        currentVersion: "2026.06.04-8f81907",
-        latestVersion: "2026.06.04-8f81907",
-        updateCommand: null,
-        canUpdate: true,
-        checkedAt: "2026-06-04T17:00:00.000Z",
-        message: null,
-      },
     } satisfies ServerProviderStatus;
 
-    it("ignores top-level and version-advisory checkedAt churn", () => {
+    it("ignores checkedAt churn", () => {
       assert.strictEqual(
         providerStatusesEqual(
           [readyCursor],
@@ -676,32 +496,15 @@ it.layer(NodeServices.layer)("ProviderHealth", (it) => {
             {
               ...readyCursor,
               checkedAt: "2026-06-04T17:01:00.000Z",
-              versionAdvisory: {
-                ...readyCursor.versionAdvisory,
-                checkedAt: "2026-06-04T17:01:00.000Z",
-              },
             },
           ],
         ),
         true,
       );
     });
-
-    it("detects meaningful version-advisory changes", () => {
+    it("detects an installed runtime version change", () => {
       assert.strictEqual(
-        providerStatusesEqual(
-          [readyCursor],
-          [
-            {
-              ...readyCursor,
-              versionAdvisory: {
-                ...readyCursor.versionAdvisory,
-                status: "behind_latest",
-                latestVersion: "2026.06.05-a1b2c3d",
-              },
-            },
-          ],
-        ),
+        providerStatusesEqual([readyCursor], [{ ...readyCursor, version: "1.19.3" }]),
         false,
       );
     });

@@ -15,30 +15,16 @@ const BASE_PROVIDER_STATUS = {
   version: "2026.06.04-8f81907",
   checkedAt: "2026-06-04T10:00:00.000Z",
   message: "OpenCode is installed and ready.",
-  versionAdvisory: {
-    status: "current",
-    currentVersion: "2026.06.04-8f81907",
-    latestVersion: "2026.06.04-8f81907",
-    updateCommand: null,
-    canUpdate: true,
-    checkedAt: "2026-06-04T10:00:00.000Z",
-    message: null,
-  },
 } satisfies ServerProviderStatus;
 
 describe("providerModelDiscoveryInvalidationFingerprint", () => {
-  it("ignores provider checkedAt, message, and advisory metadata churn", () => {
+  it("ignores provider checkedAt and message churn", () => {
     expect(
       providerModelDiscoveryInvalidationFingerprint([
         {
           ...BASE_PROVIDER_STATUS,
           checkedAt: "2026-06-04T10:05:00.000Z",
           message: "Cursor Agent CLI is still installed.",
-          versionAdvisory: {
-            ...BASE_PROVIDER_STATUS.versionAdvisory,
-            checkedAt: "2026-06-04T10:05:00.000Z",
-            message: "Checked just now.",
-          },
         },
       ]),
     ).toBe(providerModelDiscoveryInvalidationFingerprint([BASE_PROVIDER_STATUS]));
