@@ -262,6 +262,13 @@ it("uses the pinned SDK/CLI for catalogs, turns, questions, interruption and a l
     await runtime.setPermissionMode("default");
     await runtime.applyFlagSettings({ alwaysThinkingEnabled: false, autoCompactWindow: null });
     assert(await runtime.getContextUsage());
+    const usage = await runtime.usage_EXPERIMENTAL_MAY_CHANGE_DO_NOT_RELY_ON_THIS_API_YET({
+      skipBehaviors: true,
+    });
+    assert.equal(typeof usage.session.total_cost_usd, "number");
+    assert.equal(usage.rate_limits_available, false);
+    assert.equal(usage.rate_limits, null);
+    assert.equal(usage.behaviors, null);
     assert(
       (await runtime.mcpServerStatus()).some(
         (server) => server.name === "contract" && server.status === "connected",
