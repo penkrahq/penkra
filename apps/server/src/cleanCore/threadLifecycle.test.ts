@@ -1,4 +1,5 @@
 import { ThreadLanesLive } from "./ThreadLanes.ts";
+import { NativeStorageTestLayer } from "../provider/nativeStorage.test-support.ts";
 import { ProviderSessionDirectoryLive } from "../provider/Layers/ProviderSessionDirectory.ts";
 import { observePublisher } from "./threadPublisherTestHelpers.ts";
 import { afterAll } from "vitest";
@@ -148,6 +149,7 @@ it.effect(
         });
         const cleanup: string[] = [];
         const lifecycle = yield* makeThreadLifecycle.pipe(
+          Effect.provide(NativeStorageTestLayer),
           Effect.provideService(ThreadPublisher, publisher),
           Effect.provideService(
             ProviderTurnSelectionResolver,

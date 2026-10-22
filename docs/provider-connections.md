@@ -21,12 +21,13 @@ ships with a desktop update; see [Provider runtimes](release.md#provider-runtime
    not a new credential-routing special case.
 3. A Thread fixes its harness after its first message. Its model and Connection
    may change only through an explicit selection on a later sent message.
-4. A selection in the composer is pending UI state. The durable binding changes
-   only after the next message successfully creates or resumes exact native
-   state under that selection.
-5. A failed switch leaves the prior binding and transcript unchanged. There is
-   no automatic account switching, transcript reconstruction, or best-effort
-   native-session guess.
+4. A selection in the composer is pending UI state. Message admission commits
+   the Connection and native conversation identity together, after any required
+   native-state transfer has been verified.
+5. A failed transfer or selection transaction leaves the prior binding unchanged.
+   Proven missing native storage uses bounded reconstruction from Penkra's
+   transcript. Invalid credentials or unavailable models never select another
+   account, and provider failures are not guessed from error wording.
 6. A successful Connection change and model change are recorded as
    ordinary Thread activity. Earlier messages are never relabeled.
 7. Disconnecting a Connection removes its usable credential or signs out its
@@ -44,20 +45,30 @@ ships with a desktop update; see [Provider runtimes](release.md#provider-runtime
 - `provider_installations` records immutable managed executable generations.
 - `provider_connections` records accounts and keys without storing the
   secret itself.
-- `provider_native_state_generations` owns isolated native state.
-- `thread_harness_states` and `thread_runtime_bindings` bind a Thread to
-  exact native state, installation, Connection, internal provider, and model.
-- Operation journals make credential creation, login, switching, forking, and
-  native-state deletion recoverable across restart.
+- `threads` holds the durable harness, Connection, model/options, native generation
+  identity and exact provider session id. Selection and native identity commit in
+  one transaction.
+- `ProviderSessionDirectory` is only a process-local routing index. It is not a
+  second durable source for native conversation ownership.
+- Credential/login operations retain their own lifecycle records. Native account
+  switching and deletion do not add another operation journal.
 
 Static secrets live in Desktop secure storage. Provider-managed logins live in
-Connection-scoped profile directories. ChatGPT's Codex runtime and OpenCode Thread state use
-separate generation roots. Claude's native contract keeps authentication and
-sessions in one config root, so its whole config root is Connection-scoped and
-only the exact session plus session-owned auxiliary directories are copied into
-the selected target Connection profile. A switch otherwise materializes only
-the matching Codex rollout or OpenCode conversation database and declared state
-collections. Profile settings and authentication files are never cloned.
+Connection-scoped profile directories. Codex rollouts are adopted into the
+Thread's generation root. Claude links the exact Thread-owned session and its
+auxiliary directories into the Connection profile.
+
+OpenCode has one managed server and native database per Connection (or the
+explicit anonymous route). Each native tool call is attributed by its runtime
+session id. A Connection switch exports only the exact conversation, preserves
+its files and snapshot objects, imports it into the target store and compares
+the re-export before committing the selection. A prior inactive target copy is
+replaced rather than merged with stale message parts. Startup migrates an old
+per-Thread database once and removes its generation root only after verification.
+Native thread deletion is idempotent and works without the old account login;
+it deletes that exact native session and its declared files across registered
+OpenCode profiles, including signed-out ones. Other sessions are not deleted.
+Profile settings and authentication files are never cloned.
 
 The initial declared authentication methods are:
 

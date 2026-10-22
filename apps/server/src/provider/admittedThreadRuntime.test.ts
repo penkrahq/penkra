@@ -16,6 +16,7 @@ import { afterEach, expect, it, vi } from "vitest";
 
 import { resolveAdmittedThreadRuntime } from "./admittedThreadRuntime.ts";
 import { claudeThreadTranscriptPath } from "./claudeThreadNativeState.ts";
+import { providerNativeStateRoot } from "./providerNativeStatePaths.ts";
 import { ProviderLaunchResolutionError } from "./Services/ProviderLaunchResolver.ts";
 import type { ResolvedProviderTurnSelection } from "./Services/ProviderTurnSelectionResolver.ts";
 import * as SqlClient from "effect/unstable/sql/SqlClient";
@@ -85,8 +86,8 @@ async function fixture(provider: ProviderKind, providerSessionId: string | null)
       binaryPath: "/provider",
       assertCurrentCredentials: Effect.void,
       isolationKey: "isolation",
-      profileRoot: "/profile",
-      nativeStateRoot: "/native",
+      profileRoot: join(stateDir, "profile"),
+      nativeStateRoot: providerNativeStateRoot(stateDir, nativeStateId),
       connectionId,
       installationId,
       childEnvironment: (env: NodeJS.ProcessEnv) => ({ ...env, TEST_PROVIDER: "ready" }),
@@ -121,6 +122,49 @@ it("starts fresh without materializing when a previously connected Claude thread
     KEEP: "yes",
     TEST_PROVIDER: "ready",
   });
+});
+
+it("keeps the canonical OpenCode cursor after per-thread storage has been migrated away", async () => {
+  const f = await fixture("opencode", "ses_shared");
+  await mkdir(join(f.dependencies.stateDir, "profile"));
+  await writeFile(
+    join(f.dependencies.stateDir, "profile", "opencode.db"),
+    "native database marker",
+  );
+  const result = await Effect.runPromise(resolveAdmittedThreadRuntime(f.input, f.dependencies));
+  expect(result.requiresReconstruction).toBe(false);
+  expect(result.resumeCursor).toEqual({ openCodeSessionId: "ses_shared" });
+});
+
+it("reconstructs an OpenCode conversation only when both exact storage locations are absent", async () => {
+  const f = await fixture("opencode", "ses_missing");
+  const result = await Effect.runPromise(resolveAdmittedThreadRuntime(f.input, f.dependencies));
+  expect(result.requiresReconstruction).toBe(true);
+  expect(result.resumeCursor).toBeUndefined();
+});
+
+it("rejects an ambiguously owned OpenCode conversation before preparing a process", async () => {
+  const f = await fixture("opencode", "ses_shared");
+  await Effect.runPromise(
+    createThread({
+      id: ThreadId.makeUnsafe("peer"),
+      provider: "opencode",
+      folderId: "runtime-folder",
+      spaceId: "runtime-space",
+      title: "Peer",
+      model: "model",
+      runtimeMode: "full-access",
+      createdBy: "user",
+      createdAt: "2026-10-11T00:00:00.000Z",
+    }).pipe(Effect.provideService(SqlClient.SqlClient, f.sql)),
+  );
+  await Effect.runPromise(
+    f.sql`UPDATE threads SET native_state_id='peer-generation',provider_session_id='ses_shared' WHERE id='peer'`,
+  );
+  await expect(
+    Effect.runPromise(resolveAdmittedThreadRuntime(f.input, f.dependencies)),
+  ).rejects.toMatchObject({ _tag: "ProviderAdapterValidationError" });
+  expect(f.resolve).not.toHaveBeenCalled();
 });
 
 it("requests transcript reconstruction when the Claude conversation is missing", async () => {

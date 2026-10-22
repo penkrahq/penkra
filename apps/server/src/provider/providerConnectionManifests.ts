@@ -221,16 +221,16 @@ const MANIFESTS = new Map<ProviderKind, ProviderConnectionManifest>([
     {
       harness: "opencode",
       childKind: "opencode",
-      buildStateEnvironment: ({ profileRoot, nativeStateRoot }) => ({
+      buildStateEnvironment: ({ profileRoot }) => ({
         isolation: {
           homePath: `${profileRoot}/home`,
           xdgConfigHome: `${profileRoot}/xdg-config`,
-          xdgDataHome: `${nativeStateRoot}/xdg-data`,
+          xdgDataHome: `${profileRoot}/xdg-data`,
           xdgCacheHome: `${profileRoot}/xdg-cache`,
-          xdgStateHome: `${nativeStateRoot}/xdg-state`,
+          xdgStateHome: `${profileRoot}/xdg-state`,
         },
         overrides: {
-          OPENCODE_DB: `${nativeStateRoot}/opencode.db`,
+          OPENCODE_DB: `${profileRoot}/opencode.db`,
         },
       }),
       staticCredentialMethods: [

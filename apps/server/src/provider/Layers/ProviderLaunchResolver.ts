@@ -190,7 +190,7 @@ export const makeProviderLaunchResolver = Effect.gen(function* () {
           await Promise.all(
             [
               profileRoot,
-              nativeStateRoot,
+              ...(input.harness === "opencode" ? [] : [nativeStateRoot]),
               environment.isolation.homePath,
               environment.isolation.xdgConfigHome,
               environment.isolation.xdgDataHome,
@@ -237,7 +237,7 @@ export const makeProviderLaunchResolver = Effect.gen(function* () {
         profileRoot,
         nativeStateRoot,
         isolationKey: providerOpaquePathKey(
-          input.harness === "codex"
+          input.harness === "codex" || input.harness === "opencode"
             ? `${installation.value.id}:${credentialIdentity}`
             : `${installation.value.id}:${credentialIdentity}:${input.nativeStateIdentity}`,
         ),

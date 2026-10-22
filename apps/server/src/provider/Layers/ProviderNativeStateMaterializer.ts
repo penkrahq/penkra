@@ -4,7 +4,6 @@
 import { cp, lstat, mkdir, rename, rm } from "node:fs/promises";
 import * as Path from "node:path";
 import { randomUUID } from "node:crypto";
-import { backup as backupSqlite, DatabaseSync } from "node:sqlite";
 import { Effect, Layer } from "effect";
 
 import { ServerConfig } from "../../config.ts";
@@ -53,25 +52,6 @@ async function copyEntry(sourceRoot: string, targetRoot: string, source: string)
   });
 }
 
-const OPEN_CODE_NATIVE_ENTRIES = ["snapshot", "storage", "tool-output", "repos", "plan"] as const;
-
-async function snapshotOpenCodeDatabase(sourceRoot: string, targetRoot: string): Promise<void> {
-  const sourcePath = Path.join(sourceRoot, "opencode.db");
-  if (!(await exists(sourcePath))) {
-    throw new Error("The exact OpenCode database is unavailable.");
-  }
-  const targetPath = Path.join(targetRoot, "opencode.db");
-  const source = new DatabaseSync(sourcePath, { readOnly: true });
-  try {
-    // SQLite's online backup API produces one transactionally consistent
-    // database even while the source is in WAL mode. Raw db/wal/shm copying
-    // cannot provide that guarantee while OpenCode's pooled server is alive.
-    await backupSqlite(source, targetPath);
-  } finally {
-    source.close();
-  }
-}
-
 async function exactNativeEntries(input: {
   readonly harness: Parameters<ProviderNativeStateMaterializerShape["clone"]>[0]["harness"];
   readonly providerSessionId: string;
@@ -91,17 +71,6 @@ async function exactNativeEntries(input: {
         const entry = Path.join(input.sourceRoot, name);
         if (await exists(entry)) entries.push(entry);
       }
-      return entries;
-    }
-    case "opencode": {
-      if (!(await exists(Path.join(input.sourceRoot, "opencode.db")))) return null;
-      const entries: string[] = [];
-      for (const name of OPEN_CODE_NATIVE_ENTRIES) {
-        const entry = Path.join(input.sourceRoot, "xdg-data", "opencode", name);
-        if (await exists(entry)) entries.push(entry);
-      }
-      const stateRoot = Path.join(input.sourceRoot, "xdg-state");
-      if (await exists(stateRoot)) entries.push(stateRoot);
       return entries;
     }
     default:
@@ -162,7 +131,6 @@ export const makeProviderNativeStateMaterializer = Effect.gen(function* () {
                   sourceRoot,
                 });
             if (entries !== null) {
-              if (input.harness === "opencode") await snapshotOpenCodeDatabase(source, staging);
               for (const entry of entries) await copyEntry(sourceRoot, copyTarget, entry);
             }
             if (missingConversation || entries === null) providerSessionId = null;

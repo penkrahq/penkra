@@ -1,4 +1,5 @@
 import { ConnectionRateLimitsLive } from "./providerUsage/ConnectionRateLimits.ts";
+import { NativeStorageTestLayer } from "./provider/nativeStorage.test-support.ts";
 import { ProviderAuthCircuitsLive } from "./provider/providerAuthCircuit.ts";
 // FILE: codexAccountPool.test.ts
 // Purpose: Exercise account transports with real children and gateway leases.
@@ -448,6 +449,7 @@ it("ThreadLifecycle removes native files only after thread/closed", () =>
           enteredStop = resolve;
         });
         const lifecycle = yield* makeThreadLifecycle.pipe(
+          Effect.provide(NativeStorageTestLayer),
           Effect.provideService(ThreadPublisher, makeThreadPublisher()),
           Effect.provideService(
             ProviderTurnSelectionResolver,

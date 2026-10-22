@@ -1,4 +1,18 @@
 import { randomUUID } from "node:crypto";
+import { makeKeyedRuntimeLock } from "../keyedRuntimeLock.ts";
+import { rm } from "node:fs/promises";
+import path from "node:path";
+import {
+  decodeOpenCodeConversationExport,
+  importOpenCodeConversation,
+  type OpenCodeConversationExport,
+} from "../openCodeConversationTransfer.ts";
+import {
+  findOpenCodeStorage,
+  hasOpenCodeDatabase,
+  openCodeStorage,
+  type OpenCodeStorage,
+} from "../openCodeStorage.ts";
 
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import {
@@ -976,6 +990,7 @@ export function makeOpenCodeAdapterLive(options?: OpenCodeAdapterLiveOptions) {
         options?.agentGatewayCredentials;
       const gatewayToolBridge = yield* AgentGatewayToolBridge;
       const provider = adapterConfig.provider;
+      const withNativeDeletion = makeKeyedRuntimeLock<string>();
       const prepareManagedProcess = (launch: ProviderManagedLaunchContext) =>
         Effect.gen(function* () {
           if (!agentGatewayCredentials)
@@ -2608,6 +2623,51 @@ export function makeOpenCodeAdapterLive(options?: OpenCodeAdapterLiveOptions) {
                         operation: "agentGateway.setup",
                         detail: "The native server has no registered gateway process.",
                       });
+                    if (
+                      resumedSessionId &&
+                      (yield* Effect.tryPromise({
+                        try: () => hasOpenCodeDatabase(launch.nativeStateRoot),
+                        catch: (cause) =>
+                          new OpenCodeRuntimeError({
+                            operation: "storage.migrate",
+                            detail: "Could not inspect the exact native migration source.",
+                            cause,
+                          }),
+                      }))
+                    ) {
+                      const source = openCodeStorage(launch.profileRoot, launch.nativeStateRoot);
+                      const conversation = yield* exportNativeConversation(
+                        source,
+                        resumedSessionId,
+                        binaryPath,
+                      );
+                      yield* importNativeConversation(client, launch, source, conversation);
+                      yield* Effect.tryPromise({
+                        try: async () => {
+                          if (
+                            path.dirname(launch.nativeStateRoot) !==
+                              path.join(serverConfig.stateDir, "provider-native-state") ||
+                            !/^[a-f0-9]{64}$/.test(path.basename(launch.nativeStateRoot))
+                          )
+                            throw new Error(
+                              "Native migration source is not an owned generation root.",
+                            );
+                          await rm(launch.nativeStateRoot, { recursive: true, force: true });
+                        },
+                        catch: (cause) =>
+                          new OpenCodeRuntimeError({
+                            operation: "storage.migrate",
+                            detail: "Could not remove the verified native migration source.",
+                            cause,
+                          }),
+                      });
+                      yield* Effect.logInfo("provider.storage.migrated", {
+                        provider,
+                        threadId: input.threadId,
+                        nativeSessionId: resumedSessionId,
+                        connectionId: launch.connectionId,
+                      });
+                    }
                     const createSessionId = resumedSessionId
                       ? runOpenCodeSdk("session.update", () =>
                           client.session.update({
@@ -3131,6 +3191,224 @@ export function makeOpenCodeAdapterLive(options?: OpenCodeAdapterLiveOptions) {
           }),
         );
 
+      const exportNativeConversation = (
+        source: OpenCodeStorage,
+        sessionID: string,
+        binaryPath: string,
+      ) =>
+        openCodeRuntime
+          .runOpenCodeCommand({
+            binaryPath,
+            args: ["--pure", "export", sessionID],
+            cwd: source.root,
+            processEnv: source.env,
+          })
+          .pipe(
+            Effect.flatMap((result) =>
+              Effect.try({
+                try: () => {
+                  if (result.code !== 0)
+                    throw new Error(`OpenCode export failed (${result.code}): ${result.stderr}`);
+                  return decodeOpenCodeConversationExport(JSON.parse(result.stdout), sessionID);
+                },
+                catch: (cause) =>
+                  new OpenCodeRuntimeError({
+                    operation: "storage.export",
+                    detail: "Could not export the exact native conversation.",
+                    cause,
+                  }),
+              }),
+            ),
+          );
+
+      const importNativeConversation = (
+        client: OpencodeClient,
+        launch: ProviderManagedLaunchContext,
+        source: OpenCodeStorage,
+        conversation: OpenCodeConversationExport,
+      ) =>
+        Effect.gen(function* () {
+          const project = yield* runOpenCodeSdk("project.current", () => client.project.current());
+          if (!project.data?.worktree)
+            return yield* new OpenCodeRuntimeError({
+              operation: "storage.import",
+              detail: "OpenCode did not report the target worktree.",
+            });
+          yield* Effect.tryPromise({
+            try: (signal) =>
+              importOpenCodeConversation({
+                conversation,
+                sourceDataRoot: source.data,
+                targetDataRoot: openCodeStorage(launch.profileRoot).data,
+                worktree: project.data!.worktree,
+                temporaryRoot: launch.profileRoot,
+                env: launch.childEnvironment(process.env),
+                signal,
+                deleteTarget: async () => {
+                  const result = await client.session.delete(
+                    { sessionID: conversation.info.id },
+                    { throwOnError: false, signal },
+                  );
+                  if (
+                    result.response.status !== 404 &&
+                    (!result.response.ok || result.data !== true)
+                  )
+                    throw new Error(
+                      `OpenCode target deletion failed (HTTP ${result.response.status}).`,
+                      { cause: result.error },
+                    );
+                },
+                command: (args) =>
+                  Effect.runPromise(
+                    openCodeRuntime.runOpenCodeCommand({
+                      binaryPath: launch.binaryPath,
+                      args,
+                      cwd: conversation.info.directory,
+                      processEnv: launch.childEnvironment(process.env),
+                    }),
+                    { signal },
+                  ),
+              }),
+            catch: (cause) =>
+              new OpenCodeRuntimeError({
+                operation: "storage.import",
+                detail: "Could not import and verify the native conversation.",
+                cause,
+              }),
+          });
+        });
+
+      const copyNativeConversation: NonNullable<OpenCodeAdapterShape["copyNativeConversation"]> = (
+        input,
+      ) =>
+        Effect.gen(function* () {
+          const source = yield* Effect.tryPromise({
+            try: () => findOpenCodeStorage(input.sourceProfileRoot, input.sourceNativeStateRoot),
+            catch: (cause) =>
+              new OpenCodeRuntimeError({
+                operation: "storage.copy",
+                detail: "Could not inspect the source native store.",
+                cause,
+              }),
+          });
+          if (source === null) return null;
+          const conversation = yield* exportNativeConversation(
+            source,
+            input.providerSessionId,
+            input.managedLaunch.binaryPath,
+          );
+          yield* withDiscoveryClient(
+            { cwd: conversation.info.directory, managedLaunch: input.managedLaunch },
+            ({ client }) =>
+              importNativeConversation(client, input.managedLaunch, source, conversation).pipe(
+                Effect.mapError(toAdapterRequestError),
+              ),
+          );
+          yield* Effect.logInfo("provider.storage.copied", {
+            provider,
+            nativeSessionId: input.providerSessionId,
+            connectionId: input.managedLaunch.connectionId,
+          });
+          return input.providerSessionId;
+        }).pipe(
+          Effect.mapError((cause) =>
+            cause instanceof OpenCodeRuntimeError ? toAdapterRequestError(cause) : cause,
+          ),
+        );
+
+      const deleteNativeConversation: NonNullable<
+        OpenCodeAdapterShape["deleteNativeConversation"]
+      > = (input) =>
+        Effect.gen(function* () {
+          if (
+            !input.providerSessionId ||
+            input.providerSessionId === "." ||
+            input.providerSessionId === ".." ||
+            path.basename(input.providerSessionId) !== input.providerSessionId
+          )
+            return yield* new OpenCodeRuntimeError({
+              operation: "storage.delete",
+              detail: "Invalid native conversation identity.",
+            });
+          const stores = [
+            openCodeStorage(input.profileRoot),
+            ...(input.nativeStateRoot === undefined
+              ? []
+              : [openCodeStorage(input.profileRoot, input.nativeStateRoot)]),
+          ];
+          for (const store of stores) {
+            if (
+              !(yield* Effect.tryPromise({
+                try: () => hasOpenCodeDatabase(store.root),
+                catch: (cause) =>
+                  new OpenCodeRuntimeError({
+                    operation: "storage.delete",
+                    detail: "Could not inspect native storage.",
+                    cause,
+                  }),
+              }))
+            )
+              continue;
+            yield* withNativeDeletion(
+              store.root,
+              Effect.scoped(
+                Effect.gen(function* () {
+                  const cliSpec = { ...adapterConfig.cliSpec, managedServerArgs: ["--pure"] };
+                  const server = yield* openCodeRuntime.startOpenCodeServerProcess({
+                    binaryPath: input.binaryPath,
+                    cliSpec,
+                    cwd: store.root,
+                    processEnv: store.env,
+                  });
+                  const client = openCodeRuntime.createOpenCodeSdkClient({
+                    baseUrl: server.url,
+                    directory: store.root,
+                    cliSpec,
+                  });
+                  yield* runOpenCodeSdk("session.delete", async () => {
+                    const current = await client.session.get(
+                      { sessionID: input.providerSessionId },
+                      { throwOnError: false },
+                    );
+                    if (current.response.status !== 404 && (!current.response.ok || !current.data))
+                      throw new Error(
+                        `OpenCode session read failed (HTTP ${current.response.status}).`,
+                        { cause: current.error },
+                      );
+                    if (current.data?.projectID === "global") {
+                      const name = `${current.data.time.created}-${current.data.slug}.md`;
+                      if (path.basename(name) !== name)
+                        throw new Error("Invalid native plan identity.");
+                      await rm(path.join(store.data, "plans", name), { force: true });
+                    }
+                    const result = await client.session.delete(
+                      { sessionID: input.providerSessionId },
+                      { throwOnError: false },
+                    );
+                    if (
+                      result.response.status !== 404 &&
+                      (!result.response.ok || result.data !== true)
+                    )
+                      throw new Error(
+                        `OpenCode native deletion failed (HTTP ${result.response.status}).`,
+                        { cause: result.error },
+                      );
+                    await rm(path.join(store.data, "thread-artifacts", input.providerSessionId), {
+                      recursive: true,
+                      force: true,
+                    });
+                  });
+                }),
+              ),
+            );
+            yield* Effect.logInfo("provider.storage.deleted", {
+              provider,
+              nativeSessionId: input.providerSessionId,
+              storeRoot: store.root,
+            });
+          }
+        }).pipe(Effect.mapError(toAdapterRequestError));
+
       const probeTurnEndpoint: NonNullable<OpenCodeAdapterShape["probeTurnEndpoint"]> = (input) => {
         const parsedModel = parseOpenCodeModelSlug(input.model);
         if (!parsedModel) {
@@ -3340,6 +3618,8 @@ export function makeOpenCodeAdapterLive(options?: OpenCodeAdapterLiveOptions) {
         compactThread,
         stopAll,
         stopAccount,
+        copyNativeConversation,
+        deleteNativeConversation,
         drainRuntimeEvents: awaitProviderRuntimeEventsDrained(
           Queue.size(runtimeEvents).pipe(Effect.map((size) => size === 0)),
         ),

@@ -1,4 +1,7 @@
 import { FolderId, ProviderConnectionId, ThreadId } from "@penkra/contracts";
+import { mkdir, readFile, writeFile, access } from "node:fs/promises";
+import path from "node:path";
+import { providerNativeStateRoot } from "../providerNativeStatePaths.ts";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import type {
   Agent,
@@ -88,6 +91,7 @@ function createMockOpenCodeRuntime(options?: {
   readonly status?: () => Promise<unknown>;
   readonly session?: Record<string, unknown>;
   readonly sessionGet?: (input: { sessionID: string }) => Promise<unknown>;
+  readonly sessionDelete?: (input: Record<string, unknown>) => Promise<unknown>;
   readonly childrenBySessionId?: Readonly<Record<string, ReadonlyArray<{ id: string }>>>;
   readonly children?: (input: { sessionID: string }) => Promise<unknown>;
   readonly pendingPermissions?: ReadonlyArray<PermissionRequest>;
@@ -104,6 +108,8 @@ function createMockOpenCodeRuntime(options?: {
   readonly scopeCloseDefect?: boolean;
   readonly connectBarrier?: Effect.Effect<void>;
   readonly onScopeClose?: () => void;
+  readonly runCommand?: OpenCodeRuntimeShape["runOpenCodeCommand"];
+  readonly startServer?: OpenCodeRuntimeShape["startOpenCodeServerProcess"];
 }) {
   const abortCalls: Array<{ sessionID: string }> = [];
   const connectCalls: Array<Parameters<OpenCodeRuntimeShape["connectToOpenCodeServer"]>[0]> = [];
@@ -133,6 +139,7 @@ function createMockOpenCodeRuntime(options?: {
     },
   };
   const client = {
+    project: { current: async () => ({ data: { id: "global", worktree: process.cwd() } }) },
     provider: {
       list: async () => ({
         data: options?.inventory?.providerList ?? { all: [], connected: [], default: {} },
@@ -164,7 +171,9 @@ function createMockOpenCodeRuntime(options?: {
       },
       delete: async (input: Record<string, unknown>) => {
         deleteCalls.push(input);
-        return { data: true };
+        return options?.sessionDelete
+          ? options.sessionDelete(input)
+          : { data: true, response: new Response("true") };
       },
       update: async (input: Record<string, unknown>) => {
         updateCalls.push(input);
@@ -274,10 +283,22 @@ function createMockOpenCodeRuntime(options?: {
       Effect.sync(() => {
         stoppedAll++;
       }),
-    startOpenCodeServerProcess: () => unexpectedOperation("startOpenCodeServerProcess"),
+    startOpenCodeServerProcess:
+      options?.startServer ?? (() => unexpectedOperation("startOpenCodeServerProcess")),
     connectToOpenCodeServer: (input) =>
       Effect.gen(function* () {
         connectCalls.push(input);
+        if (input.assertCurrentCredentials)
+          yield* input.assertCurrentCredentials.pipe(
+            Effect.mapError(
+              (cause) =>
+                new OpenCodeRuntimeError({
+                  operation: "fixture.credentials",
+                  detail: "Credential retired",
+                  cause,
+                }),
+            ),
+          );
         if (options?.connectError) {
           return yield* options.connectError;
         }
@@ -307,7 +328,7 @@ function createMockOpenCodeRuntime(options?: {
           ...(processCredential ? { gatewayProcessToken: processCredential.token } : {}),
         };
       }),
-    runOpenCodeCommand: () => unexpectedOperation("runOpenCodeCommand"),
+    runOpenCodeCommand: options?.runCommand ?? (() => unexpectedOperation("runOpenCodeCommand")),
     createOpenCodeSdkClient,
     loadOpenCodeProviderList: () =>
       options?.inventoryError
@@ -608,6 +629,261 @@ describe("normalizeOpenCodeTokenUsage", () => {
 });
 
 describe("OpenCodeAdapter runtime lifecycle", () => {
+  for (const generation of [true, false]) {
+    it(`copies the exact ${generation ? "old generation" : "shared"} store without requiring the source login`, async () => {
+      let sourceDatabase = "";
+      let targetDatabase = "";
+      const commands: string[] = [];
+      const source = {
+        info: {
+          id: "ses_copy",
+          projectID: "global",
+          slug: "native-plan",
+          time: { created: 1, updated: 1 },
+          directory: process.cwd(),
+        },
+        messages: [],
+      };
+      let copied = source;
+      const fixture = createMockOpenCodeRuntime({
+        runCommand: (input) =>
+          Effect.tryPromise({
+            try: async () => {
+              commands.push(input.args[1]!);
+              if (input.processEnv?.OPENCODE_DB === sourceDatabase) {
+                expect(input.args).toEqual(["--pure", "export", "ses_copy"]);
+                expect(input.processEnv.OPENCODE_AUTH_CONTENT).toBeUndefined();
+                return { code: 0, stderr: "", stdout: JSON.stringify(source) };
+              }
+              expect(input.processEnv?.OPENCODE_DB).toBe(targetDatabase);
+              if (input.args[1] === "import")
+                copied = JSON.parse(await readFile(input.args[2]!, "utf8"));
+              return {
+                code: 0,
+                stderr: "",
+                stdout: input.args[1] === "export" ? JSON.stringify(copied) : "",
+              };
+            },
+            catch: (cause) =>
+              new OpenCodeRuntimeError({ operation: "fixture", detail: String(cause), cause }),
+          }),
+      });
+      await Effect.runPromise(
+        Effect.gen(function* () {
+          const config = yield* ServerConfig;
+          const adapter = yield* OpenCodeAdapter;
+          const sourceProfileRoot = path.join(config.stateDir, "signed-out-source");
+          const sourceNativeStateRoot = providerNativeStateRoot(
+            config.stateDir,
+            "source-generation",
+          );
+          const root = generation ? sourceNativeStateRoot : sourceProfileRoot;
+          sourceDatabase = path.join(root, "opencode.db");
+          const profileRoot = path.join(config.stateDir, "active-target");
+          targetDatabase = path.join(profileRoot, "opencode.db");
+          yield* Effect.promise(async () => {
+            await mkdir(root, { recursive: true });
+            await writeFile(sourceDatabase, "native database marker");
+          });
+          if (!adapter.copyNativeConversation) throw new Error("Missing native transfer");
+          const result = yield* adapter.copyNativeConversation({
+            providerSessionId: "ses_copy",
+            sourceProfileRoot,
+            sourceNativeStateRoot,
+            managedLaunch: {
+              ...managedLaunchForTest(asThreadId("copy")),
+              profileRoot,
+              childEnvironment: () => ({ OPENCODE_DB: targetDatabase }),
+            },
+          });
+          expect(result).toBe("ses_copy");
+          expect(commands).toEqual(["export", "import", "export"]);
+          expect(fixture.createCalls).toHaveLength(0);
+          yield* Effect.promise(() => access(sourceDatabase));
+          yield* adapter.stopAll();
+        }).pipe(
+          Effect.provide(
+            makeOpenCodeAdapterLive({
+              runtime: fixture.runtime,
+              loadSharedMcpConfig: async () => "{}",
+            }).pipe(
+              Layer.provideMerge(
+                ServerConfig.layerTest(process.cwd(), { prefix: "opencode-transfer-source-" }),
+              ),
+              Layer.provideMerge(NodeServices.layer),
+            ),
+          ),
+        ),
+      );
+    });
+  }
+
+  for (const status of [404, 403]) {
+    it(`uses a scoped auth-free native deletion and handles HTTP ${status} explicitly`, async () => {
+      let starts = 0;
+      let closes = 0;
+      const fixture = createMockOpenCodeRuntime({
+        sessionGet: async () => ({ response: new Response(null, { status }) }),
+        sessionDelete: async () => ({ response: new Response(null, { status: 404 }) }),
+        startServer: (input) =>
+          Effect.acquireRelease(
+            Effect.sync(() => {
+              starts++;
+              expect(input.cliSpec?.managedServerArgs).toEqual(["--pure"]);
+              expect(input.processEnv?.OPENAI_API_KEY).toBeUndefined();
+              expect(input.processEnv?.OPENCODE_AUTH_CONTENT).toBeUndefined();
+              return { url: "http://127.0.0.1:4099", exitCode: Effect.never };
+            }),
+            () =>
+              Effect.sync(() => {
+                closes++;
+              }),
+          ),
+      });
+      await Effect.runPromise(
+        Effect.gen(function* () {
+          const adapter = yield* OpenCodeAdapter;
+          const config = yield* ServerConfig;
+          const profileRoot = path.join(config.stateDir, "profile");
+          const artifacts = path.join(profileRoot, "xdg-data", "opencode", "thread-artifacts");
+          yield* Effect.promise(async () => {
+            await mkdir(path.join(artifacts, "ses_owned"), { recursive: true });
+            await mkdir(path.join(artifacts, "ses_peer"), { recursive: true });
+            await writeFile(path.join(profileRoot, "opencode.db"), "native marker");
+            await writeFile(path.join(artifacts, "ses_owned", "output"), "owned");
+            await writeFile(path.join(artifacts, "ses_peer", "output"), "peer");
+          });
+          if (!adapter.deleteNativeConversation) throw new Error("Missing native deletion");
+          const input = {
+            profileRoot,
+            binaryPath: "/managed/opencode",
+            providerSessionId: "ses_owned",
+          };
+          const first = yield* Effect.exit(adapter.deleteNativeConversation(input));
+          expect(first._tag).toBe(status === 404 ? "Success" : "Failure");
+          if (status === 404) yield* adapter.deleteNativeConversation(input);
+          const owned = yield* Effect.promise(() =>
+            access(path.join(artifacts, "ses_owned")).then(
+              () => true,
+              () => false,
+            ),
+          );
+          expect(owned).toBe(status === 403);
+          expect(
+            yield* Effect.promise(() =>
+              readFile(path.join(artifacts, "ses_peer", "output"), "utf8"),
+            ),
+          ).toBe("peer");
+          expect(starts).toBe(status === 404 ? 2 : 1);
+          expect(closes).toBe(starts);
+          expect(fixture.connectCalls).toHaveLength(0);
+        }).pipe(
+          Effect.provide(
+            makeOpenCodeAdapterLive({
+              runtime: fixture.runtime,
+              loadSharedMcpConfig: async () => "{}",
+            }).pipe(
+              Layer.provideMerge(
+                ServerConfig.layerTest(process.cwd(), { prefix: "opencode-native-delete-" }),
+              ),
+              Layer.provideMerge(NodeServices.layer),
+            ),
+          ),
+        ),
+      );
+    });
+  }
+
+  for (const failImport of [false, true]) {
+    it(`migrates the exact generation before resume and ${failImport ? "retains it on failure" : "removes it only after verification"}`, async () => {
+      const order: string[] = [];
+      const conversation = {
+        info: {
+          id: "ses_resume",
+          projectID: "global",
+          slug: "native-plan",
+          time: { created: 1, updated: 1 },
+          directory: process.cwd(),
+        },
+        messages: [],
+      };
+      let imported = conversation;
+      const fixture = createMockOpenCodeRuntime({
+        sessionUpdate: async () => {
+          order.push("resume");
+          return { data: null };
+        },
+        runCommand: (input) =>
+          Effect.tryPromise({
+            try: async () => {
+              order.push(input.args[1]!);
+              if (input.args[1] === "import") {
+                if (failImport) return { code: 1, stdout: "", stderr: "native import rejected" };
+                imported = JSON.parse(await readFile(input.args[2]!, "utf8"));
+              }
+              return {
+                code: 0,
+                stderr: "",
+                stdout: input.args[1] === "export" ? JSON.stringify(imported) : "",
+              };
+            },
+            catch: (cause) =>
+              new OpenCodeRuntimeError({ operation: "fixture", detail: String(cause), cause }),
+          }),
+      });
+      await Effect.runPromise(
+        Effect.gen(function* () {
+          const config = yield* ServerConfig;
+          const adapter = yield* OpenCodeAdapter;
+          const threadId = asThreadId("migration");
+          const root = providerNativeStateRoot(config.stateDir, "migration-generation");
+          yield* Effect.promise(async () => {
+            await mkdir(root, { recursive: true });
+            await writeFile(path.join(root, "opencode.db"), "native database marker");
+          });
+          const started = yield* Effect.exit(
+            adapter.startSession({
+              provider: "opencode",
+              threadId,
+              runtimeMode: "full-access",
+              cwd: process.cwd(),
+              resumeCursor: { openCodeSessionId: "ses_resume" },
+              managedLaunch: {
+                ...managedLaunchForTest(threadId),
+                profileRoot: path.join(config.stateDir, "profile"),
+                nativeStateRoot: root,
+              },
+            }),
+          );
+          expect(started._tag).toBe(failImport ? "Failure" : "Success");
+          const exists = yield* Effect.promise(() =>
+            access(root).then(
+              () => true,
+              () => false,
+            ),
+          );
+          expect(exists).toBe(failImport);
+          expect(order).toEqual(
+            failImport ? ["export", "import"] : ["export", "import", "export", "resume"],
+          );
+          yield* adapter.stopAll();
+        }).pipe(
+          Effect.provide(
+            makeOpenCodeAdapterLive({
+              runtime: fixture.runtime,
+              loadSharedMcpConfig: async () => "{}",
+            }).pipe(
+              Layer.provideMerge(
+                ServerConfig.layerTest(process.cwd(), { prefix: "opencode-migration-" }),
+              ),
+              Layer.provideMerge(NodeServices.layer),
+            ),
+          ),
+        ),
+      );
+    });
+  }
+
   it("reads model capabilities from the server and propagates an agent-list failure", async () => {
     const runtime = createMockOpenCodeRuntime({
       inventory: {

@@ -2,6 +2,13 @@
 // Purpose: Copy native state and admit a turn using the canonical thread row.
 
 import { randomUUID } from "node:crypto";
+import { ServerConfig } from "../../config.ts";
+import { ProviderLaunchResolver } from "../../provider/Services/ProviderLaunchResolver.ts";
+import { ProviderAdapterRegistry } from "../../provider/Services/ProviderAdapterRegistry.ts";
+import {
+  providerConnectionProfileRoot,
+  providerNativeStateRoot,
+} from "../../provider/providerNativeStatePaths.ts";
 import { providerSupportsNativeTurnSteering } from "@penkra/shared/providerMetadata";
 import { ModelSelection, ProviderConnectionId, ThreadId, TurnId } from "@penkra/contracts";
 import { Cause, Effect, Layer, Option, PubSub, Schema, Stream } from "effect";
@@ -39,6 +46,9 @@ export const makeProviderThreadSwitchCoordinator = Effect.gen(function* () {
   const provider = yield* ProviderService;
   const directory = yield* ProviderSessionDirectory;
   const materializer = yield* ProviderNativeStateMaterializer;
+  const launchResolver = yield* ProviderLaunchResolver;
+  const registry = yield* ProviderAdapterRegistry;
+  const config = yield* ServerConfig;
 
   const AdmissionThread = Schema.Struct({
     provider: Schema.Literals(["codex", "claudeAgent", "opencode"]),
@@ -191,6 +201,55 @@ export const makeProviderThreadSwitchCoordinator = Effect.gen(function* () {
       const id = randomUUID();
       if (thread.nativeStateId === null || thread.providerSessionId === null) {
         nativeState = { id, providerSessionId: null };
+      } else if (selection.harness === "opencode") {
+        const peers =
+          yield* sql`SELECT id FROM threads WHERE (provider='opencode' AND provider_session_id=${thread.providerSessionId} OR native_state_id=${thread.nativeStateId}) AND id<>${input.command.threadId} AND deleted_at IS NULL LIMIT 1`.pipe(
+            Effect.mapError((cause) =>
+              failure("Could not verify native conversation ownership.", cause),
+            ),
+          );
+        if (peers.length !== 0)
+          return yield* failure(
+            "The native conversation is shared by multiple Threads; no storage was changed.",
+          );
+        const adapter = yield* registry
+          .getByProvider("opencode")
+          .pipe(
+            Effect.mapError((cause) =>
+              failure("The native runtime is unavailable for conversation transfer.", cause),
+            ),
+          );
+        if (!adapter.copyNativeConversation)
+          return yield* failure("The native runtime does not implement conversation transfer.");
+        const launch = yield* launchResolver
+          .resolveProfile({
+            harness: "opencode",
+            connectionId: selection.connectionId,
+            installationId: selection.installationId,
+            internalProviderId: selection.internalProviderId,
+            nativeStateIdentity: id,
+          })
+          .pipe(
+            Effect.mapError((cause) =>
+              failure("Could not authorize the target native store.", cause),
+            ),
+          );
+        const providerSessionId = yield* adapter
+          .copyNativeConversation({
+            providerSessionId: thread.providerSessionId,
+            sourceProfileRoot: providerConnectionProfileRoot(
+              config.stateDir,
+              thread.connectionId ?? "anonymous:opencode",
+            ),
+            sourceNativeStateRoot: providerNativeStateRoot(config.stateDir, thread.nativeStateId),
+            managedLaunch: launch,
+          })
+          .pipe(
+            Effect.mapError((cause) =>
+              failure("Could not transfer the exact native conversation.", cause),
+            ),
+          );
+        nativeState = { id, providerSessionId };
       } else {
         const copied = yield* materializer
           .clone({
@@ -247,6 +306,23 @@ export const makeProviderThreadSwitchCoordinator = Effect.gen(function* () {
         .pipe(
           Effect.mapError((cause) => failure("Could not commit the turn selection.", cause)),
           Effect.onError(() => discardUncommitted.pipe(Effect.orDie)),
+        );
+    if (
+      !nativeSteer &&
+      selection.harness === "opencode" &&
+      nativeState !== undefined &&
+      nativeState.providerSessionId !== null &&
+      thread.nativeStateId !== null
+    )
+      yield* materializer
+        .discard(thread.nativeStateId)
+        .pipe(
+          Effect.mapError((cause) =>
+            failure(
+              "Could not remove the previous native generation after the verified transfer committed.",
+              cause,
+            ),
+          ),
         );
     if (
       !nativeSteer &&
