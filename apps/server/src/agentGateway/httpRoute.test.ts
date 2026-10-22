@@ -56,6 +56,7 @@ async function withGatewayServer(
     const processToken = registry.processes.issue("opencode");
     const foreignProcessToken = registry.processes.issue("opencode");
     registry.processes.register(processToken, "native-http-session", VALID_TOKEN);
+    registry.processes.registerProbe(processToken, "native-http-probe");
     const credentials: AgentGatewayCredentialsShape = {
       mcpEndpointUrl: "http://127.0.0.1/mcp",
       processes: registry.processes,
@@ -162,6 +163,28 @@ async function withGatewayServer(
 }
 
 describe("agentGatewayRouteLayer", () => {
+  it("allows registered tools-disabled probes to initialize without granting any thread authority", async () => {
+    await withGatewayServer(async ({ origin, processToken, handledBodies }) => {
+      const send = (method: string) =>
+        fetch(`${origin}/mcp`, {
+          method: "POST",
+          headers: {
+            authorization: `Bearer ${processToken}`,
+            [AGENT_GATEWAY_NATIVE_SESSION_HEADER]: "native-http-probe",
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({ jsonrpc: "2.0", id: 1, method, params: {} }),
+        });
+      const initialized = await send("initialize");
+      expect(initialized.status).toBe(200);
+      expect(
+        ((await initialized.json()) as { result: { instructions: string } }).result.instructions,
+      ).toBe("");
+      expect((await send("tools/call")).status).toBe(401);
+      expect((await send("tools/list")).status).toBe(401);
+      expect(handledBodies).toEqual([]);
+    });
+  });
   it("resolves a registered native session before binding ingress authority and rejects other process scopes", async () => {
     await withGatewayServer(
       async ({

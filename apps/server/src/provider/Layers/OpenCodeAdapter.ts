@@ -40,7 +40,8 @@ import {
   ProviderAdapterValidationError,
 } from "../Errors.ts";
 import { takePenkraHostPolicyForSession } from "../../agentGateway/harnessPolicy.ts";
-import { buildOpenCodeMcpServer, PENKRA_MCP_SERVER_NAME } from "../../agentGateway/mcpInjection.ts";
+import { AgentGatewayToolBridge } from "../../agentGateway/Services/AgentGatewayToolBridge.ts";
+import { ensureOpenCodeGatewayPlugin } from "../openCodeGatewayPlugin.ts";
 import {
   AgentGatewayCredentials,
   type AgentGatewayCredentialsShape,
@@ -222,6 +223,7 @@ export interface OpenCodeAdapterLiveOptions {
   readonly prematureIdleCompletionGraceMs?: number;
   readonly beforeSessionInstall?: Effect.Effect<void>;
   readonly loadSharedMcpConfig?: (homeDir: string) => Promise<string>;
+  readonly prepareGatewayPlugin?: typeof ensureOpenCodeGatewayPlugin;
 }
 
 function nowIso(): string {
@@ -1127,7 +1129,50 @@ export function makeOpenCodeAdapterLive(options?: OpenCodeAdapterLiveOptions) {
       const agentGatewayCredentials =
         Option.getOrUndefined(yield* Effect.serviceOption(AgentGatewayCredentials)) ??
         options?.agentGatewayCredentials;
+      const gatewayToolBridge = yield* AgentGatewayToolBridge;
       const provider = adapterConfig.provider;
+      const prepareManagedProcess = (launch: ProviderManagedLaunchContext) =>
+        Effect.gen(function* () {
+          if (!agentGatewayCredentials)
+            return yield* new OpenCodeRuntimeError({
+              operation: "agentGateway.setup",
+              detail: "OpenCode requires registered Penkra gateway ownership.",
+            });
+          const processEnv = launch.childEnvironment(process.env);
+          const configContent = yield* Effect.tryPromise({
+            try: async () => {
+              const pluginPath = await (
+                options?.prepareGatewayPlugin ?? ensureOpenCodeGatewayPlugin
+              )(launch.profileRoot, gatewayToolBridge.requireSurface().definitions);
+              const config = JSON.parse(
+                await (options?.loadSharedMcpConfig ?? loadOpenCodeConfigContent)(
+                  serverConfig.homeDir,
+                ),
+              ) as Record<string, unknown>;
+              if (!config || typeof config !== "object" || Array.isArray(config))
+                throw new Error("OpenCode configuration must be an object.");
+              const plugins = config.plugin ?? [];
+              if (!Array.isArray(plugins) || !plugins.every((plugin) => typeof plugin === "string"))
+                throw new Error("OpenCode plugin configuration must contain file paths.");
+              return JSON.stringify({ ...config, plugin: [...plugins, pluginPath] });
+            },
+            catch: (cause) =>
+              new OpenCodeRuntimeError({
+                operation: "agentGateway.setup",
+                detail: "Could not prepare native gateway declarations.",
+                cause,
+              }),
+          });
+          processEnv.OPENCODE_CONFIG_CONTENT = configContent;
+          return {
+            processEnv,
+            gateway: {
+              url: agentGatewayCredentials.mcpEndpointUrl,
+              issue: () => agentGatewayCredentials.processes.issue(provider),
+              revoke: agentGatewayCredentials.processes.revoke,
+            },
+          };
+        });
       const buildEventBase = (
         input: Omit<
           Parameters<typeof buildProviderEventBase>[0],
@@ -3240,9 +3285,9 @@ export function makeOpenCodeAdapterLive(options?: OpenCodeAdapterLiveOptions) {
           }
 
           const resumedSessionId = extractResumeSessionId(input.resumeCursor);
-          // OpenCode's MCP registry is process/directory scoped, not session
-          // scoped. A gateway token is therefore issued only for a managed
-          // server that this runtime isolates to the exact Penkra thread.
+          const prepared = yield* prepareManagedProcess(launch).pipe(
+            Effect.mapError((cause) => toAdapterProcessError(input.threadId, cause)),
+          );
           const agentGatewaySessionLease = acquireAgentGatewaySessionLease(
             agentGatewayCredentials,
             input.threadId,
@@ -3255,20 +3300,12 @@ export function makeOpenCodeAdapterLive(options?: OpenCodeAdapterLiveOptions) {
                 input.threadId,
                 new OpenCodeRuntimeError({
                   operation: "agentGateway.setup",
-                  detail: `${adapterConfig.displayName} session start requires an isolated, thread-scoped Penkra gateway connection; external servers and missing gateway credentials are unsupported.`,
+                  detail: "The native session requires registered Penkra gateway ownership.",
                 }),
               ),
             );
           }
-          const agentGatewayConnection = agentGatewaySessionLease.connection;
           const poolIsolationKey = launch.isolationKey;
-          const managedProcessEnv = launch.childEnvironment(process.env);
-          const sharedMcpConfig = yield* Effect.tryPromise({
-            try: () =>
-              (options?.loadSharedMcpConfig ?? loadOpenCodeConfigContent)(serverConfig.homeDir),
-            catch: (cause) => toAdapterProcessError(input.threadId, cause),
-          });
-          managedProcessEnv.OPENCODE_CONFIG_CONTENT = sharedMcpConfig;
 
           let sessionScopeTransferred = false;
           const installed = yield* Effect.acquireUseRelease(
@@ -3287,50 +3324,18 @@ export function makeOpenCodeAdapterLive(options?: OpenCodeAdapterLiveOptions) {
                       poolIsolationKey,
                       profileRoot: launch.profileRoot,
                       ...(launch.connectionId ? { connectionId: launch.connectionId } : {}),
-                      processEnv: managedProcessEnv,
+                      ...prepared,
                     });
                     const client = openCodeRuntime.createOpenCodeSdkClient({
                       baseUrl: server.url,
                       directory,
                       cliSpec: adapterConfig.cliSpec,
                     });
-                    // OpenCode retains its normal provider capabilities.
-                    // Only a copied entry occupying Penkra's reserved gateway
-                    // name is disconnected before the authenticated gateway is
-                    // installed for this isolated thread runtime.
-                    const configuredMcpServers = yield* runOpenCodeSdk("mcp.status", () =>
-                      client.mcp.status({ directory }),
-                    );
-                    if (configuredMcpServers.data?.[PENKRA_MCP_SERVER_NAME]) {
-                      yield* runOpenCodeSdk("mcp.disconnect", () =>
-                        client.mcp.disconnect({
-                          directory,
-                          name: PENKRA_MCP_SERVER_NAME,
-                        }),
-                      );
-                    }
-                    yield* runOpenCodeSdk("mcp.add", () =>
-                      client.mcp.add({
-                        directory,
-                        name: PENKRA_MCP_SERVER_NAME,
-                        config: buildOpenCodeMcpServer(agentGatewayConnection),
-                      }),
-                    ).pipe(
-                      Effect.flatMap((result) => {
-                        const status = result.data?.[PENKRA_MCP_SERVER_NAME];
-                        return status?.status === "connected"
-                          ? Effect.void
-                          : Effect.fail(
-                              new OpenCodeRuntimeError({
-                                operation: "mcp.add",
-                                detail:
-                                  status?.status === "failed"
-                                    ? `${adapterConfig.displayName} Penkra MCP connection failed: ${status.error}`
-                                    : `${adapterConfig.displayName} Penkra MCP connection did not become ready.`,
-                              }),
-                            );
-                      }),
-                    );
+                    if (server.gatewayProcessToken === undefined)
+                      return yield* new OpenCodeRuntimeError({
+                        operation: "agentGateway.setup",
+                        detail: "The native server has no registered gateway process.",
+                      });
                     const createSessionId = resumedSessionId
                       ? runOpenCodeSdk("session.update", () =>
                           client.session.update({
@@ -3390,6 +3395,14 @@ export function makeOpenCodeAdapterLive(options?: OpenCodeAdapterLiveOptions) {
                       [createSessionId, loadModelContextLimits],
                       { concurrency: "unbounded" },
                     );
+                    const unregister = yield* Effect.sync(() =>
+                      agentGatewayCredentials!.processes.register(
+                        server.gatewayProcessToken!,
+                        openCodeSessionId,
+                        agentGatewaySessionLease.connection.bearerToken,
+                      ),
+                    );
+                    yield* Scope.addFinalizer(sessionScope, Effect.sync(unregister));
 
                     return {
                       sessionScope,
@@ -3829,10 +3842,14 @@ export function makeOpenCodeAdapterLive(options?: OpenCodeAdapterLiveOptions) {
         input: { readonly cwd: string; readonly managedLaunch: ProviderManagedLaunchContext },
         fn: (input: {
           readonly client: OpencodeClient;
+          readonly server: OpenCodeServerConnection;
         }) => Effect.Effect<A, ProviderAdapterRequestError>,
       ): Effect.Effect<A, ProviderAdapterRequestError> =>
         Effect.scoped(
           Effect.gen(function* () {
+            const prepared = yield* prepareManagedProcess(input.managedLaunch).pipe(
+              Effect.mapError(toAdapterRequestError),
+            );
             const server = yield* openCodeRuntime
               .connectToOpenCodeServer({
                 binaryPath: input.managedLaunch.binaryPath,
@@ -3843,7 +3860,7 @@ export function makeOpenCodeAdapterLive(options?: OpenCodeAdapterLiveOptions) {
                 ...(input.managedLaunch.connectionId
                   ? { connectionId: input.managedLaunch.connectionId }
                   : {}),
-                processEnv: input.managedLaunch.childEnvironment(process.env),
+                ...prepared,
               })
               .pipe(Effect.mapError(toAdapterRequestError));
             const client = openCodeRuntime.createOpenCodeSdkClient({
@@ -3851,7 +3868,7 @@ export function makeOpenCodeAdapterLive(options?: OpenCodeAdapterLiveOptions) {
               directory: input.cwd,
               cliSpec: adapterConfig.cliSpec,
             });
-            return yield* fn({ client });
+            return yield* fn({ client, server });
           }),
         );
 
@@ -3868,8 +3885,14 @@ export function makeOpenCodeAdapterLive(options?: OpenCodeAdapterLiveOptions) {
         }
         return withDiscoveryClient(
           { cwd: input.cwd, managedLaunch: input.managedLaunch },
-          ({ client }) =>
+          ({ client, server }) =>
             Effect.gen(function* () {
+              if (!server.gatewayProcessToken || !agentGatewayCredentials)
+                return yield* new ProviderAdapterRequestError({
+                  provider,
+                  method: "auth/probe",
+                  detail: "The probe has no owned gateway process.",
+                });
               const created = yield* runOpenCodeSdk("session.create", () =>
                 client.session.create({
                   directory: input.cwd,
@@ -3884,6 +3907,12 @@ export function makeOpenCodeAdapterLive(options?: OpenCodeAdapterLiveOptions) {
               ).pipe(Effect.mapError(toAdapterRequestError));
               const sessionID = created.data?.id;
               if (!sessionID) return false;
+              const unregisterProbe = yield* Effect.sync(() =>
+                agentGatewayCredentials.processes.registerProbe(
+                  server.gatewayProcessToken!,
+                  sessionID,
+                ),
+              );
               return yield* runOpenCodeSdk("session.prompt", () =>
                 client.session.prompt({
                   sessionID,
@@ -3894,6 +3923,7 @@ export function makeOpenCodeAdapterLive(options?: OpenCodeAdapterLiveOptions) {
                   parts: [{ type: "text", text: "Reply OK." }],
                 }),
               ).pipe(
+                Effect.ensuring(Effect.sync(unregisterProbe)),
                 Effect.map(
                   (response) =>
                     response.data?.info !== undefined &&

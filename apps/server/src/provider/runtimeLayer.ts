@@ -37,8 +37,7 @@ export function makeServerProviderLayer(
         })
       : undefined;
     const providerSessionDirectoryLayer = ProviderSessionDirectoryLive;
-    // Gives gateway-capable sessions their thread-scoped penkra_* credentials.
-    // OpenCode isolates its managed server before installing MCP.
+    // Share the gateway registry across native adapters and HTTP ingress.
     const agentGatewayCredentialsLayer =
       options.agentGatewayCredentialsLayer ?? AgentGatewayCredentialsWithSecretsLive;
     const codexAdapterLayer = makeCodexAdapterLive(

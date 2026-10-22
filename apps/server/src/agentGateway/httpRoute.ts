@@ -16,6 +16,7 @@ import { AGENT_GATEWAY_MCP_PATH } from "./Layers/AgentGatewayCredentials";
 import { AgentGateway } from "./Services/AgentGateway";
 import { AgentGatewayCredentials } from "./Services/AgentGatewayCredentials";
 import { extractBearerToken } from "./bearerToken.ts";
+import { buildMcpInitializeResult, jsonRpcResult, parseMcpMessage } from "./protocol.ts";
 
 export const AGENT_GATEWAY_MCP_MAX_BODY_BYTES = 1024 * 1024;
 
@@ -96,15 +97,21 @@ const postRouteLayer = HttpRouter.add(
     const credentials = yield* AgentGatewayCredentials;
     const presentedToken = extractBearerToken(request.headers.authorization);
     const nativeSessionId = request.headers[AGENT_GATEWAY_NATIVE_SESSION_HEADER];
+    const probe =
+      presentedToken !== null &&
+      nativeSessionId !== undefined &&
+      credentials.processes.isProbe(presentedToken, nativeSessionId);
     const token =
       presentedToken && nativeSessionId !== undefined
         ? credentials.processes.resolve(presentedToken, nativeSessionId)
         : presentedToken;
-    if (!token || credentials.verifySession(token) === null) {
+    if (!probe && (!token || credentials.verifySession(token) === null)) {
       return unauthorizedResponse();
     }
 
-    const ingressWriteAuthority = { token, authority: credentials.bindWriteAuthority(token) };
+    const ingressWriteAuthority = token
+      ? { token, authority: credentials.bindWriteAuthority(token) }
+      : undefined;
     const bodyResult = yield* readMcpJsonBody(request);
     if (bodyResult.kind === "too-large") {
       return HttpServerResponse.jsonUnsafe(
@@ -122,11 +129,27 @@ const postRouteLayer = HttpRouter.add(
         { status: 400 },
       );
     }
+    if (probe) {
+      const message = parseMcpMessage(bodyResult.body);
+      if (message.kind !== "request" || message.request.method !== "initialize")
+        return unauthorizedResponse();
+      return HttpServerResponse.jsonUnsafe(
+        jsonRpcResult(
+          message.request.id,
+          buildMcpInitializeResult({
+            requestedProtocolVersion: message.request.params.protocolVersion,
+            serverVersion: "1.0.0",
+            instructions: "",
+          }),
+        ),
+        { status: 200 },
+      );
+    }
     const originTurnId = request.headers[AGENT_GATEWAY_ORIGIN_TURN_HEADER];
     const result = yield* gateway.handleMcpPost({
       authorizationHeader: `Bearer ${token}`,
       body: bodyResult.body,
-      ingressWriteAuthority,
+      ...(ingressWriteAuthority ? { ingressWriteAuthority } : {}),
       ...(originTurnId ? { originTurnId } : {}),
     });
     if (result.body === undefined) {

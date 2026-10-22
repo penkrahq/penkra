@@ -12,6 +12,13 @@ describe("AgentGatewaySessionRegistry", () => {
     const processA = registry.processes.issue("opencode");
     const processB = registry.processes.issue("opencode");
     const releaseA = registry.processes.register(processA, "native-a", a.token);
+    const releaseProbe = registry.processes.registerProbe(processA, "native-probe");
+    assert.isTrue(registry.processes.isProbe(processA, "native-probe"));
+    assert.isFalse(registry.processes.isProbe(processB, "native-probe"));
+    assert.isNull(registry.processes.resolve(processA, "native-probe"));
+    assert.throws(() => registry.processes.register(processA, "native-probe", a.token));
+    releaseProbe();
+    assert.isFalse(registry.processes.isProbe(processA, "native-probe"));
     registry.processes.register(processB, "native-b", b.token);
     assert.equal(registry.processes.resolve(processA, "native-a"), a.token);
     assert.isNull(registry.processes.resolve(processA, "native-b"));

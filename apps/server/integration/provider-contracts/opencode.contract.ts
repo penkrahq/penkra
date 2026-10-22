@@ -68,7 +68,9 @@ it("routes simultaneous sessions by native sessionID/directory and preserves too
     const childToken =
       token && typeof sessionID === "string" ? registry.processes.resolve(token, sessionID) : null;
     const identity = childToken ? registry.verify(childToken) : null;
-    if (!identity || typeof sessionID !== "string") {
+    const probe =
+      token && typeof sessionID === "string" && registry.processes.isProbe(token, sessionID);
+    if ((!identity && !probe) || typeof sessionID !== "string") {
       response.writeHead(401);
       response.end(JSON.stringify({ error: { message: "Unregistered native session" } }));
       return;
@@ -79,9 +81,14 @@ it("routes simultaneous sessions by native sessionID/directory and preserves too
         JSON.stringify({
           jsonrpc: "2.0",
           id: body.id,
-          result: { instructions: "GATEWAY_MANUAL_CONTRACT" },
+          result: { instructions: probe ? "" : "GATEWAY_MANUAL_CONTRACT" },
         }),
       );
+      return;
+    }
+    if (!identity) {
+      response.writeHead(401);
+      response.end(JSON.stringify({ error: { message: "Probes cannot use host tools" } }));
       return;
     }
     const directory = nativeDirectories.get(sessionID)!;
@@ -106,40 +113,47 @@ it("routes simultaneous sessions by native sessionID/directory and preserves too
   const model = http.createServer(async (req, res) => {
     let text = "";
     for await (const chunk of req) text += chunk;
-    const body = JSON.parse(text) as { messages: ModelMessage[] };
-    assert(
+    const body = JSON.parse(text) as {
+      messages: ModelMessage[];
+      tools?: Array<{ function: { name: string } }>;
+    };
+    const probe = JSON.stringify(body.messages).includes("PROBE_CONTRACT");
+    assert.equal(
       JSON.stringify(body.messages.filter((message) => message.role === "system")).includes(
         "GATEWAY_MANUAL_CONTRACT",
       ),
+      !probe,
     );
+    if (probe) assert(!body.tools?.some((tool) => tool.function.name === PENKRA_EXEC_COMMAND_NAME));
     const hasToolResult = body.messages.some((message) => message.role === "tool");
-    if (!hasToolResult) {
+    if (!hasToolResult && !probe) {
       initialCount++;
       if (initialCount === 2) release();
       // Neither session can complete until both are genuinely in flight.
       await bothInitial;
     }
-    const delta = hasToolResult
-      ? { content: "CONTRACT_DONE" }
-      : {
-          tool_calls: [
-            {
-              index: 0,
-              id: "call_proof",
-              type: "function",
-              function: { name: "proof", arguments: "{}" },
-            },
-            {
-              index: 1,
-              id: "call_gateway",
-              type: "function",
-              function: {
-                name: PENKRA_EXEC_COMMAND_NAME,
-                arguments: JSON.stringify({ command: "identity" }),
+    const delta =
+      hasToolResult || probe
+        ? { content: probe ? "PROBE_OK" : "CONTRACT_DONE" }
+        : {
+            tool_calls: [
+              {
+                index: 0,
+                id: "call_proof",
+                type: "function",
+                function: { name: "proof", arguments: "{}" },
               },
-            },
-          ],
-        };
+              {
+                index: 1,
+                id: "call_gateway",
+                type: "function",
+                function: {
+                  name: PENKRA_EXEC_COMMAND_NAME,
+                  arguments: JSON.stringify({ command: "identity" }),
+                },
+              },
+            ],
+          };
     res.writeHead(200, { "Content-Type": "text/event-stream" });
     for (const part of [{ role: "assistant", content: "" }, delta]) {
       res.write(
@@ -147,7 +161,7 @@ it("routes simultaneous sessions by native sessionID/directory and preserves too
       );
     }
     res.end(
-      `data: ${JSON.stringify({ id: "contract", object: "chat.completion.chunk", created: 1, model: "contract", choices: [{ index: 0, delta: {}, finish_reason: hasToolResult ? "stop" : "tool_calls" }], usage: { prompt_tokens: 10, completion_tokens: 5, total_tokens: 15 } })}\n\ndata: [DONE]\n\n`,
+      `data: ${JSON.stringify({ id: "contract", object: "chat.completion.chunk", created: 1, model: "contract", choices: [{ index: 0, delta: {}, finish_reason: hasToolResult || probe ? "stop" : "tool_calls" }], usage: { prompt_tokens: 10, completion_tokens: 5, total_tokens: 15 } })}\n\ndata: [DONE]\n\n`,
     );
   });
   try {
@@ -271,6 +285,24 @@ export const Proof = async () => ({tool:{proof:{description:'Return the native s
       .map((line) => JSON.parse(line) as { sessionID: string; directory: string });
     assert.equal(actualCalls.length, 2);
     assert.equal(gatewayCalls.length, 2);
+    const probe = await api<NativeSession>("/session", fixture.root, {
+      title: "Connectivity probe",
+      permission: [{ permission: "*", pattern: "*", action: "deny" }],
+    });
+    const unregisterProbe = registry.processes.registerProbe(processToken, probe.id);
+    try {
+      const result = await api<NativeMessage>(`/session/${probe.id}/message`, fixture.root, {
+        model: { providerID: "contract", modelID: "contract" },
+        tools: { "*": false },
+        parts: [{ type: "text", text: "PROBE_CONTRACT" }],
+      });
+      assert(result.parts.some((part) => part.type === "text" && part.text === "PROBE_OK"));
+      assert(!result.parts.some((part) => part.type === "tool"));
+      assert.equal(gatewayCalls.length, 2);
+      await api(`/session/${probe.id}`, fixture.root, undefined, "DELETE");
+    } finally {
+      unregisterProbe();
+    }
     for (const { session, directory } of sessions) {
       const call = gatewayCalls.find((entry) => entry.sessionID === session.id);
       assert.equal(call?.directory, directory);

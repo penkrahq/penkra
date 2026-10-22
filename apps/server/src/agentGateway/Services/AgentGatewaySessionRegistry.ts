@@ -33,6 +33,8 @@ export interface AgentGatewayProcessRegistry {
     sessionToken: string,
   ) => () => void;
   readonly resolve: (processToken: string, nativeSessionId: string) => string | null;
+  readonly registerProbe: (processToken: string, nativeSessionId: string) => () => void;
+  readonly isProbe: (processToken: string, nativeSessionId: string) => boolean;
   readonly revoke: (processToken: string) => void;
 }
 

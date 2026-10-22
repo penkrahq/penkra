@@ -20,13 +20,16 @@ export function makeAgentGatewaySessionRegistry(options?: {
   const sessionsByKey = new Map<string, AgentGatewaySessionIdentity>();
   const endedTurnsBySession = new Map<string, Set<string>>();
   const endedSessions = new Set<string>();
-  const processes = new Map<string, { provider: ProviderKind; sessions: Map<string, string> }>();
+  const processes = new Map<
+    string,
+    { provider: ProviderKind; sessions: Map<string, string>; probes: Set<string> }
+  >();
 
   return {
     processes: {
       issue: (provider) => {
         const token = `sagw_process_${randomId()}`;
-        processes.set(token, { provider, sessions: new Map() });
+        processes.set(token, { provider, sessions: new Map(), probes: new Set() });
         return token;
       },
       register: (processToken, nativeSessionId, sessionToken) => {
@@ -36,7 +39,8 @@ export function makeAgentGatewaySessionRegistry(options?: {
           !process ||
           !session ||
           session.provider !== process.provider ||
-          nativeSessionId.length === 0
+          nativeSessionId.length === 0 ||
+          process.probes.has(nativeSessionId)
         ) {
           throw new Error(
             "Cannot register a native session without matching process and session ownership.",
@@ -55,6 +59,22 @@ export function makeAgentGatewaySessionRegistry(options?: {
         const token = processes.get(processToken)?.sessions.get(nativeSessionId);
         return token !== undefined && sessions.has(token) ? token : null;
       },
+      registerProbe: (processToken, nativeSessionId) => {
+        const owner = processes.get(processToken);
+        if (
+          !owner ||
+          !nativeSessionId ||
+          owner.sessions.has(nativeSessionId) ||
+          owner.probes.has(nativeSessionId)
+        )
+          throw new Error("The native probe cannot be registered to this process.");
+        owner.probes.add(nativeSessionId);
+        return () => {
+          owner.probes.delete(nativeSessionId);
+        };
+      },
+      isProbe: (processToken, nativeSessionId) =>
+        processes.get(processToken)?.probes.has(nativeSessionId) === true,
       revoke: (processToken) => {
         processes.delete(processToken);
       },

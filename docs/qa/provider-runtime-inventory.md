@@ -527,3 +527,31 @@ back into a target that already held its earlier version. Both export and the
 already-running target server's message read returned the exact updated messages,
 without duplication. This covers returning to a previously used Connection and
 guards against relying on a stale warm-server view during account switching.
+
+## 13. OpenCode adapter gateway integration evidence (2026-10-22)
+
+The adapter prepares the native plugin before issuing a thread credential, passes
+the process credential broker into the pool, and registers each accepted native
+session to its thread credential. Closing that thread scope removes only that
+mapping. The per-thread `mcp.status`/disconnect/add installation path was deleted;
+the gateway-registry test now asserts one shared process with distinct native
+session mappings rather than two independently injected MCP configurations.
+
+Review confirmed the exposed native surface is exactly `penkra_exec_command`.
+The generic schema converter introduced during the earlier experiment was removed.
+The declaration derives its constraint and description directly from the canonical
+Zod field, and a schema-parity assertion compares the complete generated input
+with the canonical JSON schema. No parallel model-selection or collection schema
+is maintained for a tool that does not expose those fields.
+
+Connectivity probes retain their prior tools-disabled behavior. They register an
+explicit native probe on the owning process, without creating a Penkra thread
+credential. The HTTP route permits empty initialization only and rejects tools
+list/call requests from that probe. The real pinned contract verifies the probe
+completes with tools disabled and receives no thread manual or host-tool access,
+while the two normal sessions retain their correct manuals and image results.
+
+The changed gateway/adapter subsets and native contract passed, along with
+formatting, lint and workspace/server typechecking. This does not enable shared
+Connection conversation storage or establish Production validation; those were
+not changed by this gateway integration checkpoint.

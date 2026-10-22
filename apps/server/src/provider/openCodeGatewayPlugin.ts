@@ -1,113 +1,23 @@
-// Generate native tool declarations from the gateway's canonical schemas.
-// Unsupported schema changes fail generation, rather than dropping validation.
+// The one native host tool is derived from its canonical contract.
 import type { McpToolDefinition } from "../agentGateway/protocol.ts";
 import { MCP_DEFAULT_PROTOCOL_VERSION } from "../agentGateway/protocol.ts";
 import { randomUUID } from "node:crypto";
 import { mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
-
-const keywords = new Set([
-  "$schema",
-  "title",
-  "description",
-  "type",
-  "properties",
-  "required",
-  "additionalProperties",
-  "items",
-  "enum",
-  "minimum",
-  "maximum",
-  "minLength",
-  "maxLength",
-  "minItems",
-  "maxItems",
-]);
-
-export function openCodeSchemaExpression(schema: Record<string, unknown>): string {
-  for (const key of Object.keys(schema)) {
-    if (!keywords.has(key)) throw new Error(`Unsupported native gateway schema keyword: ${key}`);
-  }
-  let expression: string;
-  if (Array.isArray(schema.type)) {
-    expression = `s.union([${schema.type.map((type) => openCodeSchemaExpression({ ...schema, type, description: undefined })).join(",")}])`;
-  } else if (Array.isArray(schema.enum)) {
-    if (!schema.enum.length || !schema.enum.every((value) => typeof value === "string"))
-      throw new Error("Native gateway enums must contain strings.");
-    expression = `s.enum(${JSON.stringify(schema.enum)})`;
-  } else {
-    switch (schema.type) {
-      case "string":
-        expression = "s.string()";
-        break;
-      case "number":
-        expression = "s.number()";
-        break;
-      case "integer":
-        expression = "s.number().int()";
-        break;
-      case "boolean":
-        expression = "s.boolean()";
-        break;
-      case "null":
-        expression = "s.null()";
-        break;
-      case "array": {
-        if (!schema.items || typeof schema.items !== "object" || Array.isArray(schema.items))
-          throw new Error("Native gateway arrays require an item schema.");
-        expression = `s.array(${openCodeSchemaExpression(schema.items as Record<string, unknown>)})`;
-        break;
-      }
-      case "object": {
-        const properties = schema.properties ?? {};
-        if (!properties || typeof properties !== "object" || Array.isArray(properties))
-          throw new Error("Native gateway objects require properties.");
-        const required = new Set(Array.isArray(schema.required) ? schema.required : []);
-        const fields = Object.entries(properties).map(([name, value]) => {
-          if (!value || typeof value !== "object" || Array.isArray(value))
-            throw new Error("Native gateway properties require schemas.");
-          return `${JSON.stringify(name)}:${openCodeSchemaExpression(value as Record<string, unknown>)}${required.has(name) ? "" : ".optional()"}`;
-        });
-        if (
-          schema.additionalProperties !== undefined &&
-          typeof schema.additionalProperties !== "boolean"
-        )
-          throw new Error("Native gateway additionalProperties must be boolean.");
-        expression = `s.object({${fields.join(",")}}).${schema.additionalProperties === false ? "strict" : "passthrough"}()`;
-        break;
-      }
-      default:
-        throw new Error(`Unsupported native gateway schema type: ${JSON.stringify(schema.type)}`);
-    }
-  }
-  for (const [key, method] of [
-    ["minimum", "min"],
-    ["maximum", "max"],
-    ["minLength", "min"],
-    ["maxLength", "max"],
-    ["minItems", "min"],
-    ["maxItems", "max"],
-  ] as const) {
-    if (schema[key] !== undefined) {
-      if (typeof schema[key] !== "number" || !Number.isFinite(schema[key]))
-        throw new Error(`Invalid native gateway bound: ${key}`);
-      expression += `.${method}(${schema[key]})`;
-    }
-  }
-  if (schema.description !== undefined) {
-    if (typeof schema.description !== "string")
-      throw new Error("Native gateway descriptions must be strings.");
-    expression += `.describe(${JSON.stringify(schema.description)})`;
-  }
-  return expression;
-}
+import {
+  PENKRA_EXEC_COMMAND_NAME,
+  PENKRA_EXEC_COMMAND_ZOD_SHAPE,
+} from "../agentGateway/hostToolContract.ts";
 
 export function openCodeGatewayPluginSource(definitions: ReadonlyArray<McpToolDefinition>): string {
-  const tools = definitions.map((definition) => {
-    if (definition.inputSchema.type !== "object")
-      throw new Error("Native gateway tools require object inputs.");
-    return `${JSON.stringify(definition.name)}:{description:${JSON.stringify(definition.description)},args:(${openCodeSchemaExpression(definition.inputSchema)}).shape,execute:(args,context)=>invoke(${JSON.stringify(definition.name)},args,context)}`;
-  });
+  const definition = definitions[0];
+  if (definitions.length !== 1 || definition?.name !== PENKRA_EXEC_COMMAND_NAME)
+    throw new Error("The native gateway surface must match the canonical host tool.");
+  const command = PENKRA_EXEC_COMMAND_ZOD_SHAPE.command;
+  if (command.minLength === null)
+    throw new Error("The canonical host command requires a length constraint.");
+  const args = `{command:s.string().min(${command.minLength}).describe(${JSON.stringify(command.description)})}`;
+  const tool = `${JSON.stringify(definition.name)}:{description:${JSON.stringify(definition.description)},args:${args},execute:(args,context)=>invoke(${JSON.stringify(definition.name)},args,context)}`;
   return `import {tool} from '@opencode-ai/plugin';
 import {randomUUID} from 'node:crypto';
 const s=tool.schema;
@@ -141,7 +51,7 @@ async function invoke(name,args,context){
   return {title:name,output,metadata:{},attachments};
 }
 export const PenkraGateway=async()=>({
-  tool:{${tools.join(",")}},
+  tool:{${tool}},
   'experimental.chat.system.transform':async(input,output)=>{
     if(input.sessionID===undefined)return;
     const result=await request('initialize',{protocolVersion:${JSON.stringify(MCP_DEFAULT_PROTOCOL_VERSION)}},input);
