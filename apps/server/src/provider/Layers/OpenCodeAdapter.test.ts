@@ -14,6 +14,12 @@ import { describe, it, expect, vi } from "vitest";
 import { ServerConfig } from "../../config.ts";
 import { PENKRA_HOST_POLICY_MARKER } from "../../agentGateway/harnessPolicy.ts";
 import { makeAgentGatewaySessionRegistry } from "../../agentGateway/Layers/AgentGatewaySessionRegistry.ts";
+import { AgentGatewayToolBridge } from "../../agentGateway/Services/AgentGatewayToolBridge.ts";
+import {
+  PENKRA_EXEC_COMMAND_NAME,
+  PENKRA_EXEC_COMMAND_DESCRIPTION,
+  PENKRA_EXEC_COMMAND_INPUT_SCHEMA,
+} from "../../agentGateway/hostToolContract.ts";
 import {
   AgentGatewayCredentials,
   type AgentGatewayCredentialsShape,
@@ -35,7 +41,27 @@ function makeOpenCodeAdapterLive(options?: OpenCodeAdapterLiveOptions) {
     ...options,
     agentGatewayCredentials:
       options?.agentGatewayCredentials ?? makeGatewayCredentials().credentials,
-  });
+    prepareGatewayPlugin:
+      options?.prepareGatewayPlugin ?? (async () => "/fixture/penkra-gateway.js"),
+  }).pipe(
+    Layer.provide(
+      Layer.succeed(AgentGatewayToolBridge, {
+        install: () => undefined,
+        requireSurface: () => ({
+          definitions: [
+            {
+              name: PENKRA_EXEC_COMMAND_NAME,
+              description: PENKRA_EXEC_COMMAND_DESCRIPTION,
+              inputSchema: PENKRA_EXEC_COMMAND_INPUT_SCHEMA,
+            },
+          ],
+          invoke: async () => {
+            throw new Error("Native HTTP calls are not executed by the adapter fixture.");
+          },
+        }),
+      }),
+    ),
+  );
 }
 
 const asThreadId = (value: string): ThreadId => ThreadId.makeUnsafe(value);
@@ -86,6 +112,16 @@ function createMockOpenCodeRuntime(options?: {
   const promptCalls: Array<Record<string, unknown>> = [];
   const mcpAddCalls: Array<Record<string, unknown>> = [];
   const mcpDisconnectCalls: Array<Record<string, unknown>> = [];
+  const processCredentials = new Map<
+    string,
+    {
+      token: string;
+      gateway: NonNullable<
+        Parameters<OpenCodeRuntimeShape["connectToOpenCodeServer"]>[0]["gateway"]
+      >;
+      connectionId: ProviderConnectionId | undefined;
+    }
+  >();
   let eventSubscribeCallCount = 0;
   const emptySubscription = {
     async *[Symbol.asyncIterator]() {
@@ -120,7 +156,7 @@ function createMockOpenCodeRuntime(options?: {
       create: async (input: Record<string, unknown>) => {
         createCalls.push(input);
         if (options?.sessionCreateError) throw options.sessionCreateError;
-        return { data: { id: "opencode-session-1" } };
+        return { data: { id: `opencode-session-${createCalls.length}` } };
       },
       delete: async (input: Record<string, unknown>) => {
         deleteCalls.push(input);
@@ -250,10 +286,21 @@ function createMockOpenCodeRuntime(options?: {
           yield* Scope.addFinalizer(scope, Effect.sync(options.onScopeClose));
         }
         if (options?.connectBarrier) yield* options.connectBarrier;
+        const key = input.poolIsolationKey ?? input.binaryPath;
+        let processCredential = processCredentials.get(key);
+        if (!processCredential && input.gateway) {
+          processCredential = {
+            token: input.gateway.issue(),
+            gateway: input.gateway,
+            connectionId: input.connectionId,
+          };
+          processCredentials.set(key, processCredential);
+        }
         return {
           url: input.serverUrl ?? "http://127.0.0.1:4099",
           exitCode: options?.serverExit ?? null,
           external: Boolean(input.serverUrl),
+          ...(processCredential ? { gatewayProcessToken: processCredential.token } : {}),
         };
       }),
     runOpenCodeCommand: () => unexpectedOperation("runOpenCodeCommand"),
@@ -273,6 +320,7 @@ function createMockOpenCodeRuntime(options?: {
 
   return {
     stoppedAccounts,
+    processCredentials,
     get stoppedAll() {
       return stoppedAll;
     },
@@ -299,43 +347,46 @@ function managedLaunchForTest(threadId: ThreadId) {
     binaryPath: "/managed/opencode",
     profileRoot: "/isolated/profile",
     nativeStateRoot: "/isolated/native/" + threadId,
-    isolationKey: "test-installation:" + threadId,
+    isolationKey: "test-installation:profile",
     connectionId: null,
     childEnvironment: () => ({}),
   };
 }
 
 function makeGatewayCredentials() {
-  let nextToken = 0;
+  const registry = makeAgentGatewaySessionRegistry();
+  const issued: string[] = [];
   const revoked: string[] = [];
   const ownerByToken = new Map<string, string>();
   const credentials: AgentGatewayCredentialsShape = {
     mcpEndpointUrl: "http://127.0.0.1:3773/mcp",
-    processes: makeAgentGatewaySessionRegistry().processes,
+    processes: registry.processes,
     setListeningPort: () => undefined,
-    issueSessionToken: (threadId) => {
-      const token = `gateway-token-${String(++nextToken)}`;
+    issueSessionToken: (threadId, provider, generation) => {
+      const token = registry.issue(threadId, provider, generation).token;
+      issued.push(token);
       ownerByToken.set(token, threadId);
       return token;
     },
     verifySessionToken: (token) => ownerByToken.get(token) ?? null,
-    verifySession: () => null,
-    bindWriteAuthority: () => null,
-    beginTurn: () => undefined,
-    endTurn: () => undefined,
-    endSession: () => undefined,
-    verifyWriteAuthority: () => false,
+    verifySession: registry.verify,
+    bindWriteAuthority: registry.bindWriteAuthority,
+    beginTurn: registry.beginTurn,
+    endTurn: registry.endTurn,
+    endSession: registry.endSession,
+    verifyWriteAuthority: registry.verifyWriteAuthority,
     revokeSessionToken: (token) => {
       revoked.push(token);
       ownerByToken.delete(token);
+      registry.revoke(token);
     },
-    connectionForThread: (threadId) => {
-      const token = credentials.issueSessionToken(threadId, "opencode");
+    connectionForThread: (threadId, provider, generation) => {
+      const token = credentials.issueSessionToken(threadId, provider, generation);
       return { url: credentials.mcpEndpointUrl, bearerToken: token };
     },
     stdioProxy: { command: process.execPath, args: [] },
   };
-  return { credentials, ownerByToken, revoked };
+  return { credentials, ownerByToken, revoked, issued, registry };
 }
 
 function createSubscribedEventQueue() {
@@ -934,8 +985,11 @@ describe("OpenCodeAdapter runtime lifecycle", () => {
     expect(runtime.connectCalls[0]).toMatchObject({ cwd });
   });
 
-  it("isolates same-cwd managed sessions, replaces only the reserved gateway, and revokes tokens", async () => {
+  it("registers same-cwd native sessions on one process and revokes only the stopped thread", async () => {
+    const firstEvents = createSubscribedEventQueue();
+    const secondEvents = createSubscribedEventQueue();
     const runtime = createMockOpenCodeRuntime({
+      eventSubscriptions: [firstEvents.stream, secondEvents.stream],
       mcpStatus: async () => ({
         data: {
           pencil: { status: "connected" },
@@ -966,9 +1020,16 @@ describe("OpenCodeAdapter runtime lifecycle", () => {
             modelSelection: { provider: "opencode", model: "openai/gpt-5" },
           });
         }
+        const processToken = [...runtime.processCredentials.values()][0]!.token;
+        expect(gateway.registry.processes.resolve(processToken, "opencode-session-1")).toBe(
+          gateway.issued[0],
+        );
+        expect(gateway.registry.processes.resolve(processToken, "opencode-session-2")).toBe(
+          gateway.issued[1],
+        );
         yield* adapter.stopSession(firstThread);
-        expect(gateway.ownerByToken.has("gateway-token-1")).toBe(false);
-        expect(gateway.ownerByToken.get("gateway-token-2")).toBe(secondThread);
+        expect(gateway.ownerByToken.has(gateway.issued[0]!)).toBe(false);
+        expect(gateway.ownerByToken.get(gateway.issued[1]!)).toBe(secondThread);
         yield* adapter.stopSession(secondThread);
       }).pipe(
         Effect.provide(
@@ -990,27 +1051,17 @@ describe("OpenCodeAdapter runtime lifecycle", () => {
     expect(runtime.connectCalls[1]).toMatchObject({ cwd: "/same/repo" });
     expect(runtime.connectCalls[0]?.poolIsolationKey).toBeTruthy();
     expect(runtime.connectCalls[1]?.poolIsolationKey).toBeTruthy();
-    expect(runtime.connectCalls[0]?.poolIsolationKey).not.toBe(
+    expect(runtime.connectCalls[0]?.poolIsolationKey).toBe(
       runtime.connectCalls[1]?.poolIsolationKey,
     );
-    expect(runtime.mcpAddCalls).toHaveLength(2);
-    expect(runtime.mcpDisconnectCalls).toEqual([
-      { directory: "/same/repo", name: "penkra" },
-      { directory: "/same/repo", name: "penkra" },
-    ]);
-    expect(runtime.mcpAddCalls.map((call) => call.config)).toEqual([
-      expect.objectContaining({
-        headers: { Authorization: "Bearer gateway-token-1" },
-      }),
-      expect.objectContaining({
-        headers: { Authorization: "Bearer gateway-token-2" },
-      }),
-    ]);
+    expect(runtime.processCredentials.size).toBe(1);
+    expect(runtime.mcpAddCalls).toEqual([]);
+    expect(runtime.mcpDisconnectCalls).toEqual([]);
     expect(runtime.promptCalls).toHaveLength(2);
     for (const prompt of runtime.promptCalls) {
       expect(JSON.stringify(prompt)).toContain("penkra_exec_command");
     }
-    expect(gateway.revoked).toEqual(["gateway-token-1", "gateway-token-2"]);
+    expect(gateway.revoked).toEqual([gateway.issued[0]!, gateway.issued[1]!]);
   });
 
   it("treats missing and repeated session stops as successful cleanup", async () => {
@@ -1130,18 +1181,17 @@ describe("OpenCodeAdapter runtime lifecycle", () => {
       expect.objectContaining({
         binaryPath: "/managed/opencode",
         poolIsolationKey: "managed:connection-1",
-        processEnv: { OPENCODE_AUTH_CONTENT: "selected-only", OPENCODE_CONFIG_CONTENT: "{}" },
+        processEnv: {
+          OPENCODE_AUTH_CONTENT: "selected-only",
+          OPENCODE_CONFIG_CONTENT: JSON.stringify({ plugin: ["/fixture/penkra-gateway.js"] }),
+        },
       }),
     );
     expect(runtime.connectCalls[0]?.serverUrl).toBeUndefined();
   });
 
-  it("fails managed session start and revokes credentials when MCP setup is not connected", async () => {
-    const runtime = createMockOpenCodeRuntime({
-      mcpAdd: async () => ({
-        data: { penkra: { status: "failed", error: "offline" } },
-      }),
-    });
+  it("issues no credential or native session when gateway declarations cannot be prepared", async () => {
+    const runtime = createMockOpenCodeRuntime();
     const gateway = makeGatewayCredentials();
 
     const exit = await Effect.runPromiseExit(
@@ -1156,7 +1206,12 @@ describe("OpenCodeAdapter runtime lifecycle", () => {
         });
       }).pipe(
         Effect.provide(
-          makeOpenCodeAdapterLive({ runtime: runtime.runtime }).pipe(
+          makeOpenCodeAdapterLive({
+            runtime: runtime.runtime,
+            prepareGatewayPlugin: async () => {
+              throw new Error("Controlled declaration installation failure");
+            },
+          }).pipe(
             Layer.provide(Layer.succeed(AgentGatewayCredentials, gateway.credentials)),
             Layer.provideMerge(
               ServerConfig.layerTest(process.cwd(), {
@@ -1170,7 +1225,8 @@ describe("OpenCodeAdapter runtime lifecycle", () => {
     );
 
     expect(Exit.isFailure(exit)).toBe(true);
-    expect(gateway.revoked).toEqual(["gateway-token-1"]);
+    expect(gateway.issued).toEqual([]);
+    expect(gateway.revoked).toEqual([]);
     expect(gateway.ownerByToken.size).toBe(0);
     expect(runtime.promptCalls).toEqual([]);
   });
@@ -1192,11 +1248,11 @@ describe("OpenCodeAdapter runtime lifecycle", () => {
           threadId,
           runtimeMode: "full-access",
         });
-        expect(gateway.ownerByToken.get("gateway-token-1")).toBe(threadId);
+        expect(gateway.ownerByToken.get(gateway.issued[0]!)).toBe(threadId);
 
         Deferred.doneUnsafe(serverExit, Effect.succeed(17));
         yield* Effect.promise(() =>
-          vi.waitFor(() => expect(gateway.ownerByToken.has("gateway-token-1")).toBe(false)),
+          vi.waitFor(() => expect(gateway.ownerByToken.has(gateway.issued[0]!)).toBe(false)),
         );
         expect(yield* adapter.hasSession(threadId)).toBe(false);
       }).pipe(
@@ -1214,7 +1270,7 @@ describe("OpenCodeAdapter runtime lifecycle", () => {
       ),
     );
 
-    expect(gateway.revoked).toEqual(["gateway-token-1"]);
+    expect(gateway.revoked).toEqual([gateway.issued[0]!]);
   });
 
   it("revokes a managed gateway lease even when failed-start scope cleanup defects", async () => {
@@ -1252,7 +1308,7 @@ describe("OpenCodeAdapter runtime lifecycle", () => {
 
     expect(Exit.isFailure(exit)).toBe(true);
     expect(gateway.ownerByToken.size).toBe(0);
-    expect(gateway.revoked).toEqual(["gateway-token-1"]);
+    expect(gateway.revoked).toEqual([gateway.issued[0]!]);
   });
 
   it("closes the private server scope and revokes its lease when startup is interrupted", async () => {
@@ -1297,7 +1353,7 @@ describe("OpenCodeAdapter runtime lifecycle", () => {
 
     expect(scopeCloseCount).toBe(1);
     expect(gateway.ownerByToken.size).toBe(0);
-    expect(gateway.revoked).toEqual(["gateway-token-1"]);
+    expect(gateway.revoked).toEqual([gateway.issued[0]!]);
   });
 
   it("retains startup ownership until a connected session is registered", async () => {
@@ -1325,7 +1381,7 @@ describe("OpenCodeAdapter runtime lifecycle", () => {
           .pipe(Effect.forkChild);
 
         yield* Deferred.await(beforeInstallEntered);
-        expect(gateway.ownerByToken.get("gateway-token-1")).toBe(threadId);
+        expect(gateway.ownerByToken.get(gateway.issued[0]!)).toBe(threadId);
         expect(yield* adapter.hasSession(threadId)).toBe(false);
 
         yield* Fiber.interrupt(startFiber);
@@ -1352,7 +1408,7 @@ describe("OpenCodeAdapter runtime lifecycle", () => {
 
     expect(scopeCloseCount).toBe(1);
     expect(gateway.ownerByToken.size).toBe(0);
-    expect(gateway.revoked).toEqual(["gateway-token-1"]);
+    expect(gateway.revoked).toEqual([gateway.issued[0]!]);
   });
 
   it("uses the persisted resume cursor cwd when resuming OpenCode sessions", async () => {
@@ -4179,11 +4235,15 @@ describe("OpenCodeAdapter runtime lifecycle", () => {
     });
     const credentials: AgentGatewayCredentialsShape = {
       ...base,
+      processes: registry.processes,
       connectionForThread: (threadId, provider, generation) => {
         token = registry.issue(threadId, provider, generation).token;
         return { url: base.mcpEndpointUrl, bearerToken: token };
       },
       beginTurn: registry.beginTurn,
+      endSession: registry.endSession,
+      verifySession: registry.verify,
+      revokeSessionToken: registry.revoke,
       endTurn: (...args) => {
         registry.endTurn(...args);
         ended();

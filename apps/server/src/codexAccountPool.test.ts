@@ -33,6 +33,12 @@ import { ServerConfig } from "./config";
 import { makeCodexAdapterLive } from "./provider/Layers/CodexAdapter";
 import { CodexAdapter } from "./provider/Services/CodexAdapter";
 import { makeOpenCodeAdapterLive } from "./provider/Layers/OpenCodeAdapter";
+import { AgentGatewayToolBridge } from "./agentGateway/Services/AgentGatewayToolBridge.ts";
+import {
+  PENKRA_EXEC_COMMAND_NAME,
+  PENKRA_EXEC_COMMAND_DESCRIPTION,
+  PENKRA_EXEC_COMMAND_INPUT_SCHEMA,
+} from "./agentGateway/hostToolContract.ts";
 import { OpenCodeAdapter } from "./provider/Services/OpenCodeAdapter";
 import { makeOpenCodeRuntimeLive, OpenCodeRuntime } from "./provider/opencodeRuntime";
 import { ProviderAdapterRegistry } from "./provider/Services/ProviderAdapterRegistry";
@@ -550,7 +556,26 @@ it.each(["codex", "opencode"] as const)(
             },
           });
         }),
-      ).pipe(Layer.provide(runtimeLayer));
+      ).pipe(
+        Layer.provide(runtimeLayer),
+        Layer.provide(
+          Layer.succeed(AgentGatewayToolBridge, {
+            install: () => undefined,
+            requireSurface: () => ({
+              definitions: [
+                {
+                  name: PENKRA_EXEC_COMMAND_NAME,
+                  description: PENKRA_EXEC_COMMAND_DESCRIPTION,
+                  inputSchema: PENKRA_EXEC_COMMAND_INPUT_SCHEMA,
+                },
+              ],
+              invoke: async () => {
+                throw new Error("Native host calls are not executed by this fixture.");
+              },
+            }),
+          }),
+        ),
+      );
       const registryLayer = Layer.effect(
         ProviderAdapterRegistry,
         Effect.gen(function* () {
