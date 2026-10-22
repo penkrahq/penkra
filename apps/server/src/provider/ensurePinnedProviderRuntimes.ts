@@ -2,7 +2,6 @@ import { ProviderInstallationId, type ServerSettings } from "@penkra/contracts";
 import { Effect, FileSystem, Path } from "effect";
 import { ChildProcessSpawner } from "effect/unstable/process";
 import type { ProviderInstallationRepositoryShape } from "../persistence/Services/ProviderInstallations.ts";
-import type { ThreadReadsShape } from "../cleanCore/ThreadReads.ts";
 import {
   installManagedProviderArtifact,
   readManagedProviderGenerationManifest,
@@ -14,13 +13,16 @@ import {
   PINNED_PROVIDER_KINDS,
   PINNED_PROVIDER_RUNTIMES,
   pinnedProviderArtifact,
+  type PinnedProviderKind,
 } from "./pinnedProviderRuntimes.ts";
 
 /** Startup only: no scheduler, latest-version lookup, or runtime stop callback. */
 export function ensurePinnedProviderRuntimes(input: {
   readonly stateDir: string;
   readonly settings: ServerSettings;
-  readonly threadReads: Pick<ThreadReadsShape, "hasActiveProviderThread">;
+  readonly hasActiveProviderSession: (
+    provider: PinnedProviderKind,
+  ) => Effect.Effect<boolean, unknown>;
   readonly installations: Pick<ProviderInstallationRepositoryShape, "activate">;
   readonly install?: (
     input: ManagedProviderArtifactInstallInput,
@@ -36,7 +38,7 @@ export function ensurePinnedProviderRuntimes(input: {
     for (const provider of PINNED_PROVIDER_KINDS) {
       if (!input.settings.providers[provider].enabled) continue;
       const release = PINNED_PROVIDER_RUNTIMES.providers[provider];
-      if (yield* input.threadReads.hasActiveProviderThread(provider)) {
+      if (yield* input.hasActiveProviderSession(provider)) {
         yield* Effect.logInfo("pinned provider activation deferred", {
           provider,
           version: release.version,

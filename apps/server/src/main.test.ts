@@ -152,6 +152,19 @@ afterEach(() => {
 });
 
 it.layer(testLayer)("server CLI command", (it) => {
+  it.effect("checks live adapter sessions before accepting commands", () =>
+    Effect.gen(function* () {
+      vi.mocked(ensurePinnedProviderRuntimes).mockImplementationOnce((input) =>
+        Effect.gen(function* () {
+          assert.strictEqual(yield* input.hasActiveProviderSession("codex"), false);
+          assert.strictEqual(yield* input.hasActiveProviderSession("claudeAgent"), false);
+          assert.strictEqual(yield* input.hasActiveProviderSession("opencode"), false);
+          return undefined;
+        }).pipe(Effect.orDie),
+      );
+      yield* runCli([]);
+    }),
+  );
   it.effect("parses all CLI flags and wires scoped start/stop", () =>
     Effect.gen(function* () {
       const flagHome = makeTempHome("penkra-main-flag-");

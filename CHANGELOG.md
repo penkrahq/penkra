@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- Pin provider CLI and SDK versions per desktop release, verify official artifact hashes, and
+  validate version bumps against the real provider binaries. Remove automatic provider upgrades
+  and latest-version advisories; startup activation no longer stops active provider sessions.
+
 ## 0.14.1 - 2026-09-26
 
 ### Added

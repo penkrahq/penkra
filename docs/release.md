@@ -6,6 +6,36 @@ Apps, npm packages or the hosted backend.
 
 ## Verify the source
 
+### Provider runtimes
+
+Each desktop release pins the provider CLIs in `providerRuntimes.json`, including official
+artifact SHA-256 hashes. There are no automatic provider upgrades or latest-version advisories.
+Before preparing a release:
+
+```sh
+bun run providers:check
+bun run providers:bump <codex|claudeAgent|opencode> <approved-exact-version>
+```
+
+`check` is read-only. `bump` resolves immutable official artifacts, verifies and installs the
+native artifact into scratch, aligns the SDK or regenerates Codex types, and runs that provider's
+real-binary contracts. It does not update any running Penkra installation or publish anything.
+For GitHub API access, supply `GH_TOKEN` or `GITHUB_TOKEN`; the token is sent only to
+`api.github.com`. A failed gate exits nonzero; review the working candidate before continuing.
+The Codex gate derives required method names from production request call sites and requires a
+successful native call for each. Unknown-method and malformed-request negative controls must
+both stay request-local. There is no runtime capability guessing.
+
+Every release platform runs `bun run providers:verify`: it streams the three committed target
+artifacts and checks their actual hashes without selecting new versions. Native contracts run
+locally during the bump; hash verification is not a substitute for cross-platform runtime QA.
+
+Include a **Provider runtimes** section in release notes, listing `old → new` for Codex, Claude
+Code (and Agent SDK), and OpenCode (and SDK); write `unchanged` where applicable. A new model
+requiring a newer CLI waits for a desktop release carrying that tested CLI.
+
+### Source checks
+
 ```sh
 bun typecheck
 (cd apps/server && bun run test src/persistence/Migrations.test.ts)

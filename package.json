@@ -49,6 +49,8 @@
     "migrations:check": "node scripts/check-migration-lineage.ts",
     "plan:check": "node scripts/check-product-plan.ts",
     "providers:check": "bun apps/server/scripts/providers-check.ts",
+    "providers:bump": "bun apps/server/scripts/providers-bump.ts",
+    "providers:verify": "bun apps/server/scripts/providers-verify.ts",
     "test:desktop-smoke": "turbo run smoke-test --filter=@penkra/desktop",
     "fmt": "oxfmt",
     "fmt:check": "oxfmt --check",
