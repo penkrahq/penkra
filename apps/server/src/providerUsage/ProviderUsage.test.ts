@@ -124,6 +124,7 @@ it.effect("applies native usage pushes without issuing another request", () =>
     const pushed = Option.getOrThrow(yield* Stream.runHead(usage.changes));
     assert.strictEqual(pushed.snapshot.limits[0]?.usedPercent, 70);
     assert.strictEqual(loads, 1);
+    assert.strictEqual(pushed.snapshot.source, snapshot(70).source);
   }).pipe(Effect.scoped),
 );
 
