@@ -41,7 +41,7 @@ describe("penkra show file", () => {
       await fs.rm(root, { recursive: true, force: true });
     }
   });
-  it.each(["png", "pdf"])(
+  it.each(["png", "pdf", "mp4"])(
     "stores a durable external %s and appends one current-turn media activity",
     async (extension) => {
       const root = await fs.mkdtemp(path.join(os.tmpdir(), "penkra-show-test-"));
@@ -138,6 +138,7 @@ describe("penkra show file", () => {
           }).pipe(Effect.provide(NodeSqliteClient.layerMemory())),
         );
         expect(result.attachment.type).toBe(extension === "png" ? "image" : "file");
+        if (extension === "mp4") expect(result.attachment.mimeType).toBe("video/mp4");
         expect(blob?.state).toBe("claimed");
         await fs.unlink(sourcePath);
         expect(await fs.readFile(path.join(root, "attachments", blob!.relativePath))).toEqual(

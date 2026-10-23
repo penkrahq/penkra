@@ -7,6 +7,7 @@ import { isLocalAbsolutePath, isWorkspaceRelativePathSafe } from "@penkra/shared
 import { createContext, useContext } from "react";
 
 import { toastManager } from "../components/ui/toast";
+import { toAttachmentPreviewUrl } from "./wsHttpUrl";
 
 const FILE_POSITION_SUFFIX_PATTERN = /:\d+(?::\d+)?$/;
 
@@ -159,4 +160,33 @@ export function openThreadFileReference(opener: ThreadResourceOpener | null, pat
     title: "Could not open file",
     description: "The file path or resource handler is unavailable.",
   });
+}
+
+export async function openThreadAttachmentReference(
+  opener: ThreadResourceOpener | null,
+  attachmentId: string,
+): Promise<void> {
+  try {
+    if (!opener) throw new Error("The file resource handler is unavailable.");
+    const response = await fetch(
+      toAttachmentPreviewUrl(`/attachments/${encodeURIComponent(attachmentId)}?metadata=1`),
+    );
+    if (!response.ok) throw new Error("The attachment is no longer available.");
+    const metadata: unknown = await response.json();
+    if (
+      !metadata ||
+      typeof metadata !== "object" ||
+      !("path" in metadata) ||
+      typeof metadata.path !== "string"
+    ) {
+      throw new Error("The attachment path could not be resolved.");
+    }
+    openThreadFileReference(opener, metadata.path);
+  } catch (error) {
+    toastManager.add({
+      type: "error",
+      title: "Could not open file",
+      description: error instanceof Error ? error.message : "The attachment is unavailable.",
+    });
+  }
 }

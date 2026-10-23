@@ -342,6 +342,43 @@ describe("localImageEffectRouteLayer", () => {
 });
 
 describe("attachmentsEffectRouteLayer", () => {
+  it("streams video byte ranges for seeking and resolves Open without making a copy", async () => {
+    const config = makeServerConfig({ authToken: "desktop-secret" });
+    mkdirSync(config.attachmentsDir, { recursive: true });
+    const file = path.join(config.attachmentsDir, "clip.mp4");
+    writeFileSync(file, "0123456789");
+    await withEffectServer(config, attachmentsEffectRouteLayer, async (origin) => {
+      const url = `${origin}/attachments/clip.mp4?token=desktop-secret`;
+      for (const [range, body, contentRange] of [
+        ["bytes=2-4", "234", "bytes 2-4/10"],
+        ["bytes=7-", "789", "bytes 7-9/10"],
+        ["bytes=-2", "89", "bytes 8-9/10"],
+      ]) {
+        const response = await fetch(url, { headers: { Range: range! } });
+        expect(response.status).toBe(206);
+        expect(response.headers.get("content-range")).toBe(contentRange);
+        expect(response.headers.get("content-type")).toContain("video/mp4");
+        expect(response.headers.get("accept-ranges")).toBe("bytes");
+        expect(response.headers.get("content-length")).toBe(String(body!.length));
+        expect(await response.text()).toBe(body);
+      }
+      const invalid = await fetch(url, { headers: { Range: "bytes=20-" } });
+      expect(invalid.status).toBe(416);
+      expect(invalid.headers.get("content-range")).toBe("bytes */10");
+      await invalid.text();
+      const metadata = await fetch(`${url}&metadata=1`);
+      expect(metadata.headers.get("cache-control")).toBe("private, no-store");
+      expect(await metadata.json()).toEqual({ path: file });
+      const full = await fetch(url);
+      expect(full.status).toBe(200);
+      expect(await full.text()).toBe("0123456789");
+      const conditional = await fetch(url, {
+        headers: { Range: "bytes=2-4", "If-Range": '"old"' },
+      });
+      expect(conditional.status).toBe(200);
+      expect(await conditional.text()).toBe("0123456789");
+    });
+  });
   it("exposes attachment errors only to existing trusted origins without bypassing auth", async () => {
     const config = makeServerConfig({
       authToken: "desktop-secret",
@@ -366,7 +403,7 @@ describe("attachmentsEffectRouteLayer", () => {
             requestOrigin === "penkra://app" || requestOrigin === "http://localhost:5733";
           for (const authorized of [false, true]) {
             const response = await fetch(
-              `${origin}/attachments/missing${authorized ? "?token=desktop-secret" : ""}`,
+              `${origin}/attachments/missing?metadata=1${authorized ? "&token=desktop-secret" : ""}`,
               { headers: { Origin: requestOrigin } },
             );
             expect(response.status).toBe(authorized ? 404 : 401);

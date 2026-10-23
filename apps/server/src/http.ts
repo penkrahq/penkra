@@ -33,6 +33,7 @@ import {
   resolveAttachmentRelativePath,
 } from "./attachmentPaths";
 import { resolveAttachmentPathById } from "./attachmentStore.ts";
+import { resolveHttpByteRange } from "./httpByteRange.ts";
 import { authErrorResponse, makeEffectAuthRequest } from "./auth/effectHttp";
 import { recoverMissingFile } from "./missingFileRecovery";
 import { AuthError, ServerAuth } from "./auth/Services/ServerAuth";
@@ -832,13 +833,39 @@ function streamedFileResponse(input: {
   readonly path: string;
   readonly sizeBytes: number;
   readonly headers: Record<string, string>;
+  readonly range?: string | undefined;
+  readonly contentType?: string | undefined;
 }): HttpServerResponse.HttpServerResponse {
-  return HttpServerResponse.stream(input.fileSystem.stream(input.path), {
-    status: 200,
-    contentType: Mime.getType(input.path) ?? "application/octet-stream",
-    contentLength: input.sizeBytes,
-    headers: input.headers,
-  });
+  const range = resolveHttpByteRange(input.range, input.sizeBytes);
+  const headers = { ...input.headers, "Accept-Ranges": "bytes" };
+  if (range === "unsatisfiable") {
+    return HttpServerResponse.empty({
+      status: 416,
+      headers: { ...headers, "Content-Range": `bytes */${input.sizeBytes}` },
+    });
+  }
+  return HttpServerResponse.stream(
+    input.fileSystem.stream(
+      input.path,
+      range
+        ? {
+            offset: range.start,
+            bytesToRead: range.end - range.start + 1,
+          }
+        : undefined,
+    ),
+    {
+      status: range ? 206 : 200,
+      contentType: input.contentType ?? Mime.getType(input.path) ?? "application/octet-stream",
+      contentLength: range ? range.end - range.start + 1 : input.sizeBytes,
+      headers: range
+        ? {
+            ...headers,
+            "Content-Range": `bytes ${range.start}-${range.end}/${input.sizeBytes}`,
+          }
+        : headers,
+    },
+  );
 }
 
 export const localImageEffectRouteLayer = HttpRouter.add(
@@ -1250,10 +1277,25 @@ export const attachmentsEffectRouteLayer = HttpRouter.add(
 
       // Mirror local-image serving instead of using HttpServerResponse.file; the Effect
       // route stack used by the desktop server can miss that helper's file services.
+      if (url.searchParams.get("metadata") === "1") {
+        return HttpServerResponse.jsonUnsafe(
+          { path: filePath },
+          {
+            headers: { "Cache-Control": "private, no-store", Pragma: "no-cache" },
+          },
+        );
+      }
+      const contentType = Option.isSome(managedBlob)
+        ? (Mime.getType(managedBlob.value.originalName) ?? managedBlob.value.mimeType)
+        : (Mime.getType(filePath) ?? "application/octet-stream");
       return streamedFileResponse({
         fileSystem,
         path: filePath,
         sizeBytes: Number(fileInfo.size),
+        // No validator is emitted for mutable attachments. An If-Range condition
+        // cannot be proven, so return the full representation instead.
+        range: request.headers["if-range"] ? undefined : request.headers.range,
+        contentType,
         // Attachment access is session/token gated and attachments are mutable
         // lifecycle resources: deletion or session revocation must take effect on
         // the next request, including when a shared proxy is present.
@@ -1263,7 +1305,8 @@ export const attachmentsEffectRouteLayer = HttpRouter.add(
           "X-Content-Type-Options": "nosniff",
           ...(Option.isSome(managedBlob) &&
           managedBlob.value.ownerKind === "presented-media" &&
-          managedBlob.value.kind === "file"
+          managedBlob.value.kind === "file" &&
+          !contentType.startsWith("video/")
             ? {
                 "Content-Disposition": `attachment; filename*=UTF-8''${encodeURIComponent(managedBlob.value.originalName)}`,
               }
