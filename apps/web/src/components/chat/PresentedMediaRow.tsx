@@ -4,6 +4,8 @@ import { type WorkLogPresentedMedia } from "../../session-logic";
 import { ChevronLeftIcon, ChevronRightIcon } from "~/lib/icons";
 import { toAttachmentPreviewUrl } from "~/lib/wsHttpUrl";
 import type { ExpandedImagePreview } from "./ExpandedImagePreview";
+import { presentedVideoMimeType } from "./presentedMediaType";
+import { openThreadAttachmentReference, useThreadResourceOpener } from "~/lib/threadResourceOpener";
 
 function mediaUrl(attachmentId: string): string {
   return toAttachmentPreviewUrl(`/attachments/${encodeURIComponent(attachmentId)}`);
@@ -16,18 +18,51 @@ function PresentedItem({
   item: WorkLogPresentedMedia;
   onImageExpand: (preview: ExpandedImagePreview) => void;
 }) {
+  const opener = useThreadResourceOpener();
+  const [playbackFailed, setPlaybackFailed] = useState(false);
   const url = mediaUrl(item.attachmentId);
+  const videoMimeType = presentedVideoMimeType(item);
+  if (videoMimeType) {
+    return (
+      <figure className="my-2 max-w-full" data-presented-media-id={item.attachmentId}>
+        <video
+          src={url}
+          controls
+          playsInline
+          preload="metadata"
+          className="block max-h-[28rem] max-w-full rounded-xl border border-border"
+          aria-label={item.name}
+          onError={() => setPlaybackFailed(true)}
+        />
+        <figcaption className="mt-1 flex items-center gap-2 text-xs text-muted-foreground">
+          <span className="truncate">{item.name}</span>
+          <button
+            type="button"
+            className="hover:text-foreground"
+            onClick={() => void openThreadAttachmentReference(opener, item.attachmentId)}
+          >
+            Open
+          </button>
+        </figcaption>
+        {playbackFailed ? (
+          <p role="alert" className="mt-1 text-xs text-muted-foreground">
+            This video could not be played. Use Open to view it with your configured app.
+          </p>
+        ) : null}
+      </figure>
+    );
+  }
   if (item.type === "file") {
     return (
-      <a
-        href={url}
-        download={item.name}
+      <button
+        type="button"
+        onClick={() => void openThreadAttachmentReference(opener, item.attachmentId)}
         className="my-2 inline-flex max-w-full items-center gap-2 rounded-xl border border-border px-3 py-2 text-sm hover:bg-accent"
         data-presented-media-id={item.attachmentId}
       >
         <span className="truncate">{item.name}</span>
-        <span className="text-muted-foreground">Download</span>
-      </a>
+        <span className="text-muted-foreground">Open</span>
+      </button>
     );
   }
   return (

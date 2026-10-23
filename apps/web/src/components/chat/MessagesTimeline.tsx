@@ -50,7 +50,6 @@ import { MessageCopyButton } from "./MessageCopyButton";
 import { MessageAssistant } from "../middle-panel/message-assistant/MessageAssistant";
 import { MessageUser } from "../middle-panel/message-user/MessageUser";
 import { AssistantSelectionsSummaryChip } from "./AssistantSelectionsSummaryChip";
-import { FileAttachmentChip } from "./FileAttachmentChip";
 import { FileCommentsSummaryChip } from "./FileCommentsSummaryChip";
 import { UserMessagePastedTextCard } from "./PastedTextChip";
 import {
@@ -1055,10 +1054,17 @@ export const MessagesTimeline = memo(function MessagesTimeline({
                       </div>
                     )}
                     {userFiles.length > 0 && (
-                      <div className="mb-1 flex max-w-[280px] flex-wrap justify-end gap-1.5 self-end">
-                        {userFiles.map((file) => (
-                          <FileAttachmentChip key={file.id} file={file} />
-                        ))}
+                      <div className="mb-1 max-w-full self-end">
+                        <PresentedMediaRow
+                          items={userFiles.map((file) => ({
+                            attachmentId: file.id,
+                            name: file.name,
+                            mimeType: file.mimeType,
+                            sizeBytes: file.sizeBytes,
+                            type: file.type,
+                          }))}
+                          onImageExpand={onImageExpand}
+                        />
                       </div>
                     )}
                     {userImages.length > 0 && (

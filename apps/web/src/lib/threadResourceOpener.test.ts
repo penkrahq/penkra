@@ -1,7 +1,64 @@
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { ThreadId, FolderId } from "@penkra/contracts";
 
-import { createThreadResourceOpener, resolveThreadResourcePath } from "./threadResourceOpener";
+import {
+  createThreadResourceOpener,
+  resolveThreadResourcePath,
+  openThreadAttachmentReference,
+} from "./threadResourceOpener";
+import { toastManager } from "../components/ui/toast";
+
+afterEach(() => {
+  vi.unstubAllGlobals();
+  vi.restoreAllMocks();
+});
+
+describe("openThreadAttachmentReference", () => {
+  it("resolves the saved attachment and uses the normal opener without a forced destination", async () => {
+    const open = vi.fn().mockResolvedValue(undefined);
+    vi.stubGlobal("window", {
+      desktopBridge: {
+        getWsUrl: () => "ws://127.0.0.1:5555?token=secret",
+        resources: { open },
+      },
+    });
+    const fetch = vi
+      .fn()
+      .mockResolvedValue(Response.json({ path: "/state/attachments/objects/report.pdf" }));
+    vi.stubGlobal("fetch", fetch);
+    const opener = createThreadResourceOpener({
+      directory: null,
+      spaceId: "space",
+      folderId: FolderId.makeUnsafe("folder"),
+      threadId: ThreadId.makeUnsafe("thread"),
+    });
+    await openThreadAttachmentReference(opener, "att_v2_saved");
+    expect(fetch).toHaveBeenCalledWith(
+      "http://127.0.0.1:5555/attachments/att_v2_saved?metadata=1&token=secret",
+    );
+    expect(open).toHaveBeenCalledExactlyOnceWith({
+      path: "/state/attachments/objects/report.pdf",
+      spaceId: "space",
+      folderId: "folder",
+      threadId: "thread",
+    });
+  });
+
+  it("reports a deleted attachment instead of attempting an open or download", async () => {
+    vi.stubGlobal("window", { location: { origin: "http://localhost" } });
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response(null, { status: 404 })));
+    const openFile = vi.fn();
+    const add = vi.spyOn(toastManager, "add");
+    await openThreadAttachmentReference(
+      { openFile, openUrl: vi.fn(), showFileContextMenu: vi.fn(), showUrlContextMenu: vi.fn() },
+      "att_v2_deleted",
+    );
+    expect(openFile).not.toHaveBeenCalled();
+    expect(add).toHaveBeenCalledWith(
+      expect.objectContaining({ type: "error", title: "Could not open file" }),
+    );
+  });
+});
 
 describe("resolveThreadResourcePath", () => {
   it("keeps absolute paths and removes line suffixes", () => {

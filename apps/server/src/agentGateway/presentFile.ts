@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import fs from "node:fs/promises";
 import path from "node:path";
+import Mime from "@effect/platform-node/Mime";
 
 import {
   CommandId,
@@ -103,7 +104,9 @@ export function presentFile(input: {
       source.bytes.byteLength <= PROVIDER_SEND_TURN_MAX_IMAGE_BYTES &&
       isMatchingImage(source.bytes, imageMimeType);
     const type = image ? "image" : "file";
-    const mimeType = image ? imageMimeType! : "application/octet-stream";
+    const mimeType = image
+      ? imageMimeType!
+      : (Mime.getType(source.name) ?? "application/octet-stream");
     const principal = { ownerKind: "presented-media" as const, ownerId: input.threadId };
     const now = new Date().toISOString();
     yield* input.assertActive();
