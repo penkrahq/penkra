@@ -71,3 +71,25 @@ No product changes were made for that local scripting error.
   No user draft or saved prompt was cleared/restored for Production QA; a further
   navigation attempt was interrupted by concurrent user activity.
 - No version bump, public release, or published-asset replacement.
+
+## Release certification correction
+
+CI 40031381440 rejected the first 0.14.6 candidate at the stricter ChatView restore
+test. Local request tracing reproduced `restoreSavedPrompt` arriving before
+`setThreadDraft(null)`: clearing the prompt can prune its empty store entry, so
+the conditional flush of a present entry skipped the clear entirely. The callback
+now uses the existing `selectComposerThreadDraft` selector, matching the editor's
+empty-state interpretation, and always flushes it before moving the saved message.
+
+The browser test's generic `userEvent.clear` was also unsuitable for this Lexical
+contenteditable: a separate local trace showed it removing only the last character,
+correctly triggering the non-empty refusal. The test now uses the editor's native
+Select All / Backspace keyboard commands, asserts it is visibly empty, and holds
+the normal 50ms input timer.
+Restoration must explicitly project and save that pending clear; no extra sleep,
+retry, or weaker backend assertion was added. Typed fixture failures now use the
+same SavedRestoreDraftNotEmptyError transport as the backend.
+
+The controlled browser reproduction passes with the selector/always-flush correction.
+The public release remains gated on a new complete CI run; the first candidate
+was not tagged or published.

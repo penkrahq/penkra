@@ -14,6 +14,7 @@ import "../index.css";
 
 import {
   QueuedEditDraftNotEmptyError,
+  SavedRestoreDraftNotEmptyError,
   type CleanCoreThreadItem,
   type CleanCoreTurnSegment,
   type CleanCoreOpenQuestion,
@@ -1669,7 +1670,9 @@ function resolveWsRpc(body: WsRequestEnvelope["body"]): unknown {
           content.files.length ||
           content.assistantSelections?.length)
       )
-        throw new Error("Clear or send your message before restoring a saved one.");
+        throw new SavedRestoreDraftNotEmptyError({
+          message: "Clear or send your message before restoring a saved one.",
+        });
       fixtureDrafts.set(threadId, {
         draft: JSON.stringify({ prompt: entry.text, attachments: [], files: [] }),
         draftUpdatedAt: new Date().toISOString(),
@@ -2374,7 +2377,11 @@ const worker = setupWorker(
       try {
         sendEffectRpcExit(client, parsed.request.id, resolveWsRpc(requestBody));
       } catch (error) {
-        if (!Schema.is(QueuedEditDraftNotEmptyError)(error)) throw error;
+        const draftMoveError = Schema.Union([
+          QueuedEditDraftNotEmptyError,
+          SavedRestoreDraftNotEmptyError,
+        ]);
+        if (!Schema.is(draftMoveError)(error)) throw error;
         client.send(
           JSON.stringify({
             _tag: "Exit",
@@ -2384,7 +2391,7 @@ const worker = setupWorker(
               cause: [
                 {
                   _tag: "Fail",
-                  error: Schema.encodeUnknownSync(QueuedEditDraftNotEmptyError)(error),
+                  error: Schema.encodeUnknownSync(draftMoveError)(error),
                 },
               ],
             },
@@ -3725,6 +3732,7 @@ describe("ChatView timeline estimator parity (full app)", () => {
   });
 
   it("saves the composer with its shortcut and restores it without starting a provider", async () => {
+    let clearGate: ReturnType<typeof holdComposerInputBurstTimers> | undefined;
     const mounted = await mountChatView({
       viewport: DEFAULT_VIEWPORT,
       snapshot: createSnapshotForTargetUser({
@@ -3746,16 +3754,24 @@ describe("ChatView timeline estimator parity (full app)", () => {
             request._tag === WS_METHODS.cleanCoreCreateAndSendThread,
         ),
       ).toBe(false);
-      await userEvent.type(editor, "Text that will be cleared");
+      await page.getByTestId("composer-editor").fill("Text that will be cleared");
       await expect
         .poll(() => JSON.parse(fixtureDrafts.get(THREAD_ID)?.draft ?? "null")?.prompt)
         .toBe("Text that will be cleared");
-      await userEvent.clear(editor);
+      clearGate = holdComposerInputBurstTimers();
+      await page.getByTestId("composer-editor").click();
+      await userEvent.keyboard(
+        isMacPlatform(navigator.platform)
+          ? "{Meta>}a{/Meta}{Backspace}"
+          : "{Control>}a{/Control}{Backspace}",
+      );
+      await expect.poll(() => editor.textContent).toBe("");
       await page.getByTestId("composer-saved-prompts").click();
       await page.getByRole("option").click();
       await expect.poll(() => editor.textContent).toBe("A prompt for later");
       await expect.poll(() => fixtureSavedPrompts.get(THREAD_ID)?.length).toBe(0);
     } finally {
+      clearGate?.release();
       await mounted.cleanup();
     }
   });

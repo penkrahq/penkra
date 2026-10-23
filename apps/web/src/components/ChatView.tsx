@@ -213,6 +213,7 @@ import {
 import { toAttachmentPreviewUrl } from "../lib/wsHttpUrl";
 import {} from "../lib/editableEventTarget";
 import { useComposerDraftSync } from "../composerDraftSync";
+import { selectComposerThreadDraft } from "../composerDraftDomain";
 import { useThreadItems } from "../useThreadItems";
 import { mergeBySeq } from "../threadItemsStore";
 import {
@@ -4859,14 +4860,13 @@ function ChatViewContent({
   const moveMessageIntoComposer = useCallback(
     (source: "queue" | "saved", message: CleanCoreQueuedMessage | CleanCoreSavedPrompt) => {
       flushPendingPromptPersistence(threadId);
-      const draft = useComposerDraftStore.getState().draftsByThreadId[threadId];
+      const draft = selectComposerThreadDraft(useComposerDraftStore.getState(), threadId);
       if (
-        draft !== undefined &&
-        (draft.prompt.length > 0 ||
-          draft.images.length > 0 ||
-          draft.persistedAttachments.length > 0 ||
-          draft.files.length > 0 ||
-          draft.assistantSelections.length > 0)
+        draft.prompt.length > 0 ||
+        draft.images.length > 0 ||
+        draft.persistedAttachments.length > 0 ||
+        draft.files.length > 0 ||
+        draft.assistantSelections.length > 0
       ) {
         toastManager.add({
           type: "error",
@@ -4883,7 +4883,7 @@ function ChatViewContent({
         const moveIntoDraft =
           source === "queue" ? api.cleanCore.editQueuedMessage : api.cleanCore.restoreSavedPrompt;
         try {
-          if (draft !== undefined) await flushCommittedDraft(draft, threadId);
+          await flushCommittedDraft(draft, threadId);
           // Stage the existing attachment bytes under the same ID used by the draft.
           await Promise.all(
             message.attachments
@@ -4902,7 +4902,7 @@ function ChatViewContent({
                 });
               }),
           );
-          if (useComposerDraftStore.getState().draftsByThreadId[threadId] !== draft)
+          if (selectComposerThreadDraft(useComposerDraftStore.getState(), threadId) !== draft)
             failChatOperation("The draft changed. Try again.");
           const result = await moveIntoDraft({
             threadId,
