@@ -61,3 +61,22 @@ available model; global configuration and product provider settings were unchang
 This follow-up also retains version 0.14.5 locally. It does not replace published
 assets or authorize a new public version. Its installation result is recorded only
 after the canonical updater verifies it.
+
+## Installed outcome
+
+Canonical updater `20261023-000700-823953` reported UPDATE OK. Exact app/backend
+PIDs 12149/12157 survived the launch helper and command session; port 60508 returned
+version 0.14.5 and migration status ok. Installed ASAR matched the candidate:
+`7a607b51ada95196dc30be1d0bea35b8b50e4425380b9f0a74b9094df1980eff`.
+No fresh migration backup or database restoration. The previous bundle remains in
+the canonical update directory for rollback.
+
+Source commit `71abb716c46b13a4f09a02440481fd1e1d5904b7` passed every CI lane and the
+quality gate in run `39909339077`, including both complete browser partitions.
+The Linux media fixture checks that failed in the preceding run now pass; no test
+was skipped to obtain that result. Server suite job duration was 5m27s.
+
+The superseded stage and release artifacts from the preceding local update were
+moved to Trash using the supported macOS trash command. Generated current staging
+and scratch are likewise disposable after updater exit. Neither updater rollback
+bundles nor user data are part of that cleanup; Trash is not emptied.

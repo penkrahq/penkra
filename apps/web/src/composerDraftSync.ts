@@ -161,25 +161,41 @@ export function createComposerDraftSync(input: {
     if (disposed || pendingPayload === undefined) return;
     const payload = pendingPayload;
     pendingPayload = undefined;
-    knownPayload = payload;
     const updatedAt = now();
     writeInFlight = true;
+    let acknowledged = false;
     try {
       const saved = await input.api.setThreadDraft({
         threadId: input.threadId,
         draft: payload,
         updatedAt,
       });
-      if (!disposed) appliedUpdatedAt = saved.draftUpdatedAt ?? updatedAt;
-    } catch {
-      // A failed save keeps the draft local; the next edit retries.
+      acknowledged = true;
+      if (!disposed) {
+        knownPayload = saved.draft;
+        appliedUpdatedAt = saved.draftUpdatedAt ?? updatedAt;
+        if (saved.draft !== payload) {
+          const remote =
+            saved.draft === null
+              ? createEmptyThreadDraft()
+              : await deserialize(input.threadId, saved.draft);
+          if (!disposed && pendingPayload === undefined && remote !== null)
+            input.applyServerDraft(remote);
+          throw new Error("The draft changed. Try again.");
+        }
+      }
+    } catch (error) {
+      // Preserve the latest local edit, including an empty draft, until acknowledged.
+      if (!disposed && !acknowledged && pendingPayload === undefined) pendingPayload = payload;
+      throw error;
     } finally {
       writeInFlight = false;
     }
   };
   const flush = (): Promise<void> => {
-    writing = writing.then(writePending);
-    return writing;
+    const result = writing.then(writePending);
+    writing = result.catch(() => {});
+    return result;
   };
 
   const load = async () => {
@@ -200,7 +216,7 @@ export function createComposerDraftSync(input: {
 
   const unsubscribe = input.api.onThreadChange((change) => {
     if (disposed || change.threadId !== input.threadId) return;
-    void load();
+    void load().catch(() => {});
   });
 
   return {
@@ -210,12 +226,17 @@ export function createComposerDraftSync(input: {
     setLocalDraft: (draft) => {
       if (disposed) return;
       const payload = serialize(input.threadId, draft);
-      if (payload === knownPayload) return;
+      if (payload === knownPayload && !writeInFlight) {
+        pendingPayload = undefined;
+        if (pendingTimer !== null) clearTimer(pendingTimer);
+        pendingTimer = null;
+        return;
+      }
       pendingPayload = payload;
       if (pendingTimer !== null) clearTimer(pendingTimer);
       pendingTimer = setTimer(() => {
         pendingTimer = null;
-        void flush();
+        void flush().catch(() => {});
       }, debounceMs);
     },
     flush,
@@ -260,7 +281,7 @@ export function useComposerDraftSync(input: {
       applyServerDraft: (draft) => applyRef.current(threadId, draft),
     });
     controllerRef.current = controller;
-    void controller.start();
+    void controller.start().catch(() => {});
     return () => controller.stop();
   }, [threadId]);
 

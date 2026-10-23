@@ -1659,11 +1659,22 @@ function resolveWsRpc(body: WsRequestEnvelope["body"]): unknown {
     const saved = fixtureSavedPrompts.get(threadId) ?? [];
     const entry = saved.find((item) => item.messageId === body.messageId);
     if (!entry) return { threadId, messageId: body.messageId, removed: false };
-    if (tag === WS_METHODS.cleanCoreRestoreSavedPrompt)
+    if (tag === WS_METHODS.cleanCoreRestoreSavedPrompt) {
+      const currentDraft = fixtureDrafts.get(threadId)?.draft;
+      const content = currentDraft ? JSON.parse(currentDraft) : null;
+      if (
+        content &&
+        (content.prompt.length ||
+          content.attachments.length ||
+          content.files.length ||
+          content.assistantSelections?.length)
+      )
+        throw new Error("Clear or send your message before restoring a saved one.");
       fixtureDrafts.set(threadId, {
         draft: JSON.stringify({ prompt: entry.text, attachments: [], files: [] }),
         draftUpdatedAt: new Date().toISOString(),
       });
+    }
     fixtureSavedPrompts.set(
       threadId,
       saved.filter((item) => item !== entry),
@@ -3735,6 +3746,11 @@ describe("ChatView timeline estimator parity (full app)", () => {
             request._tag === WS_METHODS.cleanCoreCreateAndSendThread,
         ),
       ).toBe(false);
+      await userEvent.type(editor, "Text that will be cleared");
+      await expect
+        .poll(() => JSON.parse(fixtureDrafts.get(THREAD_ID)?.draft ?? "null")?.prompt)
+        .toBe("Text that will be cleared");
+      await userEvent.clear(editor);
       await page.getByTestId("composer-saved-prompts").click();
       await page.getByRole("option").click();
       await expect.poll(() => editor.textContent).toBe("A prompt for later");

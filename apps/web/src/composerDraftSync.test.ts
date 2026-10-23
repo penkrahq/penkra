@@ -61,6 +61,95 @@ describe("shouldApplyRemoteDraft", () => {
 });
 
 describe("createComposerDraftSync", () => {
+  it("keeps a newer edit when the preceding save fails", async () => {
+    const api = makeApi({ draft: null, updatedAt: null });
+    const sync = createComposerDraftSync({
+      api,
+      threadId: THREAD_ID,
+      applyServerDraft: vi.fn(),
+      serialize,
+      deserialize,
+    });
+    await sync.start();
+    let rejectWrite!: (error: Error) => void;
+    let entered!: () => void;
+    const started = new Promise<void>((resolve) => {
+      entered = resolve;
+    });
+    const save = api.setThreadDraft;
+    api.setThreadDraft = vi.fn(() => {
+      entered();
+      return new Promise<Awaited<ReturnType<ComposerDraftSyncApi["setThreadDraft"]>>>(
+        (_, reject) => {
+          rejectWrite = reject;
+        },
+      );
+    });
+    sync.setLocalDraft({ ...createEmptyThreadDraft(), prompt: "first" });
+    const writing = sync.flush();
+    await started;
+    sync.setLocalDraft({ ...createEmptyThreadDraft(), prompt: "second" });
+    rejectWrite(new Error("Connection lost"));
+    await expect(writing).rejects.toThrow("Connection lost");
+    api.setThreadDraft = save;
+    await sync.flush();
+    expect(JSON.parse(api.current().draft!).prompt).toBe("second");
+    sync.stop();
+  });
+  it("retains a failed clear and retries it with an explicit flush", async () => {
+    const api = makeApi({
+      draft: JSON.stringify({ prompt: "old text" }),
+      updatedAt: "2026-10-23T00:00:00.000Z",
+    });
+    const sync = createComposerDraftSync({
+      api,
+      threadId: THREAD_ID,
+      applyServerDraft: vi.fn(),
+      serialize,
+      deserialize,
+    });
+    await sync.start();
+    const save = api.setThreadDraft;
+    api.setThreadDraft = vi.fn(async () => {
+      throw new Error("Connection lost");
+    });
+    sync.setLocalDraft(createEmptyThreadDraft());
+    await expect(sync.flush()).rejects.toThrow("Connection lost");
+    expect(JSON.parse(api.current().draft!).prompt).toBe("old text");
+    api.setThreadDraft = vi.fn(save);
+    await sync.flush();
+    expect(api.current().draft).toBeNull();
+    expect(api.setThreadDraft).toHaveBeenCalledTimes(1);
+    sync.stop();
+  });
+
+  it("does not mistake a rejected stale write for a saved clear", async () => {
+    const api = makeApi({
+      draft: JSON.stringify({ prompt: "old text" }),
+      updatedAt: "2026-10-23T00:00:00.000Z",
+    });
+    const applyServerDraft = vi.fn();
+    const sync = createComposerDraftSync({
+      api,
+      threadId: THREAD_ID,
+      applyServerDraft,
+      serialize,
+      deserialize,
+    });
+    await sync.start();
+    api.setThreadDraft = vi.fn(async () => ({
+      draft: JSON.stringify({ prompt: "other window" }),
+      draftUpdatedAt: "2026-10-23T01:00:00.000Z",
+    }));
+    sync.setLocalDraft(createEmptyThreadDraft());
+    await expect(sync.flush()).rejects.toThrow("The draft changed");
+    expect(applyServerDraft).toHaveBeenLastCalledWith(
+      expect.objectContaining({ prompt: "other window" }),
+    );
+    await sync.flush();
+    expect(api.setThreadDraft).toHaveBeenCalledTimes(1);
+    sync.stop();
+  });
   it("a second flush waits for a draft write already in flight", async () => {
     const api = makeApi({ draft: null, updatedAt: null });
     let entered!: () => void;
