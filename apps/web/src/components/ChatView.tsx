@@ -4858,6 +4858,7 @@ function ChatViewContent({
   );
   const moveMessageIntoComposer = useCallback(
     (source: "queue" | "saved", message: CleanCoreQueuedMessage | CleanCoreSavedPrompt) => {
+      flushPendingPromptPersistence(threadId);
       const draft = useComposerDraftStore.getState().draftsByThreadId[threadId];
       if (
         draft !== undefined &&
@@ -4882,6 +4883,7 @@ function ChatViewContent({
         const moveIntoDraft =
           source === "queue" ? api.cleanCore.editQueuedMessage : api.cleanCore.restoreSavedPrompt;
         try {
+          if (draft !== undefined) await flushCommittedDraft(draft, threadId);
           // Stage the existing attachment bytes under the same ID used by the draft.
           await Promise.all(
             message.attachments
@@ -4900,6 +4902,8 @@ function ChatViewContent({
                 });
               }),
           );
+          if (useComposerDraftStore.getState().draftsByThreadId[threadId] !== draft)
+            failChatOperation("The draft changed. Try again.");
           const result = await moveIntoDraft({
             threadId,
             messageId: message.messageId,
@@ -4935,7 +4939,14 @@ function ChatViewContent({
       });
       return true;
     },
-    [runQueuedActionWhilePending, setThreadError, threadId, scheduleComposerFocus],
+    [
+      runQueuedActionWhilePending,
+      setThreadError,
+      threadId,
+      scheduleComposerFocus,
+      flushPendingPromptPersistence,
+      flushCommittedDraft,
+    ],
   );
   const editQueuedMessage = useCallback(
     (message: CleanCoreQueuedMessage) => {

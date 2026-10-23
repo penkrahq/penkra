@@ -26,6 +26,7 @@ function PopoverPopup({
   sideOffset: sideOffsetProp,
   alignOffset: alignOffsetProp,
   tooltipStyle: tooltipStyleProp,
+  nativeAppOverlay = true,
   anchor,
   ...props
 }: PopoverPrimitive.Popup.Props & {
@@ -34,6 +35,7 @@ function PopoverPopup({
   sideOffset?: PopoverPrimitive.Positioner.Props["sideOffset"];
   alignOffset?: PopoverPrimitive.Positioner.Props["alignOffset"];
   tooltipStyle?: boolean;
+  nativeAppOverlay?: boolean;
   anchor?: PopoverPrimitive.Positioner.Props["anchor"];
 }) {
   const side = sideProp ?? "bottom";
@@ -43,7 +45,7 @@ function PopoverPopup({
   const tooltipStyle = tooltipStyleProp ?? false;
   return (
     <PopoverPrimitive.Portal>
-      <NativeAppOverlayBoundary />
+      {nativeAppOverlay ? <NativeAppOverlayBoundary /> : null}
       <PopoverPrimitive.Positioner
         align={align}
         alignOffset={alignOffset}

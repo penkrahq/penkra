@@ -136,6 +136,7 @@ export function ComposerSavedPrompts(props: {
         </TooltipPopup>
       </Tooltip>
       <PopoverPopup
+        nativeAppOverlay={false}
         tooltipStyle
         side="top"
         align="start"
