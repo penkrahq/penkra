@@ -82,6 +82,53 @@ function makeTimelineBaseProps() {
   };
 }
 
+describe("assistant timestamp settlement", () => {
+  it.each([true, false])(
+    "hides the final-candidate timestamp while its own turn is running (active flag: %s)",
+    (active) => {
+      const fixture = settledFixture([{ kind: "tool", text: "Ran command" }]);
+      const turn = fixture.turns["fixture-duration"];
+      const final = fixture.finals["fixture-duration"];
+      const runningTurn = { ...turn, status: "running" };
+      const markup = renderToStaticMarkup(
+        <MessagesTimeline
+          {...makeTimelineBaseProps()}
+          turns={{ "fixture-duration": runningTurn }}
+          finals={fixture.finals}
+          timelineEntries={[
+            {
+              id: final.sourceId,
+              kind: "message",
+              createdAt: final.createdAt,
+              message: threadItemToChatMessage(final),
+            },
+          ]}
+          isWorking
+          activeTurnId={TurnId.makeUnsafe("fixture-duration")}
+          activeTurnInProgress={active}
+        />,
+      );
+      expect(markup).toContain("done");
+      expect(markup).not.toContain('class="px-2 tabular-nums');
+    },
+  );
+
+  it("retains a settled answer's timestamp while a different turn runs", () => {
+    const fixture = settledFixture([{ kind: "tool", text: "Ran command" }]);
+    const markup = renderToStaticMarkup(
+      <MessagesTimeline
+        {...makeTimelineBaseProps()}
+        {...fixture}
+        timelineEntries={[]}
+        isWorking
+        activeTurnId={TurnId.makeUnsafe("another-turn")}
+        activeTurnInProgress
+      />,
+    );
+    expect(markup).toContain('class="px-2 tabular-nums');
+  });
+});
+
 function settledFixture(items: ReadonlyArray<{ kind: "tool" | "text" | "notice"; text: string }>) {
   const turn = TIMING_FIXTURE_TURNS["fixture-duration"];
   const rows = items.map((item, index) => ({

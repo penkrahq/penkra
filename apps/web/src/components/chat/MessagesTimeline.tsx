@@ -1155,8 +1155,11 @@ export const MessagesTimeline = memo(function MessagesTimeline({
               showCopyButton: row.showAssistantCopyButton,
               streaming: row.assistantCopyStreaming,
             });
-            // Only the server-selected final answer carries a timestamp.
-            const isTerminalAssistantMessage = row.showAssistantCopyButton;
+            // A final-answer candidate can arrive before its turn ends.
+            const isTerminalAssistantMessage =
+              row.showAssistantCopyButton &&
+              !row.assistantCopyStreaming &&
+              turns?.[row.message.turnId ?? ""]?.status !== "running";
             const assistantMeta = [
               isTerminalAssistantMessage
                 ? formatMessageTimestamp(
