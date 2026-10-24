@@ -3,6 +3,7 @@ import { NoiseCipher, NOISE_MAX_MESSAGE_BYTES } from "./noise";
 import { TUNNEL_MAX_INFLIGHT_BYTES } from "./sendWindow";
 import { TunnelChannel } from "./tunnelChannel";
 import { encodeHttpBody, type TunnelEnvelope } from "./tunnelCodec";
+import { MAX_WEBSOCKET_MESSAGE_BYTES } from "../nodeHttpServer";
 
 async function* body() {
   for (let i = 0; i < 80; i++) yield Buffer.alloc(64 * 1024);
@@ -18,6 +19,53 @@ function ciphers() {
 }
 
 describe("RemoteLink ordered encrypted channel", () => {
+  it("demonstrates why waiting for whole-message consumption cannot be the WebSocket ACK rule", async () => {
+    const [left, right] = ciphers();
+    // Legal JSON and legal UTF-8 at today's WS limit. JSON escaping doubles
+    // the tabs on the tunnel wire, before packet headers and encryption tags.
+    const message = "\t".repeat(MAX_WEBSOCKET_MESSAGE_BYTES - 2) + "{}";
+    expect(JSON.parse(message)).toEqual({});
+    let received = 0,
+      complete = false;
+    const receiver = new TunnelChannel(right, async () => undefined);
+    const sender = new TunnelChannel(left, async (packet) => {
+      const envelope = receiver.receive(packet);
+      if (envelope?.t !== "ws.msg") throw new Error("Unexpected fixture packet");
+      received += Buffer.byteLength(envelope.data);
+      complete = envelope.more === undefined;
+      // Hypothesis under test: no ACK until the entire WS message is assembled.
+    });
+    let blocked: Promise<void> | undefined;
+    try {
+      const chunk = Math.floor(NOISE_MAX_MESSAGE_BYTES / 4);
+      let seq = 0;
+      for (let offset = 0; offset < message.length; offset += chunk) {
+        const last = offset + chunk >= message.length;
+        const sending = sender.send({
+          t: "ws.msg",
+          id: 1,
+          seq: seq++,
+          data: message.slice(offset, offset + chunk),
+          ...(last ? {} : { more: true }),
+        });
+        if (sender.window.snapshot().waiting) {
+          blocked = sending;
+          break;
+        }
+        await sending;
+      }
+      expect(blocked).toBeDefined();
+      expect(complete).toBe(false);
+      expect(received).toBeLessThan(MAX_WEBSOCKET_MESSAGE_BYTES);
+      expect(sender.window.snapshot().bytes).toBeLessThanOrEqual(TUNNEL_MAX_INFLIGHT_BYTES);
+      sender.close();
+      await expect(blocked).rejects.toMatchObject({ code: "cancelled" });
+    } finally {
+      sender.close();
+      receiver.close();
+    }
+  });
+
   it("sends controls through a full data window and cancels a blocked send without consuming a nonce", async () => {
     const [left, right] = ciphers();
     const received: TunnelEnvelope[] = [];
