@@ -2826,6 +2826,11 @@ function ChatViewContent({
       setIsModelPickerOpen(false);
     }
   }, []);
+  const voiceSendIntentRef = useRef<{ threadId: ThreadId } | null>(null);
+  const [voiceMessageToSend, setVoiceMessageToSend] = useState<{
+    threadId: ThreadId;
+    prompt: string;
+  } | null>(null);
   const appendVoiceTranscriptToComposer = useCallback(
     async (targetThreadId: ThreadId, transcript: string, voiceJobId: string) => {
       const draftStore = useComposerDraftStore.getState();
@@ -2840,6 +2845,9 @@ function ChatViewContent({
       setComposerCursor(collapseExpandedComposerCursor(nextPrompt, nextPrompt.length));
       setComposerTrigger(detectComposerTrigger(nextPrompt, nextPrompt.length));
       scheduleComposerFocus();
+      if (voiceSendIntentRef.current?.threadId === targetThreadId) {
+        setVoiceMessageToSend({ threadId: targetThreadId, prompt: nextPrompt });
+      }
     },
     [scheduleComposerFocus, threadId],
   );
@@ -2866,6 +2874,18 @@ function ChatViewContent({
     },
     onGuardWarning: warnVoiceGuard,
   });
+  const sendComposerVoiceRecording = () => {
+    const intent = { threadId };
+    voiceSendIntentRef.current = intent;
+    void submitComposerVoiceRecording().finally(() => {
+      if (voiceSendIntentRef.current === intent) voiceSendIntentRef.current = null;
+    });
+  };
+  useLayoutEffect(() => {
+    return () => {
+      voiceSendIntentRef.current = null;
+    };
+  }, [threadId]);
   const addTerminalContextToDraft = useCallback(
     (selection: TerminalContextSelection) => {
       if (!activeThread) {
@@ -4736,6 +4756,19 @@ function ChatViewContent({
     savePromptRef.current = () => submitComposer("save");
   });
 
+  // Transcript delivery updates the draft first. Send only after transcription
+  // ends and the editor has committed that draft, through the ordinary send path.
+  useEffect(() => {
+    if (!voiceMessageToSend || isVoiceTranscribing) return;
+    setVoiceMessageToSend(null);
+    if (
+      voiceMessageToSend.threadId === threadId &&
+      promptRef.current === voiceMessageToSend.prompt
+    ) {
+      void onSendRef.current();
+    }
+  }, [isVoiceTranscribing, threadId, voiceMessageToSend]);
+
   useLayoutEffect(
     () =>
       registerDesktopThreadLiveHandlers(threadId, {
@@ -6154,7 +6187,7 @@ function ChatViewContent({
                               aria-label={
                                 isVoiceTranscribing ? "Transcribing voice note" : "Send voice note"
                               }
-                              onClick={() => void submitComposerVoiceRecording()}
+                              onClick={sendComposerVoiceRecording}
                             />
                           </>
                         ) : null}

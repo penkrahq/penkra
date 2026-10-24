@@ -46,6 +46,30 @@ import { page, userEvent } from "vitest/browser";
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { render } from "vitest-browser-react";
 
+const voiceSendTest = vi.hoisted(() => ({
+  submit: null as null | ((deliver: (text: string) => Promise<void>) => Promise<void>),
+}));
+vi.mock("./chat/useComposerVoiceController", async (importOriginal) => {
+  const original = await importOriginal<typeof import("./chat/useComposerVoiceController")>();
+  return {
+    ...original,
+    useComposerVoiceController: (
+      options: import("./chat/useComposerVoiceController").UseComposerVoiceControllerOptions,
+    ) => {
+      const controller = original.useComposerVoiceController(options);
+      return {
+        ...controller,
+        submitComposerVoiceRecording: voiceSendTest.submit
+          ? () =>
+              voiceSendTest.submit!(async (text) => {
+                await options.onTranscriptReady(options.threadId, text, "voice-send-test");
+              })
+          : controller.submitComposerVoiceRecording,
+      };
+    },
+  };
+});
+
 import { type ComposerImageAttachment, useComposerDraftStore } from "../composerDraftStore";
 import {
   AUTO_SCROLL_BOTTOM_THRESHOLD_PX,
@@ -3648,6 +3672,7 @@ describe("ChatView timeline estimator parity (full app)", () => {
   });
 
   beforeEach(async () => {
+    voiceSendTest.submit = null;
     fixtureDrafts.clear();
     fixtureSavedPrompts.clear();
     unsubscribeCoreFixtureStore?.();
@@ -6043,6 +6068,88 @@ describe("ChatView timeline estimator parity (full app)", () => {
       await mounted.cleanup();
     }
   });
+
+  it.each(["send", "stop", "send-empty", "send-running"])(
+    "%s recording transcribes, and only the arrow sends",
+    async (action) => {
+      const mounted = await mountChatView({
+        viewport: DEFAULT_VIEWPORT,
+        snapshot: createSnapshotForTargetUser({
+          targetMessageId: "msg-voice-send" as MessageId,
+          targetText: "Voice send fixture",
+          sessionStatus: action === "send-running" ? "running" : "idle",
+        }),
+      });
+      let finish!: (text: string) => void;
+      const transcript = new Promise<string>((resolve) => {
+        finish = resolve;
+      });
+      voiceSendTest.submit = async (deliver) => {
+        useVoiceSessionCoordinatorStore.setState({
+          capture: null,
+          transcriptions: [
+            { jobId: "voice-send-test", threadId: THREAD_ID, phase: "transcribing" },
+          ],
+        });
+        const text = await transcript;
+        if (text) await deliver(text);
+        useVoiceSessionCoordinatorStore.setState({ transcriptions: [] });
+      };
+      try {
+        useVoiceSessionCoordinatorStore.setState({
+          capture: {
+            origin: {
+              threadId: THREAD_ID,
+              providerThreadId: null,
+              cwd: "/tmp/penkra-browser-test",
+            },
+            phase: "recording",
+            startedAtMs: performance.now() - 4_000,
+            durationMs: 4_000,
+            waveformLevels: [0.2, 0.6],
+          },
+        });
+        const requestCount = wsRequests.filter(
+          (row) => row._tag === WS_METHODS.cleanCoreSendMessage,
+        ).length;
+        await page
+          .getByRole("button", {
+            name: action !== "stop" ? "Send voice note" : "Cancel voice note",
+            exact: true,
+          })
+          .click();
+        expect(
+          wsRequests.filter((row) => row._tag === WS_METHODS.cleanCoreSendMessage),
+        ).toHaveLength(requestCount);
+        finish(action === "send-empty" ? "" : "Please plan tomorrow's walk.");
+        if (action === "send" || action === "send-running") {
+          await vi.waitFor(() =>
+            expect(
+              wsRequests.filter((row) => row._tag === WS_METHODS.cleanCoreSendMessage),
+            ).toHaveLength(requestCount + 1),
+          );
+        } else {
+          if (action === "stop") {
+            await expect
+              .element(page.getByRole("textbox"))
+              .toHaveTextContent("Please plan tomorrow's walk.");
+          } else {
+            await expect
+              .element(page.getByRole("button", { name: "Voice input", exact: true }))
+              .toBeInTheDocument();
+          }
+          expect(
+            wsRequests.filter((row) => row._tag === WS_METHODS.cleanCoreSendMessage),
+          ).toHaveLength(requestCount);
+        }
+      } finally {
+        finish("");
+        voiceSendTest.submit = null;
+        useVoiceSessionCoordinatorStore.setState({ capture: null, transcriptions: [] });
+        await mounted.cleanup();
+      }
+    },
+  );
 
   it("keeps the voice-note send button at the trailing edge while recording a running turn", async () => {
     const mounted = await mountChatView({
