@@ -1,27 +1,9 @@
-import { createServer, type RequestListener } from "node:http";
-import { once } from "node:events";
 import { createHash } from "node:crypto";
 import { describe, expect, it } from "vitest";
 import { openLoopbackHttp } from "./loopbackHttp";
 import { TunnelSendWindow, TUNNEL_MAX_INFLIGHT_BYTES } from "./sendWindow";
 import { NOISE_MAX_MESSAGE_BYTES } from "./noise";
-
-async function fixture(handler: RequestListener, run: (origin: string) => Promise<void>) {
-  const server = createServer(handler);
-  server.listen(0, "127.0.0.1");
-  await once(server, "listening");
-  const address = server.address();
-  if (!address || typeof address === "string") throw new Error("Missing fixture port");
-  try {
-    await run(`http://127.0.0.1:${address.port}`);
-  } finally {
-    const closed = new Promise<void>((resolve, reject) =>
-      server.close((error) => (error ? reject(error) : resolve())),
-    );
-    server.closeAllConnections();
-    await closed;
-  }
-}
+import { httpFixture as fixture } from "./httpFixture.test-support";
 
 async function textBody(body: AsyncIterable<Uint8Array>) {
   const parts: Buffer[] = [];
