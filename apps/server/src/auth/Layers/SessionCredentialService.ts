@@ -1,5 +1,6 @@
 import { AuthSessionId, type AuthClientMetadata, type AuthClientSession } from "@penkra/contracts";
 import * as Crypto from "node:crypto";
+import * as SqlClient from "effect/unstable/sql/SqlClient";
 import {
   Clock,
   DateTime,
@@ -121,6 +122,7 @@ export const makeSessionCredentialService = Effect.gen(function* () {
   const serverConfig = yield* ServerConfig;
   const secretStore = yield* ServerSecretStore;
   const authSessions = yield* AuthSessionRepository;
+  const sql = yield* SqlClient.SqlClient;
   const signingSecret = yield* secretStore.getOrCreateRandom(SIGNING_SECRET_NAME, 32);
   const activeConnectionsRef = yield* Ref.make<ActiveConnections>(new Map());
   // Tickets are an in-memory allowlist, not merely signed bearer claims. A restart
@@ -130,6 +132,10 @@ export const makeSessionCredentialService = Effect.gen(function* () {
   const activeConnectionsSemaphore = yield* Semaphore.make(1);
   const changesPubSub = yield* PubSub.unbounded<SessionCredentialChange>();
   const cookieName = resolveSessionCookieName({ mode: serverConfig.mode, port: serverConfig.port });
+  const encodeToken = (claims: SessionClaims) => {
+    const payload = base64UrlEncode(JSON.stringify(claims));
+    return `${payload}.${signPayload(payload, signingSecret)}`;
+  };
 
   const emitUpsert = (clientSession: AuthClientSession) =>
     PubSub.publish(changesPubSub, { type: "clientUpserted", clientSession }).pipe(Effect.asVoid);
@@ -309,7 +315,10 @@ export const makeSessionCredentialService = Effect.gen(function* () {
       return next;
     });
 
-  const issue: SessionCredentialServiceShape["issue"] = (input) =>
+  const issueWithPersistence = (
+    input: Parameters<SessionCredentialServiceShape["issue"]>[0],
+    persist?: Parameters<SessionCredentialServiceShape["pairClient"]>[1],
+  ) =>
     Effect.gen(function* () {
       const sessionId = AuthSessionId.makeUnsafe(Crypto.randomUUID());
       const issuedAt = yield* DateTime.now;
@@ -325,25 +334,37 @@ export const makeSessionCredentialService = Effect.gen(function* () {
         iat: DateTime.toEpochMillis(issuedAt),
         exp: DateTime.toEpochMillis(expiresAt),
       };
-      const encodedPayload = base64UrlEncode(JSON.stringify(claims));
-      const signature = signPayload(encodedPayload, signingSecret);
 
-      yield* authSessions.create({
-        sessionId,
-        subject: claims.sub,
-        role: claims.role,
-        method: claims.method,
-        client: {
-          label: client.label ?? null,
-          ipAddress: client.ipAddress ?? null,
-          userAgent: client.userAgent ?? null,
-          deviceType: client.deviceType,
-          os: client.os ?? null,
-          browser: client.browser ?? null,
-        },
-        issuedAt,
-        expiresAt,
-      });
+      const replaced = yield* sql.withTransaction(
+        Effect.gen(function* () {
+          yield* authSessions.create({
+            sessionId,
+            subject: claims.sub,
+            role: claims.role,
+            method: claims.method,
+            client: {
+              label: client.label ?? null,
+              ipAddress: client.ipAddress ?? null,
+              userAgent: client.userAgent ?? null,
+              deviceType: client.deviceType,
+              os: client.os ?? null,
+              browser: client.browser ?? null,
+            },
+            issuedAt,
+            expiresAt,
+          });
+          const previous = persist ? yield* persist(sessionId) : null;
+          if (previous && previous !== sessionId) {
+            yield* authSessions.revoke({ sessionId: previous, revokedAt: issuedAt });
+          }
+          return previous;
+        }),
+      );
+      if (replaced && replaced !== sessionId) {
+        yield* clearOutstandingWebSocketTickets([replaced]);
+        yield* interruptConnections([replaced]);
+        yield* emitRemoved(replaced);
+      }
       yield* emitUpsert(
         toAuthClientSession({
           sessionId,
@@ -360,7 +381,7 @@ export const makeSessionCredentialService = Effect.gen(function* () {
 
       return {
         sessionId,
-        token: `${encodedPayload}.${signature}`,
+        token: encodeToken(claims),
         method: claims.method,
         client,
         expiresAt,
@@ -371,6 +392,97 @@ export const makeSessionCredentialService = Effect.gen(function* () {
         toSessionCredentialError("Failed to issue session credential.", cause),
       ),
     );
+
+  const issue: SessionCredentialServiceShape["issue"] = (input) => issueWithPersistence(input);
+  const pairClient: SessionCredentialServiceShape["pairClient"] = (input, persist) =>
+    activeConnectionsSemaphore.withPermit(
+      issueWithPersistence(
+        {
+          ...input,
+          role: "client",
+          method: "bearer-session-token",
+        },
+        persist,
+      ),
+    );
+
+  const resumeClient: SessionCredentialServiceShape["resumeClient"] = (input) =>
+    activeConnectionsSemaphore
+      .withPermit(
+        Effect.gen(function* () {
+          const found = yield* authSessions.getById({ sessionId: input.sessionId });
+          if (Option.isNone(found))
+            return yield* toSessionCredentialError("Unknown client session.");
+          const row = found.value;
+          if (row.revokedAt !== null)
+            return yield* toSessionCredentialError("Client session revoked.");
+          if (
+            row.subject !== input.subject ||
+            row.role !== "client" ||
+            row.method !== "bearer-session-token"
+          )
+            return yield* toSessionCredentialError(
+              "Session is not eligible for paired-client continuation.",
+            );
+          const now = yield* DateTime.now;
+          let issuedAt = row.issuedAt;
+          let expiresAt = row.expiresAt;
+          if (DateTime.toEpochMillis(expiresAt) <= DateTime.toEpochMillis(now)) {
+            issuedAt = now;
+            expiresAt = DateTime.addDuration(now, DEFAULT_SESSION_TTL);
+            const renewed = yield* authSessions.renewExpiredClient({
+              sessionId: input.sessionId,
+              subject: input.subject,
+              issuedAt,
+              expiresAt,
+            });
+            if (!renewed)
+              return yield* toSessionCredentialError("Client session changed before renewal.");
+            yield* Effect.logInfo("Renewed naturally expired paired client credential", {
+              sessionId: row.sessionId,
+              subject: row.subject,
+            });
+            yield* clearOutstandingWebSocketTickets([input.sessionId]);
+            yield* emitUpsert(
+              toAuthClientSession({
+                sessionId: row.sessionId,
+                subject: row.subject,
+                role: row.role,
+                method: row.method,
+                client: toClientMetadata(row.client),
+                issuedAt,
+                expiresAt,
+                lastConnectedAt: row.lastConnectedAt,
+                connected: false,
+              }),
+            );
+          }
+          return {
+            sessionId: row.sessionId,
+            token: encodeToken({
+              v: 1,
+              kind: "session",
+              sid: row.sessionId,
+              sub: row.subject,
+              role: row.role,
+              method: row.method,
+              iat: DateTime.toEpochMillis(issuedAt),
+              exp: DateTime.toEpochMillis(expiresAt),
+            }),
+            client: toClientMetadata(row.client),
+            expiresAt,
+            method: row.method,
+            role: row.role,
+          } satisfies IssuedSession;
+        }),
+      )
+      .pipe(
+        Effect.mapError((cause) =>
+          cause instanceof SessionCredentialError
+            ? cause
+            : toSessionCredentialError("Failed to resume client credential.", cause),
+        ),
+      );
 
   const verify: SessionCredentialServiceShape["verify"] = (token) =>
     Effect.gen(function* () {
@@ -395,6 +507,14 @@ export const makeSessionCredentialService = Effect.gen(function* () {
       }
       if (row.value.revokedAt !== null)
         return yield* toSessionCredentialError("Session token revoked.");
+      if (
+        claims.iat !== DateTime.toEpochMillis(row.value.issuedAt) ||
+        claims.exp !== DateTime.toEpochMillis(row.value.expiresAt) ||
+        claims.sub !== row.value.subject ||
+        claims.role !== row.value.role ||
+        claims.method !== row.value.method
+      )
+        return yield* toSessionCredentialError("Session token does not match the stored session.");
       return {
         sessionId: claims.sid,
         token,
@@ -577,12 +697,18 @@ export const makeSessionCredentialService = Effect.gen(function* () {
       ),
     );
 
-  const revoke: SessionCredentialServiceShape["revoke"] = (sessionId) =>
+  const unpairClient: SessionCredentialServiceShape["unpairClient"] = (sessionId, persist) =>
     activeConnectionsSemaphore
       .withPermit(
         Effect.gen(function* () {
           const revokedAt = yield* DateTime.now;
-          const revoked = yield* authSessions.revoke({ sessionId, revokedAt });
+          const revoked = yield* sql.withTransaction(
+            Effect.gen(function* () {
+              const changed = yield* authSessions.revoke({ sessionId, revokedAt });
+              yield* persist;
+              return changed;
+            }),
+          );
           if (revoked) {
             yield* clearOutstandingWebSocketTickets([sessionId]);
             yield* interruptConnections([sessionId]);
@@ -594,6 +720,9 @@ export const makeSessionCredentialService = Effect.gen(function* () {
       .pipe(
         Effect.mapError((cause) => toSessionCredentialError("Failed to revoke session.", cause)),
       );
+
+  const revoke: SessionCredentialServiceShape["revoke"] = (sessionId) =>
+    unpairClient(sessionId, Effect.void);
 
   const revokeAllExcept: SessionCredentialServiceShape["revokeAllExcept"] = (sessionId) =>
     activeConnectionsSemaphore
@@ -659,6 +788,9 @@ export const makeSessionCredentialService = Effect.gen(function* () {
   return {
     cookieName,
     issue,
+    pairClient,
+    unpairClient,
+    resumeClient,
     verify,
     issueWebSocketToken,
     verifyWebSocketToken,

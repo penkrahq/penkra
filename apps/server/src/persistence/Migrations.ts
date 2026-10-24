@@ -1,3 +1,4 @@
+import Migration0214 from "./Migrations/214_RemoteDevices.ts";
 import Migration0213 from "./Migrations/213_SavedPrompts.ts";
 import Migration0212 from "./Migrations/212_TurnStartTimes.ts";
 import Migration0211 from "./Migrations/211_ProviderStoppedSeparators.ts";
@@ -441,6 +442,7 @@ export const migrationEntries = [
   [211, "ProviderStoppedSeparators", Migration0211],
   [212, "TurnStartTimes", Migration0212],
   [213, "SavedPrompts", Migration0213],
+  [214, "RemoteDevices", Migration0214],
 ] as const;
 
 export const makeMigrationLoader = (throughId?: number) =>

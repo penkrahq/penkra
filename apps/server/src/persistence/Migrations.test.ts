@@ -161,6 +161,7 @@ layer("removed provider data migration", (it) => {
         [211, "ProviderStoppedSeparators"],
         [212, "TurnStartTimes"],
         [213, "SavedPrompts"],
+        [214, "RemoteDevices"],
       ]);
 
       const threads = yield* sql<{ readonly threadId: string }>`
@@ -1082,6 +1083,7 @@ previousSpacesMigrationLayer("previous Spaces lineage", (it) => {
         [211, "ProviderStoppedSeparators"],
         [212, "TurnStartTimes"],
         [213, "SavedPrompts"],
+        [214, "RemoteDevices"],
       ]);
 
       const tracker = yield* trackerRows(sql);
@@ -1416,6 +1418,7 @@ reservedProductionIdentitiesLayer("reserved Production migration identities", (i
           [211, "ProviderStoppedSeparators"],
           [212, "TurnStartTimes"],
           [213, "SavedPrompts"],
+          [214, "RemoteDevices"],
         ],
       );
       // A database already at the reserved identities is not "too new": the

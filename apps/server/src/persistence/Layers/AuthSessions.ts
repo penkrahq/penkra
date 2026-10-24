@@ -10,6 +10,7 @@ import {
   type AuthSessionRepositoryShape,
   CreateAuthSessionInput,
   GetAuthSessionByIdInput,
+  RenewExpiredAuthClientInput,
   ListActiveAuthSessionsInput,
   RevokeAuthSessionInput,
   RevokeOtherAuthSessionsInput,
@@ -247,7 +248,38 @@ const makeAuthSessionRepository = Effect.gen(function* () {
       ),
     );
 
-  return { create, getById, listActive, revoke, revokeAllExcept, setLastConnectedAt };
+  const renewExpiredClientRows = SqlSchema.findAll({
+    Request: RenewExpiredAuthClientInput,
+    Result: Schema.Struct({ sessionId: AuthSessionId }),
+    execute: ({ sessionId, subject, issuedAt, expiresAt }) => sql`
+      UPDATE auth_sessions
+      SET issued_at = ${toIsoDateTime(issuedAt)}, expires_at = ${toIsoDateTime(expiresAt)}
+      WHERE session_id = ${sessionId} AND subject = ${subject}
+        AND role = 'client' AND method = 'bearer-session-token'
+        AND revoked_at IS NULL AND expires_at <= ${toIsoDateTime(issuedAt)}
+      RETURNING session_id AS "sessionId"
+    `,
+  });
+  const renewExpiredClient: AuthSessionRepositoryShape["renewExpiredClient"] = (input) =>
+    renewExpiredClientRows(input).pipe(
+      Effect.mapError(
+        toPersistenceSqlOrDecodeError(
+          "AuthSessionRepository.renewExpiredClient:query",
+          "AuthSessionRepository.renewExpiredClient:decodeRows",
+        ),
+      ),
+      Effect.map((rows) => rows.length > 0),
+    );
+
+  return {
+    create,
+    getById,
+    listActive,
+    revoke,
+    revokeAllExcept,
+    setLastConnectedAt,
+    renewExpiredClient,
+  };
 });
 
 export const AuthSessionRepositoryLive = Layer.effect(

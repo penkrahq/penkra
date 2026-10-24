@@ -43,6 +43,14 @@ export const GetAuthSessionByIdInput = Schema.Struct({
 });
 export type GetAuthSessionByIdInput = typeof GetAuthSessionByIdInput.Type;
 
+export const RenewExpiredAuthClientInput = Schema.Struct({
+  sessionId: AuthSessionId,
+  subject: Schema.String,
+  issuedAt: Schema.DateTimeUtc,
+  expiresAt: Schema.DateTimeUtc,
+});
+export type RenewExpiredAuthClientInput = typeof RenewExpiredAuthClientInput.Type;
+
 export const ListActiveAuthSessionsInput = Schema.Struct({
   now: Schema.DateTimeUtcFromString,
 });
@@ -67,6 +75,9 @@ export const SetAuthSessionLastConnectedAtInput = Schema.Struct({
 export type SetAuthSessionLastConnectedAtInput = typeof SetAuthSessionLastConnectedAtInput.Type;
 
 export interface AuthSessionRepositoryShape {
+  readonly renewExpiredClient: (
+    input: RenewExpiredAuthClientInput,
+  ) => Effect.Effect<boolean, AuthSessionRepositoryError>;
   readonly create: (
     input: CreateAuthSessionInput,
   ) => Effect.Effect<void, AuthSessionRepositoryError>;

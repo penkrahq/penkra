@@ -52,6 +52,23 @@ export class SessionCapacityError extends Data.TaggedError("SessionCapacityError
 }> {}
 
 export interface SessionCredentialServiceShape {
+  /** Persist paired trust and replace its previous session in the same database transaction. */
+  readonly pairClient: (
+    input: { readonly subject: string; readonly client: AuthClientMetadata },
+    persist: (
+      sessionId: AuthSessionId,
+    ) => Effect.Effect<AuthSessionId | null, SessionCredentialError>,
+  ) => Effect.Effect<IssuedSession, SessionCredentialError>;
+  /** Delete paired trust atomically with revocation; notify/interrupt only after commit. */
+  readonly unpairClient: (
+    sessionId: AuthSessionId,
+    persist: Effect.Effect<void, SessionCredentialError>,
+  ) => Effect.Effect<boolean, SessionCredentialError>;
+  /** Internal only: caller must first authenticate the phone's persisted paired key. */
+  readonly resumeClient: (input: {
+    readonly sessionId: AuthSessionId;
+    readonly subject: string;
+  }) => Effect.Effect<IssuedSession, SessionCredentialError>;
   readonly cookieName: string;
   readonly issue: (input?: {
     readonly ttl?: Duration.Duration;
