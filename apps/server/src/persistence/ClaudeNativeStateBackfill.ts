@@ -5,7 +5,7 @@ import { randomUUID } from "node:crypto";
 import { lstat, mkdir, readdir, rename, rm, rmdir } from "node:fs/promises";
 import * as Path from "node:path";
 import { Effect, Exit } from "effect";
-import * as SqlClient from "effect/unstable/sql/SqlClient";
+import * as SqlClient from "effect/sql/SqlClient";
 
 import { claudeThreadProjectName } from "../provider/claudeThreadNativeState.ts";
 import { providerNativeStateRoot } from "../provider/providerNativeStatePaths.ts";

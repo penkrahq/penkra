@@ -1,7 +1,7 @@
 import { assert, it } from "@effect/vitest";
 import { MessageId, ThreadId, SavedRestoreDraftNotEmptyError } from "@penkra/contracts";
 import { Effect, Exit } from "effect";
-import * as SqlClient from "effect/unstable/sql/SqlClient";
+import * as SqlClient from "effect/sql/SqlClient";
 import * as NodeSqliteClient from "../persistence/NodeSqliteClient.ts";
 import { runMigrations } from "../persistence/Migrations.ts";
 import { seedThreadFolderFixture } from "./threadFixtures.ts";
@@ -11,13 +11,13 @@ import { enqueueMessage } from "./threadQueue.ts";
 import { findThread } from "./threadList.ts";
 import { threadShellFromRow } from "@penkra/shared/threadView";
 
-const threadId = ThreadId.makeUnsafe("saved-thread");
+const threadId = ThreadId.make("saved-thread");
 const at = "2026-10-20T12:00:00.000Z";
 const input = {
   threadId,
   draftUpdatedAt: at,
   message: {
-    messageId: MessageId.makeUnsafe("saved-message"),
+    messageId: MessageId.make("saved-message"),
     text: "Keep this draft",
     attachments: [],
   },
@@ -104,7 +104,7 @@ it.effect("restores attachment IDs and assistant selections without making trans
         {
           id: "selection",
           type: "assistant-selection" as const,
-          assistantMessageId: MessageId.makeUnsafe("assistant"),
+          assistantMessageId: MessageId.make("assistant"),
           text: "selected text",
         },
       ];
@@ -187,7 +187,7 @@ it.effect("queue edit uses the same draft move and preserves the remaining queue
       yield* enqueueMessage(threadId, { ...input.message, origin: { _tag: "user" }, queuedAt: at });
       yield* enqueueMessage(threadId, {
         ...input.message,
-        messageId: MessageId.makeUnsafe("next"),
+        messageId: MessageId.make("next"),
         origin: { _tag: "user" },
         queuedAt: at,
       });

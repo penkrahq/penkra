@@ -112,7 +112,7 @@ export function readStringArrayArg(
 
 export function decodeCreateThreadInput(value: unknown) {
   try {
-    return Schema.decodeUnknownSync(PenkraCreateThreadInput)(value);
+    return Schema.decodeUnknownSync(PenkraCreateThreadInput, { onExcessProperty: "error" })(value);
   } catch (error) {
     throw new ToolInputError(`Invalid Penkra thread request: ${errorText(error)}`);
   }
@@ -120,7 +120,7 @@ export function decodeCreateThreadInput(value: unknown) {
 
 export function decodeSendMessageInput(value: unknown) {
   try {
-    return Schema.decodeUnknownSync(PenkraSendMessageInput)(value);
+    return Schema.decodeUnknownSync(PenkraSendMessageInput, { onExcessProperty: "error" })(value);
   } catch (error) {
     throw new ToolInputError(`Invalid Penkra send request: ${errorText(error)}`);
   }

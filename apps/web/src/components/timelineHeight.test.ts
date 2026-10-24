@@ -12,7 +12,7 @@ describe("estimateTimelineMessageHeight", () => {
     const agentMessage = estimateTimelineMessageHeight({
       role: "user",
       text: "hello",
-      origin: { _tag: "agent" as const, senderThreadId: ThreadId.makeUnsafe("sender-thread") },
+      origin: { _tag: "agent" as const, senderThreadId: ThreadId.make("sender-thread") },
     });
 
     expect(agentMessage - ordinaryMessage).toBe(30);

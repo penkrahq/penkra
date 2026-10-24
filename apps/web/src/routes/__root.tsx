@@ -480,7 +480,7 @@ function EventRouter() {
   });
   const routeThreadId = useParams({
     strict: false,
-    select: (params) => (params.threadId ? ThreadId.makeUnsafe(params.threadId) : null),
+    select: (params) => (params.threadId ? ThreadId.make(params.threadId) : null),
   });
   const visibleThreadIds = useMemo(() => (routeThreadId ? [routeThreadId] : []), [routeThreadId]);
   const pathnameRef = useRef(pathname);

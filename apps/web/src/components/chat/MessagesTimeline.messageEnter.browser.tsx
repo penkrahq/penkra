@@ -20,7 +20,7 @@ function userEntry(id: string, text: string): TimelineEntries[number] {
     kind: "message",
     createdAt: "2026-03-17T19:12:28.000Z",
     message: {
-      id: MessageId.makeUnsafe(id),
+      id: MessageId.make(id),
       role: "user",
       text,
       createdAt: "2026-03-17T19:12:28.000Z",

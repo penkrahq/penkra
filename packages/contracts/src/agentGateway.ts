@@ -83,7 +83,7 @@ const PenkraGatewayRequestId = Schema.String.check(Schema.isNonEmpty()).check(
 export const PenkraCreateThreadInput = Schema.Struct({
   requestId: PenkraGatewayRequestId,
   ...PenkraCreateThreadSpec.fields,
-}).annotate({ parseOptions: { onExcessProperty: "error" } });
+});
 export type PenkraCreateThreadInput = typeof PenkraCreateThreadInput.Type;
 
 export const PenkraSendMessageInput = Schema.Struct({
@@ -92,7 +92,7 @@ export const PenkraSendMessageInput = Schema.Struct({
   now: Schema.optional(Schema.Boolean),
   connectionId: Schema.optional(Schema.NullOr(ProviderConnectionId)),
   modelSelection: Schema.optional(ModelSelection),
-}).annotate({ parseOptions: { onExcessProperty: "error" } });
+});
 export type PenkraSendMessageInput = typeof PenkraSendMessageInput.Type;
 
 export const PenkraProviderCatalog = Schema.Struct({

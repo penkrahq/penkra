@@ -6,8 +6,8 @@ import { resolveRestorableThreadRoute } from "./chatRouteRestore";
 
 describe("resolveRestorableThreadRoute", () => {
   it("does not reopen an archived remembered thread on launch", () => {
-    const threadId = ThreadId.makeUnsafe("thread-archived");
-    const folderId = FolderId.makeUnsafe("folder-1");
+    const threadId = ThreadId.make("thread-archived");
+    const folderId = FolderId.make("folder-1");
     expect(
       resolveChatIndexRestoreRoute({
         lastThreadRoute: { threadId },

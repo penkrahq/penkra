@@ -4386,7 +4386,7 @@ function ChatViewContent({
               ...attachments.filter((attachment) => attachment.type !== "assistant-selection"),
               ...composerAssistantSelectionsSnapshot.map((selection) => ({
                 ...selection,
-                assistantMessageId: MessageId.makeUnsafe(selection.assistantMessageId),
+                assistantMessageId: MessageId.make(selection.assistantMessageId),
               })),
             ],
             queuedAt: messageCreatedAt,

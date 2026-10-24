@@ -56,7 +56,7 @@ function ChatIndexRouteView() {
     landingSpaceKey === undefined
       ? null
       : {
-          spaceId: SpaceId.makeUnsafe(landingSpaceKey),
+          spaceId: SpaceId.make(landingSpaceKey),
           projectById: new Map(folders.map((project) => [project.id, project])),
           workspacePaths,
         };

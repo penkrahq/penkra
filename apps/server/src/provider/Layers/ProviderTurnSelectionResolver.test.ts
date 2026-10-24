@@ -1,4 +1,4 @@
-import * as SqlClient from "effect/unstable/sql/SqlClient";
+import * as SqlClient from "effect/sql/SqlClient";
 import * as NodeSqliteClient from "../../persistence/NodeSqliteClient.ts";
 import { runMigrations } from "../../persistence/Migrations.ts";
 import { ProviderConnectionId, ProviderInstallationId, ThreadId } from "@penkra/contracts";
@@ -18,14 +18,14 @@ import {
 } from "./ProviderTurnSelectionResolver.ts";
 import { ServerSettingsService } from "../../serverSettings.ts";
 
-const threadId = ThreadId.makeUnsafe("selection-thread");
-const connectionId = ProviderConnectionId.makeUnsafe("selection-go");
-const codexConnectionId = ProviderConnectionId.makeUnsafe("selection-codex-managed");
-const claudeConnectionId = ProviderConnectionId.makeUnsafe("selection-claude-managed");
-const otherClaudeConnectionId = ProviderConnectionId.makeUnsafe("selection-claude-other");
-const installationId = ProviderInstallationId.makeUnsafe("selection-installation");
-const activeInstallationId = ProviderInstallationId.makeUnsafe("selection-active-installation");
-const claudeInstallationId = ProviderInstallationId.makeUnsafe("selection-claude-installation");
+const threadId = ThreadId.make("selection-thread");
+const connectionId = ProviderConnectionId.make("selection-go");
+const codexConnectionId = ProviderConnectionId.make("selection-codex-managed");
+const claudeConnectionId = ProviderConnectionId.make("selection-claude-managed");
+const otherClaudeConnectionId = ProviderConnectionId.make("selection-claude-other");
+const installationId = ProviderInstallationId.make("selection-installation");
+const activeInstallationId = ProviderInstallationId.make("selection-active-installation");
+const claudeInstallationId = ProviderInstallationId.make("selection-claude-installation");
 const timestamp = "2026-08-08T00:00:00.000Z";
 
 function failedWithCode(exit: { readonly _tag: "Failure"; readonly cause: Cause.Cause<unknown> }) {
@@ -104,7 +104,7 @@ const dependencies = Layer.mergeAll(
             harness === "claudeAgent"
               ? claudeInstallationId
               : harness === "codex"
-                ? ProviderInstallationId.makeUnsafe("selection-codex-installation")
+                ? ProviderInstallationId.make("selection-codex-installation")
                 : installationLifecycle === "retired"
                   ? activeInstallationId
                   : installationId,
@@ -145,7 +145,7 @@ const dependencies = Layer.mergeAll(
             ]
           : []),
         {
-          id: ProviderInstallationId.makeUnsafe("selection-codex-installation"),
+          id: ProviderInstallationId.make("selection-codex-installation"),
           harness: "codex",
           version: "0.147.0",
           platform: "darwin",
@@ -542,7 +542,7 @@ layer("ProviderTurnSelectionResolver", (it) => {
       Effect.gen(function* () {
         const config = yield* ServerConfig;
         const resolver = yield* fixtureResolver();
-        const accountThreadId = ThreadId.makeUnsafe("selection-claude-account-switch");
+        const accountThreadId = ThreadId.make("selection-claude-account-switch");
         threadHarness = "claudeAgent";
         yield* Effect.promise(() =>
           rememberClaudeThreadAccount({

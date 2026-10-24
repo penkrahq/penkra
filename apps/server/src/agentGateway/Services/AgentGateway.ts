@@ -9,7 +9,7 @@
  *
  * @module agentGateway/Services/AgentGateway
  */
-import { ServiceMap } from "effect";
+import { Context } from "effect";
 import type { Effect } from "effect";
 import type { AgentGatewayWriteAuthority } from "./AgentGatewaySessionRegistry.ts";
 import type { McpToolCallResult, McpToolDefinition } from "../protocol.ts";
@@ -46,6 +46,6 @@ export interface AgentGatewayShape {
   }) => Effect.Effect<AgentGatewayHttpResult>;
 }
 
-export class AgentGateway extends ServiceMap.Service<AgentGateway, AgentGatewayShape>()(
+export class AgentGateway extends Context.Service<AgentGateway, AgentGatewayShape>()(
   "penkra/agentGateway/Services/AgentGateway",
 ) {}

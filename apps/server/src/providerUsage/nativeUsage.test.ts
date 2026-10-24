@@ -29,7 +29,7 @@ describe("native Connection usage", () => {
   it("recognizes a runtime-confirmed signed-out Codex account", () => {
     expect(
       codexNativeUsage({
-        connectionId: ProviderConnectionId.makeUnsafe("a"),
+        connectionId: ProviderConnectionId.make("a"),
         nowMs: 0,
         limits: null,
       }).status,
@@ -47,7 +47,7 @@ describe("native Connection usage", () => {
       },
     } as GetAccountRateLimitsResponse;
     const snapshot = codexNativeUsage({
-      connectionId: ProviderConnectionId.makeUnsafe("a"),
+      connectionId: ProviderConnectionId.make("a"),
       nowMs: 0,
       limits,
     });

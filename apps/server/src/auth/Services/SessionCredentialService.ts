@@ -4,7 +4,7 @@ import type {
   AuthSessionId,
   ServerAuthSessionMethod,
 } from "@penkra/contracts";
-import { Data, DateTime, Duration, ServiceMap } from "effect";
+import { Data, DateTime, Duration, Context } from "effect";
 import type { Effect, Stream } from "effect";
 
 export type SessionRole = "owner" | "client";
@@ -103,7 +103,7 @@ export interface SessionCredentialServiceShape {
   ) => Effect.Effect<A, E | SessionCredentialError | SessionCapacityError, R>;
 }
 
-export class SessionCredentialService extends ServiceMap.Service<
+export class SessionCredentialService extends Context.Service<
   SessionCredentialService,
   SessionCredentialServiceShape
 >()("penkra/auth/Services/SessionCredentialService") {}

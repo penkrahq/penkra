@@ -23,7 +23,7 @@ describe("ensureDurableThreadWorkspace", () => {
   it("creates a private per-thread directory under the durable state root", () => {
     const stateDir = temporaryRoot("penkra-durable-workspace-");
     try {
-      const workspace = ensureDurableThreadWorkspace(ThreadId.makeUnsafe("thread-1"), stateDir);
+      const workspace = ensureDurableThreadWorkspace(ThreadId.make("thread-1"), stateDir);
       const durableRoot = path.join(stateDir, DURABLE_THREAD_WORKSPACES_DIRNAME);
       expect(workspace).toContain(
         `${path.sep}${DURABLE_THREAD_WORKSPACES_DIRNAME}${path.sep}thread-1-`,
@@ -37,10 +37,7 @@ describe("ensureDurableThreadWorkspace", () => {
   it("does not let path-like thread ids escape the durable root", () => {
     const stateDir = temporaryRoot("penkra-durable-workspace-");
     try {
-      const workspace = ensureDurableThreadWorkspace(
-        ThreadId.makeUnsafe("../outside/thread"),
-        stateDir,
-      );
+      const workspace = ensureDurableThreadWorkspace(ThreadId.make("../outside/thread"), stateDir);
       const relative = path.relative(
         path.join(stateDir, DURABLE_THREAD_WORKSPACES_DIRNAME),
         workspace,
@@ -56,7 +53,7 @@ describe("ensureDurableThreadWorkspace", () => {
   it("adopts surviving files from the legacy temp workspace", () => {
     const stateDir = temporaryRoot("penkra-durable-workspace-");
     const legacyScratchRoot = temporaryRoot("penkra-legacy-workspace-");
-    const threadId = ThreadId.makeUnsafe("thread-1");
+    const threadId = ThreadId.make("thread-1");
     try {
       const firstWorkspace = ensureDurableThreadWorkspace(threadId, stateDir, {
         legacyScratchRoot,

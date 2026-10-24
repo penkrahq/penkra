@@ -137,7 +137,7 @@ export function resolveThreadMentionPromptProjection(input: {
   return Effect.forEach(contextMentions, (reference) => {
     const threadId = threadIdFromMentionReference(reference);
     const thread = threadId
-      ? input.snapshotQuery.getThreadDetailById(ThreadId.makeUnsafe(threadId)).pipe(
+      ? input.snapshotQuery.getThreadDetailById(ThreadId.make(threadId)).pipe(
           Effect.catchCause((cause) =>
             Cause.hasInterruptsOnly(cause)
               ? Effect.failCause(cause).pipe(Effect.orDie)

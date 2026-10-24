@@ -2,7 +2,7 @@
 // Purpose: Separates Git environment switching from the removed provider Handoff concept.
 
 import { Effect } from "effect";
-import * as SqlClient from "effect/unstable/sql/SqlClient";
+import * as SqlClient from "effect/sql/SqlClient";
 
 import { tableExists } from "./schemaHelpers.ts";
 

@@ -142,9 +142,9 @@ const THREAD_TITLE = "Browser test thread";
 const UUID_ROUTE_RE = /^\/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 const PROJECT_ID = "project-1" as FolderId;
 const OTHER_PROJECT_ID = "project-2" as FolderId;
-const TEST_SPACE_ID = SpaceId.makeUnsafe("space-browser-test");
-const TEST_CONNECTION_ID = ProviderConnectionId.makeUnsafe("connection-codex-browser");
-const ALTERNATE_CONNECTION_ID = ProviderConnectionId.makeUnsafe("connection-codex-alternate");
+const TEST_SPACE_ID = SpaceId.make("space-browser-test");
+const TEST_CONNECTION_ID = ProviderConnectionId.make("connection-codex-browser");
+const ALTERNATE_CONNECTION_ID = ProviderConnectionId.make("connection-codex-alternate");
 const INBOX_FOLDER_ID = "folder-inbox" as FolderId;
 const NOW_ISO = "2026-03-04T12:00:00.000Z";
 const BASE_TIME_MS = Date.parse(NOW_ISO);
@@ -420,7 +420,7 @@ function createSnapshotForTargetUser(options: {
           status: options.sessionStatus ?? "ready",
           providerName: "codex",
           activeTurnId:
-            options.sessionStatus === "running" ? TurnId.makeUnsafe("browser-running-turn") : null,
+            options.sessionStatus === "running" ? TurnId.make("browser-running-turn") : null,
           lastError: null,
           updatedAt: NOW_ISO,
         },
@@ -930,7 +930,7 @@ function markThreadsAsHavingCompletedTurns(
         ? {
             ...thread,
             latestTurn: {
-              turnId: TurnId.makeUnsafe(`turn-completed-${thread.id}`),
+              turnId: TurnId.make(`turn-completed-${thread.id}`),
               state: "completed" as const,
               requestedAt: NOW_ISO,
               startedAt: NOW_ISO,
@@ -1092,7 +1092,7 @@ function createSnapshotWithHistoricalPlanMessage(): OrchestrationReadModel {
             messages: [
               ...thread.messages,
               {
-                id: MessageId.makeUnsafe("legacy-proposed-plan:plan-browser-test"),
+                id: MessageId.make("legacy-proposed-plan:plan-browser-test"),
                 role: "assistant" as const,
                 text: planMarkdown,
                 turnId: null,
@@ -1116,7 +1116,7 @@ function createSnapshotWithActiveInlinePlan(): OrchestrationReadModel {
     targetText: "inline plan thread",
     sessionStatus: "running",
   });
-  const activeTurnId = TurnId.makeUnsafe("turn-inline-plan");
+  const activeTurnId = TurnId.make("turn-inline-plan");
 
   return {
     ...snapshot,
@@ -1134,7 +1134,7 @@ function createSnapshotWithActiveInlinePlan(): OrchestrationReadModel {
             },
             activities: [
               {
-                id: EventId.makeUnsafe("activity-inline-plan"),
+                id: EventId.make("activity-inline-plan"),
                 createdAt: isoAt(1_002),
                 kind: "turn.tasks.updated",
                 summary: "Tasks updated",
@@ -1158,7 +1158,7 @@ function createSnapshotWithActiveInlinePlan(): OrchestrationReadModel {
                 },
               },
               {
-                id: EventId.makeUnsafe("activity-inline-background-task"),
+                id: EventId.make("activity-inline-background-task"),
                 createdAt: isoAt(1_003),
                 kind: "task.started",
                 summary: "Background agent started",
@@ -1187,7 +1187,7 @@ function createSnapshotWithActiveInlinePlan(): OrchestrationReadModel {
 
 function createSnapshotWithSettledInlinePlan(): OrchestrationReadModel {
   const snapshot = createSnapshotWithActiveInlinePlan();
-  const activeTurnId = TurnId.makeUnsafe("turn-inline-plan");
+  const activeTurnId = TurnId.make("turn-inline-plan");
 
   return {
     ...snapshot,
@@ -1201,13 +1201,13 @@ function createSnapshotWithSettledInlinePlan(): OrchestrationReadModel {
               requestedAt: isoAt(1_000),
               startedAt: isoAt(1_001),
               completedAt: isoAt(1_004),
-              assistantMessageId: MessageId.makeUnsafe("msg-assistant-inline-plan-complete"),
+              assistantMessageId: MessageId.make("msg-assistant-inline-plan-complete"),
             },
             messages: [
               ...thread.messages,
               {
                 turnId: activeTurnId,
-                id: MessageId.makeUnsafe("msg-assistant-inline-plan-complete"),
+                id: MessageId.make("msg-assistant-inline-plan-complete"),
                 role: "assistant",
                 text: "Finished the investigation.",
                 createdAt: isoAt(1_004),
@@ -1275,7 +1275,7 @@ function createSnapshotWithInlineToolOverflow(options: {
     targetText: "inline tools thread",
     sessionStatus: options.active ? "running" : "ready",
   });
-  const activeTurnId = TurnId.makeUnsafe("turn-inline-tools");
+  const activeTurnId = TurnId.make("turn-inline-tools");
 
   return {
     ...snapshot,
@@ -1289,10 +1289,10 @@ function createSnapshotWithInlineToolOverflow(options: {
               requestedAt: isoAt(1_100),
               startedAt: isoAt(1_101),
               completedAt: options.active ? null : isoAt(1_108),
-              assistantMessageId: MessageId.makeUnsafe("msg-assistant-inline-tools"),
+              assistantMessageId: MessageId.make("msg-assistant-inline-tools"),
             },
             activities: Array.from({ length: 6 }, (_, index) => ({
-              id: EventId.makeUnsafe(`activity-inline-tool-${index + 1}`),
+              id: EventId.make(`activity-inline-tool-${index + 1}`),
               createdAt: isoAt(1_102 + index),
               kind: "tool.completed" as const,
               summary: `tool ${index + 1}`,
@@ -1307,7 +1307,7 @@ function createSnapshotWithInlineToolOverflow(options: {
               ...thread.messages,
               {
                 turnId: activeTurnId,
-                id: MessageId.makeUnsafe("msg-assistant-inline-tools"),
+                id: MessageId.make("msg-assistant-inline-tools"),
                 role: "assistant",
                 text: "Wrapped up the inline tool review.",
                 createdAt: isoAt(1_109),
@@ -1334,20 +1334,20 @@ function createSnapshotWithInlineToolOverflow(options: {
 
 function createLongRunningStreamingSnapshot(): OrchestrationReadModel {
   const base = createSnapshotForTargetUser({
-    targetMessageId: MessageId.makeUnsafe("msg-long-stream-user"),
+    targetMessageId: MessageId.make("msg-long-stream-user"),
     targetText: "long streaming performance reproduction",
     sessionStatus: "running",
   });
-  const turnId = TurnId.makeUnsafe("turn-long-stream-19");
+  const turnId = TurnId.make("turn-long-stream-19");
   const startedAt = isoAt(2_000);
   let sequence = 10_000;
   const activities: Array<OrchestrationReadModel["threads"][number]["activities"][number]> = [];
   const streamedMessages: Array<OrchestrationReadModel["threads"][number]["messages"][number]> = [];
   for (let turnIndex = 0; turnIndex < 20; turnIndex += 1) {
-    const currentTurnId = TurnId.makeUnsafe(`turn-long-stream-${turnIndex}`);
+    const currentTurnId = TurnId.make(`turn-long-stream-${turnIndex}`);
     const userSequence = sequence++;
     streamedMessages.push({
-      id: MessageId.makeUnsafe(`user-long-stream-${turnIndex}`),
+      id: MessageId.make(`user-long-stream-${turnIndex}`),
       role: "user",
       text: `Long history request ${turnIndex}`,
       turnId: currentTurnId,
@@ -1360,7 +1360,7 @@ function createLongRunningStreamingSnapshot(): OrchestrationReadModel {
     for (let activityIndex = 0; activityIndex < 275; activityIndex += 1) {
       const activitySequence = sequence++;
       activities.push({
-        id: EventId.makeUnsafe(`activity-long-stream-${turnIndex}-${activityIndex}`),
+        id: EventId.make(`activity-long-stream-${turnIndex}-${activityIndex}`),
         createdAt: isoAt(activitySequence),
         kind: "tool.completed",
         summary: `Ran command ${turnIndex}-${activityIndex}`,
@@ -1378,7 +1378,7 @@ function createLongRunningStreamingSnapshot(): OrchestrationReadModel {
         const messageSequence = sequence++;
         const isLiveTail = turnIndex === 19 && assistantIndex === 299;
         streamedMessages.push({
-          id: MessageId.makeUnsafe(`assistant-long-stream-${assistantIndex}`),
+          id: MessageId.make(`assistant-long-stream-${assistantIndex}`),
           role: "assistant",
           text: `Streaming progress ${assistantIndex}`,
           turnId: currentTurnId,
@@ -1403,7 +1403,7 @@ function createLongRunningStreamingSnapshot(): OrchestrationReadModel {
               requestedAt: startedAt,
               startedAt,
               completedAt: null,
-              assistantMessageId: MessageId.makeUnsafe("assistant-long-stream-299"),
+              assistantMessageId: MessageId.make("assistant-long-stream-299"),
             },
             messages: [...thread.messages, ...streamedMessages],
             activities,
@@ -1422,7 +1422,7 @@ function createSnapshotWithInterruptedCommand(): OrchestrationReadModel {
     targetText: "run the lifecycle check",
     sessionStatus: "stopped",
   });
-  const turnId = TurnId.makeUnsafe("turn-interrupted-command");
+  const turnId = TurnId.make("turn-interrupted-command");
   const settledAt = isoAt(1_120);
 
   return {
@@ -1441,7 +1441,7 @@ function createSnapshotWithInterruptedCommand(): OrchestrationReadModel {
             },
             activities: [
               {
-                id: EventId.makeUnsafe("activity-interrupted-command"),
+                id: EventId.make("activity-interrupted-command"),
                 createdAt: isoAt(1_102),
                 kind: "tool.started",
                 summary: "Ran command started",
@@ -1515,7 +1515,7 @@ function recordFolderCreateUpdate(command: unknown): boolean {
           id: folderId,
           spaceId:
             "spaceId" in command && typeof command.spaceId === "string"
-              ? SpaceId.makeUnsafe(command.spaceId)
+              ? SpaceId.make(command.spaceId)
               : TEST_SPACE_ID,
           title: String(command.title),
           workspaceRoot: command.workspaceRoot === null ? null : String(command.workspaceRoot),
@@ -1547,7 +1547,7 @@ function recordSpaceCreateUpdate(command: unknown): boolean {
   ) {
     return false;
   }
-  const spaceId = SpaceId.makeUnsafe(command.spaceId);
+  const spaceId = SpaceId.make(command.spaceId);
   fixture = {
     ...fixture,
     snapshot: {
@@ -1730,7 +1730,7 @@ function resolveWsRpc(body: WsRequestEnvelope["body"]): unknown {
                   connectionId:
                     input.connection.kind === "selected"
                       ? input.connection.connectionId
-                      : ProviderConnectionId.makeUnsafe("connection-codex-browser"),
+                      : ProviderConnectionId.make("connection-codex-browser"),
                   createdAt: input.createdAt,
                   updatedAt: input.createdAt,
                 }
@@ -1946,9 +1946,7 @@ function resolveWsRpc(body: WsRequestEnvelope["body"]): unknown {
           : input.position.type === "end"
             ? members.length
             : members.indexOf(
-                ThreadId.makeUnsafe(
-                  "itemId" in input.position ? input.position.itemId : input.threadId,
-                ),
+                ThreadId.make("itemId" in input.position ? input.position.itemId : input.threadId),
               ) + (input.position.type === "after" ? 1 : 0);
       members.splice(position, 0, input.threadId);
       fixture = {
@@ -2053,13 +2051,10 @@ function resolveWsRpc(body: WsRequestEnvelope["body"]): unknown {
     return saved;
   }
   if (tag === WS_METHODS.cleanCoreListThreadItemsPage && typeof body.threadId === "string") {
-    return fixtureOutlinePage(
-      ThreadId.makeUnsafe(body.threadId),
-      body.beforeSeq as number | undefined,
-    );
+    return fixtureOutlinePage(ThreadId.make(body.threadId), body.beforeSeq as number | undefined);
   }
   if (tag === WS_METHODS.cleanCoreListTurnItems && typeof body.threadId === "string") {
-    const all = createThreadItemsPageFromFixtureSnapshot(ThreadId.makeUnsafe(body.threadId));
+    const all = createThreadItemsPageFromFixtureSnapshot(ThreadId.make(body.threadId));
     const items = all.items
       .filter(
         (item) =>
@@ -3022,7 +3017,7 @@ async function mountChatView(options: {
     await waitForMountedChatReady({
       host,
       snapshot: options.snapshot,
-      routeThreadId: ThreadId.makeUnsafe(initialEntry.slice(1)),
+      routeThreadId: ThreadId.make(initialEntry.slice(1)),
     });
   } catch (cause) {
     await screen.unmount();
@@ -3103,14 +3098,14 @@ describe("ChatView timeline estimator parity (full app)", () => {
 
   it("continues the logical turn after a tool outlives two Stop requests", async () => {
     const previousBridge = window.desktopBridge;
-    const turnId = TurnId.makeUnsafe("turn:5e4001b7-a59c-42de-b1dd-20e7d27640be");
-    const providerTurnId = TurnId.makeUnsafe("a3f9d56b-1701-49a9-9787-d529072d9b5f");
-    const messageId = MessageId.makeUnsafe("a810f055-436d-49ad-a1bf-96d4519798de");
+    const turnId = TurnId.make("turn:5e4001b7-a59c-42de-b1dd-20e7d27640be");
+    const providerTurnId = TurnId.make("a3f9d56b-1701-49a9-9787-d529072d9b5f");
+    const messageId = MessageId.make("a810f055-436d-49ad-a1bf-96d4519798de");
     const requestedAt = "2026-09-26T22:18:03.115Z";
     const runningAt = "2026-09-26T22:18:03.790Z";
     const stoppedAt = "2026-09-26T22:18:15.938Z";
     const baseSnapshot = createSnapshotForTargetUser({
-      targetMessageId: MessageId.makeUnsafe("browser-target-before-play"),
+      targetMessageId: MessageId.make("browser-target-before-play"),
       targetText: "Run a long tool",
     });
     const snapshot = {
@@ -3161,7 +3156,7 @@ describe("ChatView timeline estimator parity (full app)", () => {
         makeDomainEvent("thread.activity-appended", {
           threadId: THREAD_ID,
           activity: {
-            id: EventId.makeUnsafe(`browser-${kind}-${at}`),
+            id: EventId.make(`browser-${kind}-${at}`),
             kind,
             tone: "info",
             summary: kind,
@@ -3241,7 +3236,7 @@ describe("ChatView timeline estimator parity (full app)", () => {
           "thread.message-sent",
           {
             threadId: THREAD_ID,
-            messageId: MessageId.makeUnsafe("assistant-resumed-after-play"),
+            messageId: MessageId.make("assistant-resumed-after-play"),
             role: "assistant",
             text: "Resumed stream after Play",
             turnId,
@@ -3471,10 +3466,10 @@ describe("ChatView timeline estimator parity (full app)", () => {
         { timeout: 4_000, interval: 16 },
       );
 
-      const activeTurnId = TurnId.makeUnsafe("turn-auto-follow-wiring");
+      const activeTurnId = TurnId.make("turn-auto-follow-wiring");
       const liveAssistantMessage = {
         ...createAssistantMessage({
-          id: MessageId.makeUnsafe("msg-assistant-auto-follow-live"),
+          id: MessageId.make("msg-assistant-auto-follow-live"),
           text: "A real live assistant tail with enough content to overflow the viewport. ".repeat(
             80,
           ),
@@ -3526,7 +3521,7 @@ describe("ChatView timeline estimator parity (full app)", () => {
         activities: [
           ...thread.activities,
           {
-            id: EventId.makeUnsafe("activity-auto-follow-tool"),
+            id: EventId.make("activity-auto-follow-tool"),
             createdAt: isoAt(1_204),
             kind: "tool.progress",
             summary: "Tool in progress",
@@ -3546,7 +3541,7 @@ describe("ChatView timeline estimator parity (full app)", () => {
         activities: [
           ...thread.activities,
           {
-            id: EventId.makeUnsafe("activity-auto-follow-tool"),
+            id: EventId.make("activity-auto-follow-tool"),
             createdAt: isoAt(1_205),
             kind: "tool.completed",
             summary: "scroll-only tool activity",
@@ -3761,7 +3756,7 @@ describe("ChatView timeline estimator parity (full app)", () => {
     const mounted = await mountChatView({
       viewport: DEFAULT_VIEWPORT,
       snapshot: createSnapshotForTargetUser({
-        targetMessageId: MessageId.makeUnsafe("saved-prompt-history"),
+        targetMessageId: MessageId.make("saved-prompt-history"),
         targetText: "Earlier message",
       }),
     });
@@ -3826,19 +3821,17 @@ describe("ChatView timeline estimator parity (full app)", () => {
       ),
       {
         threadId: OTHER_THREAD_ID,
-        messageId: MessageId.makeUnsafe("msg-user-thread-folder-background"),
+        messageId: MessageId.make("msg-user-thread-folder-background"),
         prompt: "Investigate in the background",
-        turnId: TurnId.makeUnsafe("turn-thread-folder-background"),
-        assistantMessageId: MessageId.makeUnsafe("msg-assistant-thread-folder-background"),
+        turnId: TurnId.make("turn-thread-folder-background"),
+        assistantMessageId: MessageId.make("msg-assistant-thread-folder-background"),
         assistantText: "Still investigating",
         offsetSeconds: 10,
       },
     );
-    const withArchived = addThreadToExistingFolder(
-      snapshot,
-      ThreadId.makeUnsafe("archived-folder-tab"),
-      { title: "Archived folder member" },
-    );
+    const withArchived = addThreadToExistingFolder(snapshot, ThreadId.make("archived-folder-tab"), {
+      title: "Archived folder member",
+    });
     const mounted = await mountChatView({
       viewport: DEFAULT_VIEWPORT,
       snapshot: {
@@ -4222,7 +4215,7 @@ describe("ChatView timeline estimator parity (full app)", () => {
 
   it("does not add a recovery product surface for expired question evidence", async () => {
     const source = createSnapshotForTargetUser({
-      targetMessageId: MessageId.makeUnsafe("expired-question-user"),
+      targetMessageId: MessageId.make("expired-question-user"),
       targetText: "Help me choose a format",
       sessionStatus: "interrupted",
     });
@@ -4235,7 +4228,7 @@ describe("ChatView timeline estimator parity (full app)", () => {
         ...thread,
         activities: [
           {
-            id: EventId.makeUnsafe("question-to-recover"),
+            id: EventId.make("question-to-recover"),
             kind: "user-input.requested",
             summary: "Question",
             tone: "info" as const,
@@ -4256,7 +4249,7 @@ describe("ChatView timeline estimator parity (full app)", () => {
             },
           },
           {
-            id: EventId.makeUnsafe("question-expired"),
+            id: EventId.make("question-expired"),
             kind: "provider.user-input.respond.failed",
             summary: "Question expired",
             tone: "info" as const,
@@ -4358,7 +4351,7 @@ describe("ChatView timeline estimator parity (full app)", () => {
       targetMessageId: "msg-continue-button-target" as MessageId,
       targetText: "Finish the existing task",
     });
-    const turnId = TurnId.makeUnsafe("turn-continue-button");
+    const turnId = TurnId.make("turn-continue-button");
     const update = (
       change: (
         thread: OrchestrationReadModel["threads"][number],
@@ -4408,7 +4401,7 @@ describe("ChatView timeline estimator parity (full app)", () => {
           state: "interrupted",
           completedAt: NOW_ISO,
         },
-        queuedMessageIds: [MessageId.makeUnsafe("msg-queued-after-stop")],
+        queuedMessageIds: [MessageId.make("msg-queued-after-stop")],
         session: thread.session && { ...thread.session, status: "stopped", activeTurnId: null },
       }));
       const play = await waitForElement(
@@ -4507,9 +4500,9 @@ describe("ChatView timeline estimator parity (full app)", () => {
   });
 
   it("interrupts by thread id when the session active ID has not arrived", async () => {
-    const turnId = TurnId.makeUnsafe("turn-stop-session-lag");
+    const turnId = TurnId.make("turn-stop-session-lag");
     const snapshot = createSnapshotForTargetUser({
-      targetMessageId: MessageId.makeUnsafe("msg-stop-session-lag"),
+      targetMessageId: MessageId.make("msg-stop-session-lag"),
       targetText: "Stop this turn",
     });
     const runningSnapshot = {
@@ -4558,12 +4551,12 @@ describe("ChatView timeline estimator parity (full app)", () => {
 
   it("shows Play after Stop when the final assistant message arrives before the interrupted session", async () => {
     const previousBridge = window.desktopBridge;
-    const turnId = TurnId.makeUnsafe("turn-stop-after-assistant-complete");
-    const assistantMessageId = MessageId.makeUnsafe("assistant-stop-after-complete");
+    const turnId = TurnId.make("turn-stop-after-assistant-complete");
+    const assistantMessageId = MessageId.make("assistant-stop-after-complete");
     const startedAt = isoAt(20);
     const completedAt = isoAt(22);
     const snapshot = createSnapshotForTargetUser({
-      targetMessageId: MessageId.makeUnsafe("msg-stop-after-assistant-complete"),
+      targetMessageId: MessageId.make("msg-stop-after-assistant-complete"),
       targetText: "Finish the existing task",
     });
     const runningSnapshot = {
@@ -4687,7 +4680,7 @@ describe("ChatView timeline estimator parity (full app)", () => {
       targetMessageId: "msg-stale-continue-target" as MessageId,
       targetText: "Continue target",
     });
-    const turnId = TurnId.makeUnsafe("turn-stale-continue");
+    const turnId = TurnId.make("turn-stale-continue");
     const hydrated = {
       ...snapshot,
       threads: snapshot.threads.map((thread) =>
@@ -4743,7 +4736,7 @@ describe("ChatView timeline estimator parity (full app)", () => {
       dispatchError: new Error("Admission rejected"),
     });
     const snapshot = createSnapshotForTargetUser({
-      targetMessageId: MessageId.makeUnsafe("rejection-target"),
+      targetMessageId: MessageId.make("rejection-target"),
       targetText: "Target",
     });
     const mounted = await mountChatView({ viewport: DEFAULT_VIEWPORT, snapshot });
@@ -4772,7 +4765,7 @@ describe("ChatView timeline estimator parity (full app)", () => {
     });
     const restoreNativeApi = installDeterministicSendNativeApi({ dispatchGate });
     const snapshot = createSnapshotForTargetUser({
-      targetMessageId: MessageId.makeUnsafe("admission-chrome-target"),
+      targetMessageId: MessageId.make("admission-chrome-target"),
       targetText: "Target",
     });
     const mounted = await mountChatView({ viewport: DEFAULT_VIEWPORT, snapshot });
@@ -4793,7 +4786,7 @@ describe("ChatView timeline estimator parity (full app)", () => {
         ),
       );
       expect(document.querySelector('button[aria-label="Stop generation"]')).toBeNull();
-      const turnId = TurnId.makeUnsafe("native-admission-chrome-turn");
+      const turnId = TurnId.make("native-admission-chrome-turn");
       syncReadModelForTest({
         ...fixture.snapshot,
         threads: fixture.snapshot.threads.map((thread) => ({
@@ -5185,7 +5178,7 @@ describe("ChatView timeline estimator parity (full app)", () => {
   it("clears composer drag state on navigation and keeps the next thread draft", async () => {
     const snapshot = addThreadToSnapshot(
       createSnapshotForTargetUser({
-        targetMessageId: MessageId.makeUnsafe("composer-state-navigation-user"),
+        targetMessageId: MessageId.make("composer-state-navigation-user"),
         targetText: "Composer state navigation",
       }),
       OTHER_THREAD_ID,
@@ -5223,7 +5216,7 @@ describe("ChatView timeline estimator parity (full app)", () => {
   it("clears historical agent detail on navigation and when its row disappears", async () => {
     const base = createSnapshotWithInlineToolOverflow({ active: true });
     const source = base.threads[0]!;
-    const secondId = ThreadId.makeUnsafe("historical-agent-detail-next");
+    const secondId = ThreadId.make("historical-agent-detail-next");
     const historicalActivity = {
       ...source.activities[0]!,
       summary: "Historical agent task",
@@ -5248,7 +5241,7 @@ describe("ChatView timeline estimator parity (full app)", () => {
           activities: [],
           messages: source.messages.map((message) => ({
             ...message,
-            id: MessageId.makeUnsafe(`historical-next-${message.id}`),
+            id: MessageId.make(`historical-next-${message.id}`),
           })),
           session: { ...source.session!, threadId: secondId },
         },
@@ -5300,11 +5293,11 @@ describe("ChatView timeline estimator parity (full app)", () => {
 
   it("closes a composer picker on thread navigation and reopens it on the next thread", async () => {
     const base = createSnapshotForTargetUser({
-      targetMessageId: MessageId.makeUnsafe("picker-navigation-user"),
+      targetMessageId: MessageId.make("picker-navigation-user"),
       targetText: "Picker navigation",
     });
     const source = base.threads[0]!;
-    const secondId = ThreadId.makeUnsafe("picker-navigation-next");
+    const secondId = ThreadId.make("picker-navigation-next");
     const snapshot: OrchestrationReadModel = {
       ...base,
       threads: [
@@ -5315,7 +5308,7 @@ describe("ChatView timeline estimator parity (full app)", () => {
           title: "Next picker thread",
           messages: source.messages.map((message) => ({
             ...message,
-            id: MessageId.makeUnsafe(`next-${message.id}`),
+            id: MessageId.make(`next-${message.id}`),
           })),
           session: { ...source.session!, threadId: secondId },
         },
@@ -7299,7 +7292,7 @@ describe("ChatView timeline estimator parity (full app)", () => {
   });
 
   it("loads a persisted failed message and removes it without touching the composer", async () => {
-    const id = MessageId.makeUnsafe("failed-user-visible");
+    const id = MessageId.make("failed-user-visible");
     fixtureSendStatuses.set(id, "failed");
     const base = createSnapshotForTargetUser({
       targetMessageId: id,
@@ -7357,7 +7350,7 @@ describe("ChatView timeline estimator parity (full app)", () => {
         latestTurn: thread.latestTurn && { ...thread.latestTurn, startedAt, completedAt: endedAt },
         activities: Array.from({ length: 70 }, (_, index) => ({
           ...thread.activities[0]!,
-          id: EventId.makeUnsafe(`cold-tool-${index}`),
+          id: EventId.make(`cold-tool-${index}`),
           createdAt: new Date(Date.parse(startedAt) + (300_000 * index) / 69).toISOString(),
         })),
         messages: thread.messages.map((message) =>
@@ -7395,7 +7388,7 @@ describe("ChatView timeline estimator parity (full app)", () => {
   it("baselines open questions and notifies a new hidden question once across duplicate pushes", async () => {
     const snapshot = addThreadToSnapshot(
       createSnapshotForTargetUser({
-        targetMessageId: MessageId.makeUnsafe("visible-question-target"),
+        targetMessageId: MessageId.make("visible-question-target"),
         targetText: "Visible thread",
       }),
       OTHER_THREAD_ID,
@@ -7444,10 +7437,10 @@ describe("ChatView timeline estimator parity (full app)", () => {
   });
 
   it("notifies a hidden canonical turn once after two immediate sidebar pushes", async () => {
-    const turnId = TurnId.makeUnsafe("hidden-native-turn");
+    const turnId = TurnId.make("hidden-native-turn");
     const base = addThreadToSnapshot(
       createSnapshotForTargetUser({
-        targetMessageId: MessageId.makeUnsafe("visible-notification-target"),
+        targetMessageId: MessageId.make("visible-notification-target"),
         targetText: "Visible thread",
       }),
       OTHER_THREAD_ID,
@@ -7869,7 +7862,7 @@ describe("ChatView timeline estimator parity (full app)", () => {
   });
 
   it("keeps the inline folder draft open when folder creation fails", async () => {
-    const currentSpaceId = SpaceId.makeUnsafe("space-current");
+    const currentSpaceId = SpaceId.make("space-current");
     const baseSnapshot = createSnapshotForTargetUser({
       targetMessageId: "msg-user-create-folder-failure" as MessageId,
       targetText: "create folder failure",

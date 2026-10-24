@@ -15,8 +15,8 @@ import { ProviderDiscoveryService } from "../Services/ProviderDiscoveryService.t
 import { ProviderLaunchResolver } from "../Services/ProviderLaunchResolver.ts";
 import { ProviderDiscoveryServiceLive } from "./ProviderDiscoveryService.ts";
 
-const connectionId = ProviderConnectionId.makeUnsafe("selected");
-const installationId = ProviderInstallationId.makeUnsafe("managed");
+const connectionId = ProviderConnectionId.make("selected");
+const installationId = ProviderInstallationId.make("managed");
 function harness(
   input: {
     provider?: ProviderKind;
@@ -132,7 +132,7 @@ describe("provider metadata over the shared catalog", () => {
     const { layer, get } = harness({
       connections: [
         { id: connectionId, harness: "codex", lifecycle: "active" },
-        { id: ProviderConnectionId.makeUnsafe("other"), harness: "codex", lifecycle: "active" },
+        { id: ProviderConnectionId.make("other"), harness: "codex", lifecycle: "active" },
       ] as ProviderConnection[],
     });
     await expect(

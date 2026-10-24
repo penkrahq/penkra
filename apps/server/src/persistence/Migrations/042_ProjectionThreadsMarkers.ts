@@ -3,7 +3,7 @@
  * `thread_markers_json` stores highlight/underline ranges created from transcript selections.
  */
 import * as Effect from "effect/Effect";
-import * as SqlClient from "effect/unstable/sql/SqlClient";
+import * as SqlClient from "effect/sql/SqlClient";
 
 import { columnExists } from "./schemaHelpers.ts";
 

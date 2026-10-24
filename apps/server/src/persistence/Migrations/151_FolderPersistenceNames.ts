@@ -1,5 +1,5 @@
 import * as Effect from "effect/Effect";
-import * as SqlClient from "effect/unstable/sql/SqlClient";
+import * as SqlClient from "effect/sql/SqlClient";
 
 // The product contract has used Folder/FolderId since migration 149. Complete
 // that cutover in the current read model so new code and diagnostics no longer

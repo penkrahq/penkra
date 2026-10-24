@@ -3,7 +3,7 @@ import { seedThreadFolderFixture } from "./threadFixtures.ts";
 import { assert, it } from "@effect/vitest";
 import { MessageId, ProviderConnectionId, ThreadId } from "@penkra/contracts";
 import { Effect } from "effect";
-import * as SqlClient from "effect/unstable/sql/SqlClient";
+import * as SqlClient from "effect/sql/SqlClient";
 
 import { draftAfterSend, getThreadDraft, setThreadDraft } from "./threadDraft.ts";
 import { makeThreadPublisher } from "./threadStore.ts";
@@ -34,7 +34,7 @@ it.effect("keeps one draft per thread, last write wins by draft_updated_at", () 
       yield* runMigrations();
       yield* seedThreadFolderFixture("core-test-folder", "space-1");
       yield* createThread(baseThread);
-      const id = ThreadId.makeUnsafe("thread-1");
+      const id = ThreadId.make("thread-1");
       const publisher = makeThreadPublisher();
       let changes = 0;
       yield* observePublisher(publisher.threadChanges, () => changes++);
@@ -121,7 +121,7 @@ it.effect("queue admission preserves a newer draft and its selection", () =>
       yield* enqueueMessage(
         "thread-1",
         {
-          messageId: MessageId.makeUnsafe("queued-pick"),
+          messageId: MessageId.make("queued-pick"),
           text: "captured content",
           attachments: [],
           origin: { _tag: "user" as const },
@@ -129,7 +129,7 @@ it.effect("queue admission preserves a newer draft and its selection", () =>
         },
         {
           modelSelection: { provider: "codex", model: "model-A" },
-          connectionId: ProviderConnectionId.makeUnsafe("account-A"),
+          connectionId: ProviderConnectionId.make("account-A"),
         },
       );
       const saved = (yield* getThreadDraft("thread-1")).draft!;

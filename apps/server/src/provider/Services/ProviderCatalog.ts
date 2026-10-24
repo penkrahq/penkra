@@ -4,7 +4,7 @@ import type {
   ProviderCatalogScope,
   ProviderCatalogSnapshot,
 } from "@penkra/contracts";
-import { ServiceMap, type Effect, type Stream } from "effect";
+import { Context, type Effect, type Stream } from "effect";
 
 export interface ProviderCatalogServiceShape {
   readonly get: (
@@ -20,7 +20,7 @@ export interface ProviderCatalogServiceShape {
   readonly streamChanges: Stream.Stream<ProviderCatalogChanged>;
 }
 
-export class ProviderCatalogService extends ServiceMap.Service<
+export class ProviderCatalogService extends Context.Service<
   ProviderCatalogService,
   ProviderCatalogServiceShape
 >()("penkra/provider/ProviderCatalog") {}

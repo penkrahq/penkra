@@ -7,7 +7,7 @@ import {
   listDesktopFolderAppTabs,
 } from "./desktopFolderAppTabsClient";
 
-const folderId = FolderId.makeUnsafe("folder");
+const folderId = FolderId.make("folder");
 const row = {
   folderId,
   folderTitle: "Work",

@@ -29,7 +29,7 @@ import {
 } from "./ChatView.logic";
 
 describe("composer Continue eligibility", () => {
-  const turnId = TurnId.makeUnsafe("turn-continue-test");
+  const turnId = TurnId.make("turn-continue-test");
   const thread = {
     latestTurn: {
       turnId,
@@ -781,7 +781,7 @@ describe("deriveComposerSendState", () => {
       terminalContexts: [
         {
           id: "ctx-expired",
-          threadId: ThreadId.makeUnsafe("thread-1"),
+          threadId: ThreadId.make("thread-1"),
           terminalId: "default",
           terminalLabel: "Terminal 1",
           lineStart: 4,
@@ -809,7 +809,7 @@ describe("deriveComposerSendState", () => {
       terminalContexts: [
         {
           id: "ctx-expired",
-          threadId: ThreadId.makeUnsafe("thread-1"),
+          threadId: ThreadId.make("thread-1"),
           terminalId: "default",
           terminalLabel: "Terminal 1",
           lineStart: 4,

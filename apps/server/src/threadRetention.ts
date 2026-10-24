@@ -2,7 +2,7 @@
 // Purpose: Keep active-day retention on canonical chats, using guarded lifecycle writes.
 import type { ThreadId } from "@penkra/contracts";
 import { Effect } from "effect";
-import * as SqlClient from "effect/unstable/sql/SqlClient";
+import * as SqlClient from "effect/sql/SqlClient";
 import { ThreadLifecycle } from "./cleanCore/threadLifecycle.ts";
 import { ServerLifecycleEvents } from "./serverLifecycleEvents.ts";
 

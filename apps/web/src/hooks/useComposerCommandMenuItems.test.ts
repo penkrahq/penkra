@@ -7,7 +7,7 @@ import { buildThreadMentionComposerItems } from "./useComposerCommandMenuItems";
 function project(id: string, name: string): Project {
   return {
     id,
-    spaceId: SpaceId.makeUnsafe("space-test"),
+    spaceId: SpaceId.make("space-test"),
     name,
     remoteName: name,
     folderName: name,

@@ -3,7 +3,7 @@ import { mkdir, mkdtemp, rm, writeFile, access } from "node:fs/promises";
 import path from "node:path";
 import { Effect, Option } from "effect";
 import { FolderId, ProviderConnectionId, ThreadId } from "@penkra/contracts";
-import * as SqlClient from "effect/unstable/sql/SqlClient";
+import * as SqlClient from "effect/sql/SqlClient";
 import * as NodeSqliteClient from "../persistence/NodeSqliteClient.ts";
 import { runMigrations } from "../persistence/Migrations.ts";
 import { ProviderInstallationRepository } from "../persistence/Services/ProviderInstallations.ts";
@@ -34,15 +34,15 @@ for (const scenario of ["success", "native-fails", "shared-id"] as const) {
           Effect.gen(function* () {
             yield* runMigrations();
             const sql = yield* SqlClient.SqlClient;
-            const threadId = ThreadId.makeUnsafe("native-delete");
-            const oldConnection = ProviderConnectionId.makeUnsafe("old-connection");
-            const otherConnection = ProviderConnectionId.makeUnsafe("other-connection");
+            const threadId = ThreadId.make("native-delete");
+            const oldConnection = ProviderConnectionId.make("old-connection");
+            const otherConnection = ProviderConnectionId.make("other-connection");
             const at = "2026-10-22T00:00:00.000Z";
             yield* seedThreadFolderFixture("folder", "space");
             const seed = (id: ThreadId) =>
               createThreadFixture(sql, {
                 threadId: id,
-                folderId: FolderId.makeUnsafe("folder"),
+                folderId: FolderId.make("folder"),
                 title: "Native delete",
                 modelSelection: { provider: "opencode", model: "provider/model" },
                 runtimeMode: "full-access",
@@ -53,7 +53,7 @@ for (const scenario of ["success", "native-fails", "shared-id"] as const) {
             yield* seed(threadId);
             yield* sql`UPDATE threads SET native_state_id='generation',provider_session_id='ses_owned' WHERE id=${threadId}`;
             if (scenario === "shared-id") {
-              const peer = ThreadId.makeUnsafe("peer");
+              const peer = ThreadId.make("peer");
               yield* seed(peer);
               yield* sql`UPDATE threads SET provider_session_id='ses_owned' WHERE id=${peer}`;
             }

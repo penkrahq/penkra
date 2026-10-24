@@ -30,7 +30,7 @@ import { ComposerColumnFrame } from "./ComposerColumnFrame";
 const timestamp = "2026-08-18T12:00:00.000Z";
 const connections: ProviderConnection[] = [
   {
-    id: ProviderConnectionId.makeUnsafe("account-a"),
+    id: ProviderConnectionId.make("account-a"),
     harness: "claudeAgent",
     authenticationTargetId: "anthropic-first-party",
     authenticationMethodId: "claude-account",
@@ -46,7 +46,7 @@ const connections: ProviderConnection[] = [
     terminationReason: null,
   },
   {
-    id: ProviderConnectionId.makeUnsafe("account-b"),
+    id: ProviderConnectionId.make("account-b"),
     harness: "claudeAgent",
     authenticationTargetId: "anthropic-first-party",
     authenticationMethodId: "claude-account",
@@ -62,7 +62,7 @@ const connections: ProviderConnection[] = [
     terminationReason: null,
   },
   {
-    id: ProviderConnectionId.makeUnsafe("api-key"),
+    id: ProviderConnectionId.make("api-key"),
     harness: "claudeAgent",
     authenticationTargetId: "anthropic-first-party",
     authenticationMethodId: "api-key",

@@ -12,7 +12,7 @@ import {
 
 describe("deleteArchivedThreadFromClient", () => {
   it("dispatches delete, then removes the local row", async () => {
-    const threadId = ThreadId.makeUnsafe("thread-archived");
+    const threadId = ThreadId.make("thread-archived");
     const updateThread = vi.fn().mockResolvedValue({ sequence: 11 });
     const removeDeletedThreadFromClientState = vi.fn();
 
@@ -39,8 +39,8 @@ describe("deleteArchivedThreadFromClient", () => {
   });
 
   it("deletes multiple archived threads and removes each locally once", async () => {
-    const threadA = ThreadId.makeUnsafe("thread-archived-a");
-    const threadB = ThreadId.makeUnsafe("thread-archived-b");
+    const threadA = ThreadId.make("thread-archived-a");
+    const threadB = ThreadId.make("thread-archived-b");
     const updateThread = vi.fn().mockResolvedValue({ sequence: 11 });
     const removeDeletedThreadFromClientState = vi.fn();
 
@@ -71,8 +71,8 @@ describe("deleteArchivedThreadFromClient", () => {
   });
 
   it("reconciles successful archived deletes when a later bulk delete fails", async () => {
-    const threadA = ThreadId.makeUnsafe("thread-archived-a");
-    const threadB = ThreadId.makeUnsafe("thread-archived-b");
+    const threadA = ThreadId.make("thread-archived-a");
+    const threadB = ThreadId.make("thread-archived-b");
     const dispatchError = new Error("delete failed");
     const updateThread = vi
       .fn()

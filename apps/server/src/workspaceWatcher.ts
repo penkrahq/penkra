@@ -1,4 +1,4 @@
-import * as SqlClient from "effect/unstable/sql/SqlClient";
+import * as SqlClient from "effect/sql/SqlClient";
 // FILE: workspaceWatcher.ts
 // Purpose: Watch folder roots and durable thread scratch folders; publish cwd-scoped filesystem changes.
 // Layer: Server infrastructure
@@ -8,7 +8,7 @@ import { watch, type FSWatcher } from "node:fs";
 import { mkdir } from "node:fs/promises";
 
 import type { ProjectWorkspaceChangeEvent } from "@penkra/contracts";
-import { Effect, Fiber, Layer, ServiceMap, Stream } from "effect";
+import { Effect, Fiber, Layer, Context, Stream } from "effect";
 
 import { ServerConfig } from "./config";
 import { DURABLE_THREAD_WORKSPACES_DIRNAME } from "./scratchWorkspaces";
@@ -32,7 +32,7 @@ export interface WorkspaceWatcherShape {
   readonly close: Effect.Effect<void>;
 }
 
-export class WorkspaceWatcher extends ServiceMap.Service<WorkspaceWatcher, WorkspaceWatcherShape>()(
+export class WorkspaceWatcher extends Context.Service<WorkspaceWatcher, WorkspaceWatcherShape>()(
   "penkra/workspaceWatcher",
 ) {}
 

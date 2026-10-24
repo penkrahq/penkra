@@ -116,11 +116,11 @@ import {
   type UseComposerVoiceControllerResult,
 } from "./useComposerVoiceController";
 
-const THREAD_A = ThreadId.makeUnsafe("thread-a");
-const THREAD_B = ThreadId.makeUnsafe("thread-b");
+const THREAD_A = ThreadId.make("thread-a");
+const THREAD_B = ThreadId.make("thread-b");
 const PROJECT: Project = {
-  id: FolderId.makeUnsafe("project-a"),
-  spaceId: SpaceId.makeUnsafe("space-test"),
+  id: FolderId.make("project-a"),
+  spaceId: SpaceId.make("space-test"),
   name: "Project",
   remoteName: "Project",
   folderName: "folder",

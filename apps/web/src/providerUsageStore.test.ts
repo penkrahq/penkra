@@ -4,8 +4,8 @@ import { applyProviderUsage, clearProviderUsage, useProviderUsage } from "./prov
 
 afterEach(clearProviderUsage);
 it("retains independent Connection snapshots and replaces them from server events", () => {
-  const id = ProviderConnectionId.makeUnsafe("one");
-  const other = ProviderConnectionId.makeUnsafe("two");
+  const id = ProviderConnectionId.make("one");
+  const other = ProviderConnectionId.make("two");
   const snapshot = {
     provider: "codex" as const,
     updatedAt: "2026-10-19T00:00:00.000Z",

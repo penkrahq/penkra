@@ -12,9 +12,9 @@ import * as Effect from "effect/Effect";
 import * as Exit from "effect/Exit";
 import * as Fiber from "effect/Fiber";
 import * as Layer from "effect/Layer";
-import * as Command from "effect/unstable/cli/Command";
-import { FetchHttpClient } from "effect/unstable/http";
-import * as SqlClient from "effect/unstable/sql/SqlClient";
+import * as Command from "effect/cli/Command";
+import { FetchHttpClient } from "effect/http";
+import * as SqlClient from "effect/sql/SqlClient";
 import { afterEach, beforeEach, vi } from "vitest";
 import { NetService } from "@penkra/shared/Net";
 
@@ -873,7 +873,7 @@ it.layer(testLayer)("server CLI command", (it) => {
     Effect.gen(function* () {
       yield* runCli(["--port", "70000"]);
 
-      // effect/unstable/cli renders help/errors for parse failures and returns success.
+      // effect/cli renders help/errors for parse failures and returns success.
       assert.equal(start.mock.calls.length, 0);
       assert.equal(stop.mock.calls.length, 0);
     }),

@@ -1,6 +1,6 @@
 import { ProviderInstallationId, type ServerSettings } from "@penkra/contracts";
 import { Effect, FileSystem, Path } from "effect";
-import { ChildProcessSpawner } from "effect/unstable/process";
+import { ChildProcessSpawner } from "effect/process";
 import type { ProviderInstallationRepositoryShape } from "../persistence/Services/ProviderInstallations.ts";
 import {
   installManagedProviderArtifact,
@@ -67,7 +67,7 @@ export function ensurePinnedProviderRuntimes(input: {
       }
       yield* input.installations
         .activate({
-          id: ProviderInstallationId.makeUnsafe(installed.installationId),
+          id: ProviderInstallationId.make(installed.installationId),
           harness: provider,
           version: release.version,
           platform: artifact.platform,

@@ -2,7 +2,7 @@
 // Purpose: Creates Untitled folders where needed and files legacy loose threads into them.
 
 import * as Effect from "effect/Effect";
-import * as SqlClient from "effect/unstable/sql/SqlClient";
+import * as SqlClient from "effect/sql/SqlClient";
 
 const DEFAULT_FOLDER_PREFIX = "penkra-default-folder:";
 

@@ -18,7 +18,7 @@ import type {
 } from "@penkra/contracts";
 import { THREADS_PAGE_SIZE } from "@penkra/contracts";
 import { Effect } from "effect";
-import * as SqlClient from "effect/unstable/sql/SqlClient";
+import * as SqlClient from "effect/sql/SqlClient";
 
 export interface ThreadSummaryRecord {
   readonly id: ThreadId;

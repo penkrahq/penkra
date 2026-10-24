@@ -6,9 +6,9 @@ import { deriveUnmountedThreadLiveState } from "./desktopThreadState";
 
 function thread(overrides: Partial<SidebarThreadSummary> = {}): SidebarThreadSummary {
   return {
-    id: ThreadId.makeUnsafe("thread-background"),
+    id: ThreadId.make("thread-background"),
 
-    folderId: FolderId.makeUnsafe("folder-1"),
+    folderId: FolderId.make("folder-1"),
     title: "Background thread",
     modelSelection: { provider: "codex", model: "gpt-5.5" },
     session: null,
@@ -29,7 +29,7 @@ describe("deriveUnmountedThreadLiveState", () => {
           session: {
             provider: "claudeAgent",
             status: "running",
-            activeTurnId: TurnId.makeUnsafe("turn-live"),
+            activeTurnId: TurnId.make("turn-live"),
             createdAt: "2026-09-14T00:00:00.000Z",
             updatedAt: "2026-09-14T00:01:00.000Z",
             orchestrationStatus: "running",
@@ -53,7 +53,7 @@ describe("deriveUnmountedThreadLiveState", () => {
       thread({
         hasPendingUserInput: true,
         latestTurn: {
-          turnId: TurnId.makeUnsafe("turn-question"),
+          turnId: TurnId.make("turn-question"),
           state: "running",
           requestedAt: "2026-09-14T00:00:00.000Z",
           startedAt: "2026-09-14T00:00:01.000Z",
@@ -80,7 +80,7 @@ describe("deriveUnmountedThreadLiveState", () => {
           orchestrationStatus: "interrupted",
         },
         latestTurn: {
-          turnId: TurnId.makeUnsafe("turn-stale"),
+          turnId: TurnId.make("turn-stale"),
           state: "running",
           requestedAt: "2026-09-14T00:00:00.000Z",
           startedAt: "2026-09-14T00:01:00.000Z",
@@ -103,13 +103,13 @@ describe("deriveUnmountedThreadLiveState", () => {
         session: {
           provider: "codex",
           status: "error",
-          activeTurnId: TurnId.makeUnsafe("turn-failed"),
+          activeTurnId: TurnId.make("turn-failed"),
           createdAt: "2026-09-14T00:00:00.000Z",
           updatedAt: "2026-09-14T00:01:00.000Z",
           orchestrationStatus: "error",
         },
         latestTurn: {
-          turnId: TurnId.makeUnsafe("turn-new"),
+          turnId: TurnId.make("turn-new"),
           state: "running",
           requestedAt: "2026-09-14T00:02:00.000Z",
           startedAt: "2026-09-14T00:02:01.000Z",

@@ -13,7 +13,7 @@ import pathWin32 from "node:path/win32";
 
 import { EDITORS, type EditorId } from "@penkra/contracts";
 import { prepareWindowsSafeProcess, resolveWindowsSystemRoot } from "@penkra/shared/windowsProcess";
-import { ServiceMap, Schema, Effect, Layer } from "effect";
+import { Context, Schema, Effect, Layer } from "effect";
 import {
   getEditorMacApplications,
   getEditorWindowsStorePackages,
@@ -28,9 +28,9 @@ import { resolveExecutable } from "./executableLookup.ts";
 // Definitions
 // ==============================
 
-export class OpenError extends Schema.TaggedErrorClass<OpenError>()("OpenError", {
+export class OpenError extends Schema.TaggedError<OpenError>()("OpenError", {
   message: Schema.String,
-  cause: Schema.optional(Schema.Defect),
+  cause: Schema.optional(Schema.Defect()),
 }) {}
 
 export interface OpenInEditorInput {
@@ -333,7 +333,7 @@ export interface OpenShape {
 /**
  * Open - Service tag for browser/editor launch operations.
  */
-export class Open extends ServiceMap.Service<Open, OpenShape>()("penkra/open") {}
+export class Open extends Context.Service<Open, OpenShape>()("penkra/open") {}
 
 // ==============================
 // Implementations

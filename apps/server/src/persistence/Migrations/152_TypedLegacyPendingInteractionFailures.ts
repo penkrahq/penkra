@@ -1,5 +1,5 @@
 import * as Effect from "effect/Effect";
-import * as SqlClient from "effect/unstable/sql/SqlClient";
+import * as SqlClient from "effect/sql/SqlClient";
 
 const CALLBACK_STATE_SUFFIX =
   ". Provider callback state does not survive app restarts or recovered sessions. Restart the turn to continue.";

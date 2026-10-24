@@ -70,13 +70,13 @@ function CoordinatorProbe() {
 }
 
 const ORIGIN = {
-  threadId: ThreadId.makeUnsafe("thread-a"),
-  providerThreadId: ThreadId.makeUnsafe("provider-thread-a"),
+  threadId: ThreadId.make("thread-a"),
+  providerThreadId: ThreadId.make("provider-thread-a"),
   cwd: "/workspace/project",
 };
 const TRANSCRIPTION_BACKEND = {
   kind: "codex-chatgpt" as const,
-  connectionId: ProviderConnectionId.makeUnsafe("connection-codex"),
+  connectionId: ProviderConnectionId.make("connection-codex"),
 };
 const RECORDING = {
   chunks: [
@@ -125,7 +125,7 @@ describe("VoiceSessionCoordinatorProvider", () => {
       ]),
     );
 
-    const secondOrigin = { ...ORIGIN, threadId: ThreadId.makeUnsafe("thread-b") };
+    const secondOrigin = { ...ORIGIN, threadId: ThreadId.make("thread-b") };
     expect(await actions.startRecording(secondOrigin)).toEqual({ status: "started" });
     expect(useVoiceSessionCoordinatorStore.getState().capture?.origin).toEqual(secondOrigin);
 
@@ -155,7 +155,7 @@ describe("VoiceSessionCoordinatorProvider", () => {
 
     expect(await actions.startRecording(ORIGIN)).toEqual({ status: "started" });
     expect(
-      await actions.startRecording({ ...ORIGIN, threadId: ThreadId.makeUnsafe("thread-b") }),
+      await actions.startRecording({ ...ORIGIN, threadId: ThreadId.make("thread-b") }),
     ).toEqual({ status: "busy", origin: ORIGIN });
     expect(recorder.start).toHaveBeenCalledTimes(1);
   });

@@ -8,13 +8,13 @@ import {
 } from "./reconstructedContinuation.ts";
 
 const message = (id: string, turnId: string, sequence: number, text = id): ThreadItemRecord => ({
-  threadId: ThreadId.makeUnsafe("thread-1"),
+  threadId: ThreadId.make("thread-1"),
   sourceId: id,
   kind: sequence % 2 === 0 ? "text" : "user",
   status: sequence % 2 === 0 ? "done" : "sent",
   text,
   data: sequence % 2 === 0 ? null : JSON.stringify({ origin: { _tag: "user" }, attachments: [] }),
-  turnId: TurnId.makeUnsafe(turnId),
+  turnId: TurnId.make(turnId),
   seq: sequence,
   createdAt: `2026-09-01T00:00:${String(sequence).padStart(2, "0")}.000Z`,
   updatedAt: `2026-09-01T00:00:${String(sequence).padStart(2, "0")}.000Z`,

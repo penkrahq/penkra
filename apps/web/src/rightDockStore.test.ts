@@ -9,7 +9,7 @@ vi.mock("./nativeApi", () => ({
   }),
 }));
 vi.mock("./components/ui/toast", () => ({ toastManager: { add: mocks.toast } }));
-const folderId = FolderId.makeUnsafe("folder");
+const folderId = FolderId.make("folder");
 const pane = {
   id: "tab-x",
   kind: "app" as const,

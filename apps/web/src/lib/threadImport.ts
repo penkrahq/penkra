@@ -20,7 +20,7 @@ export function buildThreadImportedMessages(
     const importedText =
       message.role === "user" ? stripEmbeddedAssistantSelections(message.text) : message.text;
     const importedMessage: ThreadImportedMessage = {
-      messageId: MessageId.makeUnsafe(randomUUID()),
+      messageId: MessageId.make(randomUUID()),
       role: message.role,
       text: importedText,
       createdAt: message.createdAt,

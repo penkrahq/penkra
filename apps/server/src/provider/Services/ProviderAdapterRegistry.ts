@@ -8,7 +8,7 @@
  * @module ProviderAdapterRegistry
  */
 import type { ProviderKind } from "@penkra/contracts";
-import { ServiceMap } from "effect";
+import { Context } from "effect";
 import type { Effect } from "effect";
 
 import type { ProviderAdapterError, ProviderUnsupportedError } from "../Errors.ts";
@@ -34,7 +34,7 @@ export interface ProviderAdapterRegistryShape {
 /**
  * ProviderAdapterRegistry - Service tag for provider adapter lookup.
  */
-export class ProviderAdapterRegistry extends ServiceMap.Service<
+export class ProviderAdapterRegistry extends Context.Service<
   ProviderAdapterRegistry,
   ProviderAdapterRegistryShape
 >()("penkra/provider/Services/ProviderAdapterRegistry") {}

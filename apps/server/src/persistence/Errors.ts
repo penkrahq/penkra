@@ -4,12 +4,12 @@ import { Schema, SchemaIssue } from "effect";
 // Core Persistence Errors
 // ===============================
 
-export class PersistenceSqlError extends Schema.TaggedErrorClass<PersistenceSqlError>()(
+export class PersistenceSqlError extends Schema.TaggedError<PersistenceSqlError>()(
   "PersistenceSqlError",
   {
     operation: Schema.String,
     detail: Schema.String,
-    cause: Schema.optional(Schema.Defect),
+    cause: Schema.optional(Schema.Defect()),
   },
 ) {
   override get message(): string {
@@ -17,12 +17,12 @@ export class PersistenceSqlError extends Schema.TaggedErrorClass<PersistenceSqlE
   }
 }
 
-export class PersistenceDecodeError extends Schema.TaggedErrorClass<PersistenceDecodeError>()(
+export class PersistenceDecodeError extends Schema.TaggedError<PersistenceDecodeError>()(
   "PersistenceDecodeError",
   {
     operation: Schema.String,
     issue: Schema.String,
-    cause: Schema.optional(Schema.Defect),
+    cause: Schema.optional(Schema.Defect()),
   },
 ) {
   override get message(): string {
@@ -82,7 +82,7 @@ export function toPersistenceDecodeCauseError(operation: string) {
 export const isPersistenceError = (u: unknown): u is PersistenceSqlError | PersistenceDecodeError =>
   Schema.is(PersistenceSqlError)(u) || Schema.is(PersistenceDecodeError)(u);
 
-export class MigrationLineageError extends Schema.TaggedErrorClass<MigrationLineageError>()(
+export class MigrationLineageError extends Schema.TaggedError<MigrationLineageError>()(
   "MigrationLineageError",
   {
     firstDivergedId: Schema.Number,
@@ -99,7 +99,7 @@ export class MigrationLineageError extends Schema.TaggedErrorClass<MigrationLine
   }
 }
 
-export class MigrationSchemaTooNewError extends Schema.TaggedErrorClass<MigrationSchemaTooNewError>()(
+export class MigrationSchemaTooNewError extends Schema.TaggedError<MigrationSchemaTooNewError>()(
   "MigrationSchemaTooNewError",
   {
     databaseMigrationId: Schema.Number,
@@ -119,12 +119,12 @@ export class MigrationSchemaTooNewError extends Schema.TaggedErrorClass<Migratio
 // Provider Session Repository Errors
 // ===============================
 
-export class ProviderSessionRepositoryValidationError extends Schema.TaggedErrorClass<ProviderSessionRepositoryValidationError>()(
+export class ProviderSessionRepositoryValidationError extends Schema.TaggedError<ProviderSessionRepositoryValidationError>()(
   "ProviderSessionRepositoryValidationError",
   {
     operation: Schema.String,
     issue: Schema.String,
-    cause: Schema.optional(Schema.Defect),
+    cause: Schema.optional(Schema.Defect()),
   },
 ) {
   override get message(): string {
@@ -132,12 +132,12 @@ export class ProviderSessionRepositoryValidationError extends Schema.TaggedError
   }
 }
 
-export class ProviderSessionRepositoryPersistenceError extends Schema.TaggedErrorClass<ProviderSessionRepositoryPersistenceError>()(
+export class ProviderSessionRepositoryPersistenceError extends Schema.TaggedError<ProviderSessionRepositoryPersistenceError>()(
   "ProviderSessionRepositoryPersistenceError",
   {
     operation: Schema.String,
     detail: Schema.String,
-    cause: Schema.optional(Schema.Defect),
+    cause: Schema.optional(Schema.Defect()),
   },
 ) {
   override get message(): string {

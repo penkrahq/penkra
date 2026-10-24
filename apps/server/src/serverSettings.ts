@@ -25,7 +25,7 @@ import {
   Ref,
   Schema,
   SchemaIssue,
-  ServiceMap,
+  Context,
   Stream,
 } from "effect";
 import * as Semaphore from "effect/Semaphore";
@@ -65,7 +65,7 @@ export function toServerSettingsView(settings: ServerSettings): ServerSettingsVi
   return settings;
 }
 
-export class ServerSettingsService extends ServiceMap.Service<
+export class ServerSettingsService extends Context.Service<
   ServerSettingsService,
   ServerSettingsShape
 >()("penkra/serverSettings/ServerSettingsService") {

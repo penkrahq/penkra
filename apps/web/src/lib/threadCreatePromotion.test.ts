@@ -20,10 +20,10 @@ afterEach(() => {
   useComposerDraftStore.setState(initialDraftState, true);
 });
 function input(): CleanCoreCreateThreadInput {
-  const threadId = ThreadId.makeUnsafe("thread-promote");
+  const threadId = ThreadId.make("thread-promote");
   return {
     threadId,
-    folderId: FolderId.makeUnsafe("project-promote"),
+    folderId: FolderId.make("project-promote"),
     title: "Promoted thread",
     modelSelection: { provider: "codex", model: "gpt-5" },
     runtimeMode: "full-access",
@@ -36,7 +36,7 @@ function makeCanonicalThread(request: CleanCoreCreateThreadInput): CleanCoreThre
   return {
     latestTurn: null,
     id: request.threadId,
-    spaceId: SpaceId.makeUnsafe("space-test"),
+    spaceId: SpaceId.make("space-test"),
     folderId: request.folderId,
     title: request.title,
     provider: request.modelSelection.provider,
@@ -65,8 +65,8 @@ function makeCanonicalThread(request: CleanCoreCreateThreadInput): CleanCoreThre
   };
 }
 function makeShellSnapshot(threadId: ThreadId, snapshotSequence = 1) {
-  const folderId = FolderId.makeUnsafe("project-promote");
-  const spaceId = SpaceId.makeUnsafe("space-test");
+  const folderId = FolderId.make("project-promote");
+  const spaceId = SpaceId.make("space-test");
   return {
     snapshotSequence,
     spaces: [],

@@ -14,8 +14,8 @@ import {
   shouldReuseActiveDraftThread,
 } from "./threadBootstrap";
 
-const PROJECT_ID = FolderId.makeUnsafe("project-bootstrap");
-const THREAD_ID = ThreadId.makeUnsafe("thread-bootstrap");
+const PROJECT_ID = FolderId.make("project-bootstrap");
+const THREAD_ID = ThreadId.make("thread-bootstrap");
 
 function modelSelection(
   provider: "codex" | "claudeAgent",
@@ -41,7 +41,7 @@ function makeDraftThread(partial?: Partial<DraftThreadState>): DraftThreadState 
 
 describe("threadBootstrap", () => {
   it("requires the selected top-parent Space when persisting a new Thread", () => {
-    const personalId = SpaceId.makeUnsafe("personal");
+    const personalId = SpaceId.make("personal");
     expect(requireNewThreadSpaceId(personalId)).toBe(personalId);
     expect(() => requireNewThreadSpaceId(null)).toThrow(
       "Choose a persisted Space before starting this chat.",
@@ -49,18 +49,15 @@ describe("threadBootstrap", () => {
   });
 
   it("uses the virtual Folder's owning Space for a new Thread", () => {
-    const personalId = SpaceId.makeUnsafe("personal");
+    const personalId = SpaceId.make("personal");
     expect(
-      scopeNewThreadOptionsToParentSpace(
-        { spaceId: SpaceId.makeUnsafe("stale-space") },
-        personalId,
-      ),
+      scopeNewThreadOptionsToParentSpace({ spaceId: SpaceId.make("stale-space") }, personalId),
     ).toEqual({ spaceId: personalId });
   });
 
   it("uses the Folder's owning Space through container scoping", () => {
-    const personalId = SpaceId.makeUnsafe("personal");
-    const workId = SpaceId.makeUnsafe("work");
+    const personalId = SpaceId.make("personal");
+    const workId = SpaceId.make("work");
     expect(
       scopeNewThreadOptionsToContainer({
         options: { spaceId: workId },
@@ -71,15 +68,13 @@ describe("threadBootstrap", () => {
 
   it("detects when a draft context override is present", () => {
     expect(hasDraftContextOverrides()).toBe(false);
-    expect(hasDraftContextOverrides({ spaceId: SpaceId.makeUnsafe("bootstrap-space") })).toBe(true);
+    expect(hasDraftContextOverrides({ spaceId: SpaceId.make("bootstrap-space") })).toBe(true);
   });
 
   it("builds a draft patch only when overrides are provided", () => {
     expect(buildDraftThreadContextPatch()).toBeNull();
-    expect(
-      buildDraftThreadContextPatch({ spaceId: SpaceId.makeUnsafe("bootstrap-space") }),
-    ).toEqual({
-      spaceId: SpaceId.makeUnsafe("bootstrap-space"),
+    expect(buildDraftThreadContextPatch({ spaceId: SpaceId.make("bootstrap-space") })).toEqual({
+      spaceId: SpaceId.make("bootstrap-space"),
     });
   });
 
@@ -93,7 +88,7 @@ describe("threadBootstrap", () => {
     ).toBe(true);
     expect(
       shouldReuseActiveDraftThread({
-        draftThread: makeDraftThread({ folderId: FolderId.makeUnsafe("other-folder") }),
+        draftThread: makeDraftThread({ folderId: FolderId.make("other-folder") }),
         folderId: PROJECT_ID,
         routeThreadId: THREAD_ID,
       }),
@@ -103,7 +98,7 @@ describe("threadBootstrap", () => {
   it("resolves bootstrap precedence as route draft, then stored draft, then fresh", () => {
     expect(
       resolveThreadBootstrapPlan({
-        storedDraftThread: { threadId: ThreadId.makeUnsafe("stored-thread"), ...makeDraftThread() },
+        storedDraftThread: { threadId: ThreadId.make("stored-thread"), ...makeDraftThread() },
         latestActiveDraftThread: makeDraftThread({}),
         folderId: PROJECT_ID,
         routeThreadId: THREAD_ID,

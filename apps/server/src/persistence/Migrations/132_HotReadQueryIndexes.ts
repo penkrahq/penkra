@@ -1,5 +1,5 @@
 import * as Effect from "effect/Effect";
-import * as SqlClient from "effect/unstable/sql/SqlClient";
+import * as SqlClient from "effect/sql/SqlClient";
 
 /** Cover the bounded Thread reads that run on every snapshot and resume. */
 export default Effect.gen(function* () {

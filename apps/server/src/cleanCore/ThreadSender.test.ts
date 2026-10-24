@@ -35,7 +35,7 @@ import { runMigrations } from "../persistence/Migrations.ts";
 import { applyProviderEvent } from "./providerStreamConsumer.ts";
 import { setThreadDraft } from "./threadDraft.ts";
 import { enqueueMessage, readThreadQueue } from "./threadQueue.ts";
-import * as SqlClient from "effect/unstable/sql/SqlClient";
+import * as SqlClient from "effect/sql/SqlClient";
 import * as NodeSqliteClient from "../persistence/NodeSqliteClient.ts";
 
 const waitForSentMessage = (
@@ -125,17 +125,17 @@ it.effect("delivers a queued message on model B after the composer changes from 
               },
               new Date().toISOString(),
             );
-            return { turnId: TurnId.makeUnsafe("fixture-turn") };
+            return { turnId: TurnId.make("fixture-turn") };
           }).pipe(Effect.provideService(SqlClient.SqlClient, sql), Effect.orDie),
       }),
       Effect.provideService(ProviderService, {} as typeof ProviderService.Service),
     );
     const result = yield* sender.send({
-      threadId: ThreadId.makeUnsafe("thread-1"),
+      threadId: ThreadId.make("thread-1"),
       dispatchMode: "queue",
-      connectionId: ProviderConnectionId.makeUnsafe("new-connection"),
+      connectionId: ProviderConnectionId.make("new-connection"),
       message: {
-        messageId: MessageId.makeUnsafe("queued-model"),
+        messageId: MessageId.make("queued-model"),
         text: "next",
         attachments: [],
         origin: { _tag: "user" as const },
@@ -220,8 +220,7 @@ for (const workspaceRoot of [null, "/repo"]) {
         for (const id of ["m1", "m2", "m3"])
           completions.set(id, yield* Deferred.make<void, unknown>());
         let expectedCwd =
-          workspaceRoot ??
-          ensureDurableThreadWorkspace(ThreadId.makeUnsafe("thread-1"), senderStateDir);
+          workspaceRoot ?? ensureDurableThreadWorkspace(ThreadId.make("thread-1"), senderStateDir);
         const dispatchedCwds: string[] = [];
         const coordinator: typeof ProviderThreadSwitchCoordinator.Service = {
           dispatchTurnStart: ({ command, cwd }) =>
@@ -248,7 +247,7 @@ for (const workspaceRoot of [null, "/repo"]) {
                 new Date().toISOString(),
               );
               yield* Deferred.succeed(completions.get(command.message.messageId)!, undefined);
-              return { turnId: TurnId.makeUnsafe("fixture-turn") };
+              return { turnId: TurnId.make("fixture-turn") };
             }).pipe(
               Effect.provideService(SqlClient.SqlClient, folderSql),
               Effect.onError((cause) =>
@@ -271,9 +270,9 @@ for (const workspaceRoot of [null, "/repo"]) {
           } as unknown as typeof ProviderService.Service),
         );
         const request = {
-          threadId: ThreadId.makeUnsafe("thread-1"),
+          threadId: ThreadId.make("thread-1"),
           message: {
-            messageId: MessageId.makeUnsafe("m1"),
+            messageId: MessageId.make("m1"),
             text: "hello",
             attachments: [],
             origin: { _tag: "user" as const },
@@ -295,18 +294,18 @@ for (const workspaceRoot of [null, "/repo"]) {
         assert.equal(
           (yield* sender.send({
             ...request,
-            message: { ...request.message, messageId: MessageId.makeUnsafe("m2") },
+            message: { ...request.message, messageId: MessageId.make("m2") },
           })).plan,
           "deliver",
         );
         yield* Deferred.await(completions.get("m2")!);
         yield* folderSql`UPDATE projection_folders SET workspace_root=NULL WHERE folder_id='sender-folder'`;
         yield* setThreadState("thread-1", "idle", null, null, "2026-10-09T00:00:03.000Z");
-        expectedCwd = ensureDurableThreadWorkspace(ThreadId.makeUnsafe("thread-1"), senderStateDir);
+        expectedCwd = ensureDurableThreadWorkspace(ThreadId.make("thread-1"), senderStateDir);
         assert.equal(
           (yield* sender.send({
             ...request,
-            message: { ...request.message, messageId: MessageId.makeUnsafe("m3") },
+            message: { ...request.message, messageId: MessageId.make("m3") },
           })).plan,
           "deliver",
         );
@@ -336,7 +335,7 @@ it.effect(
       });
       for (const id of ["first", "middle", "last"])
         yield* enqueueMessage("thread-1", {
-          messageId: MessageId.makeUnsafe(id),
+          messageId: MessageId.make(id),
           text: id,
           attachments: [],
           origin: { _tag: "user" as const },
@@ -374,7 +373,7 @@ it.effect(
             }),
         } as unknown as typeof ProviderService.Service),
       );
-      const threadId = ThreadId.makeUnsafe("thread-1");
+      const threadId = ThreadId.make("thread-1");
       assert.equal(yield* sender.queuedThread("middle"), threadId);
       assert.isTrue((yield* sender.cancelQueued({ threadId, messageId: "middle" })).removed);
       assert.deepStrictEqual(
@@ -390,7 +389,7 @@ it.effect(
       assert.deepStrictEqual(interrupts, []);
       const stopped = yield* sender.interrupt(threadId);
       assert.isTrue(stopped.interruptRequested);
-      assert.equal(stopped.interruptedTurnId, TurnId.makeUnsafe("started-message"));
+      assert.equal(stopped.interruptedTurnId, TurnId.make("started-message"));
       assert.equal((yield* sender.getRuntime(threadId)).state, "running");
       assert.deepStrictEqual(interrupts, [{ threadId }]);
       const sql = yield* SqlClient.SqlClient;
@@ -410,7 +409,7 @@ it.effect(
       assert.deepStrictEqual(interrupts, [{ threadId }, { threadId }]);
       nativeState = "ready";
       yield* enqueueMessage(threadId, {
-        messageId: MessageId.makeUnsafe("queued-after-service-start"),
+        messageId: MessageId.make("queued-after-service-start"),
         text: "fresh row",
         attachments: [],
         origin: { _tag: "user" as const },
@@ -439,7 +438,7 @@ for (const release of ["next-send", "remove-head", "edit-head"] as const) {
         createdAt: "2026-10-09T00:00:00.000Z",
       });
       const message = (id: string) => ({
-        messageId: MessageId.makeUnsafe(id),
+        messageId: MessageId.make(id),
         text: id,
         attachments: [],
         origin: { _tag: "user" as const },
@@ -486,7 +485,7 @@ for (const release of ["next-send", "remove-head", "edit-head"] as const) {
               new Date().toISOString(),
             );
             yield* Deferred.succeed(delivered, undefined);
-            return { turnId: TurnId.makeUnsafe("fixture-turn") };
+            return { turnId: TurnId.make("fixture-turn") };
           }).pipe(
             Effect.provideService(SqlClient.SqlClient, folderSql),
             Effect.mapError(
@@ -532,7 +531,7 @@ for (const release of ["next-send", "remove-head", "edit-head"] as const) {
       );
       assert.deepStrictEqual(attempts, ["head"]);
       const blockedResult = yield* sender.send({
-        threadId: ThreadId.makeUnsafe("thread-q"),
+        threadId: ThreadId.make("thread-q"),
         message: message("third"),
         dispatchMode: "queue",
       });
@@ -548,7 +547,7 @@ for (const release of ["next-send", "remove-head", "edit-head"] as const) {
       reject = false;
       if (release === "next-send") {
         const result = yield* sender.send({
-          threadId: ThreadId.makeUnsafe("thread-q"),
+          threadId: ThreadId.make("thread-q"),
           message: message("fourth"),
           dispatchMode: "steer",
         });
@@ -560,7 +559,7 @@ for (const release of ["next-send", "remove-head", "edit-head"] as const) {
           ["second", "third", "fourth"],
         );
       } else {
-        const input = { threadId: ThreadId.makeUnsafe("thread-q"), messageId: "head" };
+        const input = { threadId: ThreadId.make("thread-q"), messageId: "head" };
         if (release === "edit-head") {
           assert.isTrue(
             (yield* sender.editQueued({ ...input, updatedAt: "2026-10-09T00:00:04.000Z" })).removed,
@@ -658,7 +657,7 @@ it.effect("claims queued attachments atomically and delivers them with their ori
             },
             new Date().toISOString(),
           );
-          return { turnId: TurnId.makeUnsafe("fixture-turn") };
+          return { turnId: TurnId.make("fixture-turn") };
         }).pipe(Effect.provideService(SqlClient.SqlClient, sql), Effect.orDie),
     };
     const sender = yield* makeThreadSender.pipe(
@@ -674,11 +673,11 @@ it.effect("claims queued attachments atomically and delivers them with their ori
       } as unknown as typeof ProviderService.Service),
     );
     const request: ThreadSendInput = {
-      threadId: ThreadId.makeUnsafe("thread-attachments"),
+      threadId: ThreadId.make("thread-attachments"),
       draftUpdatedAt: null,
       dispatchMode: "queue",
       message: {
-        messageId: MessageId.makeUnsafe("image-message"),
+        messageId: MessageId.make("image-message"),
         text: "image",
         attachments: [
           {
@@ -751,7 +750,7 @@ it.effect(
       yield* folderSql`INSERT INTO projection_folders (folder_id, title, workspace_root, space_id, created_at, updated_at)
       VALUES ('sender-folder', 'Sender folder', NULL, 'space-1', '2026-10-09T00:00:00.000Z', '2026-10-09T00:00:00.000Z')`;
       const sql = yield* SqlClient.SqlClient;
-      const threadId = ThreadId.makeUnsafe("thread-edit");
+      const threadId = ThreadId.make("thread-edit");
       yield* createThread({
         folderId: "sender-folder",
         id: threadId,
@@ -765,7 +764,7 @@ it.effect(
       });
       yield* setThreadState(threadId, "running", "turn", null, "2026-10-10T00:00:01.000Z");
       const message = {
-        messageId: MessageId.makeUnsafe("message-edit"),
+        messageId: MessageId.make("message-edit"),
         text: "text exactly once",
         attachments: [
           {
@@ -879,7 +878,7 @@ for (const content of [
         yield* folderSql`INSERT INTO projection_folders (folder_id, title, workspace_root, space_id, created_at, updated_at)
       VALUES ('sender-folder', 'Sender folder', NULL, 'space-1', '2026-10-09T00:00:00.000Z', '2026-10-09T00:00:00.000Z')`;
         const sql = yield* SqlClient.SqlClient;
-        const threadId = ThreadId.makeUnsafe("edit-nonempty");
+        const threadId = ThreadId.make("edit-nonempty");
         yield* createThread({
           folderId: "sender-folder",
           id: threadId,
@@ -893,7 +892,7 @@ for (const content of [
         });
         yield* setThreadState(threadId, "running", "turn", null, "2026-10-10T00:00:01.000Z");
         yield* enqueueMessage(threadId, {
-          messageId: MessageId.makeUnsafe("queue"),
+          messageId: MessageId.make("queue"),
           text: "queued text",
           attachments: [],
           origin: { _tag: "user" as const },
@@ -1026,14 +1025,14 @@ for (const provider of ["codex", "claudeAgent"] as const) {
                     new Date().toISOString(),
                   );
                   yield* Deferred.succeed(dispatched, undefined);
-                  return { turnId: TurnId.makeUnsafe("fixture-turn") };
+                  return { turnId: TurnId.make("fixture-turn") };
                 }).pipe(Effect.provideService(SqlClient.SqlClient, sql), Effect.orDie),
             }),
           );
           const result = yield* sender.send({
-            threadId: ThreadId.makeUnsafe("now-thread"),
+            threadId: ThreadId.make("now-thread"),
             message: {
-              messageId: MessageId.makeUnsafe("now-message"),
+              messageId: MessageId.make("now-message"),
               text: "continue",
               attachments: [],
               origin: { _tag: "user" as const },
@@ -1084,7 +1083,7 @@ it.effect("removes a failed user message but never a member of an admitted retry
       const message = {
         threadId: "thread",
         message: {
-          messageId: MessageId.makeUnsafe("remove"),
+          messageId: MessageId.make("remove"),
           text: "Remove",
           attachments: [],
           origin: { _tag: "user" as const },
@@ -1110,7 +1109,7 @@ it.effect("removes a failed user message but never a member of an admitted retry
       assert.equal(yield* sender.queuedThread("remove"), "thread");
       assert.equal(
         (yield* sender.cancelQueued({
-          threadId: ThreadId.makeUnsafe("thread"),
+          threadId: ThreadId.make("thread"),
           messageId: "remove",
         })).removed,
         true,
@@ -1127,7 +1126,7 @@ it.effect("removes a failed user message but never a member of an admitted retry
       );
       assert.equal(
         (yield* sender.cancelQueued({
-          threadId: ThreadId.makeUnsafe("thread"),
+          threadId: ThreadId.make("thread"),
           messageId: "remove",
         })).removed,
         false,

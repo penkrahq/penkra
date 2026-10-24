@@ -8,7 +8,7 @@ import {
   THREADS_PAGE_SIZE,
 } from "@penkra/contracts";
 import { Effect, Schema } from "effect";
-import * as SqlClient from "effect/unstable/sql/SqlClient";
+import * as SqlClient from "effect/sql/SqlClient";
 import { ThreadPublisher } from "./ThreadPublisher.ts";
 
 export const getFolderAppTabs = (input: CleanCoreGetFolderAppTabsInput) =>

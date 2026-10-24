@@ -1,5 +1,5 @@
 import * as Effect from "effect/Effect";
-import * as SqlClient from "effect/unstable/sql/SqlClient";
+import * as SqlClient from "effect/sql/SqlClient";
 
 // Migration 126 initially derived account totals from context-window gauge events.
 // Those gauges are not monotonic billing counters, so the resulting aggregates

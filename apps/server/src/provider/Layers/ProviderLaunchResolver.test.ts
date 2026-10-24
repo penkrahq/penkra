@@ -15,7 +15,7 @@ import { ProviderConnectionRepository } from "../../persistence/Services/Provide
 import { ProviderInstallationRepository } from "../../persistence/Services/ProviderInstallations.ts";
 import { runMigrations } from "../../persistence/Migrations.ts";
 import * as NodeSqliteClient from "../../persistence/NodeSqliteClient.ts";
-import * as SqlClient from "effect/unstable/sql/SqlClient";
+import * as SqlClient from "effect/sql/SqlClient";
 import { createThread } from "../../cleanCore/threadStore.ts";
 import { seedThreadFolderFixture } from "../../cleanCore/threadFixtures.ts";
 import { ProviderCredentialBroker } from "../providerCredentialBroker.ts";
@@ -33,13 +33,13 @@ import { ProviderLaunchResolverLive } from "./ProviderLaunchResolver.ts";
 import { ProviderNativeStateMaterializer } from "../Services/ProviderNativeStateMaterializer.ts";
 import { ProviderNativeStateMaterializerLive } from "./ProviderNativeStateMaterializer.ts";
 
-const threadId = ThreadId.makeUnsafe("launch-thread");
-const connectionId = ProviderConnectionId.makeUnsafe("launch-connection");
-const installationId = ProviderInstallationId.makeUnsafe("launch-installation");
-const retiredInstallationId = ProviderInstallationId.makeUnsafe("launch-installation-retired");
-const nextInstallationId = ProviderInstallationId.makeUnsafe("launch-installation-new");
+const threadId = ThreadId.make("launch-thread");
+const connectionId = ProviderConnectionId.make("launch-connection");
+const installationId = ProviderInstallationId.make("launch-installation");
+const retiredInstallationId = ProviderInstallationId.make("launch-installation-retired");
+const nextInstallationId = ProviderInstallationId.make("launch-installation-new");
 let activeLaunchInstallationId = installationId;
-const qaFixtureInstallationId = ProviderInstallationId.makeUnsafe("launch-qa-fixture");
+const qaFixtureInstallationId = ProviderInstallationId.make("launch-qa-fixture");
 const timestamp = "2026-08-08T00:00:00.000Z";
 const codexProfileRef = "provider-profile:credential-generation-two";
 let currentStaticCredentialRef = "provider-secret:launch";
@@ -393,7 +393,7 @@ it.effect("rejects a QA fixture installation in an ordinary server profile", () 
 );
 
 const claudeActiveProfileRef = "provider-profile:claude-active-profile";
-const claudeOtherConnectionId = ProviderConnectionId.makeUnsafe("launch-claude-other-connection");
+const claudeOtherConnectionId = ProviderConnectionId.make("launch-claude-other-connection");
 const claudeSessionId = "550e8400-e29b-41d4-a716-446655440088";
 const claudeDependencies = Layer.mergeAll(
   configLayer,

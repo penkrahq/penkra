@@ -6,7 +6,7 @@
  *
  * @module ServerConfig
  */
-import { Effect, FileSystem, Layer, Path, ServiceMap } from "effect";
+import { Effect, FileSystem, Layer, Path, Context } from "effect";
 import { existsSync } from "node:fs";
 import OS from "node:os";
 import path from "node:path";
@@ -205,7 +205,7 @@ export const resolveCanonicalWorkspaceRoots = Effect.fn(function* (input: {
 /**
  * ServerConfig - Service tag for server runtime configuration.
  */
-export class ServerConfig extends ServiceMap.Service<ServerConfig, ServerConfigShape>()(
+export class ServerConfig extends Context.Service<ServerConfig, ServerConfigShape>()(
   "penkra/config/ServerConfig",
 ) {
   static readonly layerTest = (cwd: string, baseDirOrPrefix: string | { prefix: string }) =>

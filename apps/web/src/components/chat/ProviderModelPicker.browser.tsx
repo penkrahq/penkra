@@ -597,7 +597,7 @@ describe("ProviderModelPicker", () => {
   });
 
   it("shows the Connection submenu only for an actual account or credential", async () => {
-    const connectionId = ProviderConnectionId.makeUnsafe("connection-opencode-go");
+    const connectionId = ProviderConnectionId.make("connection-opencode-go");
     const mounted = await mountPicker({
       provider: "opencode",
       model: "openai/gpt-5",

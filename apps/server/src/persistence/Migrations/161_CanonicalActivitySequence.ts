@@ -1,5 +1,5 @@
 import * as Effect from "effect/Effect";
-import * as SqlClient from "effect/unstable/sql/SqlClient";
+import * as SqlClient from "effect/sql/SqlClient";
 
 // Reuse the accepted touch-command sequence shared by live delivery. Historical
 // rows without an exact accepted receipt retain unknown order; never invent one.

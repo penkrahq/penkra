@@ -1,7 +1,7 @@
 // Purpose: Make every retained user item, queued input and delivery payload share one origin shape.
 import { QueuedMessage203, UserItemData203 } from "./userItemShapes203.ts";
 import { Effect, Schema } from "effect";
-import * as SqlClient from "effect/unstable/sql/SqlClient";
+import * as SqlClient from "effect/sql/SqlClient";
 
 export default Effect.gen(function* () {
   const sql = yield* SqlClient.SqlClient;

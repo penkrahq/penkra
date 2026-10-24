@@ -13,7 +13,7 @@ function connection(input: {
   profileRef?: string | null;
 }): ProviderConnectionRecord {
   return {
-    id: ProviderConnectionId.makeUnsafe(input.id),
+    id: ProviderConnectionId.make(input.id),
     harness: input.harness,
     authenticationTargetId: input.target,
     authenticationMethodId: input.method,

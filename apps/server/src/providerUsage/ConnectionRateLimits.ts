@@ -2,7 +2,7 @@
 // Purpose: Process-local provider quota observations; never restored from SQLite.
 
 import type { ProviderConnectionId, ProviderKind } from "@penkra/contracts";
-import { Effect, Layer, Option, ServiceMap, type Stream } from "effect";
+import { Effect, Layer, Option, Context, type Stream } from "effect";
 import { makeInvalidationHub } from "../cleanCore/invalidationHub.ts";
 
 import { mergeCodexQuotaFacts } from "./codexQuotaBuckets.ts";
@@ -16,7 +16,7 @@ export interface ConnectionRateLimitObservation {
   readonly updatedAt: string;
 }
 
-export class ConnectionRateLimits extends ServiceMap.Service<
+export class ConnectionRateLimits extends Context.Service<
   ConnectionRateLimits,
   {
     readonly get: (

@@ -63,7 +63,7 @@ describe("provider turn prompt preparation", () => {
   });
 
   it("attributes an agent message without depending on mutable sender metadata", async () => {
-    const sender = ThreadId.makeUnsafe("sender-thread");
+    const sender = ThreadId.make("sender-thread");
     const getThreadDetailById = vi.fn(() => Effect.succeed(Option.none()));
     const getThreadShellById = vi.fn(() => Effect.succeed(Option.none()));
     const result = await Effect.runPromise(
@@ -88,7 +88,7 @@ describe("provider turn prompt preparation", () => {
     expect(
       await Effect.runPromise(
         buildProviderTurnInput({
-          threadId: ThreadId.makeUnsafe("thread"),
+          threadId: ThreadId.make("thread"),
           provider: "codex",
           messageText: "  ",
           skills: undefined,
@@ -104,7 +104,7 @@ describe("provider turn prompt preparation", () => {
       const path = join(directory, "SKILL.md");
       await writeFile(path, "Verify the changed branch.");
       const input = {
-        threadId: ThreadId.makeUnsafe("thread"),
+        threadId: ThreadId.make("thread"),
         provider: "opencode" as const,
         messageText: "do this",
         skills: [{ name: "check", path }],

@@ -57,7 +57,7 @@ describe("voice transcription job storage", () => {
     });
 
     await expect(listVoiceTranscriptionJobs()).resolves.toEqual([
-      expect.objectContaining({ id: "audio-job", threadId: ThreadId.makeUnsafe("thread-a") }),
+      expect.objectContaining({ id: "audio-job", threadId: ThreadId.make("thread-a") }),
     ]);
     expect(completeVoice).toHaveBeenCalledWith("audio-job");
     expect(deleteVoice).toHaveBeenCalledWith("empty-job");

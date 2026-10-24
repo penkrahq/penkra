@@ -7,8 +7,8 @@
  * @module ProjectionFolderRepository
  */
 import { IsoDateTime, ModelSelection, NonNegativeInt, FolderId, SpaceId } from "@penkra/contracts";
-import { Option, Schema, ServiceMap } from "effect";
-import type { Effect } from "effect";
+import { Option, Schema, Context } from "effect";
+import { Effect } from "effect";
 
 import type { ProjectionRepositoryError } from "../Errors.ts";
 
@@ -19,11 +19,13 @@ export const ProjectionFolder = Schema.Struct({
   defaultModelSelection: Schema.NullOr(ModelSelection),
   iconDataUrl: Schema.optional(Schema.NullOr(Schema.String)),
   spaceId: SpaceId,
-  sidebarSortOrder: Schema.optional(NonNegativeInt).pipe(Schema.withDecodingDefault(() => 0)),
+  sidebarSortOrder: Schema.optional(NonNegativeInt).pipe(
+    Schema.withDecodingDefault(Effect.sync(() => 0)),
+  ),
   createdAt: IsoDateTime,
   updatedAt: IsoDateTime,
   archivedAt: Schema.optional(Schema.NullOr(IsoDateTime)).pipe(
-    Schema.withDecodingDefault(() => null),
+    Schema.withDecodingDefault(Effect.sync(() => null)),
   ),
   deletedAt: Schema.NullOr(IsoDateTime),
 });
@@ -75,7 +77,7 @@ export interface ProjectionFolderRepositoryShape {
 /**
  * ProjectionFolderRepository - Service tag for project projection persistence.
  */
-export class ProjectionFolderRepository extends ServiceMap.Service<
+export class ProjectionFolderRepository extends Context.Service<
   ProjectionFolderRepository,
   ProjectionFolderRepositoryShape
 >()("penkra/persistence/Services/ProjectionFolders/ProjectionFolderRepository") {}

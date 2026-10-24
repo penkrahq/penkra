@@ -2,7 +2,7 @@ import { seedThreadFolderFixture } from "../../cleanCore/threadFixtures.ts";
 import { FolderId, SpaceId, ThreadId } from "@penkra/contracts";
 import { assert, it } from "@effect/vitest";
 import { Effect, Layer, Option } from "effect";
-import * as SqlClient from "effect/unstable/sql/SqlClient";
+import * as SqlClient from "effect/sql/SqlClient";
 
 import { SqlitePersistenceMemory } from "./Sqlite.ts";
 import { ProjectionFolderRepositoryLive } from "./ProjectionFolders.ts";
@@ -24,14 +24,14 @@ projectionRepositoriesLayer("Projection repositories", (it) => {
       const sql = yield* SqlClient.SqlClient;
 
       yield* folders.upsert({
-        folderId: FolderId.makeUnsafe("project-null-options"),
+        folderId: FolderId.make("project-null-options"),
         title: "Null options project",
         workspaceRoot: "/tmp/project-null-options",
         defaultModelSelection: {
           provider: "codex",
           model: "gpt-5.4",
         },
-        spaceId: SpaceId.makeUnsafe("penkra-personal"),
+        spaceId: SpaceId.make("penkra-personal"),
         createdAt: "2026-03-24T00:00:00.000Z",
         updatedAt: "2026-03-24T00:00:00.000Z",
         deletedAt: null,
@@ -58,7 +58,7 @@ projectionRepositoriesLayer("Projection repositories", (it) => {
       );
 
       const persisted = yield* folders.getById({
-        folderId: FolderId.makeUnsafe("project-null-options"),
+        folderId: FolderId.make("project-null-options"),
       });
       assert.deepStrictEqual(Option.getOrNull(persisted)?.defaultModelSelection, {
         provider: "codex",
@@ -82,7 +82,7 @@ projectionRepositoriesLayer("Projection repositories", (it) => {
         createdBy: "user",
         createdAt: "2026-03-24T00:00:00.000Z",
       });
-      const row = yield* getThread(ThreadId.makeUnsafe("thread-null-options"));
+      const row = yield* getThread(ThreadId.make("thread-null-options"));
       assert.equal(row.model, "claude-opus-4-6");
       assert.equal(row.modelOptions, null);
     }),

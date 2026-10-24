@@ -7,9 +7,9 @@ import { render } from "vitest-browser-react";
 import { MessagesTimeline } from "./MessagesTimeline";
 import { threadItemToChatMessage } from "./threadItemMappers";
 
-const turnId = TurnId.makeUnsafe("timestamp-turn");
+const turnId = TurnId.make("timestamp-turn");
 const marker: CleanCoreThreadItem = {
-  threadId: ThreadId.makeUnsafe("timestamp-thread"),
+  threadId: ThreadId.make("timestamp-thread"),
   seq: 1,
   sourceId: "turn:timestamp-turn",
   turnId,

@@ -17,8 +17,8 @@ describe("spacesUiStore", () => {
   afterEach(() => vi.unstubAllGlobals());
 
   it("hydrates only from the durable server record", async () => {
-    const personal = SpaceId.makeUnsafe("personal");
-    const threadId = ThreadId.makeUnsafe("thread-main");
+    const personal = SpaceId.make("personal");
+    const threadId = ThreadId.make("thread-main");
     Object.assign(window, {
       nativeApi: {
         server: {
@@ -44,7 +44,7 @@ describe("spacesUiStore", () => {
   });
 
   it("does not invent a replacement for a missing active Space", () => {
-    const removed = SpaceId.makeUnsafe("removed");
+    const removed = SpaceId.make("removed");
     useSpacesUiStore.setState({ activeSpaceId: removed });
     useSpacesUiStore.getState().reconcile({
       activeSpaceIds: new Set(),
@@ -56,7 +56,7 @@ describe("spacesUiStore", () => {
   });
 
   it("keeps a selected Space while the committed navigation includes it", () => {
-    const created = SpaceId.makeUnsafe("created");
+    const created = SpaceId.make("created");
     useSpacesUiStore.getState().setActiveSpaceId(created);
     useSpacesUiStore.getState().reconcile({
       activeSpaceIds: new Set([created]),
@@ -68,9 +68,9 @@ describe("spacesUiStore", () => {
   });
 
   it("keeps only the most recent folder-or-thread target per Space", () => {
-    const work = SpaceId.makeUnsafe("work");
-    const folderId = FolderId.makeUnsafe("folder-work");
-    const threadId = ThreadId.makeUnsafe("thread-work");
+    const work = SpaceId.make("work");
+    const folderId = FolderId.make("folder-work");
+    const threadId = ThreadId.make("thread-work");
 
     useSpacesUiStore.getState().rememberThread(work, threadId);
     useSpacesUiStore.getState().rememberProject(work, folderId);

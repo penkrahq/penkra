@@ -14,9 +14,9 @@ import {
 import { normalizeProviderRuntimeEvent } from "./Layers/ProviderService.ts";
 
 const base = {
-  eventId: EventId.makeUnsafe("native-event"),
+  eventId: EventId.make("native-event"),
   provider: "codex" as const,
-  threadId: ThreadId.makeUnsafe("thread-derived-events"),
+  threadId: ThreadId.make("thread-derived-events"),
   createdAt: "2026-07-23T20:00:00.000Z",
 };
 
@@ -35,7 +35,7 @@ describe("assignDerivedProviderRuntimeEventIds", () => {
       {
         ...base,
         type: "task.completed",
-        payload: { taskId: RuntimeTaskId.makeUnsafe("task-1"), status: "completed" },
+        payload: { taskId: RuntimeTaskId.make("task-1"), status: "completed" },
       },
       {
         ...base,
@@ -57,7 +57,7 @@ describe("providerRuntimeEventIdFromNative", () => {
     const event = {
       ...base,
       type: "item.completed",
-      itemId: RuntimeItemId.makeUnsafe("item-whitespace"),
+      itemId: RuntimeItemId.make("item-whitespace"),
       payload: {
         itemType: "command_execution",
         title: "  Bash: cd /tmp;\n  ./node_modules/.bin/vitest run  \n",
@@ -76,9 +76,9 @@ describe("providerRuntimeEventIdFromNative", () => {
     const makeDelta = (eventId: string) =>
       ({
         ...base,
-        eventId: EventId.makeUnsafe(eventId),
+        eventId: EventId.make(eventId),
         type: "content.delta",
-        itemId: RuntimeItemId.makeUnsafe("assistant-repeated-chunk"),
+        itemId: RuntimeItemId.make("assistant-repeated-chunk"),
         payload: { streamKind: "assistant_text", delta: " is" },
         raw: {
           source: "codex.app-server.notification",
@@ -102,7 +102,7 @@ describe("providerRuntimeEventIdFromNative", () => {
     const event = {
       ...base,
       type: "item.completed",
-      itemId: RuntimeItemId.makeUnsafe("assistant-completion-whitespace"),
+      itemId: RuntimeItemId.make("assistant-completion-whitespace"),
       payload: {
         itemType: "assistant_message",
         status: "completed",

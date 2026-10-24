@@ -467,7 +467,7 @@ export function makeThreadReadTools(input: ThreadReadToolsInput): ReadonlyArray<
                     connectionId:
                       requestedConnectionId === null
                         ? null
-                        : ProviderConnectionId.makeUnsafe(requestedConnectionId!),
+                        : ProviderConnectionId.make(requestedConnectionId!),
                   }
                 : {}),
             }),
@@ -674,7 +674,7 @@ export function makeThreadReadTools(input: ThreadReadToolsInput): ReadonlyArray<
         const cursor = decodeThreadListCursor(readStringArg(args, "cursor"));
         const caller = yield* requireThreadShell(context.callerThreadId);
         const callerSpaceId = yield* requireThreadSpaceId(snapshotQuery, caller);
-        const spaceId = requestedSpaceId ? SpaceId.makeUnsafe(requestedSpaceId) : callerSpaceId;
+        const spaceId = requestedSpaceId ? SpaceId.make(requestedSpaceId) : callerSpaceId;
         const result = yield* snapshotQuery
           .listThreadShellPage({
             spaceId,
@@ -938,14 +938,14 @@ export function makeThreadReadTools(input: ThreadReadToolsInput): ReadonlyArray<
         const caller = yield* requireThreadShell(context.callerThreadId);
         const callerSpaceId = yield* requireThreadSpaceId(snapshotQuery, caller);
         let requestedScopeSpaceId = requestedSpaceId
-          ? SpaceId.makeUnsafe(requestedSpaceId)
+          ? SpaceId.make(requestedSpaceId)
           : callerSpaceId;
         const scopeSpace = yield* snapshotQuery.getSpaceShellById(requestedScopeSpaceId);
         if (Option.isNone(scopeSpace)) {
           throw new ToolInputError(`Space "${requestedScopeSpaceId}" was not found.`);
         }
         const shell = threadId
-          ? yield* snapshotQuery.getThreadShellById(ThreadId.makeUnsafe(threadId)).pipe(
+          ? yield* snapshotQuery.getThreadShellById(ThreadId.make(threadId)).pipe(
               Effect.mapError((error) => new ToolInputError(errorText(error))),
               Effect.flatMap(
                 Option.match({
@@ -978,7 +978,7 @@ export function makeThreadReadTools(input: ThreadReadToolsInput): ReadonlyArray<
               snapshotQuery
                 .getThreadMessageContext({
                   threadId: shell.id,
-                  messageId: MessageId.makeUnsafe(messageId),
+                  messageId: MessageId.make(messageId),
                   beforeTurns,
                   afterTurns,
                 })
@@ -1045,13 +1045,13 @@ export function makeThreadReadTools(input: ThreadReadToolsInput): ReadonlyArray<
           const searchCursor = decodeThreadSearchCursor(cursorValue, searchScope);
           const result = yield* snapshotQuery
             .searchThreadMessages({
-              spaceId: SpaceId.makeUnsafe(requestedScopeSpaceId),
-              folderId: folderId === undefined ? null : FolderId.makeUnsafe(folderId),
-              threadId: threadId === undefined ? null : ThreadId.makeUnsafe(threadId),
+              spaceId: SpaceId.make(requestedScopeSpaceId),
+              folderId: folderId === undefined ? null : FolderId.make(folderId),
+              threadId: threadId === undefined ? null : ThreadId.make(threadId),
               queries,
               queryMode,
               ...(roleValues.length > 0 ? { roles: roleValues } : {}),
-              ...(turnId ? { turnId: TurnId.makeUnsafe(turnId) } : {}),
+              ...(turnId ? { turnId: TurnId.make(turnId) } : {}),
               ...(createdAfter ? { createdAfter } : {}),
               ...(createdBefore ? { createdBefore } : {}),
               order,
@@ -1118,7 +1118,7 @@ export function makeThreadReadTools(input: ThreadReadToolsInput): ReadonlyArray<
         const page = yield* turnId
           ? snapshotQuery.getTurnPage({
               threadId: shell.id,
-              turnId: TurnId.makeUnsafe(turnId),
+              turnId: TurnId.make(turnId),
               ...(cursor?.pageBefore ? { before: cursor.pageBefore } : {}),
             })
           : snapshotQuery.getThreadTurnsPage({

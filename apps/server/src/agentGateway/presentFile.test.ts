@@ -8,7 +8,7 @@ import { Effect } from "effect";
 
 import { ThreadId } from "@penkra/contracts";
 import * as NodeSqliteClient from "../persistence/NodeSqliteClient.ts";
-import * as SqlClient from "effect/unstable/sql/SqlClient";
+import * as SqlClient from "effect/sql/SqlClient";
 import { runMigrations } from "../persistence/Migrations.ts";
 import { seedThreadFolderFixture } from "../cleanCore/threadFixtures.ts";
 import { createThread, makeThreadPublisher } from "../cleanCore/threadStore.ts";
@@ -24,7 +24,7 @@ describe("penkra show file", () => {
     const root = await fs.mkdtemp(path.join(os.tmpdir(), "penkra-show-cwd-test-"));
     try {
       const cwd = resolvePresentFileCwd({
-        threadId: ThreadId.makeUnsafe("thread-show-fallback"),
+        threadId: ThreadId.make("thread-show-fallback"),
         projectCwd: null,
         stateDir: root,
       });

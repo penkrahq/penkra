@@ -6,7 +6,7 @@ import { providerCatalogQueryOptions } from "../hooks/useProviderCatalog";
 it("invalidates catalogs without invalidating unrelated reads", async () => {
   const client = createAppQueryClient();
   const catalog = providerCatalogQueryOptions(
-    { provider: "codex", connectionId: ProviderConnectionId.makeUnsafe("selected") },
+    { provider: "codex", connectionId: ProviderConnectionId.make("selected") },
     ["models"],
   );
   const filesystem = ["folders", "read-file", "/repo", "README.md"];

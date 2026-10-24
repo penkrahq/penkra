@@ -1,6 +1,6 @@
 // One server-owned usage snapshot per Connection. Reads and subscribers never fetch.
 import type { ProviderConnectionId, ServerProviderUsageSnapshot } from "@penkra/contracts";
-import { Effect, Layer, ServiceMap, Stream } from "effect";
+import { Effect, Layer, Context, Stream } from "effect";
 import { makeInvalidationHub } from "../cleanCore/invalidationHub.ts";
 import { ProviderConnectionRepository } from "../persistence/Services/ProviderConnections.ts";
 import { ProviderInstallationRepository } from "../persistence/Services/ProviderInstallations.ts";
@@ -96,7 +96,7 @@ export const makeProviderUsage = (
     };
   });
 
-export class ProviderUsage extends ServiceMap.Service<
+export class ProviderUsage extends Context.Service<
   ProviderUsage,
   Effect.Success<ReturnType<typeof makeProviderUsage>>
 >()("penkra/providerUsage/ProviderUsage") {}

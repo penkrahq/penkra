@@ -23,9 +23,9 @@ function row(queue: string, updatedAt: string): CleanCoreThreadSummary {
   return {
     latestTurn: null,
     latestOpenQuestion: null,
-    id: ThreadId.makeUnsafe("thread-51"),
+    id: ThreadId.make("thread-51"),
     spaceId: "space" as CleanCoreThreadSummary["spaceId"],
-    folderId: FolderId.makeUnsafe("folder"),
+    folderId: FolderId.make("folder"),
     title: "Outside the first page",
     provider: "codex",
     connectionId: null,
@@ -66,7 +66,7 @@ it("reads an active thread's queue by ID without reading the first sidebar page"
 });
 it("returns a missing row explicitly instead of asking callers to infer it from the store", async () => {
   api.getThread.mockResolvedValue(null);
-  expect(await loadThread(ThreadId.makeUnsafe("deleted-thread"))).toBeNull();
+  expect(await loadThread(ThreadId.make("deleted-thread"))).toBeNull();
 });
 it("refreshes the canonical queue after a broadcast and ignores an older in-flight reply", async () => {
   const old = row("[]", "2026-10-10T00:00:01.000Z");
@@ -114,7 +114,7 @@ it("reads one scope page at a time, deduplicates a pending next page, and stops 
   const next = loadNextThreadPage(scope);
   expect(loadNextThreadPage(scope)).toBe(next);
   expect(api.listThreads).toHaveBeenLastCalledWith({ ...scope, after: cursor });
-  const other = { ...thread, id: ThreadId.makeUnsafe("thread-52") };
+  const other = { ...thread, id: ThreadId.make("thread-52") };
   release({ threads: [other], nextCursor: null });
   await next;
   await loadNextThreadPage(scope);

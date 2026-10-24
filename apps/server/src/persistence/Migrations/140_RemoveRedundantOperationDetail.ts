@@ -1,5 +1,5 @@
 import * as Effect from "effect/Effect";
-import * as SqlClient from "effect/unstable/sql/SqlClient";
+import * as SqlClient from "effect/sql/SqlClient";
 
 // `activity_json` is the canonical payload consumed by thread_activities_read.
 // `detail_json` held the same latest provider envelope and had no reader.

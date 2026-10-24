@@ -17,10 +17,10 @@ import { MessagesTimeline } from "./MessagesTimeline";
 import { threadItemsToTimelineEntries } from "./threadItemMappers";
 import type { TranscriptVirtualListRef } from "./TranscriptVirtualList";
 
-const turnId = TurnId.makeUnsafe("turn");
+const turnId = TurnId.make("turn");
 const detailKey = turnSegmentKey(turnId, 0);
 const marker: CleanCoreThreadItem = {
-  threadId: ThreadId.makeUnsafe("thread"),
+  threadId: ThreadId.make("thread"),
   seq: 1,
   sourceId: "turn:turn",
   turnId,

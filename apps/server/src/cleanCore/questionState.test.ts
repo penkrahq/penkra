@@ -1,7 +1,7 @@
 import { assert, it } from "@effect/vitest";
 import { ThreadId } from "@penkra/contracts";
 import { Effect } from "effect";
-import * as SqlClient from "effect/unstable/sql/SqlClient";
+import * as SqlClient from "effect/sql/SqlClient";
 import { runMigrations } from "../persistence/Migrations.ts";
 import * as NodeSqliteClient from "../persistence/NodeSqliteClient.ts";
 import { seedThreadFolderFixture } from "./threadFixtures.ts";
@@ -17,7 +17,7 @@ it.effect("question state follows answers and turn settlement without a stored c
   Effect.gen(function* () {
     yield* runMigrations();
     yield* seedThreadFolderFixture("questions-folder", "questions-space");
-    const threadId = ThreadId.makeUnsafe("questions-thread");
+    const threadId = ThreadId.make("questions-thread");
     const at = "2026-10-17T00:00:00.000Z";
     yield* createThread({
       id: threadId,

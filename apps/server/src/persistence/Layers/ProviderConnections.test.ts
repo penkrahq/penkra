@@ -1,7 +1,7 @@
 import { ProviderConnectionId } from "@penkra/contracts";
 import { assert, it } from "@effect/vitest";
 import { Effect, Layer, Option } from "effect";
-import * as SqlClient from "effect/unstable/sql/SqlClient";
+import * as SqlClient from "effect/sql/SqlClient";
 
 import { runMigrations } from "../Migrations.ts";
 import * as NodeSqliteClient from "../NodeSqliteClient.ts";
@@ -73,8 +73,8 @@ layer("ProviderConnectionRepository", (it) => {
       const sql = yield* SqlClient.SqlClient;
       const repository = yield* ProviderConnectionRepository;
       yield* runMigrations();
-      const historicalId = ProviderConnectionId.makeUnsafe("connection-historical");
-      const duplicateId = ProviderConnectionId.makeUnsafe("connection-duplicate");
+      const historicalId = ProviderConnectionId.make("connection-historical");
+      const duplicateId = ProviderConnectionId.make("connection-duplicate");
       yield* repository.create({
         id: historicalId,
         harness: "codex",
@@ -160,7 +160,7 @@ layer("ProviderConnectionRepository", (it) => {
         (yield* repository.list()).map((connection) => connection.id),
         [historicalId],
       );
-      const pathStableId = ProviderConnectionId.makeUnsafe("connection-path-stable");
+      const pathStableId = ProviderConnectionId.make("connection-path-stable");
       yield* sql`
         INSERT INTO provider_credential_profiles (
           profile_ref, harness_kind, authentication_target_id, authentication_method_id,
@@ -234,7 +234,7 @@ layer("ProviderConnectionRepository", (it) => {
         ) VALUES ('space-1', 'Personal', '', 0, '2026-08-08T00:00:00.000Z', '2026-08-08T00:00:00.000Z')
       `;
       const personal = yield* repository.create({
-        id: ProviderConnectionId.makeUnsafe("connection-personal"),
+        id: ProviderConnectionId.make("connection-personal"),
         harness: "codex",
         authenticationTargetId: "openai-first-party",
         authenticationMethodId: "managed-login",
@@ -245,7 +245,7 @@ layer("ProviderConnectionRepository", (it) => {
         createdAt: "2026-08-08T00:00:00.000Z",
       });
       const work = yield* repository.create({
-        id: ProviderConnectionId.makeUnsafe("connection-work"),
+        id: ProviderConnectionId.make("connection-work"),
         harness: "codex",
         authenticationTargetId: "openai-first-party",
         authenticationMethodId: "managed-login",

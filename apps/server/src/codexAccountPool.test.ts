@@ -19,9 +19,9 @@ import {
 } from "@penkra/contracts";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { Effect, Layer, Option, Sink, Stream } from "effect";
-import { ChildProcessSpawner } from "effect/unstable/process";
+import { ChildProcessSpawner } from "effect/process";
 import type { OpencodeClient } from "@opencode-ai/sdk/v2";
-import * as SqlClient from "effect/unstable/sql/SqlClient";
+import * as SqlClient from "effect/sql/SqlClient";
 import { expect, it } from "vitest";
 import { prepareManagedCodexProfileConfig } from "./codexProcessEnv";
 import { CodexAppServerManager } from "./codexAppServerManager";
@@ -238,7 +238,7 @@ rl.createInterface({input:process.stdin}).on('line',async line=>{
           ? Effect.void
           : Effect.fail(new Error("Credential retired")),
       ),
-      connectionId: ProviderConnectionId.makeUnsafe(account),
+      connectionId: ProviderConnectionId.make(account),
       childEnvironment: (env: NodeJS.ProcessEnv) => ({
         ...env,
         CODEX_HOME: profileRoot,
@@ -247,7 +247,7 @@ rl.createInterface({input:process.stdin}).on('line',async line=>{
     };
   };
   const input = async (id: string, account = "account-a") => ({
-    threadId: ThreadId.makeUnsafe(id),
+    threadId: ThreadId.make(id),
     cwd: root,
     model: "gpt-5.5",
     runtimeMode: "full-access" as const,
@@ -328,19 +328,19 @@ it("coalesces concurrent starts and discovery per account and attributes interle
     await f.manager.startSession(await f.input("c", "account-b"));
     expect((await f.events()).filter((event) => event.event === "spawn")).toHaveLength(2);
     f.retireCredentials("account-a");
-    await f.manager.stopAccount(ProviderConnectionId.makeUnsafe("account-a"));
+    await f.manager.stopAccount(ProviderConnectionId.make("account-a"));
     expect(f.manager.hasSession(a.threadId)).toBe(false);
     expect(f.manager.hasSession(b.threadId)).toBe(false);
-    expect(f.manager.hasSession(ThreadId.makeUnsafe("c"))).toBe(true);
+    expect(f.manager.hasSession(ThreadId.make("c"))).toBe(true);
     await expect(
-      f.manager.startSession({ ...a, threadId: ThreadId.makeUnsafe("late-old-profile") }),
+      f.manager.startSession({ ...a, threadId: ThreadId.make("late-old-profile") }),
     ).rejects.toThrow();
     const refreshed = await f.input("reauthenticated-a", "account-a");
     expect(refreshed.managedLaunch.profileRoot).toBe(a.managedLaunch.profileRoot);
     await f.manager.startSession(refreshed);
     expect(f.manager.hasSession(refreshed.threadId)).toBe(true);
     await f.manager.sendTurn({
-      threadId: ThreadId.makeUnsafe("c"),
+      threadId: ThreadId.make("c"),
       input: "Sibling account still works",
     });
   }));
@@ -424,7 +424,7 @@ function seedCanonicalThread(id: ThreadId) {
     yield* sql`INSERT OR IGNORE INTO projection_folders (folder_id, space_id, title, workspace_root, default_model_selection_json, created_at, updated_at) VALUES ('pool-folder', 'penkra-personal', 'Pool', NULL, NULL, ${at}, ${at})`;
     yield* createThreadFixture(sql, {
       threadId: id,
-      folderId: FolderId.makeUnsafe("pool-folder"),
+      folderId: FolderId.make("pool-folder"),
       title: "Pool",
       modelSelection: { provider: "codex", model: "gpt-5.5" },
       runtimeMode: "full-access",
@@ -518,6 +518,7 @@ it.each(["codex", "opencode"] as const)(
           urlsByPid.set(pid, url);
           return Effect.succeed(
             ChildProcessSpawner.makeHandle({
+              unref: Effect.succeed(Effect.void),
               pid: ChildProcessSpawner.ProcessId(pid),
               exitCode: Effect.never,
               isRunning: Effect.succeed(true),
@@ -632,9 +633,7 @@ it.each(["codex", "opencode"] as const)(
       );
       const installs = Layer.succeed(ProviderInstallationRepository, {
         getActiveRecord: (harness: string) =>
-          Effect.succeed(
-            Option.some({ id: ProviderInstallationId.makeUnsafe("install-" + harness) }),
-          ),
+          Effect.succeed(Option.some({ id: ProviderInstallationId.make("install-" + harness) })),
         getRecord: (id: string) =>
           Effect.succeed(
             Option.some({
@@ -705,13 +704,10 @@ it.each(["codex", "opencode"] as const)(
           yield* sql`INSERT INTO projection_folders (folder_id,space_id,title,workspace_root,default_model_selection_json,created_at,updated_at) VALUES ('owner-folder','penkra-personal','Owner',NULL,NULL,${at},${at})`;
           const service = yield* ProviderService;
           const registry = yield* ProviderAdapterRegistry;
-          const ids = [
-            ThreadId.makeUnsafe(provider + "-owner-a"),
-            ThreadId.makeUnsafe(provider + "-owner-b"),
-          ];
+          const ids = [ThreadId.make(provider + "-owner-a"), ThreadId.make(provider + "-owner-b")];
           const accounts = [
-            ProviderConnectionId.makeUnsafe("account-a"),
-            ProviderConnectionId.makeUnsafe("account-b"),
+            ProviderConnectionId.make("account-a"),
+            ProviderConnectionId.make("account-b"),
           ];
           for (let index = 0; index < ids.length; index++) {
             const threadId = ids[index]!;
@@ -722,7 +718,7 @@ it.each(["codex", "opencode"] as const)(
                 : { provider, model: "opencode-go/deepseek-v4.1-flash" };
             yield* createThreadFixture(sql, {
               threadId,
-              folderId: FolderId.makeUnsafe("owner-folder"),
+              folderId: FolderId.make("owner-folder"),
               title: "Owner",
               modelSelection,
               runtimeMode: "full-access",

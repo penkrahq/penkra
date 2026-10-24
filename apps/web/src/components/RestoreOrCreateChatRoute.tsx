@@ -55,7 +55,7 @@ export function RestoreOrCreateChatRoute({
         }
         await navigate({
           to: "/$threadId",
-          params: { threadId: ThreadId.makeUnsafe(restorableRoute.threadId) },
+          params: { threadId: ThreadId.make(restorableRoute.threadId) },
           replace: true,
           search: () => ({}),
         });

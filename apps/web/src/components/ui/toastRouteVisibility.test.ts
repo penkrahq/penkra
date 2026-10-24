@@ -6,8 +6,8 @@ import {
   shouldRenderToastForVisibleThreads,
 } from "./toastRouteVisibility";
 
-const THREAD_A = ThreadId.makeUnsafe("thread-a");
-const THREAD_B = ThreadId.makeUnsafe("thread-b");
+const THREAD_A = ThreadId.make("thread-a");
+const THREAD_B = ThreadId.make("thread-b");
 
 describe("resolveVisibleToastThreadIds", () => {
   it("returns only the active thread for single-chat routes", () => {

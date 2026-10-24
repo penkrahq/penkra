@@ -5,7 +5,7 @@ import { randomUUID } from "node:crypto";
 import { DatabaseSync } from "node:sqlite";
 
 import { Effect } from "effect";
-import * as SqlClient from "effect/unstable/sql/SqlClient";
+import * as SqlClient from "effect/sql/SqlClient";
 import {
   MIGRATION_RECOVERY_MAX_RESUME_ATTEMPTS,
   migrationBackupDirectory,

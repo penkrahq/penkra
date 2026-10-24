@@ -559,7 +559,7 @@ export function deriveWorkflowRunState(input: {
       toolCalls: null,
       durationMs: snapshot.durationMs,
       startedAt: snapshot.startedAt,
-      threadId: threadRef ? ThreadId.makeUnsafe(threadRef.threadId) : null,
+      threadId: threadRef ? ThreadId.make(threadRef.threadId) : null,
       model,
       modelLabel: formatSubagentModelLabel(model),
       effortLabel: threadRef?.effort ?? plan?.effort ?? null,

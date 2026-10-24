@@ -3,8 +3,9 @@ import type { ListenOptions } from "node:net";
 
 import * as NodeHttpServer from "@effect/platform-node/NodeHttpServer";
 import { Effect, Scope } from "effect";
-import * as HttpServer from "effect/unstable/http/HttpServer";
-import { ServeError } from "effect/unstable/http/HttpServerError";
+import * as HttpServer from "effect/http/HttpServer";
+import * as NetAddress from "effect/net/NetAddress";
+import { ServeError } from "effect/http/HttpServerError";
 import { WebSocketServer, type WebSocket } from "ws";
 
 export const MAX_WEBSOCKET_MESSAGE_BYTES = 2 * 1024 * 1024;
@@ -139,12 +140,11 @@ export const makeBoundedNodeHttpServer = Effect.fnUntraced(function* (
   return HttpServer.make({
     address:
       typeof address === "string"
-        ? { _tag: "UnixAddress", path: address }
-        : {
-            _tag: "TcpAddress",
-            hostname: address.address === "::" ? "0.0.0.0" : address.address,
-            port: address.port,
-          },
+        ? NetAddress.unixPathAddress(address)
+        : NetAddress.inetAddressFromIpStringUnsafe(
+            address.address === "::" ? "0.0.0.0" : address.address,
+            address.port,
+          ),
     serve: Effect.fnUntraced(function* (httpApp, middleware) {
       const serveScope = yield* Effect.scope;
       const handler = yield* NodeHttpServer.makeHandler(httpApp, {

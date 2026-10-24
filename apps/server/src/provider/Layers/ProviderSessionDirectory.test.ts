@@ -7,7 +7,7 @@ import { ThreadId } from "@penkra/contracts";
 import { it, assert } from "@effect/vitest";
 import { assertFailure, assertSome } from "@effect/vitest/utils";
 import { Effect, Layer, Option } from "effect";
-import * as SqlClient from "effect/unstable/sql/SqlClient";
+import * as SqlClient from "effect/sql/SqlClient";
 
 import { ProviderSessionDirectoryPersistenceError } from "../Errors.ts";
 import { ProviderSessionDirectory } from "../Services/ProviderSessionDirectory.ts";
@@ -19,7 +19,7 @@ it.layer(ProviderSessionDirectoryLive)("ProviderSessionDirectoryLive", (it) => {
       const directory = yield* ProviderSessionDirectory;
       const runtimeRepository = yield* ProviderSessionDirectory;
 
-      const initialThreadId = ThreadId.makeUnsafe("thread-1");
+      const initialThreadId = ThreadId.make("thread-1");
 
       yield* directory.upsert({
         provider: "codex",
@@ -33,7 +33,7 @@ it.layer(ProviderSessionDirectoryLive)("ProviderSessionDirectoryLive", (it) => {
         assert.equal(resolvedBinding.value.threadId, initialThreadId);
       }
 
-      const nextThreadId = ThreadId.makeUnsafe("thread-2");
+      const nextThreadId = ThreadId.make("thread-2");
 
       yield* directory.upsert({
         provider: "codex",
@@ -71,7 +71,7 @@ it.layer(ProviderSessionDirectoryLive)("ProviderSessionDirectoryLive", (it) => {
       const directory = yield* ProviderSessionDirectory;
       const runtimeRepository = yield* ProviderSessionDirectory;
 
-      const threadId = ThreadId.makeUnsafe("thread-runtime");
+      const threadId = ThreadId.make("thread-runtime");
 
       yield* directory.upsert({
         provider: "codex",
@@ -114,7 +114,7 @@ it.layer(ProviderSessionDirectoryLive)("ProviderSessionDirectoryLive", (it) => {
     Effect.gen(function* () {
       const directory = yield* ProviderSessionDirectory;
       const runtimeRepository = yield* ProviderSessionDirectory;
-      const threadId = ThreadId.makeUnsafe("thread-provider-change");
+      const threadId = ThreadId.make("thread-provider-change");
 
       yield* runtimeRepository.upsert({
         threadId,

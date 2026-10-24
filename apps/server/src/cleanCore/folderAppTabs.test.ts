@@ -2,7 +2,7 @@ import { observePublisher } from "./threadPublisherTestHelpers.ts";
 import { assert, it } from "@effect/vitest";
 import { FolderId } from "@penkra/contracts";
 import { Effect } from "effect";
-import * as SqlClient from "effect/unstable/sql/SqlClient";
+import * as SqlClient from "effect/sql/SqlClient";
 import { runMigrations } from "../persistence/Migrations.ts";
 import * as NodeSqliteClient from "../persistence/NodeSqliteClient.ts";
 import { seedThreadFolderFixture } from "./threadFixtures.ts";
@@ -10,7 +10,7 @@ import { ThreadPublisher } from "./ThreadPublisher.ts";
 import { makeThreadPublisher } from "./threadStore.ts";
 import { getFolderAppTabs, updateFolderAppTabs, listFolderAppTabs } from "./folderAppTabs.ts";
 
-const folderId = FolderId.makeUnsafe("app-folder");
+const folderId = FolderId.make("app-folder");
 const updatedAt = "2026-10-11T00:00:00.000Z";
 const pane = {
   id: "tab-x",
@@ -77,7 +77,7 @@ it.effect("pages every folder once across the existing read-page boundary", () =
       yield* fixture;
       for (let index = 0; index < 51; index++)
         yield* seedThreadFolderFixture(
-          FolderId.makeUnsafe(`page-${String(index).padStart(3, "0")}`),
+          FolderId.make(`page-${String(index).padStart(3, "0")}`),
           "space-1",
         );
       const seen: string[] = [];

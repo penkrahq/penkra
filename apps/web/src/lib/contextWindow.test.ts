@@ -18,12 +18,12 @@ function makeActivity(
   payload: OrchestrationThreadActivity["payload"],
 ): OrchestrationThreadActivity {
   return {
-    id: EventId.makeUnsafe(id),
+    id: EventId.make(id),
     tone: "info",
     kind,
     summary: kind,
     payload,
-    turnId: TurnId.makeUnsafe("turn-1"),
+    turnId: TurnId.make("turn-1"),
     createdAt: "2026-03-23T00:00:00.000Z",
   };
 }

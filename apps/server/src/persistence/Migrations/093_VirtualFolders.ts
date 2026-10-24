@@ -1,7 +1,7 @@
 // Purpose: Makes ordinary folders pathless containers and moves legacy roots onto their threads.
 
 import * as Effect from "effect/Effect";
-import * as SqlClient from "effect/unstable/sql/SqlClient";
+import * as SqlClient from "effect/sql/SqlClient";
 
 export default Effect.gen(function* () {
   const sql = yield* SqlClient.SqlClient;

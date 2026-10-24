@@ -86,7 +86,7 @@ describe("resolvePreferredComposerModelSelection", () => {
 });
 
 describe("composerDraftStore modelSelection", () => {
-  const threadId = ThreadId.makeUnsafe("thread-model-options");
+  const threadId = ThreadId.make("thread-model-options");
 
   beforeEach(() => {
     resetComposerDraftStore();
@@ -520,7 +520,7 @@ describe("composerDraftStore modelSelection", () => {
 });
 
 describe("composerDraftStore setModelSelection", () => {
-  const threadId = ThreadId.makeUnsafe("thread-model");
+  const threadId = ThreadId.make("thread-model");
 
   beforeEach(() => {
     resetComposerDraftStore();
@@ -652,7 +652,7 @@ describe("composerDraftStore sticky composer settings", () => {
 
   it("applies sticky activeProvider to new drafts", () => {
     const store = useComposerDraftStore.getState();
-    const threadId = ThreadId.makeUnsafe("thread-sticky-active-provider");
+    const threadId = ThreadId.make("thread-sticky-active-provider");
 
     store.setStickyModelSelection(modelSelection("claudeAgent", "claude-opus-4-6"));
     store.applyStickyState(threadId);
@@ -667,7 +667,7 @@ describe("composerDraftStore sticky composer settings", () => {
 
   it("does not overwrite existing model-scoped options with another sticky model", () => {
     const store = useComposerDraftStore.getState();
-    const threadId = ThreadId.makeUnsafe("thread-sticky-model-scope");
+    const threadId = ThreadId.make("thread-sticky-model-scope");
     const currentSelection = modelSelection("codex", "gpt-5.4", {
       reasoningEffort: "xhigh",
     });
@@ -685,7 +685,7 @@ describe("composerDraftStore sticky composer settings", () => {
 
   it("restores sticky options for the same provider and model", () => {
     const store = useComposerDraftStore.getState();
-    const threadId = ThreadId.makeUnsafe("thread-sticky-same-model");
+    const threadId = ThreadId.make("thread-sticky-same-model");
     const stickySelection = modelSelection("codex", "gpt-5.4", {
       reasoningEffort: "xhigh",
     });
@@ -728,7 +728,7 @@ describe("composerDraftStore sticky composer settings", () => {
 
   it("keeps the Claude auto-compact budget thread-local", () => {
     const store = useComposerDraftStore.getState();
-    const threadId = ThreadId.makeUnsafe("thread-sticky-auto-compact-window");
+    const threadId = ThreadId.make("thread-sticky-auto-compact-window");
 
     store.setProviderModelOptions(
       threadId,
@@ -748,7 +748,7 @@ describe("composerDraftStore sticky composer settings", () => {
 
   it("does not persist Claude context window changes through sticky provider options", () => {
     const store = useComposerDraftStore.getState();
-    const threadId = ThreadId.makeUnsafe("thread-sticky-context-window");
+    const threadId = ThreadId.make("thread-sticky-context-window");
 
     store.setProviderModelOptions(
       threadId,
@@ -773,7 +773,7 @@ describe("composerDraftStore sticky composer settings", () => {
 });
 
 describe("composerDraftStore provider-scoped option updates", () => {
-  const threadId = ThreadId.makeUnsafe("thread-provider");
+  const threadId = ThreadId.make("thread-provider");
 
   beforeEach(() => {
     resetComposerDraftStore();
@@ -825,9 +825,9 @@ describe("composer account draft", () => {
   it.each(["codex", "claudeAgent", "opencode"] as const)(
     "keeps %s account choices in the thread draft independently of other drafts",
     (provider) => {
-      const selected = ThreadId.makeUnsafe("selected-thread");
-      const other = ThreadId.makeUnsafe("other-thread");
-      const connectionId = ProviderConnectionId.makeUnsafe("new-account");
+      const selected = ThreadId.make("selected-thread");
+      const other = ThreadId.make("other-thread");
+      const connectionId = ProviderConnectionId.make("new-account");
       useComposerDraftStore.getState().setConnectionSelection(selected, provider, connectionId);
       const state = useComposerDraftStore.getState();
       expect(state.draftsByThreadId[selected]!.connectionSelectionByProvider).toEqual({

@@ -1,10 +1,11 @@
+import { ByteSize } from "effect";
 import { readMigrationStartupResult } from "./persistence/migrationStartupResult.ts";
 import { toPersistenceSqlError } from "./persistence/Errors.ts";
 import { RuntimeMode } from "@penkra/contracts";
 import { ThreadLifecycle } from "./cleanCore/threadLifecycle.ts";
 import nodePath from "node:path";
 
-import Mime from "@effect/platform-node/Mime";
+import * as Mime from "effect/http/Mime";
 import * as NodeHttpServerRequest from "@effect/platform-node/NodeHttpServerRequest";
 import {
   AuthBootstrapInput,
@@ -25,7 +26,7 @@ import {
 import { EDITOR_ICON_ROUTE_PATH } from "@penkra/shared/editorIcons";
 import { threadExportBlockedReason } from "@penkra/shared/threadExport";
 import { Cause, DateTime, Effect, FileSystem, Layer, Option, Path, Schema, Stream } from "effect";
-import { HttpRouter, HttpServerRequest, HttpServerResponse } from "effect/unstable/http";
+import { HttpRouter, HttpServerRequest, HttpServerResponse } from "effect/http";
 
 import {
   ATTACHMENTS_ROUTE_PREFIX,
@@ -223,7 +224,7 @@ export function makeDesktopShutdownEffectRouteLayer(shutdownController: ServerSh
       const config = yield* ServerConfig;
       const authorization = authorizeDesktopShutdown({
         config,
-        remoteAddress: request.remoteAddress,
+        remoteAddress: Option.getOrUndefined(request.remoteAddress),
         authorization: request.headers.authorization,
       });
 
@@ -295,7 +296,7 @@ export function makeHealthEffectRouteLayer(readiness: ServerReadiness) {
     Effect.gen(function* () {
       const request = yield* HttpServerRequest.HttpServerRequest;
       const config = yield* ServerConfig;
-      const address = request.remoteAddress?.replace(/^::ffff:/u, "");
+      const address = Option.getOrUndefined(request.remoteAddress)?.replace(/^::ffff:/u, "");
       if (!address || !isLoopbackHost(address) || !isLoopbackHost(config.host) || config.publicUrl)
         return HttpServerResponse.empty({ status: 403 });
       const origin = request.headers.origin;
@@ -326,7 +327,7 @@ const requireAuthenticatedRequest = Effect.gen(function* () {
 
 const requireAuthenticatedMutationRequest = Effect.gen(function* () {
   const request = yield* HttpServerRequest.HttpServerRequest;
-  const url = HttpServerRequest.toURL(request);
+  const url = Option.getOrUndefined(HttpServerRequest.toURL(request));
   if (!url) return yield* Effect.fail({ message: "Bad Request", status: 400 as const });
   const config = yield* ServerConfig;
   const serverAuth = yield* ServerAuth;
@@ -428,7 +429,7 @@ const readEffectJson = (
     });
   }
   return request.json.pipe(
-    Effect.provideService(HttpServerRequest.MaxBodySize, FileSystem.Size(AUTH_JSON_BODY_MAX_BYTES)),
+    Effect.provideService(HttpServerRequest.MaxBodySize, ByteSize.bytes(AUTH_JSON_BODY_MAX_BYTES)),
     Effect.mapError((cause) =>
       isBodyCapacityError(cause)
         ? { message: "Request body too large.", status: 413 as const, cause }
@@ -451,7 +452,7 @@ const readEffectBinary = (
     return Effect.fail({ message: "Request body too large.", status: 413 as const });
   }
   return request.arrayBuffer.pipe(
-    Effect.provideService(HttpServerRequest.MaxBodySize, FileSystem.Size(maxBytes)),
+    Effect.provideService(HttpServerRequest.MaxBodySize, ByteSize.bytes(maxBytes)),
     Effect.map((buffer) => new Uint8Array(buffer)),
     Effect.mapError((cause) => ({
       message: isBodyCapacityError(cause)
@@ -471,7 +472,7 @@ export const authEffectRouteLayer = HttpRouter.add(
     const config = yield* ServerConfig;
     const serverAuth = yield* ServerAuth;
     const sessions = yield* SessionCredentialService;
-    const url = HttpServerRequest.toURL(request);
+    const url = Option.getOrUndefined(HttpServerRequest.toURL(request));
     if (!url) return HttpServerResponse.text("Bad Request", { status: 400 });
     const authRequest = makeEffectAuthRequest(request);
 
@@ -487,7 +488,7 @@ export const authEffectRouteLayer = HttpRouter.add(
       const result = yield* serverAuth.exchangeBootstrapCredential(payload.credential, {
         ...deriveAuthClientMetadata({
           headers: request.headers,
-          remoteAddress: request.remoteAddress ?? null,
+          remoteAddress: Option.getOrUndefined(request.remoteAddress) ?? null,
         }),
       });
       return HttpServerResponse.jsonUnsafe(result.response, {
@@ -511,7 +512,7 @@ export const authEffectRouteLayer = HttpRouter.add(
         yield* serverAuth.exchangeBootstrapCredentialForBearerSession(payload.credential, {
           ...deriveAuthClientMetadata({
             headers: request.headers,
-            remoteAddress: request.remoteAddress ?? null,
+            remoteAddress: Option.getOrUndefined(request.remoteAddress) ?? null,
           }),
         }),
       );
@@ -651,7 +652,7 @@ export const projectFaviconEffectRouteLayer = HttpRouter.add(
       Effect.catchTag("AuthError", (error) => Effect.fail(error)),
     );
     const request = yield* HttpServerRequest.HttpServerRequest;
-    const url = HttpServerRequest.toURL(request);
+    const url = Option.getOrUndefined(HttpServerRequest.toURL(request));
     if (!url) return HttpServerResponse.text("Bad Request", { status: 400 });
     const projectCwd = url.searchParams.get("cwd");
     if (!projectCwd) return HttpServerResponse.text("Missing cwd parameter", { status: 400 });
@@ -693,7 +694,7 @@ const siteFaviconEffectRouteLayer = HttpRouter.add(
   "/api/site-favicon",
   Effect.gen(function* () {
     const request = yield* HttpServerRequest.HttpServerRequest;
-    const url = HttpServerRequest.toURL(request);
+    const url = Option.getOrUndefined(HttpServerRequest.toURL(request));
     if (!url) return HttpServerResponse.text("Bad Request", { status: 400 });
 
     // Loaded via <img> tags, which cannot attach Authorization headers — accept the
@@ -742,7 +743,7 @@ const threadExportEffectRouteLayer = HttpRouter.add(
   "/api/thread-export",
   Effect.gen(function* () {
     const request = yield* HttpServerRequest.HttpServerRequest;
-    const url = HttpServerRequest.toURL(request);
+    const url = Option.getOrUndefined(HttpServerRequest.toURL(request));
     if (!url) return HttpServerResponse.text("Bad Request", { status: 400 });
 
     const config = yield* ServerConfig;
@@ -764,7 +765,7 @@ const threadExportEffectRouteLayer = HttpRouter.add(
 
     const snapshotQuery = yield* ThreadReads;
     const threadOption = yield* snapshotQuery.getThreadDetailForExportById(
-      ThreadId.makeUnsafe(threadIdParam),
+      ThreadId.make(threadIdParam),
     );
     if (Option.isNone(threadOption))
       return HttpServerResponse.text("Not Found", { status: 404, headers: corsHeaders });
@@ -804,7 +805,7 @@ export const editorIconEffectRouteLayer = HttpRouter.add(
   EDITOR_ICON_ROUTE_PATH,
   Effect.gen(function* () {
     const request = yield* HttpServerRequest.HttpServerRequest;
-    const url = HttpServerRequest.toURL(request);
+    const url = Option.getOrUndefined(HttpServerRequest.toURL(request));
     if (!url) return HttpServerResponse.text("Bad Request", { status: 400 });
 
     const config = yield* ServerConfig;
@@ -856,7 +857,10 @@ function streamedFileResponse(input: {
     ),
     {
       status: range ? 206 : 200,
-      contentType: input.contentType ?? Mime.getType(input.path) ?? "application/octet-stream",
+      contentType:
+        input.contentType ??
+        Option.getOrUndefined(Mime.getType(input.path)) ??
+        "application/octet-stream",
       contentLength: range ? range.end - range.start + 1 : input.sizeBytes,
       headers: range
         ? {
@@ -873,7 +877,7 @@ export const localImageEffectRouteLayer = HttpRouter.add(
   LOCAL_IMAGE_ROUTE_PATH,
   Effect.gen(function* () {
     const request = yield* HttpServerRequest.HttpServerRequest;
-    const url = HttpServerRequest.toURL(request);
+    const url = Option.getOrUndefined(HttpServerRequest.toURL(request));
     if (!url) return HttpServerResponse.text("Bad Request", { status: 400 });
 
     const config = yield* ServerConfig;
@@ -920,7 +924,7 @@ export const localImageEffectRouteLayer = HttpRouter.add(
 
 const binaryUploadEffectHandler = Effect.gen(function* () {
   const request = yield* HttpServerRequest.HttpServerRequest;
-  const url = HttpServerRequest.toURL(request);
+  const url = Option.getOrUndefined(HttpServerRequest.toURL(request));
   if (!url) return HttpServerResponse.text("Bad Request", { status: 400 });
   const config = yield* ServerConfig;
   const corsHeaders = trustedMutationCorsHeaders({ request, url, config });
@@ -1140,7 +1144,7 @@ const binaryUploadEffectHandler = Effect.gen(function* () {
     const launchResolver = yield* ProviderLaunchResolver;
     const managedLaunch = yield* launchResolver.resolveProfile({
       harness: provider as never,
-      connectionId: ProviderConnectionId.makeUnsafe(connectionId),
+      connectionId: ProviderConnectionId.make(connectionId),
       installationId: installation.id,
       internalProviderId: null,
       nativeStateIdentity: `voice-transcription:${connectionId}`,
@@ -1148,9 +1152,9 @@ const binaryUploadEffectHandler = Effect.gen(function* () {
     const result = yield* adapter
       .transcribeVoice({
         provider: provider as never,
-        connectionId: ProviderConnectionId.makeUnsafe(connectionId),
+        connectionId: ProviderConnectionId.make(connectionId),
         cwd: cwd || process.cwd(),
-        ...(threadId ? { threadId: ThreadId.makeUnsafe(threadId) } : {}),
+        ...(threadId ? { threadId: ThreadId.make(threadId) } : {}),
         mimeType,
         sampleRateHz,
         durationMs,
@@ -1208,7 +1212,7 @@ export const attachmentsEffectRouteLayer = HttpRouter.add(
   `${ATTACHMENTS_ROUTE_PREFIX}/*`,
   Effect.gen(function* () {
     const request = yield* HttpServerRequest.HttpServerRequest;
-    const url = HttpServerRequest.toURL(request);
+    const url = Option.getOrUndefined(HttpServerRequest.toURL(request));
     if (!url) return HttpServerResponse.text("Bad Request", { status: 400 });
 
     const config = yield* ServerConfig;
@@ -1286,8 +1290,9 @@ export const attachmentsEffectRouteLayer = HttpRouter.add(
         );
       }
       const contentType = Option.isSome(managedBlob)
-        ? (Mime.getType(managedBlob.value.originalName) ?? managedBlob.value.mimeType)
-        : (Mime.getType(filePath) ?? "application/octet-stream");
+        ? (Option.getOrUndefined(Mime.getType(managedBlob.value.originalName)) ??
+          managedBlob.value.mimeType)
+        : (Option.getOrUndefined(Mime.getType(filePath)) ?? "application/octet-stream");
       return streamedFileResponse({
         fileSystem,
         path: filePath,
@@ -1325,7 +1330,7 @@ export const staticAndDevEffectRouteLayer = HttpRouter.add(
   "*",
   Effect.gen(function* () {
     const request = yield* HttpServerRequest.HttpServerRequest;
-    const url = HttpServerRequest.toURL(request);
+    const url = Option.getOrUndefined(HttpServerRequest.toURL(request));
     if (!url) return HttpServerResponse.text("Bad Request", { status: 400 });
 
     const config = yield* ServerConfig;
@@ -1388,7 +1393,7 @@ export const staticAndDevEffectRouteLayer = HttpRouter.add(
     if (!data) return HttpServerResponse.text("Internal Server Error", { status: 500 });
     return HttpServerResponse.uint8Array(data, {
       status: 200,
-      contentType: Mime.getType(filePath) ?? "application/octet-stream",
+      contentType: Option.getOrUndefined(Mime.getType(filePath)) ?? "application/octet-stream",
     });
   }),
 );

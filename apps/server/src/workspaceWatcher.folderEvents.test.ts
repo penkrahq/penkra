@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { FolderId, SpaceId } from "@penkra/contracts";
-import { Effect, Exit, Layer, Scope, ServiceMap } from "effect";
+import { Effect, Exit, Layer, Scope, Context } from "effect";
 import { expect, it, vi } from "vitest";
 import { ServerConfig } from "./config";
 import { ThreadPublisher } from "./cleanCore/ThreadPublisher";
@@ -30,8 +30,8 @@ vi.mock("./cleanCore/navigation", async (original) => {
       return {
         spaces: [],
         folders: observed.roots.map((workspaceRoot) => ({
-          id: FolderId.makeUnsafe("watched"),
-          spaceId: SpaceId.makeUnsafe("space"),
+          id: FolderId.make("watched"),
+          spaceId: SpaceId.make("space"),
           title: "Watched",
           workspaceRoot,
           defaultModelSelection: null,
@@ -75,7 +75,7 @@ it("watches newly created folders, moves a changed root, and retains an unchange
       ),
     );
     const scratchRoot = path.join(
-      ServiceMap.get(context, ServerConfig).stateDir,
+      Context.get(context, ServerConfig).stateDir,
       DURABLE_THREAD_WORKSPACES_DIRNAME,
     );
     expect(observed.watch).toHaveBeenCalledOnce();

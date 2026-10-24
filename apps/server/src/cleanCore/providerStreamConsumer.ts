@@ -14,7 +14,7 @@ import {
   type ProviderRuntimeEvent,
 } from "@penkra/contracts";
 import { Effect } from "effect";
-import * as SqlClient from "effect/unstable/sql/SqlClient";
+import * as SqlClient from "effect/sql/SqlClient";
 
 import { failSendingMessagesOnStartup, writeSendingMessageFailures } from "./sendMessage.ts";
 import { toCleanCoreProviderEvents } from "./providerEventBridge.ts";

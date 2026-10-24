@@ -1,7 +1,7 @@
 // Purpose: Restore the required Space assignment for folders reclassified after migration 94.
 
 import * as Effect from "effect/Effect";
-import * as SqlClient from "effect/unstable/sql/SqlClient";
+import * as SqlClient from "effect/sql/SqlClient";
 
 const PERSONAL_SPACE_ID = "penkra-personal";
 

@@ -1,5 +1,5 @@
 import { EnvironmentId, type ExecutionEnvironmentDescriptor } from "@penkra/contracts";
-import { Effect, FileSystem, Layer, Path, Random } from "effect";
+import { Effect, FileSystem, Layer, Path } from "effect";
 
 import packageJson from "../../../package.json" with { type: "json" };
 import { ServerConfig } from "../../config";
@@ -60,12 +60,12 @@ export const makeServerEnvironment = Effect.fn(function* () {
     const persisted = yield* readPersistedEnvironmentId;
     if (persisted) return persisted;
 
-    const generated = yield* Random.nextUUIDv4;
+    const generated = yield* Effect.sync(() => crypto.randomUUID());
     yield* persistEnvironmentId(generated);
     return generated;
   });
 
-  const environmentId = EnvironmentId.makeUnsafe(environmentIdRaw);
+  const environmentId = EnvironmentId.make(environmentIdRaw);
   const descriptor: ExecutionEnvironmentDescriptor = {
     environmentId,
     label: resolveServerEnvironmentLabel({ cwdBaseName: path.basename(serverConfig.cwd) }),

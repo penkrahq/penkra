@@ -3,7 +3,7 @@
 
 import * as Crypto from "node:crypto";
 import * as Net from "node:net";
-import { Data, Effect, Layer, ServiceMap } from "effect";
+import { Data, Effect, Layer, Context } from "effect";
 import { DESKTOP_CREDENTIAL_MAX_RESPONSE_BYTES } from "@penkra/shared/desktopCredentialLimits";
 
 const PIPE_ENV = "PENKRA_APP_COMMAND_PIPE";
@@ -31,7 +31,7 @@ export interface ProviderCredentialBrokerShape {
   readonly remove: (reference: string) => Effect.Effect<void, ProviderCredentialBrokerError>;
 }
 
-export class ProviderCredentialBroker extends ServiceMap.Service<
+export class ProviderCredentialBroker extends Context.Service<
   ProviderCredentialBroker,
   ProviderCredentialBrokerShape
 >()("penkra/provider/ProviderCredentialBroker") {}

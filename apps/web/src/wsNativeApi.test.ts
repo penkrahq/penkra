@@ -176,8 +176,8 @@ describe("wsNativeApi", () => {
       cwd: "/tmp/workspace",
       homeDir: "/Users/tester",
       projectName: "penkra-code",
-      bootstrapFolderId: FolderId.makeUnsafe("project-1"),
-      bootstrapThreadId: ThreadId.makeUnsafe("thread-1"),
+      bootstrapFolderId: FolderId.make("project-1"),
+      bootstrapThreadId: ThreadId.make("thread-1"),
     });
 
     expect(listener).toHaveBeenCalledTimes(1);
@@ -266,8 +266,8 @@ describe("wsNativeApi", () => {
     const api = createWsNativeApi();
     const scope = {
       provider: "codex" as const,
-      connectionId: ProviderConnectionId.makeUnsafe("account"),
-      folderId: FolderId.makeUnsafe("folder"),
+      connectionId: ProviderConnectionId.make("account"),
+      folderId: FolderId.make("folder"),
     };
     requestMock.mockResolvedValue({ version: 1, error: null, commands: [] });
     await api.provider.getCatalog({ ...scope, kinds: ["commands"] });
@@ -352,8 +352,8 @@ describe("wsNativeApi", () => {
     const input = {
       update: {
         action: "folder.create",
-        folderId: FolderId.makeUnsafe("project-1"),
-        spaceId: SpaceId.makeUnsafe("space-test"),
+        folderId: FolderId.make("project-1"),
+        spaceId: SpaceId.make("space-test"),
         title: "Project",
         workspaceRoot: "/tmp/project",
         defaultModelSelection: { provider: "codex", model: "gpt-5-codex" },
@@ -371,7 +371,7 @@ describe("wsNativeApi", () => {
     const api = createWsNativeApi();
 
     const input = {
-      threadId: ThreadId.makeUnsafe("thread-1"),
+      threadId: ThreadId.make("thread-1"),
       requestId: "request-1",
       answers: {
         Runtime: ["Bun", "Node"],

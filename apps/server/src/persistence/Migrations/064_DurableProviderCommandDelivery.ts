@@ -1,5 +1,5 @@
 import * as Effect from "effect/Effect";
-import * as SqlClient from "effect/unstable/sql/SqlClient";
+import * as SqlClient from "effect/sql/SqlClient";
 
 // Frozen historical consumer name; the runtime journal has been removed.
 const PROVIDER_COMMAND_REACTOR_CONSUMER = "provider-command-reactor.v1";

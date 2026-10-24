@@ -2,7 +2,7 @@
 // Purpose: Keep Space defaults absent or bound to the newest active Connection.
 
 import * as Effect from "effect/Effect";
-import * as SqlClient from "effect/unstable/sql/SqlClient";
+import * as SqlClient from "effect/sql/SqlClient";
 
 export default Effect.gen(function* () {
   const sql = yield* SqlClient.SqlClient;

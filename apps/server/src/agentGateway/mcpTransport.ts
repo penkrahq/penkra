@@ -178,7 +178,7 @@ export function makeAgentGatewayMcpTransport(input: {
           : input.credentials.bindWriteAuthority(token);
       const callerThreadId = callerSession.threadId;
       const callerThread = yield* input.snapshotQuery
-        .getThreadShellById(ThreadId.makeUnsafe(callerThreadId))
+        .getThreadShellById(ThreadId.make(callerThreadId))
         .pipe(
           Effect.catch(() => {
             return Effect.succeed(Option.none());

@@ -6,8 +6,8 @@ import {
   type ModelSelection,
   type ProviderTurnStartResult,
 } from "@penkra/contracts";
-import { Effect, Layer, ServiceMap } from "effect";
-import * as SqlClient from "effect/unstable/sql/SqlClient";
+import { Effect, Layer, Context } from "effect";
+import * as SqlClient from "effect/sql/SqlClient";
 import { ServerConfig } from "../config.ts";
 import { ProviderService } from "../provider/Services/ProviderService.ts";
 import { ProviderLaunchResolver } from "../provider/Services/ProviderLaunchResolver.ts";
@@ -32,7 +32,7 @@ type TurnDispatchInput = {
   nativeSteer: boolean;
   cwd?: string;
 };
-export class TurnDispatch extends ServiceMap.Service<
+export class TurnDispatch extends Context.Service<
   TurnDispatch,
   {
     readonly dispatch: (
@@ -133,7 +133,7 @@ export const TurnDispatchLive = Layer.effect(
           });
           const request = {
             threadId,
-            clientMessageId: MessageId.makeUnsafe(command.message.messageId),
+            clientMessageId: MessageId.make(command.message.messageId),
             modelSelection: input.modelSelection,
             ...(text ? { input: text } : {}),
             ...(dispatchAttachments.length ? { attachments: dispatchAttachments } : {}),

@@ -8,7 +8,7 @@ import { Readable } from "node:stream";
 import { pipeline } from "node:stream/promises";
 import { prepareWindowsSafeProcess } from "@penkra/shared/windowsProcess";
 import { Duration, Effect, FileSystem, Option, Path, Stream } from "effect";
-import { ChildProcess, ChildProcessSpawner } from "effect/unstable/process";
+import { ChildProcess, ChildProcessSpawner } from "effect/process";
 
 import { writeFileStringAtomically } from "../atomicWrite";
 import type { ManagedProviderArtifact } from "./managedProviderArtifact";

@@ -1,6 +1,6 @@
 // Purpose: Fold provider-native ownership and resume identity into canonical threads.
 import { Effect } from "effect";
-import * as SqlClient from "effect/unstable/sql/SqlClient";
+import * as SqlClient from "effect/sql/SqlClient";
 export default Effect.gen(function* () {
   const sql = yield* SqlClient.SqlClient;
   const [before] = yield* sql<{ count: number }>`SELECT count(*) AS count FROM threads`;

@@ -26,7 +26,7 @@ describe("Codex account quota identity", () => {
       later,
     );
     const snapshot = snapshotFromConnectionRateLimitFact({
-      connectionId: ProviderConnectionId.makeUnsafe("pro"),
+      connectionId: ProviderConnectionId.make("pro"),
       provider: "codex",
       limitsJson: json,
       updatedAt: later,

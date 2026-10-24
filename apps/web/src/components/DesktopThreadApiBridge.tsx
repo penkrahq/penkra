@@ -83,7 +83,7 @@ export function DesktopThreadApiBridge() {
       window.desktopBridge?.threadHome?.onSelect(({ threadId }) => {
         void navigate({
           to: "/$threadId",
-          params: { threadId: ThreadId.makeUnsafe(threadId) },
+          params: { threadId: ThreadId.make(threadId) },
           search: () => ({}),
         });
       }),

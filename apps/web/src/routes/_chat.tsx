@@ -489,7 +489,7 @@ function ChatRouteGlobalShortcuts() {
         folderId,
         state: store.dockStateByFolderId[folderId],
         closePane: (targetFolderId, paneId) =>
-          store.closePane(FolderId.makeUnsafe(targetFolderId), paneId),
+          store.closePane(FolderId.make(targetFolderId), paneId),
       });
     });
   }, []);

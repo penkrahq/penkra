@@ -2,7 +2,7 @@ import { seedThreadFolderFixture } from "./threadFixtures.ts";
 import { assert, it } from "@effect/vitest";
 import { ThreadId } from "@penkra/contracts";
 import { Effect } from "effect";
-import * as SqlClient from "effect/unstable/sql/SqlClient";
+import * as SqlClient from "effect/sql/SqlClient";
 
 import { listThreadItemsPage, listTurnItems, listThreadItemRecords } from "./threadItemsPage.ts";
 import { createThread, upsertThreadItem } from "./threadStore.ts";
@@ -58,14 +58,14 @@ it.effect("splits settled work at steer arrivals and reads only the selected seg
           createdAt: at,
           updatedAt: at,
         });
-      const page = yield* listThreadItemsPage({ threadId: ThreadId.makeUnsafe(baseThread.id) });
+      const page = yield* listThreadItemsPage({ threadId: ThreadId.make(baseThread.id) });
       assert.deepStrictEqual(page.segments.t, [
         { fromSeq: 0, toSeq: 3, hasSteps: true, startedAt: at, endedAt: at },
         { fromSeq: 3, toSeq: 5, hasSteps: true, startedAt: at, endedAt: at },
         { fromSeq: 5, toSeq: null, hasSteps: false, startedAt: null, endedAt: null },
       ]);
       const details = yield* listTurnItems({
-        threadId: ThreadId.makeUnsafe(baseThread.id),
+        threadId: ThreadId.make(baseThread.id),
         turnId: "t",
         fromSeq: 3,
         toSeq: 5,
@@ -75,7 +75,7 @@ it.effect("splits settled work at steer arrivals and reads only the selected seg
         ["step-2"],
       );
       const narrow = yield* listThreadItemsPage({
-        threadId: ThreadId.makeUnsafe(baseThread.id),
+        threadId: ThreadId.make(baseThread.id),
         limit: 1,
       });
       assert.equal(narrow.turns.t?.sourceId, "turn:t");
@@ -106,14 +106,14 @@ it.effect("reads the newest 50 items, then pages older by seq cursor", () =>
         { discard: true },
       );
 
-      const first = yield* listThreadItemsPage({ threadId: ThreadId.makeUnsafe("thread-1") });
+      const first = yield* listThreadItemsPage({ threadId: ThreadId.make("thread-1") });
       assert.equal(first.items.length, 50);
       assert.equal(first.items[0]?.seq, 60);
       assert.equal(first.items.at(-1)?.seq, 11);
       assert.equal(first.nextCursor, 11);
 
       const second = yield* listThreadItemsPage({
-        threadId: ThreadId.makeUnsafe("thread-1"),
+        threadId: ThreadId.make("thread-1"),
         beforeSeq: 11,
       });
       assert.equal(second.items.length, 10);
@@ -155,13 +155,13 @@ it.effect(
             createdAt: endedAt,
             updatedAt: endedAt,
           });
-        const page = yield* listThreadItemsPage({ threadId: ThreadId.makeUnsafe("thread-1") });
+        const page = yield* listThreadItemsPage({ threadId: ThreadId.make("thread-1") });
         assert.equal(page.items.length, 1);
         assert.equal(page.items[0]?.kind, "turn");
         assert.equal(page.finals.long!.text, "part 59");
         assert.isTrue(page.segments.long![0]!.hasSteps);
         const details = yield* listTurnItems({
-          threadId: ThreadId.makeUnsafe("thread-1"),
+          threadId: ThreadId.make("thread-1"),
           turnId: "long",
         });
         assert.equal(details.items.length, 50);
@@ -172,13 +172,13 @@ it.effect(
           ),
         );
         const older = yield* listTurnItems({
-          threadId: ThreadId.makeUnsafe("thread-1"),
+          threadId: ThreadId.make("thread-1"),
           turnId: "long",
           beforeSeq: details.nextCursor!,
         });
         assert.equal(older.items.length, 9);
         assert.isNull(older.nextCursor);
-        const raw = yield* listThreadItemRecords({ threadId: ThreadId.makeUnsafe("thread-1") });
+        const raw = yield* listThreadItemRecords({ threadId: ThreadId.make("thread-1") });
         assert.equal(raw.items.length, 50);
         assert.deepStrictEqual(JSON.parse(page.turns.long!.data!), { startedAt, endedAt });
         assert.equal(Object.keys(page.turns).length, 1);

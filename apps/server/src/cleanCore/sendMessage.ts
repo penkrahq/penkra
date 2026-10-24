@@ -6,7 +6,7 @@ import {
   type CleanCoreSendMessageInput,
 } from "@penkra/contracts";
 import { Cause, Effect } from "effect";
-import * as SqlClient from "effect/unstable/sql/SqlClient";
+import * as SqlClient from "effect/sql/SqlClient";
 import { admitSendingPayload, readSendCohort, readSendDispatch } from "./sendPayload.ts";
 import { nextCommittedDraftTimestamp } from "./threadDraftTimestamp.ts";
 import { draftAfterSend } from "./threadDraft.ts";
@@ -89,7 +89,7 @@ export const sendMessage = (
         if (existing !== undefined)
           return {
             admission: {
-              threadId: ThreadId.makeUnsafe(input.threadId),
+              threadId: ThreadId.make(input.threadId),
               messageId: input.message.messageId,
               plan: existing.plan,
               seq: existing.seq,
@@ -103,7 +103,7 @@ export const sendMessage = (
         if (position !== -1)
           return {
             admission: {
-              threadId: ThreadId.makeUnsafe(input.threadId),
+              threadId: ThreadId.make(input.threadId),
               messageId: input.message.messageId,
               plan: "queue" as const,
               position: position + 1,
@@ -138,7 +138,7 @@ export const sendMessage = (
           );
           return {
             admission: {
-              threadId: ThreadId.makeUnsafe(input.threadId),
+              threadId: ThreadId.make(input.threadId),
               messageId: input.message.messageId,
               plan,
               position: queued.length,
@@ -159,13 +159,13 @@ export const sendMessage = (
         return {
           admission: selected.includesRequested
             ? {
-                threadId: ThreadId.makeUnsafe(input.threadId),
+                threadId: ThreadId.make(input.threadId),
                 messageId: input.message.messageId,
                 plan: selected.delivery.plan,
                 seq: selected.seq,
               }
             : {
-                threadId: ThreadId.makeUnsafe(input.threadId),
+                threadId: ThreadId.make(input.threadId),
                 messageId: input.message.messageId,
                 plan: "queue" as const,
                 position: 1,

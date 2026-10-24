@@ -1,5 +1,5 @@
 import { Effect, Layer } from "effect";
-import { RpcSerialization } from "effect/unstable/rpc";
+import { RpcSerialization } from "effect/rpc";
 
 // Temporary observation threshold approved in TODO §7.5.9, not an enforced cap.
 export const RPC_MESSAGE_OBSERVATION_BYTES = 16 * 1024 * 1024;

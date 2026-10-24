@@ -6,16 +6,16 @@ import { makeThreadRuntime } from "./ThreadRuntime.ts";
 import { ProviderAdapterProcessError, type ProviderAdapterError } from "./Errors.ts";
 import type { ProviderAdapterShape } from "./Services/ProviderAdapter.ts";
 
-const thread = ThreadId.makeUnsafe("runtime-owner");
-const peer = ThreadId.makeUnsafe("runtime-peer");
+const thread = ThreadId.make("runtime-owner");
+const peer = ThreadId.make("runtime-peer");
 
 describe("ThreadRuntime ownership", () => {
   it("preserves the existing Connection when a different Connection is disconnected during preparation", async () => {
     await Effect.runPromise(
       Effect.gen(function* () {
         const runtime = makeThreadRuntime();
-        const original = ProviderConnectionId.makeUnsafe("original");
-        const replacement = ProviderConnectionId.makeUnsafe("replacement");
+        const original = ProviderConnectionId.make("original");
+        const replacement = ProviderConnectionId.make("replacement");
         let active = false;
         let stops = 0;
         const adapter = {
@@ -150,7 +150,7 @@ describe("ThreadRuntime ownership", () => {
     await Effect.runPromise(
       Effect.gen(function* () {
         const runtime = makeThreadRuntime();
-        const connectionId = ProviderConnectionId.makeUnsafe("pending-connection");
+        const connectionId = ProviderConnectionId.make("pending-connection");
         const entered = yield* Deferred.make<void>();
         const cleaning = yield* Deferred.make<void>();
         const release = yield* Deferred.make<void>();

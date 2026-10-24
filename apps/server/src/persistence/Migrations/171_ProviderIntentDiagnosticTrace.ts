@@ -1,5 +1,5 @@
 import * as Effect from "effect/Effect";
-import * as SqlClient from "effect/unstable/sql/SqlClient";
+import * as SqlClient from "effect/sql/SqlClient";
 
 // The intent keeps its trace even after diagnostic detail retention expires.
 export default Effect.gen(function* () {

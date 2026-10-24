@@ -81,7 +81,7 @@ it.each(["codex", "claudeAgent", "opencode"] as const)(
   async (provider) => {
     const draft = createEmptyThreadDraft();
     draft.modelSelectionByProvider[provider] = { provider, model: "model-B" };
-    draft.connectionSelectionByProvider[provider] = ProviderConnectionId.makeUnsafe("account-B");
+    draft.connectionSelectionByProvider[provider] = ProviderConnectionId.make("account-B");
     draft.activeProvider = provider;
     const payload = serializeComposerThreadDraft(draft)!;
     expect(payload.prompt).toBe("");

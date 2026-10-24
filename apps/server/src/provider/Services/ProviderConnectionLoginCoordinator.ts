@@ -6,7 +6,7 @@ import {
   ProviderConnectionTerminationReason,
   ProviderConnectionId,
 } from "@penkra/contracts";
-import { Data, Effect, ServiceMap, type Stream } from "effect";
+import { Data, Effect, Context, type Stream } from "effect";
 
 export class ProviderConnectionLoginError extends Data.TaggedError("ProviderConnectionLoginError")<{
   readonly detail: string;
@@ -37,7 +37,7 @@ export interface ProviderConnectionLoginCoordinatorShape {
   }) => Effect.Effect<ProviderConnection, ProviderConnectionLoginError>;
 }
 
-export class ProviderConnectionLoginCoordinator extends ServiceMap.Service<
+export class ProviderConnectionLoginCoordinator extends Context.Service<
   ProviderConnectionLoginCoordinator,
   ProviderConnectionLoginCoordinatorShape
 >()("penkra/provider/Services/ProviderConnectionLoginCoordinator") {}

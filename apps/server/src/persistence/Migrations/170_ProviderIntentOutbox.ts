@@ -1,5 +1,5 @@
 import * as Effect from "effect/Effect";
-import * as SqlClient from "effect/unstable/sql/SqlClient";
+import * as SqlClient from "effect/sql/SqlClient";
 
 // The intent payload is copied into the outbox in the command transaction.
 // Retaining the orchestration journal is therefore not required for an

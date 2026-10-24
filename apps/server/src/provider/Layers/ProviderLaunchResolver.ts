@@ -9,7 +9,7 @@ import { prepareManagedCodexProfileConfig } from "../../codexProcessEnv.ts";
 import { ProviderConnectionRepository } from "../../persistence/Services/ProviderConnections.ts";
 import { ProviderInstallationRepository } from "../../persistence/Services/ProviderInstallations.ts";
 import { readThreadNativeState } from "../../cleanCore/threadNativeState.ts";
-import * as SqlClient from "effect/unstable/sql/SqlClient";
+import * as SqlClient from "effect/sql/SqlClient";
 import { buildProviderChildEnvironment } from "../../providerChildEnvironment.ts";
 import { ProviderCredentialBroker } from "../providerCredentialBroker.ts";
 import { qaFixtureLaunchAllowed } from "../qaFixtureLaunch.ts";

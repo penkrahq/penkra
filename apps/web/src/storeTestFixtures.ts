@@ -17,14 +17,14 @@ import { getThreadsFromState } from "./threadDerivation";
 import type { AppState } from "./storeState";
 import type { Thread } from "./types";
 
-const TEST_SPACE_ID = SpaceId.makeUnsafe("space-test");
+const TEST_SPACE_ID = SpaceId.make("space-test");
 
 export function makeThread(overrides: Partial<Thread> = {}): Thread {
-  const id = overrides.id ?? ThreadId.makeUnsafe("thread-1");
+  const id = overrides.id ?? ThreadId.make("thread-1");
   const thread = {
     id,
     codexThreadId: null,
-    folderId: FolderId.makeUnsafe("project-1"),
+    folderId: FolderId.make("project-1"),
     title: "Thread",
     modelSelection: {
       provider: "codex",
@@ -87,13 +87,13 @@ export function makeActivity(overrides: {
   sequence?: number;
 }): OrchestrationThreadActivity {
   return {
-    id: EventId.makeUnsafe(overrides.id ?? crypto.randomUUID()),
+    id: EventId.make(overrides.id ?? crypto.randomUUID()),
     createdAt: overrides.createdAt ?? "2026-02-23T00:00:00.000Z",
     kind: overrides.kind ?? "tool.started",
     summary: overrides.summary ?? "Tool call",
     tone: overrides.tone ?? "tool",
     payload: overrides.payload ?? {},
-    turnId: overrides.turnId ? TurnId.makeUnsafe(overrides.turnId) : null,
+    turnId: overrides.turnId ? TurnId.make(overrides.turnId) : null,
     ...(overrides.sequence !== undefined ? { sequence: overrides.sequence } : {}),
   };
 }
@@ -126,7 +126,7 @@ export function makeProject(
   overrides: Partial<AppState["folders"][number]> = {},
 ): AppState["folders"][number] {
   return {
-    id: FolderId.makeUnsafe("project-1"),
+    id: FolderId.make("project-1"),
     name: "Project",
     remoteName: "Project",
     folderName: "folder",
@@ -143,10 +143,10 @@ export function makeProject(
 }
 
 export function makeReadModelThread(overrides: Partial<OrchestrationReadModel["threads"][number]>) {
-  const id = overrides.id ?? ThreadId.makeUnsafe("thread-1");
+  const id = overrides.id ?? ThreadId.make("thread-1");
   const thread = {
     id,
-    folderId: FolderId.makeUnsafe("project-1"),
+    folderId: FolderId.make("project-1"),
     title: "Thread",
     modelSelection: {
       provider: "codex",
@@ -175,7 +175,7 @@ export function makeReadModel(
     spaces: [],
     folders: [
       {
-        id: FolderId.makeUnsafe("project-1"),
+        id: FolderId.make("project-1"),
         title: "Project",
         workspaceRoot: "/tmp/project",
         defaultModelSelection: {
@@ -199,7 +199,7 @@ export function makeStartupSnapshot(): OrchestrationStartupSnapshot {
       spaces: [],
       folders: [
         {
-          id: FolderId.makeUnsafe("project-1"),
+          id: FolderId.make("project-1"),
           title: "Project",
           workspaceRoot: "/tmp/project",
           defaultModelSelection: {
@@ -219,7 +219,7 @@ export function makeReadModelProject(
   overrides: Partial<OrchestrationReadModel["folders"][number]>,
 ): OrchestrationReadModel["folders"][number] {
   return {
-    id: FolderId.makeUnsafe("project-1"),
+    id: FolderId.make("project-1"),
     title: "Project",
     workspaceRoot: "/tmp/project",
     defaultModelSelection: {
@@ -241,9 +241,9 @@ export function makeThreadSummary(
 ): import("@penkra/contracts").CleanCoreThreadSummary {
   return {
     latestTurn: null,
-    id: ThreadId.makeUnsafe("thread-1"),
+    id: ThreadId.make("thread-1"),
     spaceId: TEST_SPACE_ID,
-    folderId: FolderId.makeUnsafe("project-1"),
+    folderId: FolderId.make("project-1"),
     title: "Thread",
     provider: "codex",
     model: "gpt-5-codex",

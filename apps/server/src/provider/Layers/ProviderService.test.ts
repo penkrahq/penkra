@@ -27,7 +27,7 @@ import { it, assert, vi } from "@effect/vitest";
 import { assertFailure } from "@effect/vitest/utils";
 
 import { Deferred, Effect, Exit, Fiber, Layer, Option, PubSub, Ref, Scope, Stream } from "effect";
-import * as SqlClient from "effect/unstable/sql/SqlClient";
+import * as SqlClient from "effect/sql/SqlClient";
 
 import {
   ProviderAdapterSessionNotFoundError,
@@ -55,9 +55,9 @@ import { AnalyticsService } from "../../telemetry/Services/AnalyticsService.ts";
 import { AgentGatewayCredentials } from "../../agentGateway/Services/AgentGatewayCredentials.ts";
 import { makeAgentGatewaySessionRegistry } from "../../agentGateway/Layers/AgentGatewaySessionRegistry.ts";
 
-const asEventId = (value: string): EventId => EventId.makeUnsafe(value);
-const asThreadId = (value: string): ThreadId => ThreadId.makeUnsafe(value);
-const asTurnId = (value: string): TurnId => TurnId.makeUnsafe(value);
+const asEventId = (value: string): EventId => EventId.make(value);
+const asThreadId = (value: string): ThreadId => ThreadId.make(value);
+const asTurnId = (value: string): TurnId => TurnId.make(value);
 
 type LegacyProviderRuntimeEvent = {
   readonly type: string;
@@ -156,7 +156,7 @@ function makeFakeCodexAdapter(
 
       return Effect.succeed({
         threadId: input.threadId,
-        turnId: TurnId.makeUnsafe(`turn-${String(input.threadId)}`),
+        turnId: TurnId.make(`turn-${String(input.threadId)}`),
       });
     },
   );
@@ -165,7 +165,7 @@ function makeFakeCodexAdapter(
     (input: ProviderSteerTurnInput): Effect.Effect<ProviderTurnStartResult, ProviderAdapterError> =>
       Effect.succeed({
         threadId: input.threadId,
-        turnId: TurnId.makeUnsafe(`steer-${String(input.threadId)}`),
+        turnId: TurnId.make(`steer-${String(input.threadId)}`),
       }),
   );
 
@@ -175,7 +175,7 @@ function makeFakeCodexAdapter(
     ): Effect.Effect<ProviderTurnStartResult, ProviderAdapterError> =>
       Effect.succeed({
         threadId: input.threadId,
-        turnId: TurnId.makeUnsafe(`review-${String(input.threadId)}`),
+        turnId: TurnId.make(`review-${String(input.threadId)}`),
       }),
   );
 
@@ -671,7 +671,7 @@ it.effect("ProviderServiceLive keeps resumable bindings across scopes in the sam
       const directory = yield* ProviderSessionDirectory;
       yield* directory.upsert({
         provider: "codex",
-        threadId: ThreadId.makeUnsafe("thread-stale"),
+        threadId: ThreadId.make("thread-stale"),
       });
     }).pipe(Effect.provide(directoryLayer));
 
@@ -4464,8 +4464,8 @@ connectionOwnership.layer("ProviderServiceLive Connection ownership", (it) => {
       const provider = yield* ProviderService;
       const first = asThreadId("connection-first");
       const second = asThreadId("connection-second");
-      const firstConnection = ProviderConnectionId.makeUnsafe("connection-a");
-      const secondConnection = ProviderConnectionId.makeUnsafe("connection-b");
+      const firstConnection = ProviderConnectionId.make("connection-a");
+      const secondConnection = ProviderConnectionId.make("connection-b");
       for (const [threadId, connectionId] of [
         [first, firstConnection],
         [second, secondConnection],

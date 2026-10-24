@@ -9,7 +9,7 @@ import {
 } from "@penkra/contracts";
 import { normalizeEntityName } from "@penkra/shared/entityNames";
 import { Effect, Schema } from "effect";
-import * as SqlClient from "effect/unstable/sql/SqlClient";
+import * as SqlClient from "effect/sql/SqlClient";
 import { ThreadPublisher } from "./ThreadPublisher";
 import { moveFolder, moveSpace } from "./threadStore";
 

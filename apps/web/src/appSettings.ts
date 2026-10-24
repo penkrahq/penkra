@@ -5,7 +5,7 @@
 
 import { useEffect, useRef } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { Option, Schema, SchemaTransformation } from "effect";
+import { Effect, Schema, SchemaTransformation } from "effect";
 import {
   type AssistantDeliveryMode,
   DEFAULT_TEXT_GENERATION_MODEL,
@@ -114,8 +114,8 @@ const withDefaults =
   ) =>
   (schema: S) =>
     schema.pipe(
-      Schema.withConstructorDefault(() => Option.some(fallback())),
-      Schema.withDecodingDefault(() => fallback()),
+      Schema.withConstructorDefault(Effect.sync(() => fallback())),
+      Schema.withDecodingDefault(Effect.sync(() => fallback())),
     );
 
 const PersistedProviderKind = Schema.String.pipe(
@@ -209,7 +209,7 @@ export interface AppModelOption extends ProviderModelOption {
   isCustom: boolean;
 }
 
-const DEFAULT_APP_SETTINGS = AppSettingsSchema.makeUnsafe({});
+const DEFAULT_APP_SETTINGS = AppSettingsSchema.make({});
 let serverSettingsMigrationInFlight = false;
 
 const PROVIDER_CUSTOM_MODEL_CONFIG: Record<ProviderKind, ProviderCustomModelConfig> = {

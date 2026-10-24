@@ -144,7 +144,7 @@ describe("getGitTextGenerationModelOptions", () => {
 
 describe("isGitTextGenerationSettingsDirty", () => {
   it("compares the normalized provider and model defaults", () => {
-    const defaults = AppSettingsSchema.makeUnsafe({});
+    const defaults = AppSettingsSchema.make({});
 
     expect(isGitTextGenerationSettingsDirty(defaults, defaults)).toBe(false);
     expect(

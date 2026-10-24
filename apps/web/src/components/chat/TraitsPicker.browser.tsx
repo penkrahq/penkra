@@ -24,7 +24,7 @@ import {
 
 // ── Claude TraitsPicker tests ─────────────────────────────────────────
 
-const CLAUDE_THREAD_ID = ThreadId.makeUnsafe("thread-claude-traits");
+const CLAUDE_THREAD_ID = ThreadId.make("thread-claude-traits");
 
 const CLAUDE_EFFORT_OPTIONS = [
   { id: "low", label: "Low" },
@@ -408,7 +408,7 @@ describe("TraitsPicker (Claude)", () => {
 // ── Codex TraitsPicker tests ──────────────────────────────────────────
 
 async function mountCodexPicker(props: { model?: string; options?: CodexModelOptions }) {
-  const threadId = ThreadId.makeUnsafe("thread-codex-traits");
+  const threadId = ThreadId.make("thread-codex-traits");
   const model = props.model ?? "gpt-5.5";
   const runtimeModel: ProviderModelDescriptor = {
     slug: model,
@@ -453,7 +453,7 @@ async function mountCodexPicker(props: { model?: string; options?: CodexModelOpt
     draftsByThreadId,
     draftThreadsByThreadId: {},
     projectDraftThreadIdByFolderId: {
-      [FolderId.makeUnsafe("project-codex-traits")]: threadId,
+      [FolderId.make("project-codex-traits")]: threadId,
     },
   });
   const host = document.createElement("div");
@@ -579,7 +579,7 @@ describe("TraitsPicker (Codex)", () => {
 
 // ── OpenCode TraitsPicker tests ───────────────────────────────────────
 
-const OPENCODE_THREAD_ID = ThreadId.makeUnsafe("thread-opencode-traits");
+const OPENCODE_THREAD_ID = ThreadId.make("thread-opencode-traits");
 const OPENCODE_RUNTIME_MODEL_WITH_REASONING: ProviderModelDescriptor = {
   slug: "openai/gpt-5.4",
   name: "GPT-5.4",

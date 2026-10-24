@@ -3,7 +3,7 @@ import { ProviderConnectionId, type ProviderModelDescriptor } from "@penkra/cont
 
 import { selectConnectivityProbeModel } from "./connectivityProbeModel.ts";
 
-const connectionId = ProviderConnectionId.makeUnsafe("connection-probe");
+const connectionId = ProviderConnectionId.make("connection-probe");
 const model = (slug: string, efforts: string[] = []): ProviderModelDescriptor => ({
   slug,
   name: slug,
@@ -45,7 +45,7 @@ describe("selectConnectivityProbeModel", () => {
         connectionId,
         models: [
           { ...model("flash-vision-exp"), availableConnectionIds: [connectionId] },
-          { ...model("nano"), availableConnectionIds: [ProviderConnectionId.makeUnsafe("other")] },
+          { ...model("nano"), availableConnectionIds: [ProviderConnectionId.make("other")] },
           { ...model("luna"), availableConnectionIds: [connectionId] },
         ],
       }),

@@ -4,13 +4,13 @@ import { PENDING_INTERACTION_NOT_FOUND_FAILURE_CODE } from "@penkra/shared/threa
 /**
  * ProviderAdapterValidationError - Invalid adapter API input.
  */
-export class ProviderAdapterValidationError extends Schema.TaggedErrorClass<ProviderAdapterValidationError>()(
+export class ProviderAdapterValidationError extends Schema.TaggedError<ProviderAdapterValidationError>()(
   "ProviderAdapterValidationError",
   {
     provider: Schema.String,
     operation: Schema.String,
     issue: Schema.String,
-    cause: Schema.optional(Schema.Defect),
+    cause: Schema.optional(Schema.Defect()),
   },
 ) {
   override get message(): string {
@@ -21,12 +21,12 @@ export class ProviderAdapterValidationError extends Schema.TaggedErrorClass<Prov
 /**
  * ProviderAdapterSessionNotFoundError - Adapter-owned session id is unknown.
  */
-export class ProviderAdapterSessionNotFoundError extends Schema.TaggedErrorClass<ProviderAdapterSessionNotFoundError>()(
+export class ProviderAdapterSessionNotFoundError extends Schema.TaggedError<ProviderAdapterSessionNotFoundError>()(
   "ProviderAdapterSessionNotFoundError",
   {
     provider: Schema.String,
     threadId: Schema.String,
-    cause: Schema.optional(Schema.Defect),
+    cause: Schema.optional(Schema.Defect()),
   },
 ) {
   override get message(): string {
@@ -37,12 +37,12 @@ export class ProviderAdapterSessionNotFoundError extends Schema.TaggedErrorClass
 /**
  * ProviderAdapterSessionClosedError - Adapter session exists but is closed.
  */
-export class ProviderAdapterSessionClosedError extends Schema.TaggedErrorClass<ProviderAdapterSessionClosedError>()(
+export class ProviderAdapterSessionClosedError extends Schema.TaggedError<ProviderAdapterSessionClosedError>()(
   "ProviderAdapterSessionClosedError",
   {
     provider: Schema.String,
     threadId: Schema.String,
-    cause: Schema.optional(Schema.Defect),
+    cause: Schema.optional(Schema.Defect()),
   },
 ) {
   override get message(): string {
@@ -53,7 +53,7 @@ export class ProviderAdapterSessionClosedError extends Schema.TaggedErrorClass<P
 /**
  * ProviderAdapterRequestError - Provider protocol request failed or timed out.
  */
-export class ProviderAdapterRequestError extends Schema.TaggedErrorClass<ProviderAdapterRequestError>()(
+export class ProviderAdapterRequestError extends Schema.TaggedError<ProviderAdapterRequestError>()(
   "ProviderAdapterRequestError",
   {
     provider: Schema.String,
@@ -64,7 +64,7 @@ export class ProviderAdapterRequestError extends Schema.TaggedErrorClass<Provide
     code: Schema.optional(
       Schema.Union([Schema.Number, Schema.Literal(PENDING_INTERACTION_NOT_FOUND_FAILURE_CODE)]),
     ),
-    cause: Schema.optional(Schema.Defect),
+    cause: Schema.optional(Schema.Defect()),
   },
 ) {
   override get message(): string {
@@ -75,13 +75,13 @@ export class ProviderAdapterRequestError extends Schema.TaggedErrorClass<Provide
 /**
  * ProviderAdapterProcessError - Provider process lifecycle failure.
  */
-export class ProviderAdapterProcessError extends Schema.TaggedErrorClass<ProviderAdapterProcessError>()(
+export class ProviderAdapterProcessError extends Schema.TaggedError<ProviderAdapterProcessError>()(
   "ProviderAdapterProcessError",
   {
     provider: Schema.String,
     threadId: Schema.String,
     detail: Schema.String,
-    cause: Schema.optional(Schema.Defect),
+    cause: Schema.optional(Schema.Defect()),
   },
 ) {
   override get message(): string {
@@ -92,13 +92,13 @@ export class ProviderAdapterProcessError extends Schema.TaggedErrorClass<Provide
 /**
  * ProviderValidationError - Invalid provider API input.
  */
-export class ProviderValidationError extends Schema.TaggedErrorClass<ProviderValidationError>()(
+export class ProviderValidationError extends Schema.TaggedError<ProviderValidationError>()(
   "ProviderValidationError",
   {
     operation: Schema.String,
     issue: Schema.String,
     code: Schema.optional(Schema.Literal(PENDING_INTERACTION_NOT_FOUND_FAILURE_CODE)),
-    cause: Schema.optional(Schema.Defect),
+    cause: Schema.optional(Schema.Defect()),
   },
 ) {
   override get message(): string {
@@ -109,11 +109,11 @@ export class ProviderValidationError extends Schema.TaggedErrorClass<ProviderVal
 /**
  * ProviderUnsupportedError - Requested provider is not implemented.
  */
-export class ProviderUnsupportedError extends Schema.TaggedErrorClass<ProviderUnsupportedError>()(
+export class ProviderUnsupportedError extends Schema.TaggedError<ProviderUnsupportedError>()(
   "ProviderUnsupportedError",
   {
     provider: Schema.String,
-    cause: Schema.optional(Schema.Defect),
+    cause: Schema.optional(Schema.Defect()),
   },
 ) {
   override get message(): string {
@@ -124,11 +124,11 @@ export class ProviderUnsupportedError extends Schema.TaggedErrorClass<ProviderUn
 /**
  * ProviderSessionNotFoundError - Provider-facing session not found.
  */
-export class ProviderSessionNotFoundError extends Schema.TaggedErrorClass<ProviderSessionNotFoundError>()(
+export class ProviderSessionNotFoundError extends Schema.TaggedError<ProviderSessionNotFoundError>()(
   "ProviderSessionNotFoundError",
   {
     threadId: Schema.String,
-    cause: Schema.optional(Schema.Defect),
+    cause: Schema.optional(Schema.Defect()),
   },
 ) {
   override get message(): string {
@@ -139,12 +139,12 @@ export class ProviderSessionNotFoundError extends Schema.TaggedErrorClass<Provid
 /**
  * ProviderSessionDirectoryPersistenceError - Session directory persistence failure.
  */
-export class ProviderSessionDirectoryPersistenceError extends Schema.TaggedErrorClass<ProviderSessionDirectoryPersistenceError>()(
+export class ProviderSessionDirectoryPersistenceError extends Schema.TaggedError<ProviderSessionDirectoryPersistenceError>()(
   "ProviderSessionDirectoryPersistenceError",
   {
     operation: Schema.String,
     detail: Schema.String,
-    cause: Schema.optional(Schema.Defect),
+    cause: Schema.optional(Schema.Defect()),
   },
 ) {
   override get message(): string {

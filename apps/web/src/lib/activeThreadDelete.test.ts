@@ -21,8 +21,8 @@ const harness = vi.hoisted(() => ({
   toast: vi.fn(),
 }));
 
-const THREAD_ID = ThreadId.makeUnsafe("thread-delete");
-const PROJECT_ID = FolderId.makeUnsafe("project-delete");
+const THREAD_ID = ThreadId.make("thread-delete");
+const PROJECT_ID = FolderId.make("project-delete");
 const THREAD = {
   id: THREAD_ID,
   folderId: PROJECT_ID,

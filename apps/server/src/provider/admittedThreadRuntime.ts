@@ -10,7 +10,7 @@ import type {
   ThreadId,
 } from "@penkra/contracts";
 import { Effect, Option } from "effect";
-import * as SqlClient from "effect/unstable/sql/SqlClient";
+import * as SqlClient from "effect/sql/SqlClient";
 import { readThreadNativeState } from "../cleanCore/threadNativeState.ts";
 import { ProviderAdapterValidationError } from "./Errors.ts";
 import { claudeThreadHasConversation } from "./claudeThreadNativeState.ts";

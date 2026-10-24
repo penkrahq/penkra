@@ -5,7 +5,7 @@ import { initialState } from "./storeState";
 import { makeProject, makeReadModelProject, makeState, makeThread } from "./storeTestFixtures";
 
 const at = "2026-10-12T00:00:00.000Z";
-const spaceId = SpaceId.makeUnsafe("space");
+const spaceId = SpaceId.make("space");
 const space = {
   id: spaceId,
   name: "Work",
@@ -64,7 +64,7 @@ describe("canonical navigation re-reads", () => {
   });
   it("replaces authoritative titles and roots while preserving separate identities at one path", () => {
     const old = makeProject({
-      id: FolderId.makeUnsafe("old"),
+      id: FolderId.make("old"),
       spaceId,
       cwd: "/tmp/shared",
       name: "Local",
@@ -77,7 +77,7 @@ describe("canonical navigation re-reads", () => {
         spaces: [space],
         folders: [
           { ...folder, id: old.id, title: "Renamed" },
-          { ...folder, id: FolderId.makeUnsafe("new") },
+          { ...folder, id: FolderId.make("new") },
         ],
       },
     );

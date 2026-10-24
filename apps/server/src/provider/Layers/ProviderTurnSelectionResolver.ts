@@ -8,7 +8,7 @@ import { ServerConfig } from "../../config.ts";
 import { ProviderConnectionRepository } from "../../persistence/Services/ProviderConnections.ts";
 import { ProviderInstallationRepository } from "../../persistence/Services/ProviderInstallations.ts";
 import { readThreadNativeState } from "../../cleanCore/threadNativeState.ts";
-import * as SqlClient from "effect/unstable/sql/SqlClient";
+import * as SqlClient from "effect/sql/SqlClient";
 import { ProviderCatalogService } from "../Services/ProviderCatalog.ts";
 import {
   claudeAccountsMatch,

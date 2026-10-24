@@ -123,8 +123,8 @@ describe("Sidebar.uiState", () => {
   });
 
   it("sends an archived thread home from an old split URL and saved window state", () => {
-    const threadId = ThreadId.makeUnsafe("thread-123");
-    const folderId = FolderId.makeUnsafe("folder-1");
+    const threadId = ThreadId.make("thread-123");
+    const folderId = FolderId.make("folder-1");
     window.localStorage.setItem(
       "penkra:split-threads:v1",
       JSON.stringify({ state: { splitViewsById: {} } }),

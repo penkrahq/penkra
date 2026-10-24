@@ -1,6 +1,6 @@
 import { AuthSessionId, type AuthClientMetadata, type AuthClientSession } from "@penkra/contracts";
 import * as Crypto from "node:crypto";
-import * as SqlClient from "effect/unstable/sql/SqlClient";
+import * as SqlClient from "effect/sql/SqlClient";
 import {
   Clock,
   DateTime,
@@ -320,7 +320,7 @@ export const makeSessionCredentialService = Effect.gen(function* () {
     persist?: Parameters<SessionCredentialServiceShape["pairClient"]>[1],
   ) =>
     Effect.gen(function* () {
-      const sessionId = AuthSessionId.makeUnsafe(Crypto.randomUUID());
+      const sessionId = AuthSessionId.make(Crypto.randomUUID());
       const issuedAt = yield* DateTime.now;
       const expiresAt = DateTime.addDuration(issuedAt, input?.ttl ?? DEFAULT_SESSION_TTL);
       const client = input?.client ?? createDefaultClientMetadata();

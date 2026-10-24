@@ -2,7 +2,7 @@
  * Stores a durable worktree ref so detached worktrees can be materialized
  * again even when no branch name is available.
  */
-import * as SqlClient from "effect/unstable/sql/SqlClient";
+import * as SqlClient from "effect/sql/SqlClient";
 import * as Effect from "effect/Effect";
 
 export default Effect.gen(function* () {

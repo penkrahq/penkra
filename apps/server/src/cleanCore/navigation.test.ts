@@ -5,17 +5,17 @@ import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { Effect } from "effect";
-import * as SqlClient from "effect/unstable/sql/SqlClient";
+import * as SqlClient from "effect/sql/SqlClient";
 import * as NodeSqliteClient from "../persistence/NodeSqliteClient";
 import { runMigrations } from "../persistence/Migrations";
 import { ThreadPublisher } from "./ThreadPublisher";
 import { createThread, makeThreadPublisher } from "./threadStore";
 import { ensureDefaultSpaces, getNavigation, updateNavigation } from "./navigation";
 const timestamp = "2026-10-12T00:00:00.000Z";
-const personal = SpaceId.makeUnsafe("penkra-personal");
-const work = SpaceId.makeUnsafe("penkra-work");
-const folder = FolderId.makeUnsafe("test-folder");
-const extra = SpaceId.makeUnsafe("test-space");
+const personal = SpaceId.make("penkra-personal");
+const work = SpaceId.make("penkra-work");
+const folder = FolderId.make("test-folder");
+const extra = SpaceId.make("test-space");
 const withDb = <A, E>(
   program: Effect.Effect<
     A,
@@ -143,7 +143,7 @@ it.effect("allows folders to share a directory", () =>
         yield* updateNavigation({
           update: {
             action: "folder.create",
-            folderId: FolderId.makeUnsafe(id),
+            folderId: FolderId.make(id),
             spaceId: personal,
             title: id,
             workspaceRoot: "/same",
@@ -189,7 +189,7 @@ it.effect("allows a folder directory already used by a folder with saved chats",
       yield* updateNavigation({
         update: {
           action: "folder.create",
-          folderId: FolderId.makeUnsafe("second"),
+          folderId: FolderId.make("second"),
           spaceId: personal,
           title: "Second",
           workspaceRoot: "/same",

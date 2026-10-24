@@ -3,7 +3,7 @@ import * as NodeHttpServer from "@effect/platform-node/NodeHttpServer";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { assert, it } from "@effect/vitest";
 import { Deferred, Effect, Fiber, Stream } from "effect";
-import { HttpRouter } from "effect/unstable/http";
+import { HttpRouter } from "effect/http";
 import { ServerConfig, type ServerConfigShape } from "./config";
 import * as NodeSqliteClient from "./persistence/NodeSqliteClient.ts";
 import { runMigrations } from "./persistence/Migrations.ts";
@@ -18,7 +18,7 @@ import {
   upsertThreadItem,
 } from "./cleanCore/threadStore.ts";
 import { desktopRunningWorkRouteLayer, makeRunningWorkStream } from "./desktopRunningWorkRoute.ts";
-import * as SqlClient from "effect/unstable/sql/SqlClient";
+import * as SqlClient from "effect/sql/SqlClient";
 
 const at = "2026-10-17T00:00:00.000Z";
 const seed = Effect.gen(function* () {

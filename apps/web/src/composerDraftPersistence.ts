@@ -434,7 +434,7 @@ function normalizePersistedDraftThreads(
         folderId: folderId as FolderId,
         spaceId:
           typeof candidateDraftThread.spaceId === "string"
-            ? SpaceId.makeUnsafe(candidateDraftThread.spaceId)
+            ? SpaceId.make(candidateDraftThread.spaceId)
             : null,
         createdAt:
           typeof createdAt === "string" && createdAt.length > 0

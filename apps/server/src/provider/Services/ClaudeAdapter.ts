@@ -5,12 +5,12 @@
  * provider runtime events. It does not perform cross-provider routing, shared
  * event fan-out, or orchestration policy.
  *
- * Uses Effect `ServiceMap.Service` for dependency injection and returns the
+ * Uses Effect `Context.Service` for dependency injection and returns the
  * shared provider-adapter error channel with `provider: "claudeAgent"` context.
  *
  * @module ClaudeAdapter
  */
-import { ServiceMap } from "effect";
+import { Context } from "effect";
 
 import type { ProviderAdapterError } from "../Errors.ts";
 import type { ProviderAdapterShape } from "./ProviderAdapter.ts";
@@ -30,6 +30,6 @@ export interface ClaudeAdapterShape extends ProviderAdapterShape<ProviderAdapter
 /**
  * ClaudeAdapter - Service tag for Claude Agent provider adapter operations.
  */
-export class ClaudeAdapter extends ServiceMap.Service<ClaudeAdapter, ClaudeAdapterShape>()(
+export class ClaudeAdapter extends Context.Service<ClaudeAdapter, ClaudeAdapterShape>()(
   "penkra/provider/Services/ClaudeAdapter",
 ) {}

@@ -14,9 +14,9 @@ function row(queue: string, updatedAt: string): CleanCoreThreadSummary {
   return {
     latestTurn: null,
     latestOpenQuestion: null,
-    id: ThreadId.makeUnsafe("thread-51"),
+    id: ThreadId.make("thread-51"),
     spaceId: "space" as CleanCoreThreadSummary["spaceId"],
-    folderId: FolderId.makeUnsafe("folder"),
+    folderId: FolderId.make("folder"),
     title: "Outside the first page",
     provider: "codex",
     connectionId: null,
@@ -46,7 +46,7 @@ function row(queue: string, updatedAt: string): CleanCoreThreadSummary {
 it("takes sidebar ordering, workspace and rollups exclusively from canonical rows", () => {
   const core = {
     ...row("[]", "2026-10-10T00:00:01.000Z"),
-    folderId: FolderId.makeUnsafe("folder"),
+    folderId: FolderId.make("folder"),
     sidebarSortOrder: 3,
     lastMessagePreview: "canonical preview",
     lastActivityAt: "2026-10-10T00:00:01.000Z",
@@ -71,7 +71,7 @@ it("takes sidebar ordering, workspace and rollups exclusively from canonical row
     lastActivityAt: core.lastActivityAt,
     latestUserMessageAt: core.lastUserMessageAt,
   });
-  const earlier = { ...core, id: ThreadId.makeUnsafe("earlier"), sidebarSortOrder: 0 };
+  const earlier = { ...core, id: ThreadId.make("earlier"), sidebarSortOrder: 0 };
   expect(
     sortThreadsForSidebar(buildSidebarThreadRows([earlier, core], {}), "created_at").map(
       (row) => row.id,
@@ -82,7 +82,7 @@ it("uses the canonical visit for unread completion even when the projection deta
   const completedAt = "2026-10-10T00:00:01.000Z";
   const core = {
     ...row("[]", completedAt),
-    folderId: FolderId.makeUnsafe("folder"),
+    folderId: FolderId.make("folder"),
     state: "idle",
     lastActivityAt: completedAt,
   };
@@ -117,14 +117,14 @@ it("uses the canonical visit for unread completion even when the projection deta
 });
 
 it("derives folder tabs in sidebar order and hides archived threads, including published moves", () => {
-  const folderId = FolderId.makeUnsafe("folder");
+  const folderId = FolderId.make("folder");
   const first = { ...row("[]", "2026-10-10T00:00:01.000Z"), folderId, sidebarSortOrder: 2 };
-  const second = { ...first, id: ThreadId.makeUnsafe("second"), sidebarSortOrder: 1 };
-  const archived = { ...first, id: ThreadId.makeUnsafe("archived"), archivedAt: first.updatedAt };
+  const second = { ...first, id: ThreadId.make("second"), sidebarSortOrder: 1 };
+  const archived = { ...first, id: ThreadId.make("archived"), archivedAt: first.updatedAt };
   const other = {
     ...first,
-    id: ThreadId.makeUnsafe("other"),
-    folderId: FolderId.makeUnsafe("other-folder"),
+    id: ThreadId.make("other"),
+    folderId: FolderId.make("other-folder"),
   };
   const rows = buildSidebarThreadRows([first, second, archived, other], {});
   expect(selectFolderThreadRows(rows, folderId).map((row) => row.id)).toEqual([
@@ -141,7 +141,7 @@ it("derives folder tabs in sidebar order and hides archived threads, including p
 it("shares one row derivation and by-id lookup across consumers for each source snapshot", () => {
   const core = {
     ...row("[]", "2026-10-10T00:00:01.000Z"),
-    folderId: FolderId.makeUnsafe("folder"),
+    folderId: FolderId.make("folder"),
     modelOptions: JSON.stringify({ reasoningEffort: "high" }),
   };
   const rows = [core];

@@ -39,12 +39,12 @@ import {
   Predicate as P,
   Ref,
   Result,
-  ServiceMap,
+  Context,
   Scope,
   Stream,
 } from "effect";
 import { makeKeyedRuntimeLock } from "./keyedRuntimeLock.ts";
-import { ChildProcess, ChildProcessSpawner } from "effect/unstable/process";
+import { ChildProcess, ChildProcessSpawner } from "effect/process";
 
 import { prepareWindowsSafeProcess } from "@penkra/shared/windowsProcess";
 import { buildProviderChildEnvironment } from "../providerChildEnvironment.ts";
@@ -1208,7 +1208,7 @@ const makeOpenCodeRuntime = (options?: OpenCodeRuntimeLiveOptions) =>
     } satisfies OpenCodeRuntimeShape;
   });
 
-export class OpenCodeRuntime extends ServiceMap.Service<OpenCodeRuntime, OpenCodeRuntimeShape>()(
+export class OpenCodeRuntime extends Context.Service<OpenCodeRuntime, OpenCodeRuntimeShape>()(
   "penkra/provider/opencodeRuntime",
 ) {}
 

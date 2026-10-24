@@ -87,6 +87,6 @@
     "typescript": "catalog:",
     "vite": "^8.1.4",
     "vitest": "catalog:",
-    "vitest-browser-react": "^2.0.5"
+    "vitest-browser-react": "2.3.0"
   }
 }

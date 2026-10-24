@@ -18,8 +18,8 @@ import {
   type CleanCoreThreadUpdate,
   type CleanCoreCreateThreadInput,
 } from "@penkra/contracts";
-import { Effect, Layer, Option, ServiceMap } from "effect";
-import * as SqlClient from "effect/unstable/sql/SqlClient";
+import { Effect, Layer, Option, Context } from "effect";
+import * as SqlClient from "effect/sql/SqlClient";
 import { createThread, renameThread, setThreadArchived, setThreadDeleted } from "./threadStore.ts";
 import { findThread, getThread } from "./threadList.ts";
 import { ThreadPublisher } from "./ThreadPublisher.ts";
@@ -110,7 +110,7 @@ type RetentionCondition =
   | null;
 
 /** The shared lifecycle service captures its database and publisher, not rows. */
-export class ThreadLifecycle extends ServiceMap.Service<
+export class ThreadLifecycle extends Context.Service<
   ThreadLifecycle,
   {
     readonly archiveInactive: (input: RetentionArchiveInput) => Effect.Effect<boolean, Error>;

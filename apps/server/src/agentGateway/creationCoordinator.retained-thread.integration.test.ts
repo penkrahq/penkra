@@ -17,7 +17,7 @@ import {
   type OrchestrationThreadShell,
 } from "@penkra/contracts";
 import { Deferred, Effect, Option } from "effect";
-import * as SqlClient from "effect/unstable/sql/SqlClient";
+import * as SqlClient from "effect/sql/SqlClient";
 import * as NodeSqliteClient from "../persistence/NodeSqliteClient.ts";
 import { runMigrations } from "../persistence/Migrations.ts";
 import { ProviderTurnSelectionResolver } from "../provider/Services/ProviderTurnSelectionResolver.ts";
@@ -43,9 +43,9 @@ it.effect(
       yield* runMigrations();
       const sql = yield* SqlClient.SqlClient;
       const at = "2026-10-10T00:00:00.000Z";
-      const callerId = ThreadId.makeUnsafe("caller");
-      const folderId = FolderId.makeUnsafe("folder");
-      const accountA = ProviderConnectionId.makeUnsafe("account-a");
+      const callerId = ThreadId.make("caller");
+      const folderId = FolderId.make("folder");
+      const accountA = ProviderConnectionId.make("account-a");
       let defaultConnection = accountA;
       yield* sql`INSERT INTO projection_folders (folder_id, space_id, title, workspace_root, default_model_selection_json, created_at, updated_at) VALUES (${folderId}, 'penkra-personal', 'Folder', NULL, NULL, ${at}, ${at})`;
       const publisher = makeThreadPublisher();
@@ -116,13 +116,13 @@ it.effect(
                   type: "acknowledged",
                   threadId: command.threadId,
                   messageId: command.message.messageId,
-                  turnId: TurnId.makeUnsafe("confirmed-turn"),
+                  turnId: TurnId.make("confirmed-turn"),
                 },
                 new Date().toISOString(),
               );
               yield* Deferred.succeed(successSettled, undefined);
             }
-            return { turnId: TurnId.makeUnsafe("confirmed-turn") };
+            return { turnId: TurnId.make("confirmed-turn") };
           }).pipe(Effect.provideService(SqlClient.SqlClient, sql), Effect.orDie),
       } satisfies typeof ProviderThreadSwitchCoordinator.Service;
       const newSender = () =>
@@ -202,7 +202,7 @@ it.effect(
           .length,
         1,
       );
-      defaultConnection = ProviderConnectionId.makeUnsafe("account-b");
+      defaultConnection = ProviderConnectionId.make("account-b");
       failLaunch = false;
       const retry = yield* handler(input, context);
       assert.notEqual(retry.isError, true);
@@ -218,7 +218,7 @@ it.effect(
         threadId: retained[0]!.id,
         dispatchMode: "queue",
         message: {
-          messageId: MessageId.makeUnsafe("explicit-next-send"),
+          messageId: MessageId.make("explicit-next-send"),
           text: "Continue the task",
           attachments: [],
           origin: { _tag: "agent", senderThreadId: callerId },

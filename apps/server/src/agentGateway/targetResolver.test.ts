@@ -57,7 +57,7 @@ function makeVariantDescriptor(slug: string): ProviderModelDescriptor {
 describe("agent gateway target resolver", () => {
   it.effect("uses the exact account catalog despite unrelated global authentication health", () =>
     Effect.gen(function* () {
-      const connectionId = ProviderConnectionId.makeUnsafe("selected-account");
+      const connectionId = ProviderConnectionId.make("selected-account");
       for (const provider of ["codex", "claudeAgent", "opencode"] as const) {
         const calls: unknown[] = [];
         const catalog = yield* loadAgentGatewayProviderCatalog({
@@ -86,7 +86,7 @@ describe("agent gateway target resolver", () => {
     Effect.gen(function* () {
       const catalog = yield* loadAgentGatewayProviderCatalog({
         provider: "codex",
-        connectionId: ProviderConnectionId.makeUnsafe("account"),
+        connectionId: ProviderConnectionId.make("account"),
         discovery: {
           listModels: () => Effect.fail(new Error("account expired")),
         } as unknown as ProviderDiscoveryServiceShape,

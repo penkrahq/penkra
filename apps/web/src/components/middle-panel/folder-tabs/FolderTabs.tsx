@@ -315,16 +315,16 @@ function CanonicalFolderTabs(props: FolderTabsProps & { folderId: FolderId }) {
         ([threadId, draft]) =>
           draft.folderId === folderId &&
           draft.promotedTo === undefined &&
-          !persistedIds.has(ThreadId.makeUnsafe(threadId)),
+          !persistedIds.has(ThreadId.make(threadId)),
       )
       .map(
         ([threadId, draft]): FolderTab => ({
-          id: ThreadId.makeUnsafe(threadId),
+          id: ThreadId.make(threadId),
           title: "New thread",
           // An unsent thread has no durable provider identity yet. Its tab
           // follows the provider that its composer will use for the first turn.
           harness:
-            composerDraftsByThreadId[ThreadId.makeUnsafe(threadId)]?.activeProvider ??
+            composerDraftsByThreadId[ThreadId.make(threadId)]?.activeProvider ??
             (threadId === props.activeThread.id
               ? props.activeComposerProvider
               : props.defaultComposerProvider),

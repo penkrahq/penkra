@@ -18,7 +18,7 @@ describe("AgentGatewaySessionLease", () => {
 
     const lease = acquireAgentGatewaySessionLease(
       { connectionForThread, revokeSessionToken },
-      ThreadId.makeUnsafe("thread-1"),
+      ThreadId.make("thread-1"),
       "opencode",
     );
 
@@ -44,7 +44,7 @@ describe("AgentGatewaySessionLease", () => {
     }));
     const revokeSessionToken = vi.fn();
     const credentials = { connectionForThread, revokeSessionToken };
-    const threadId = ThreadId.makeUnsafe("thread-1");
+    const threadId = ThreadId.make("thread-1");
 
     const previous = acquireAgentGatewaySessionLease(credentials, threadId, "opencode");
     const replacement = acquireAgentGatewaySessionLease(credentials, threadId, "opencode");
@@ -60,7 +60,7 @@ describe("AgentGatewaySessionLease", () => {
 
   it("does not acquire a credential when the gateway layer is absent", () => {
     expect(
-      acquireAgentGatewaySessionLease(undefined, ThreadId.makeUnsafe("thread-1"), "codex"),
+      acquireAgentGatewaySessionLease(undefined, ThreadId.make("thread-1"), "codex"),
     ).toBeUndefined();
   });
 
@@ -76,7 +76,7 @@ describe("AgentGatewaySessionLease", () => {
         }),
         revokeSessionToken,
       },
-      ThreadId.makeUnsafe("thread-1"),
+      ThreadId.make("thread-1"),
       "claudeAgent",
     );
 
@@ -96,7 +96,7 @@ describe("AgentGatewaySessionLease", () => {
         }),
         revokeSessionToken,
       },
-      ThreadId.makeUnsafe("thread-1"),
+      ThreadId.make("thread-1"),
       "codex",
     );
 
@@ -139,7 +139,7 @@ describe("AgentGatewaySessionLease", () => {
         }),
         revokeSessionToken,
       },
-      ThreadId.makeUnsafe("thread-1"),
+      ThreadId.make("thread-1"),
       "claudeAgent",
     );
 

@@ -26,11 +26,22 @@ export default mergeConfig(
       },
     },
     test: {
+      fsModuleCachePath: fileURLToPath(
+        new URL("./node_modules/.vitest-browser-cache", import.meta.url),
+      ),
       include: [
         "src/components/**/*.browser.tsx",
         "src/lib/**/*.browser.ts",
         "src/lib/**/*.browser.tsx",
       ],
+      // Keep route compilation serial without changing individual assertions.
+      fileParallelism: false,
+      api: {
+        // Avoid Windows/Hyper-V's excluded default port range.
+        host: process.env.VITEST_BROWSER_API_HOST ?? "127.0.0.1",
+        port: Number(process.env.VITEST_BROWSER_API_PORT ?? 51_100),
+        strictPort: false,
+      },
       browser: {
         enabled: true,
         provider: playwright(),
@@ -41,22 +52,6 @@ export default mergeConfig(
         // This governs only that documented connection boundary; assertion and
         // hook timeouts remain independently bounded below.
         connectTimeout: 120_000,
-        // Large route-level suites can saturate Vite's transform server when
-        // several browser files import concurrently, leaving Chromium with a
-        // failed dynamic import instead of a test result. Run browser files in
-        // one stable sequence; individual tests still use the same browser.
-        fileParallelism: false,
-        api: {
-          // Vitest's default 63315 falls inside common Windows/Hyper-V
-          // excluded-port ranges. Keep the local browser harness on IPv4 and
-          // allow CI or developers to override the starting port. Browser QA
-          // is independent of the desktop development server, so an occupied
-          // starting port must advance to the next available port instead of
-          // inheriting Vite's strict development-server policy.
-          host: process.env.VITEST_BROWSER_API_HOST ?? "127.0.0.1",
-          port: Number(process.env.VITEST_BROWSER_API_PORT ?? 51_100),
-          strictPort: false,
-        },
       },
       // The full desktop route graph can take more than 30 seconds to compile
       // on a cold Windows cache before an individual browser test can proceed.

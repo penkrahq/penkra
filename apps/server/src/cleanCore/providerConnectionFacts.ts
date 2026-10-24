@@ -4,7 +4,7 @@
 
 import { ProviderConnectionId, type ProviderRuntimeEvent } from "@penkra/contracts";
 import { Effect } from "effect";
-import * as SqlClient from "effect/unstable/sql/SqlClient";
+import * as SqlClient from "effect/sql/SqlClient";
 import { ConnectionRateLimits } from "../providerUsage/ConnectionRateLimits.ts";
 
 function usageRecord(value: unknown): Record<string, unknown> | null {
@@ -81,7 +81,7 @@ export const writeProviderConnectionFacts = (event: ProviderRuntimeEvent) =>
           : null;
       const connectionRateLimits = yield* ConnectionRateLimits;
       yield* connectionRateLimits.update({
-        connectionId: ProviderConnectionId.makeUnsafe(connectionId),
+        connectionId: ProviderConnectionId.make(connectionId),
         provider: event.provider,
         limitsJson: JSON.stringify(rateLimits),
         status,
@@ -93,7 +93,7 @@ export const writeProviderConnectionFacts = (event: ProviderRuntimeEvent) =>
 
     const tokenUsage = completedTurnTokenUsage(event);
     const connectionRateLimits = yield* ConnectionRateLimits;
-    yield* connectionRateLimits.refreshUsage(ProviderConnectionId.makeUnsafe(connectionId));
+    yield* connectionRateLimits.refreshUsage(ProviderConnectionId.make(connectionId));
     yield* Effect.gen(function* () {
       const inserted = yield* sql<{ readonly sourceEventId: string }>`
             INSERT INTO connection_usage_turn_events (source_event_id, connection_id, utc_day)

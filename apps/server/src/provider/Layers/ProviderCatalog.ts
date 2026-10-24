@@ -6,7 +6,7 @@ import type {
   ProviderConnectionId,
 } from "@penkra/contracts";
 import { Effect, Layer, Option, Scope, Stream } from "effect";
-import * as SqlClient from "effect/unstable/sql/SqlClient";
+import * as SqlClient from "effect/sql/SqlClient";
 import path from "node:path";
 import { ServerConfig } from "../../config.ts";
 import { makeInvalidationHub } from "../../cleanCore/invalidationHub.ts";
@@ -98,7 +98,7 @@ const make = Effect.gen(function* () {
   const sql = yield* SqlClient.SqlClient;
   const publisher = yield* ThreadPublisher;
   const lifetime = yield* Scope.Scope;
-  const runPromise = Effect.runPromiseWith(yield* Effect.services<never>());
+  const runPromise = Effect.runPromiseWith(yield* Effect.context<never>());
   const controller = new AbortController();
   yield* Effect.addFinalizer(() => Effect.sync(() => controller.abort()));
   const changes = makeInvalidationHub<ProviderCatalogChanged>((event) =>

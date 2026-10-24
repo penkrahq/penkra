@@ -1,5 +1,5 @@
 import { Effect } from "effect";
-import * as SqlClient from "effect/unstable/sql/SqlClient";
+import * as SqlClient from "effect/sql/SqlClient";
 
 // Frozen pre-203 transcript fixture; current writers require columns absent here.
 export const seedHistoricalThreadItem = (input: {

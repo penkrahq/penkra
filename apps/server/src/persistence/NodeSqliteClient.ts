@@ -14,13 +14,13 @@ import { identity } from "effect/Function";
 import * as Layer from "effect/Layer";
 import * as Scope from "effect/Scope";
 import * as Semaphore from "effect/Semaphore";
-import * as ServiceMap from "effect/ServiceMap";
+import * as Context from "effect/Context";
 import * as Stream from "effect/Stream";
-import * as Reactivity from "effect/unstable/reactivity/Reactivity";
-import * as Client from "effect/unstable/sql/SqlClient";
-import type { Connection } from "effect/unstable/sql/SqlConnection";
-import { SqlError } from "effect/unstable/sql/SqlError";
-import * as Statement from "effect/unstable/sql/Statement";
+import * as Reactivity from "effect/reactivity/Reactivity";
+import * as Client from "effect/sql/SqlClient";
+import type { Connection } from "effect/sql/SqlConnection";
+import { SqlError, classifySqliteError } from "effect/sql/SqlError";
+import * as Statement from "effect/sql/Statement";
 
 import {
   isFatalSqliteDatabaseError,
@@ -47,7 +47,7 @@ export type TypeId = "~local/sqlite-node/SqliteClient";
 /**
  * SqliteClient - Effect service tag for the sqlite SQL client.
  */
-export const SqliteClient = ServiceMap.Service<Client.SqlClient>(
+export const SqliteClient = Context.Service<Client.SqlClient>(
   "penkra/persistence/NodeSqliteClient",
 );
 
@@ -113,7 +113,7 @@ const makeWithDatabase = (
       let fatalSqlError: SqlError | null = null;
       const makeSqlError = (cause: unknown, message: string): SqlError => {
         if (fatalSqlError !== null) return fatalSqlError;
-        const error = new SqlError({ cause, message });
+        const error = new SqlError({ reason: classifySqliteError(cause, { message }) });
         if (isFatalSqliteDatabaseError(cause)) {
           fatalSqlError = error;
           options.onFatalError?.(cause);
@@ -179,7 +179,7 @@ const makeWithDatabase = (
       ) =>
         Effect.withFiber<ReadonlyArray<any>, SqlError>((fiber) => {
           if (fatalSqlError !== null) return Effect.fail(fatalSqlError);
-          statement.setReadBigInts(Boolean(ServiceMap.get(fiber.services, Client.SafeIntegers)));
+          statement.setReadBigInts(Boolean(Context.get(fiber.context, Client.SafeIntegers)));
           const startedAt = performance.now();
           try {
             if (hasRows(statement)) {
@@ -197,9 +197,14 @@ const makeWithDatabase = (
       const run = (sql: string, params: ReadonlyArray<unknown>, raw = false) =>
         Effect.flatMap(getPreparedStatement(sql), (s) => runStatement(sql, s, params, raw));
 
-      const runValues = (sql: string, params: ReadonlyArray<unknown>) =>
+      const runValues = (sql: string, params: ReadonlyArray<unknown>, prepared = true) =>
         Effect.acquireUseRelease(
-          getPreparedStatement(sql),
+          prepared
+            ? getPreparedStatement(sql)
+            : Effect.try({
+                try: () => prepareStatement(sql),
+                catch: (cause) => makeSqlError(cause, `Failed to prepare statement: ${sql}`),
+              }),
           (statement) =>
             Effect.try({
               try: () => {
@@ -239,6 +244,9 @@ const makeWithDatabase = (
         executeValues(sql, params) {
           return runValues(sql, params);
         },
+        executeValuesUnprepared(sql, params) {
+          return runValues(sql, params, false);
+        },
         executeUnprepared(sql, params, rowTransform) {
           // SQLITE_FULL, IOERR and NOMEM can roll back the entire transaction,
           // including its savepoints. There is then nothing for Effect's rollback
@@ -277,7 +285,7 @@ const makeWithDatabase = (
     });
     const transactionAcquirer = Effect.uninterruptibleMask((restore) => {
       const fiber = Fiber.getCurrent()!;
-      const scope = ServiceMap.getUnsafe(fiber.services, Scope.Scope);
+      const scope = Context.getUnsafe(fiber.context, Scope.Scope);
       const waitStartedAt = performance.now();
       return Effect.as(
         Effect.tap(restore(semaphore.take(1)), () => {
@@ -311,6 +319,7 @@ const makeWithDatabase = (
     });
 
     return yield* Client.make({
+      driver: "@penkra/node-sqlite",
       acquirer,
       compiler,
       transactionAcquirer,
@@ -354,27 +363,25 @@ const makeMemory = (
 export const layerConfig = (
   config: Config.Wrap<SqliteClientConfig>,
 ): Layer.Layer<Client.SqlClient, Config.ConfigError> =>
-  Layer.effectServices(
-    Config.unwrap(config)
-      .asEffect()
-      .pipe(
-        Effect.flatMap(make),
-        Effect.map((client) =>
-          ServiceMap.make(SqliteClient, client).pipe(ServiceMap.add(Client.SqlClient, client)),
-        ),
+  Layer.effectContext(
+    Config.unwrap(config).pipe(
+      Effect.flatMap(make),
+      Effect.map((client) =>
+        Context.make(SqliteClient, client).pipe(Context.add(Client.SqlClient, client)),
       ),
+    ),
   ).pipe(Layer.provide(Reactivity.layer));
 
 export const layer = (config: SqliteClientConfig): Layer.Layer<Client.SqlClient> =>
-  Layer.effectServices(
+  Layer.effectContext(
     Effect.map(make(config), (client) =>
-      ServiceMap.make(SqliteClient, client).pipe(ServiceMap.add(Client.SqlClient, client)),
+      Context.make(SqliteClient, client).pipe(Context.add(Client.SqlClient, client)),
     ),
   ).pipe(Layer.provide(Reactivity.layer));
 
 export const layerMemory = (config: SqliteMemoryClientConfig = {}): Layer.Layer<Client.SqlClient> =>
-  Layer.effectServices(
+  Layer.effectContext(
     Effect.map(makeMemory(config), (client) =>
-      ServiceMap.make(SqliteClient, client).pipe(ServiceMap.add(Client.SqlClient, client)),
+      Context.make(SqliteClient, client).pipe(Context.add(Client.SqlClient, client)),
     ),
   ).pipe(Layer.provide(Reactivity.layer));

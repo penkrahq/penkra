@@ -43,7 +43,7 @@ describe("deriveWorkLogEntries", () => {
   it.each(["codex", "claudeAgent", "opencode"] as const)(
     "preserves public entry identity for an unchanged %s history prefix",
     (provider) => {
-      const turnId = TurnId.makeUnsafe("turn-stable-work-entry-prefix");
+      const turnId = TurnId.make("turn-stable-work-entry-prefix");
       const historical = Array.from({ length: 3 }, (_, index) =>
         makeActivity({
           id: `stable-prefix-${index}`,
@@ -237,12 +237,12 @@ describe("deriveWorkLogEntries", () => {
       makeActivity({ id: "no-turn", summary: "Checkpoint captured", tone: "info" }),
     ];
 
-    const entries = deriveWorkLogEntries(activities, TurnId.makeUnsafe("turn-2"));
+    const entries = deriveWorkLogEntries(activities, TurnId.make("turn-2"));
     expect(entries.map((entry) => entry.id)).toEqual(["turn-2"]);
   });
 
   it("settles an orphaned running tool from an interrupted latest turn", () => {
-    const turnId = TurnId.makeUnsafe("turn-interrupted");
+    const turnId = TurnId.make("turn-interrupted");
     const entries = deriveWorkLogEntries(
       [
         makeActivity({
@@ -297,23 +297,23 @@ describe("deriveWorkLogEntries", () => {
       }),
     ];
 
-    const entries = deriveWorkLogEntries(activities, TurnId.makeUnsafe("turn-2"), {
-      visibleTurnIds: new Set([TurnId.makeUnsafe("turn-1"), TurnId.makeUnsafe("turn-2")]),
+    const entries = deriveWorkLogEntries(activities, TurnId.make("turn-2"), {
+      visibleTurnIds: new Set([TurnId.make("turn-1"), TurnId.make("turn-2")]),
     });
 
     expect(entries.map((entry) => [entry.id, entry.turnId])).toEqual([
-      ["turn-1", TurnId.makeUnsafe("turn-1")],
-      ["turn-2", TurnId.makeUnsafe("turn-2")],
+      ["turn-1", TurnId.make("turn-1")],
+      ["turn-2", TurnId.make("turn-2")],
     ]);
   });
 
   it("keeps sequenced work inside the visible transcript even when a tool-only turn has no message", () => {
-    const syntheticUserTurnId = TurnId.makeUnsafe("turn:user-message");
-    const toolOnlyTurnId = TurnId.makeUnsafe("turn:provider-tool-only");
-    const nextUserTurnId = TurnId.makeUnsafe("turn:next-user-message");
+    const syntheticUserTurnId = TurnId.make("turn:user-message");
+    const toolOnlyTurnId = TurnId.make("turn:provider-tool-only");
+    const nextUserTurnId = TurnId.make("turn:next-user-message");
     const messages = [
       {
-        id: MessageId.makeUnsafe("message-user-before-tools"),
+        id: MessageId.make("message-user-before-tools"),
         role: "user" as const,
         text: "Revise the game screens",
         createdAt: "2026-09-11T09:49:59.592Z",
@@ -322,7 +322,7 @@ describe("deriveWorkLogEntries", () => {
         streaming: false,
       },
       {
-        id: MessageId.makeUnsafe("message-user-after-interrupt"),
+        id: MessageId.make("message-user-after-interrupt"),
         role: "user" as const,
         text: "We'll use G1",
         createdAt: "2026-09-11T10:10:56.705Z",
@@ -335,7 +335,7 @@ describe("deriveWorkLogEntries", () => {
       makeActivity({
         id: "before-visible-window",
         sequence: 99,
-        turnId: TurnId.makeUnsafe("turn:older"),
+        turnId: TurnId.make("turn:older"),
         summary: "Older hidden tool",
         kind: "tool.completed",
       }),
@@ -404,8 +404,8 @@ describe("deriveWorkLogEntries", () => {
       }),
     ];
 
-    const entries = deriveWorkLogEntries(activities, TurnId.makeUnsafe("turn-2"), {
-      visibleTurnIds: new Set([TurnId.makeUnsafe("turn-2")]),
+    const entries = deriveWorkLogEntries(activities, TurnId.make("turn-2"), {
+      visibleTurnIds: new Set([TurnId.make("turn-2")]),
       visibleSequenceFloor: 100,
     });
 
@@ -460,7 +460,7 @@ describe("deriveWorkLogEntries", () => {
       }),
     ];
 
-    const filtered = deriveWorkLogEntries(activities, TurnId.makeUnsafe("turn-2"), {
+    const filtered = deriveWorkLogEntries(activities, TurnId.make("turn-2"), {
       visibleTurnIds: new Set(),
     });
     expect(filtered.map((entry) => entry.id)).toEqual(["turn-2"]);
@@ -504,7 +504,7 @@ describe("deriveWorkLogEntries", () => {
       }),
     ];
 
-    const [entry] = deriveWorkLogEntries(activities, TurnId.makeUnsafe("turn-1"));
+    const [entry] = deriveWorkLogEntries(activities, TurnId.make("turn-1"));
     expect(entry?.penkraThreadCreation).toEqual({
       operationId: "gateway:create:two-workers",
       requestedCount: 2,
@@ -1904,7 +1904,7 @@ describe("deriveTimelineEntries", () => {
     ];
     const messages = [
       {
-        id: MessageId.makeUnsafe("user-before-tools"),
+        id: MessageId.make("user-before-tools"),
         role: "user" as const,
         text: "Start",
         createdAt: "2026-09-07T00:00:03.000Z",
@@ -1912,7 +1912,7 @@ describe("deriveTimelineEntries", () => {
         streaming: false,
       },
       {
-        id: MessageId.makeUnsafe("assistant-after-tools"),
+        id: MessageId.make("assistant-after-tools"),
         role: "assistant" as const,
         text: "Done",
         createdAt: "2026-09-07T00:00:00.000Z",
@@ -1941,8 +1941,8 @@ describe("deriveTimelineEntries", () => {
   });
 
   it("uses queue promotion sequence instead of admission time for transcript placement", () => {
-    const queuedMessageId = MessageId.makeUnsafe("message-queued-follow-up");
-    const assistantMessageId = MessageId.makeUnsafe("message-preceding-assistant");
+    const queuedMessageId = MessageId.make("message-queued-follow-up");
+    const assistantMessageId = MessageId.make("message-preceding-assistant");
     const entries = deriveTimelineEntries(
       [
         {
@@ -1974,7 +1974,7 @@ describe("deriveTimelineEntries", () => {
     const entries = deriveTimelineEntries(
       [
         {
-          id: MessageId.makeUnsafe("message-after-switch"),
+          id: MessageId.make("message-after-switch"),
           role: "user",
           text: "Continue with Work",
           createdAt,
@@ -2003,7 +2003,7 @@ describe("deriveTimelineEntries", () => {
     const entries = deriveTimelineEntries(
       [
         {
-          id: MessageId.makeUnsafe("message-1"),
+          id: MessageId.make("message-1"),
           role: "assistant",
           text: "hello",
           createdAt: "2026-02-23T00:00:01.000Z",
@@ -2027,7 +2027,7 @@ describe("deriveTimelineEntries", () => {
     const entries = deriveTimelineEntries(
       [
         {
-          id: MessageId.makeUnsafe("message-same-time"),
+          id: MessageId.make("message-same-time"),
           role: "assistant",
           text: "same time",
           createdAt: "2026-02-23T00:00:01.000Z",
@@ -2051,10 +2051,10 @@ describe("deriveTimelineEntries", () => {
     const entries = deriveTimelineEntries(
       [
         {
-          id: MessageId.makeUnsafe("message-plan"),
+          id: MessageId.make("message-plan"),
           role: "assistant",
           text: "Here is the plan:\n<proposed_plan>\n# Ship it\n\n- step\n</proposed_plan>",
-          turnId: TurnId.makeUnsafe("turn-plan"),
+          turnId: TurnId.make("turn-plan"),
           createdAt: "2026-02-23T00:00:01.000Z",
           streaming: false,
         },
@@ -2097,7 +2097,7 @@ describe("deriveWorkLogEntries context window handling", () => {
           tone: "tool",
         }),
       ],
-      TurnId.makeUnsafe("turn-1"),
+      TurnId.make("turn-1"),
     );
 
     expect(entries).toHaveLength(1);
@@ -2115,7 +2115,7 @@ describe("deriveWorkLogEntries context window handling", () => {
           tone: "info",
         }),
       ],
-      TurnId.makeUnsafe("turn-1"),
+      TurnId.make("turn-1"),
     );
 
     expect(entries).toHaveLength(1);
@@ -2132,7 +2132,7 @@ describe("deriveWorkLogEntries context window handling", () => {
           tone: "info",
         }),
       ],
-      TurnId.makeUnsafe("turn-1"),
+      TurnId.make("turn-1"),
     );
 
     expect(entries).toHaveLength(1);
@@ -2157,7 +2157,7 @@ describe("deriveWorkLogEntries context window handling", () => {
           tone: "info",
         }),
       ],
-      TurnId.makeUnsafe("turn-1"),
+      TurnId.make("turn-1"),
     );
 
     expect(entries).toHaveLength(1);
@@ -2182,7 +2182,7 @@ describe("deriveWorkLogEntries context window handling", () => {
           tone: "info",
         }),
       ],
-      TurnId.makeUnsafe("turn-1"),
+      TurnId.make("turn-1"),
     );
 
     expect(entries).toHaveLength(1);
@@ -2207,7 +2207,7 @@ describe("deriveWorkLogEntries context window handling", () => {
           tone: "info",
         }),
       ],
-      TurnId.makeUnsafe("turn-1"),
+      TurnId.make("turn-1"),
     );
 
     expect(entries).toHaveLength(2);

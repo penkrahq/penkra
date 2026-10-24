@@ -28,13 +28,13 @@ import { makeCreateThreadHandler, type GatewayCreationContext } from "./creation
 import { makeAgentCreationIds, stableGatewayDigest } from "./creationUtils.ts";
 import type { McpToolCallResult } from "./protocol.ts";
 const NOW = "2026-09-06T08:00:00.000Z";
-const CALLER_THREAD_ID = ThreadId.makeUnsafe("caller-retry");
-const CALLER_TURN_ID = TurnId.makeUnsafe("caller-turn");
-const FOLDER_ID = FolderId.makeUnsafe("folder-retry");
-const SPACE_ID = SpaceId.makeUnsafe("space-retry");
-const ACCOUNT_A = ProviderConnectionId.makeUnsafe("account-a");
-const ACCOUNT_B = ProviderConnectionId.makeUnsafe("account-b");
-const INSTALLATION_ID = ProviderInstallationId.makeUnsafe("installation-retry");
+const CALLER_THREAD_ID = ThreadId.make("caller-retry");
+const CALLER_TURN_ID = TurnId.make("caller-turn");
+const FOLDER_ID = FolderId.make("folder-retry");
+const SPACE_ID = SpaceId.make("space-retry");
+const ACCOUNT_A = ProviderConnectionId.make("account-a");
+const ACCOUNT_B = ProviderConnectionId.make("account-b");
+const INSTALLATION_ID = ProviderInstallationId.make("installation-retry");
 const TARGET: ModelSelection = { provider: "codex", model: "gpt-5.5" };
 const INPUT: PenkraCreateThreadInput = {
   requestId: "retry-request",
@@ -376,7 +376,7 @@ describe("clean-core agent creation retries", () => {
     const h = makeHarness();
     await invoke(h);
     const child = h.rows.get(IDS.threadId)!;
-    h.rows.set(child.id, { ...child, spaceId: SpaceId.makeUnsafe("another-space") });
+    h.rows.set(child.id, { ...child, spaceId: SpaceId.make("another-space") });
     const retry = await invoke(h);
     expect(retry.isError).toBe(true);
     expect(resultText(retry)).toContain("another Space");
@@ -398,7 +398,7 @@ describe("clean-core agent creation retries", () => {
   it("revalidates the destination after the caller moves to another Space", async () => {
     const h = makeHarness();
     await invoke(h);
-    const movedFolder = FolderId.makeUnsafe("caller-moved");
+    const movedFolder = FolderId.make("caller-moved");
     h.moveCaller(movedFolder);
     const selectionCalls = h.selectionCalls;
     const discoveryCalls = h.modelDiscoveryCalls.length;
@@ -412,7 +412,7 @@ describe("clean-core agent creation retries", () => {
             Effect.succeed(
               Option.some(
                 id === movedFolder
-                  ? { ...FOLDER, id, spaceId: SpaceId.makeUnsafe("other-space") }
+                  ? { ...FOLDER, id, spaceId: SpaceId.make("other-space") }
                   : FOLDER,
               ),
             ),

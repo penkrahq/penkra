@@ -1,18 +1,19 @@
+import { ByteSize } from "effect";
 // FILE: desktopThreadRoute.ts
 // Purpose: Private loopback endpoint for window-independent App Thread commands.
 
 import * as FS from "node:fs/promises";
 
 import { FolderId, SpaceId, ThreadId, type DesktopThreadApiRequest } from "@penkra/contracts";
-import { Effect, FileSystem, Option } from "effect";
-import { HttpRouter, HttpServerRequest, HttpServerResponse } from "effect/unstable/http";
+import { Effect, Option } from "effect";
+import { HttpRouter, HttpServerRequest, HttpServerResponse } from "effect/http";
 
 import { ServerConfig } from "./config";
 import { ThreadLifecycle } from "./cleanCore/threadLifecycle.ts";
 import { findThread, listThreads } from "./cleanCore/threadList.ts";
 import { moveSidebarItem } from "./cleanCore/threadStore.ts";
 import { ThreadPublisher } from "./cleanCore/ThreadPublisher.ts";
-import * as SqlClient from "effect/unstable/sql/SqlClient";
+import * as SqlClient from "effect/sql/SqlClient";
 import { DesktopThreadCommands } from "./desktopThreadCommands";
 import {
   persistReservedManagedAttachment,
@@ -36,7 +37,7 @@ export const desktopThreadRouteLayer = HttpRouter.add(
     const config = yield* ServerConfig;
     const auth = authorizeDesktopShutdown({
       config,
-      remoteAddress: request.remoteAddress,
+      remoteAddress: Option.getOrUndefined(request.remoteAddress),
       authorization: request.headers.authorization,
     });
     if (!auth.authorized)
@@ -62,17 +63,17 @@ export const desktopThreadRouteLayer = HttpRouter.add(
         ),
       getThread: (id) =>
         Effect.runPromise(
-          findThread(ThreadId.makeUnsafe(id)).pipe(Effect.provideService(SqlClient.SqlClient, sql)),
+          findThread(ThreadId.make(id)).pipe(Effect.provideService(SqlClient.SqlClient, sql)),
         ),
       getFolder: async (id) =>
         Option.getOrNull(
-          await Effect.runPromise(snapshotQuery.getFolderShellById(FolderId.makeUnsafe(id))),
+          await Effect.runPromise(snapshotQuery.getFolderShellById(FolderId.make(id))),
         ),
       listThreads: (input) =>
         Effect.runPromise(
           listThreads({
-            spaceId: SpaceId.makeUnsafe(input.spaceId),
-            folderId: FolderId.makeUnsafe(input.folderId),
+            spaceId: SpaceId.make(input.spaceId),
+            folderId: FolderId.make(input.folderId),
             after: input.after,
           }).pipe(Effect.provideService(SqlClient.SqlClient, sql)),
         ),
@@ -119,7 +120,7 @@ export const desktopThreadRouteLayer = HttpRouter.add(
       },
     });
     const payload = yield* request.json.pipe(
-      Effect.provideService(HttpServerRequest.MaxBodySize, FileSystem.Size(1024 * 1024)),
+      Effect.provideService(HttpServerRequest.MaxBodySize, ByteSize.bytes(1024 * 1024)),
       Effect.mapError(() => new Error("Invalid Thread command body.")),
     );
     if (
@@ -134,7 +135,7 @@ export const desktopThreadRouteLayer = HttpRouter.add(
       );
     }
     const result = yield* Effect.tryPromise(() =>
-      commands!.execute(payload as DesktopThreadApiRequest),
+      commands!.execute(payload as unknown as DesktopThreadApiRequest),
     ).pipe(
       Effect.match({
         onFailure: (error) => ({

@@ -2,7 +2,7 @@
 // Purpose: Adds denormalized shell-summary columns to projection_threads for cheap sidebar snapshots.
 // Layer: Persistence migration
 
-import * as SqlClient from "effect/unstable/sql/SqlClient";
+import * as SqlClient from "effect/sql/SqlClient";
 import * as Effect from "effect/Effect";
 
 export default Effect.gen(function* () {

@@ -132,7 +132,7 @@ function useVisibleThreadIdsFromRoute(): ReadonlySet<ThreadId> {
   const activeThreadId = useParams({
     strict: false,
     select: (params) =>
-      typeof params.threadId === "string" ? ThreadId.makeUnsafe(params.threadId) : null,
+      typeof params.threadId === "string" ? ThreadId.make(params.threadId) : null,
   });
 
   return resolveVisibleToastThreadIds({ activeThreadId });

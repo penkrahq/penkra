@@ -1,7 +1,7 @@
 // Purpose: Remove row-delta revision schema superseded by snapshot-plus-event synchronization.
 
 import * as Effect from "effect/Effect";
-import * as SqlClient from "effect/unstable/sql/SqlClient";
+import * as SqlClient from "effect/sql/SqlClient";
 
 const projectionTables = [
   "projection_threads",

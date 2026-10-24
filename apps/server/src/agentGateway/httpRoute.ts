@@ -10,7 +10,7 @@
  * @module agentGateway/httpRoute
  */
 import { Effect, Layer, Stream } from "effect";
-import { HttpRouter, HttpServerRequest, HttpServerResponse } from "effect/unstable/http";
+import { HttpRouter, HttpServerRequest, HttpServerResponse } from "effect/http";
 
 import { AGENT_GATEWAY_MCP_PATH } from "./Layers/AgentGatewayCredentials";
 import { AgentGateway } from "./Services/AgentGateway";

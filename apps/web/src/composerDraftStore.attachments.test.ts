@@ -22,7 +22,7 @@ import { removeLocalStorageItem, setLocalStorageItem } from "./hooks/useLocalSto
 import { insertInlineTerminalContextPlaceholder } from "./lib/terminalContext";
 
 describe("composerDraftStore addImages", () => {
-  const threadId = ThreadId.makeUnsafe("thread-dedupe");
+  const threadId = ThreadId.make("thread-dedupe");
   let originalRevokeObjectUrl: typeof URL.revokeObjectURL;
   let revokeSpy: ReturnType<typeof vi.fn<(url: string) => void>>;
 
@@ -107,7 +107,7 @@ describe("composerDraftStore addImages", () => {
 });
 
 describe("composerDraftStore voice transcript durability", () => {
-  const threadId = ThreadId.makeUnsafe("thread-voice-draft");
+  const threadId = ThreadId.make("thread-voice-draft");
 
   beforeEach(() => resetComposerDraftStore());
 
@@ -128,7 +128,7 @@ describe("composerDraftStore voice transcript durability", () => {
 });
 
 describe("composerDraftStore prompt history saved draft", () => {
-  const threadId = ThreadId.makeUnsafe("thread-prompt-history-attachments");
+  const threadId = ThreadId.make("thread-prompt-history-attachments");
 
   beforeEach(() => {
     resetComposerDraftStore();
@@ -342,8 +342,8 @@ describe("composerDraftStore prompt history saved draft", () => {
 });
 
 describe("composerDraftStore copyTransferableComposerState", () => {
-  const sourceThreadId = ThreadId.makeUnsafe("thread-source");
-  const targetThreadId = ThreadId.makeUnsafe("thread-target");
+  const sourceThreadId = ThreadId.make("thread-source");
+  const targetThreadId = ThreadId.make("thread-target");
 
   beforeEach(() => {
     resetComposerDraftStore();
@@ -513,7 +513,7 @@ describe("composerDraftStore copyTransferableComposerState", () => {
 });
 
 describe("composerDraftStore syncPersistedAttachments", () => {
-  const threadId = ThreadId.makeUnsafe("thread-sync-persisted");
+  const threadId = ThreadId.make("thread-sync-persisted");
 
   beforeEach(() => {
     removeLocalStorageItem(COMPOSER_DRAFT_STORAGE_KEY);

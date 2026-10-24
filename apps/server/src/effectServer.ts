@@ -1,9 +1,9 @@
 import http from "node:http";
 
 import type { ServerSettingsError } from "@penkra/contracts";
-import { Effect, Exit, FileSystem, Layer, Path, Schema, Scope, ServiceMap } from "effect";
-import { HttpRouter } from "effect/unstable/http";
-import * as SqlClient from "effect/unstable/sql/SqlClient";
+import { Effect, Exit, FileSystem, Layer, Path, Schema, Scope, Context } from "effect";
+import { HttpRouter } from "effect/http";
+import * as SqlClient from "effect/sql/SqlClient";
 
 import { agentGatewayRouteLayer } from "./agentGateway/httpRoute";
 import { AgentGatewayCredentials } from "./agentGateway/Services/AgentGatewayCredentials";
@@ -59,15 +59,13 @@ export interface ServerShape {
   readonly stopSignal: Effect.Effect<void, never>;
 }
 
-export class Server extends ServiceMap.Service<Server, ServerShape>()(
-  "penkra/effectServer/Server",
-) {}
+export class Server extends Context.Service<Server, ServerShape>()("penkra/effectServer/Server") {}
 
-export class ServerLifecycleError extends Schema.TaggedErrorClass<ServerLifecycleError>()(
+export class ServerLifecycleError extends Schema.TaggedError<ServerLifecycleError>()(
   "ServerLifecycleError",
   {
     operation: Schema.String,
-    cause: Schema.optional(Schema.Defect),
+    cause: Schema.optional(Schema.Defect()),
   },
 ) {}
 

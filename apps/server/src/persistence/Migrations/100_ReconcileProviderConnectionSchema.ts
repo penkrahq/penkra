@@ -2,7 +2,7 @@
 // Purpose: Reconciles every pre-release migration-098 schema shape before native-state adoption.
 
 import { Effect } from "effect";
-import * as SqlClient from "effect/unstable/sql/SqlClient";
+import * as SqlClient from "effect/sql/SqlClient";
 
 import ProviderConnectionsAndBindings from "./098_ProviderConnectionsAndBindings.ts";
 

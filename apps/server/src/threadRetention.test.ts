@@ -3,7 +3,7 @@ import { NativeStorageTestLayer } from "./provider/nativeStorage.test-support.ts
 import { assert, it } from "@effect/vitest";
 import { ThreadId } from "@penkra/contracts";
 import { Effect } from "effect";
-import * as SqlClient from "effect/unstable/sql/SqlClient";
+import * as SqlClient from "effect/sql/SqlClient";
 import * as NodeSqliteClient from "./persistence/NodeSqliteClient.ts";
 import { runMigrations } from "./persistence/Migrations.ts";
 import { ServerConfig } from "./config.ts";
@@ -167,7 +167,7 @@ it.effect("restoring and archiving again restarts expiry", () =>
   withDb(
     Effect.gen(function* () {
       const { seed, days, lifecycle, sweep } = yield* setup;
-      const threadId = ThreadId.makeUnsafe("restored");
+      const threadId = ThreadId.make("restored");
       yield* seed(threadId, origin);
       yield* days("2026-01-02T00:00:00.000Z", 30);
       yield* restoreThread({ threadId, updatedAt: at });
@@ -189,7 +189,7 @@ it.effect("skips stale activity guards and a chat restored after expiry selectio
   withDb(
     Effect.gen(function* () {
       const { seed, sql, lifecycle, changes } = yield* setup;
-      const threadId = ThreadId.makeUnsafe("touched");
+      const threadId = ThreadId.make("touched");
       yield* seed(threadId, null);
       yield* markThreadVisited({ threadId, visitedAt: at, updatedAt: at });
       assert.isFalse(
@@ -210,7 +210,7 @@ it.effect("skips stale activity guards and a chat restored after expiry selectio
         }),
       );
       yield* seed("restored-before-delete", origin);
-      const restoredId = ThreadId.makeUnsafe("restored-before-delete");
+      const restoredId = ThreadId.make("restored-before-delete");
       yield* restoreThread({ threadId: restoredId, updatedAt: at });
       assert.isFalse(
         yield* lifecycle.deleteExpired({
@@ -227,7 +227,7 @@ it.effect("records each UTC visit day once alongside the visit write", () =>
   withDb(
     Effect.gen(function* () {
       const { seed, sql } = yield* setup;
-      const threadId = ThreadId.makeUnsafe("visited");
+      const threadId = ThreadId.make("visited");
       yield* seed(threadId, null);
       const first = "2026-03-09T22:00:00.000Z";
       yield* markThreadVisited({ threadId, visitedAt: first, updatedAt: first });
@@ -253,7 +253,7 @@ it.effect("guard misses skip cleanup, and cleanup failure rolls back the guarded
   withDb(
     Effect.gen(function* () {
       const { seed, sql, lifecycle, changes, beforeStop } = yield* setup;
-      const threadId = ThreadId.makeUnsafe("cleanup-failure");
+      const threadId = ThreadId.make("cleanup-failure");
       yield* seed(threadId, null);
       let cleanupCount = 0;
       beforeStop(
@@ -292,7 +292,7 @@ it.effect("rolls back the visit when active-day recording fails", () =>
   withDb(
     Effect.gen(function* () {
       const { seed, sql } = yield* setup;
-      const threadId = ThreadId.makeUnsafe("atomic-visit");
+      const threadId = ThreadId.make("atomic-visit");
       yield* seed(threadId, null);
       yield* sql`CREATE TRIGGER fail_active_day BEFORE INSERT ON retention_active_days BEGIN SELECT RAISE(ABORT, 'injected active-day failure'); END`;
       const error = yield* markThreadVisited({ threadId, visitedAt: at, updatedAt: at }).pipe(

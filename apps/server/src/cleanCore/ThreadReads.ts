@@ -19,8 +19,8 @@ import {
   OrchestrationThreadActivity,
   type OrchestrationGetThreadTurnsPageInput,
 } from "@penkra/contracts";
-import { Effect, Layer, Option, Schema, ServiceMap } from "effect";
-import * as SqlClient from "effect/unstable/sql/SqlClient";
+import { Effect, Layer, Option, Schema, Context } from "effect";
+import * as SqlClient from "effect/sql/SqlClient";
 import {
   findThread,
   THREAD_SUMMARY_COLUMNS,
@@ -61,10 +61,10 @@ function transcriptRows(items: ReadonlyArray<ThreadItemRecord>) {
     if (item.kind === "user") userStatuses.set(item.sourceId, item.status);
     if (item.kind === "user" || item.kind === "text") {
       messages.push({
-        id: MessageId.makeUnsafe(item.sourceId),
+        id: MessageId.make(item.sourceId),
         role: item.kind === "user" ? "user" : "assistant",
         text: item.text ?? "",
-        turnId: item.turnId === null ? null : TurnId.makeUnsafe(item.turnId),
+        turnId: item.turnId === null ? null : TurnId.make(item.turnId),
         createdAt: item.createdAt,
         updatedAt: item.updatedAt,
         streaming: item.status === "streaming",
@@ -88,8 +88,8 @@ function transcriptRows(items: ReadonlyArray<ThreadItemRecord>) {
         pendingInteractions.push({
           interactionKind: "userInput",
           requestId: item.sourceId,
-          threadId: ThreadId.makeUnsafe(item.threadId),
-          turnId: item.turnId === null ? null : TurnId.makeUnsafe(item.turnId),
+          threadId: ThreadId.make(item.threadId),
+          turnId: item.turnId === null ? null : TurnId.make(item.turnId),
           lifecycleGeneration: data.lifecycleGeneration ?? null,
           status: "pending",
           responseCommandId: null,
@@ -377,7 +377,7 @@ export const makeThreadReads = Effect.gen(function* () {
   };
 });
 export type ThreadReadsShape = Effect.Success<typeof makeThreadReads>;
-export class ThreadReads extends ServiceMap.Service<ThreadReads, ThreadReadsShape>()(
+export class ThreadReads extends Context.Service<ThreadReads, ThreadReadsShape>()(
   "penkra/cleanCore/ThreadReads",
 ) {}
 export const ThreadReadsLive = Layer.effect(ThreadReads, makeThreadReads);

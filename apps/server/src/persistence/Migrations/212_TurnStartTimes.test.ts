@@ -2,7 +2,7 @@ import { assert, it } from "@effect/vitest";
 import { ThreadId } from "@penkra/contracts";
 import { threadShellFromRow } from "@penkra/shared/threadView";
 import { Effect } from "effect";
-import * as SqlClient from "effect/unstable/sql/SqlClient";
+import * as SqlClient from "effect/sql/SqlClient";
 import { runMigrations } from "../Migrations.ts";
 import * as NodeSqliteClient from "../NodeSqliteClient.ts";
 import { seedThreadFolderFixture } from "../../cleanCore/threadFixtures.ts";
@@ -59,7 +59,7 @@ it.effect(
         [{ missing: 0 }],
       );
       for (const id of ["history", "marker-only"]) {
-        const row = yield* findThread(ThreadId.makeUnsafe(id));
+        const row = yield* findThread(ThreadId.make(id));
         assert.isString(threadShellFromRow(row!).latestTurn!.requestedAt);
       }
     }).pipe(Effect.provide(NodeSqliteClient.layerMemory())),

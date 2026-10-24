@@ -8,7 +8,7 @@ const updatedAt = "2026-08-21T12:00:00.000Z";
 
 function fact(limits: unknown): ConnectionRateLimitObservation {
   return {
-    connectionId: ProviderConnectionId.makeUnsafe("codex-account"),
+    connectionId: ProviderConnectionId.make("codex-account"),
     provider: "codex",
     limitsJson: JSON.stringify(limits),
     status: null,
@@ -127,7 +127,7 @@ describe("provider runtime usage facts", () => {
       runtime,
       fetched: {
         provider: "claudeAgent",
-        connectionId: ProviderConnectionId.makeUnsafe("codex-account"),
+        connectionId: ProviderConnectionId.make("codex-account"),
         updatedAt,
         limits: [{ window: "5h", usedPercent: 41, windowDurationMins: 300 }],
         usageLines: [],
@@ -162,7 +162,7 @@ describe("provider runtime usage facts", () => {
       runtime,
       fetched: {
         provider: "claudeAgent",
-        connectionId: ProviderConnectionId.makeUnsafe("codex-account"),
+        connectionId: ProviderConnectionId.make("codex-account"),
         updatedAt,
         limits: [],
         usageLines: [],
@@ -189,7 +189,7 @@ describe("provider runtime usage facts", () => {
     });
     const fetched = {
       provider: "claudeAgent" as const,
-      connectionId: ProviderConnectionId.makeUnsafe("codex-account"),
+      connectionId: ProviderConnectionId.make("codex-account"),
       updatedAt,
       limits: [],
       usageLines: [],
@@ -209,7 +209,7 @@ describe("provider runtime usage facts", () => {
       runtime,
       fetched: {
         provider: "codex",
-        connectionId: ProviderConnectionId.makeUnsafe("codex-account"),
+        connectionId: ProviderConnectionId.make("codex-account"),
         updatedAt,
         limits: [],
         usageLines: [],

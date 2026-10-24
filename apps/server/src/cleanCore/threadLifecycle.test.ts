@@ -14,7 +14,7 @@ import { ProviderTurnSelectionResolver } from "../provider/Services/ProviderTurn
 import { assert, it } from "@effect/vitest";
 import { FolderId, MessageId, ThreadId } from "@penkra/contracts";
 import { Effect } from "effect";
-import * as SqlClient from "effect/unstable/sql/SqlClient";
+import * as SqlClient from "effect/sql/SqlClient";
 import * as NodeSqliteClient from "../persistence/NodeSqliteClient.ts";
 import { runMigrations } from "../persistence/Migrations.ts";
 import { ProviderThreadSwitchCoordinator } from "../orchestration/Services/ProviderThreadSwitchCoordinator.ts";
@@ -41,8 +41,8 @@ it.effect("web creation is idempotent and a send on its running thread is queued
     const at = "2026-10-10T00:00:00.000Z";
     yield* sql`INSERT INTO projection_folders (folder_id, space_id, title, workspace_root, default_model_selection_json, created_at, updated_at) VALUES ('folder', 'penkra-personal', 'Folder', NULL, NULL, ${at}, ${at})`;
     const input = {
-      threadId: ThreadId.makeUnsafe("web-thread"),
-      folderId: FolderId.makeUnsafe("folder"),
+      threadId: ThreadId.make("web-thread"),
+      folderId: FolderId.make("folder"),
       title: "Thread",
       modelSelection: { provider: "codex" as const, model: "gpt-5.5" },
       connection: { kind: "selected" as const, connectionId: null },
@@ -77,7 +77,7 @@ it.effect("web creation is idempotent and a send on its running thread is queued
       threadId: input.threadId,
       dispatchMode: "queue",
       message: {
-        messageId: MessageId.makeUnsafe("queued-message"),
+        messageId: MessageId.make("queued-message"),
         text: "next",
         attachments: [],
         origin: { _tag: "user" as const },
@@ -129,10 +129,10 @@ it.effect(
       try {
         const at = "2026-10-10T00:00:00.000Z";
         yield* sql`INSERT INTO projection_folders (folder_id, space_id, title, workspace_root, default_model_selection_json, created_at, updated_at) VALUES ('delete-folder', 'penkra-personal', 'Folder', NULL, NULL, ${at}, ${at})`;
-        const threadId = ThreadId.makeUnsafe("delete-failure-thread");
+        const threadId = ThreadId.make("delete-failure-thread");
         yield* createThreadFixture(sql, {
           threadId,
-          folderId: FolderId.makeUnsafe("delete-folder"),
+          folderId: FolderId.make("delete-folder"),
           title: "Delete failure",
           modelSelection: { provider: "codex", model: "gpt-5.5" },
           runtimeMode: "full-access",

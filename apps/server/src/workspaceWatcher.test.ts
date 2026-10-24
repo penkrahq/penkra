@@ -153,7 +153,7 @@ describe("workspace watcher lifecycle", () => {
 
   it("publishes a real scratch-file edit with its thread cwd", async () => {
     const stateDir = await mkdtemp(path.join(os.tmpdir(), "penkra-scratch-watch-"));
-    const cwd = ensureDurableThreadWorkspace(ThreadId.makeUnsafe("scratch-thread"), stateDir);
+    const cwd = ensureDurableThreadWorkspace(ThreadId.make("scratch-thread"), stateDir);
     const file = path.join(cwd, "note.txt");
     await writeFile(file, "before");
     let resolveEvent!: (event: ProjectWorkspaceChangeEvent) => void;

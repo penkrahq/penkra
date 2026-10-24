@@ -1,12 +1,12 @@
 import { Schema } from "effect";
 
 /** Provider-backed first-message Thread title generation failed. */
-export class TextGenerationError extends Schema.TaggedErrorClass<TextGenerationError>()(
+export class TextGenerationError extends Schema.TaggedError<TextGenerationError>()(
   "TextGenerationError",
   {
     operation: Schema.String,
     detail: Schema.String,
-    cause: Schema.optional(Schema.Defect),
+    cause: Schema.optional(Schema.Defect()),
   },
 ) {
   override get message(): string {

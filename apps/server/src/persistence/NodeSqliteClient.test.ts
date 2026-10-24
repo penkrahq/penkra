@@ -5,7 +5,7 @@ import { DatabaseSync } from "node:sqlite";
 
 import { assert, it } from "@effect/vitest";
 import { Cause, Effect, Exit } from "effect";
-import * as SqlClient from "effect/unstable/sql/SqlClient";
+import * as SqlClient from "effect/sql/SqlClient";
 import { describe, expect } from "vitest";
 
 import * as SqliteClient from "./NodeSqliteClient.ts";
@@ -31,6 +31,13 @@ layer("NodeSqliteClient", (it) => {
       assert.equal(values.length, 2);
       assert.equal(values[0]?.[1], "alpha");
       assert.equal(values[1]?.[1], "beta");
+
+      const unprepared = yield* sql`SELECT name FROM entries WHERE id = ${1}`.valuesUnprepared;
+      assert.deepEqual(unprepared, [["alpha"]]);
+      const afterValues = yield* sql<{
+        readonly name: string;
+      }>`SELECT name FROM entries WHERE id = ${1}`;
+      assert.deepEqual(afterValues, [{ name: "alpha" }]);
     }),
   );
 });
@@ -61,7 +68,7 @@ describe("fatal SQLite result handling", () => {
       expect(Exit.isFailure(result.failure)).toBe(true);
       if (!Exit.isFailure(result.failure)) throw new Error("Expected SQLITE_FULL");
       const error = Cause.squash(result.failure.cause);
-      expect(error).toMatchObject({ cause: { errcode: 13 } });
+      expect(error).toMatchObject({ cause: { cause: { errcode: 13 } } });
       expect((error as Error).message).toContain("INSERT INTO full_entries(payload)");
       expect(Cause.pretty(result.failure.cause)).not.toContain("cannot rollback");
       expect(Cause.pretty(result.failure.cause)).not.toContain("no such savepoint");

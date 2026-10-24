@@ -9,7 +9,7 @@ import { describe, expect, it } from "vitest";
 
 import { makeProviderLifecycleCoordinator } from "./providerLifecycleCoordinator.ts";
 
-const threadId = ThreadId.makeUnsafe("thread-lifecycle-coordinator");
+const threadId = ThreadId.make("thread-lifecycle-coordinator");
 
 describe("makeProviderLifecycleCoordinator", () => {
   it("reserves a generation without replacing the live one until ownership commits", async () => {

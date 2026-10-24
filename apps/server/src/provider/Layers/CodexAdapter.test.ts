@@ -40,10 +40,10 @@ import { CodexAdapter } from "../Services/CodexAdapter.ts";
 import { ProviderSessionDirectory } from "../Services/ProviderSessionDirectory.ts";
 import { makeCodexAdapterLive } from "./CodexAdapter.ts";
 
-const asThreadId = (value: string): ThreadId => ThreadId.makeUnsafe(value);
-const asTurnId = (value: string): TurnId => TurnId.makeUnsafe(value);
-const asEventId = (value: string): EventId => EventId.makeUnsafe(value);
-const asItemId = (value: string): ProviderItemId => ProviderItemId.makeUnsafe(value);
+const asThreadId = (value: string): ThreadId => ThreadId.make(value);
+const asTurnId = (value: string): TurnId => TurnId.make(value);
+const asEventId = (value: string): EventId => EventId.make(value);
+const asItemId = (value: string): ProviderItemId => ProviderItemId.make(value);
 
 class FakeCodexManager extends CodexAppServerManager {
   public nativeThreadPath = "";
@@ -268,7 +268,7 @@ validationLayer("CodexAdapterLive validation", (it) => {
       const input = {
         scope: {
           provider: "codex" as const,
-          connectionId: ProviderConnectionId.makeUnsafe("personal"),
+          connectionId: ProviderConnectionId.make("personal"),
         },
         cwd: "/repo/models",
         kinds: ["models"] as const,

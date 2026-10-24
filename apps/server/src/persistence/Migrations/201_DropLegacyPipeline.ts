@@ -1,6 +1,6 @@
 // Purpose: Retire the replaced command, event, delivery and read-model pipeline.
 import { Effect } from "effect";
-import * as SqlClient from "effect/unstable/sql/SqlClient";
+import * as SqlClient from "effect/sql/SqlClient";
 export default Effect.gen(function* () {
   const sql = yield* SqlClient.SqlClient;
   // Repair the 176 omission before removing its source. Already-dropped sources

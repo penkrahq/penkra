@@ -4,7 +4,7 @@ import { DEFAULT_SERVER_SETTINGS } from "@penkra/contracts";
 import { describe, it, assert } from "@effect/vitest";
 import { Effect, FileSystem, Layer, Path, Sink, Stream } from "effect";
 import * as PlatformError from "effect/PlatformError";
-import { ChildProcessSpawner } from "effect/unstable/process";
+import { ChildProcessSpawner } from "effect/process";
 import { vi } from "vitest";
 
 import { PENKRA_CODEX_HOME_OVERLAY_DIR } from "../../codexHomePaths";
@@ -40,6 +40,7 @@ const encoder = new TextEncoder();
 
 function mockHandle(result: { stdout: string; stderr: string; code: number }) {
   return ChildProcessSpawner.makeHandle({
+    unref: Effect.succeed(Effect.void),
     pid: ChildProcessSpawner.ProcessId(1),
     exitCode: Effect.succeed(ChildProcessSpawner.ExitCode(result.code)),
     isRunning: Effect.succeed(false),

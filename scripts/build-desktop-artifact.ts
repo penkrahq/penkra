@@ -44,8 +44,8 @@ import { resolveCatalogDependencies } from "./lib/resolve-catalog.ts";
 import * as NodeRuntime from "@effect/platform-node/NodeRuntime";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { Config, Data, Effect, FileSystem, Layer, Logger, Option, Path, Schema } from "effect";
-import { Command, Flag } from "effect/unstable/cli";
-import { ChildProcess, ChildProcessSpawner } from "effect/unstable/process";
+import { Command, Flag } from "effect/cli";
+import { ChildProcess, ChildProcessSpawner } from "effect/process";
 
 const BuildPlatform = Schema.Literals(["linux", "mac", "win"]);
 const BuildArch = Schema.Literals(["arm64", "x64", "universal"]);
@@ -75,7 +75,7 @@ const ProductionWindowsIconSource = Effect.zipWith(
   Effect.service(Path.Path),
   (repoRoot, path) => path.join(repoRoot, BRAND_ASSET_PATHS.productionWindowsIconIco),
 );
-const encodeJsonString = Schema.encodeEffect(Schema.UnknownFromJsonString);
+const encodeJsonString = Schema.encodeEffect(Schema.fromJsonString(Schema.Unknown));
 
 interface PlatformConfig {
   readonly cliFlag: "--linux" | "--mac" | "--win";
@@ -207,20 +207,20 @@ interface StagePackageJson {
 
 const BuildEnvConfig = Config.all({
   platform: Config.schema(BuildPlatform, "PENKRA_DESKTOP_PLATFORM").pipe(Config.option),
-  target: Config.string("PENKRA_DESKTOP_TARGET").pipe(Config.option),
+  target: Config.String("PENKRA_DESKTOP_TARGET").pipe(Config.option),
   arch: Config.schema(BuildArch, "PENKRA_DESKTOP_ARCH").pipe(Config.option),
-  version: Config.string("PENKRA_DESKTOP_VERSION").pipe(Config.option),
-  sourceCommit: Config.string("PENKRA_SOURCE_COMMIT").pipe(Config.option),
-  sourceTag: Config.string("PENKRA_SOURCE_TAG").pipe(Config.option),
-  lockfileSha256: Config.string("PENKRA_LOCKFILE_SHA256").pipe(Config.option),
-  outputDir: Config.string("PENKRA_DESKTOP_OUTPUT_DIR").pipe(Config.option),
-  skipBuild: Config.string("PENKRA_DESKTOP_SKIP_BUILD").pipe(Config.option),
-  keepStage: Config.string("PENKRA_DESKTOP_KEEP_STAGE").pipe(Config.option),
-  signed: Config.string("PENKRA_DESKTOP_SIGNED").pipe(Config.option),
-  localSign: Config.string("PENKRA_DESKTOP_LOCAL_SIGN").pipe(Config.option),
-  verbose: Config.string("PENKRA_DESKTOP_VERBOSE").pipe(Config.option),
-  mockUpdates: Config.string("PENKRA_DESKTOP_MOCK_UPDATES").pipe(Config.option),
-  mockUpdateServerPort: Config.string("PENKRA_DESKTOP_MOCK_UPDATE_SERVER_PORT").pipe(Config.option),
+  version: Config.String("PENKRA_DESKTOP_VERSION").pipe(Config.option),
+  sourceCommit: Config.String("PENKRA_SOURCE_COMMIT").pipe(Config.option),
+  sourceTag: Config.String("PENKRA_SOURCE_TAG").pipe(Config.option),
+  lockfileSha256: Config.String("PENKRA_LOCKFILE_SHA256").pipe(Config.option),
+  outputDir: Config.String("PENKRA_DESKTOP_OUTPUT_DIR").pipe(Config.option),
+  skipBuild: Config.String("PENKRA_DESKTOP_SKIP_BUILD").pipe(Config.option),
+  keepStage: Config.String("PENKRA_DESKTOP_KEEP_STAGE").pipe(Config.option),
+  signed: Config.String("PENKRA_DESKTOP_SIGNED").pipe(Config.option),
+  localSign: Config.String("PENKRA_DESKTOP_LOCAL_SIGN").pipe(Config.option),
+  verbose: Config.String("PENKRA_DESKTOP_VERBOSE").pipe(Config.option),
+  mockUpdates: Config.String("PENKRA_DESKTOP_MOCK_UPDATES").pipe(Config.option),
+  mockUpdateServerPort: Config.String("PENKRA_DESKTOP_MOCK_UPDATE_SERVER_PORT").pipe(Config.option),
 });
 
 const resolveBooleanFlag = (flag: Option.Option<boolean>, envValue: boolean) =>
@@ -246,7 +246,7 @@ export const resolveBuildOptions = Effect.fn("resolveBuildOptions")(function* (
 ) {
   const path = yield* Path.Path;
   const repoRoot = yield* RepoRoot;
-  const env = yield* BuildEnvConfig.asEffect();
+  const env = yield* BuildEnvConfig;
 
   const platform = mergeOptions(
     input.platform,
@@ -1166,69 +1166,69 @@ const buildDesktopArtifact = Effect.fn("buildDesktopArtifact")(function* (
 });
 
 const buildDesktopArtifactCli = Command.make("build-desktop-artifact", {
-  platform: Flag.choice("platform", BuildPlatform.literals).pipe(
+  platform: Flag.Literals("platform", BuildPlatform.literals).pipe(
     Flag.withDescription("Build platform (env: PENKRA_DESKTOP_PLATFORM)."),
     Flag.optional,
   ),
-  target: Flag.string("target").pipe(
+  target: Flag.String("target").pipe(
     Flag.withDescription("Artifact target, for example dmg (env: PENKRA_DESKTOP_TARGET)."),
     Flag.optional,
   ),
-  arch: Flag.choice("arch", BuildArch.literals).pipe(
+  arch: Flag.Literals("arch", BuildArch.literals).pipe(
     Flag.withDescription("Build arch, for example arm64/x64/universal (env: PENKRA_DESKTOP_ARCH)."),
     Flag.optional,
   ),
-  buildVersion: Flag.string("build-version").pipe(
+  buildVersion: Flag.String("build-version").pipe(
     Flag.withDescription("Artifact version metadata (env: PENKRA_DESKTOP_VERSION)."),
     Flag.optional,
   ),
-  sourceCommit: Flag.string("source-commit").pipe(
+  sourceCommit: Flag.String("source-commit").pipe(
     Flag.withDescription("Expected full source commit (env: PENKRA_SOURCE_COMMIT)."),
     Flag.optional,
   ),
-  sourceTag: Flag.string("source-tag").pipe(
+  sourceTag: Flag.String("source-tag").pipe(
     Flag.withDescription("Exact source tag when building a release (env: PENKRA_SOURCE_TAG)."),
     Flag.optional,
   ),
-  lockfileSha256: Flag.string("lockfile-sha256").pipe(
+  lockfileSha256: Flag.String("lockfile-sha256").pipe(
     Flag.withDescription("Expected bun.lock SHA-256 (env: PENKRA_LOCKFILE_SHA256)."),
     Flag.optional,
   ),
-  outputDir: Flag.string("output-dir").pipe(
+  outputDir: Flag.String("output-dir").pipe(
     Flag.withDescription("Output directory for artifacts (env: PENKRA_DESKTOP_OUTPUT_DIR)."),
     Flag.optional,
   ),
-  skipBuild: Flag.boolean("skip-build").pipe(
+  skipBuild: Flag.Boolean("skip-build").pipe(
     Flag.withDescription(
       "Skip `bun run build:desktop` and use existing dist artifacts (env: PENKRA_DESKTOP_SKIP_BUILD).",
     ),
     Flag.optional,
   ),
-  keepStage: Flag.boolean("keep-stage").pipe(
+  keepStage: Flag.Boolean("keep-stage").pipe(
     Flag.withDescription("Keep temporary staging files (env: PENKRA_DESKTOP_KEEP_STAGE)."),
     Flag.optional,
   ),
-  signed: Flag.boolean("signed").pipe(
+  signed: Flag.Boolean("signed").pipe(
     Flag.withDescription(
       "Enable required platform signing and macOS notarization (env: PENKRA_DESKTOP_SIGNED).",
     ),
     Flag.optional,
   ),
-  localSign: Flag.boolean("local-sign").pipe(
+  localSign: Flag.Boolean("local-sign").pipe(
     Flag.withDescription(
       "Sign locally without publication notarization (env: PENKRA_DESKTOP_LOCAL_SIGN).",
     ),
     Flag.optional,
   ),
-  verbose: Flag.boolean("verbose").pipe(
+  verbose: Flag.Boolean("verbose").pipe(
     Flag.withDescription("Stream subprocess stdout (env: PENKRA_DESKTOP_VERBOSE)."),
     Flag.optional,
   ),
-  mockUpdates: Flag.boolean("mock-updates").pipe(
+  mockUpdates: Flag.Boolean("mock-updates").pipe(
     Flag.withDescription("Enable mock updates (env: PENKRA_DESKTOP_MOCK_UPDATES)."),
     Flag.optional,
   ),
-  mockUpdateServerPort: Flag.string("mock-update-server-port").pipe(
+  mockUpdateServerPort: Flag.String("mock-update-server-port").pipe(
     Flag.withDescription("Mock update server port (env: PENKRA_DESKTOP_MOCK_UPDATE_SERVER_PORT)."),
     Flag.optional,
   ),

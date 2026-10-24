@@ -259,7 +259,7 @@ export async function stageUploadComposerAttachments(input: {
 }): Promise<StagedComposerAttachments> {
   const attachments: UploadChatAttachment[] = input.assistantSelections.map((selection) => ({
     type: "assistant-selection" as const,
-    assistantMessageId: MessageId.makeUnsafe(selection.assistantMessageId),
+    assistantMessageId: MessageId.make(selection.assistantMessageId),
     text: selection.text,
   }));
 

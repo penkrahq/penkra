@@ -96,12 +96,12 @@ export function sidebarParentFromDndGroup(group: unknown): SidebarItemParent | n
   const spacePrefix = "sidebar-parent:space:";
   if (group.startsWith(spacePrefix)) {
     const spaceId = group.slice(spacePrefix.length);
-    return spaceId ? { kind: "space", spaceId: SpaceId.makeUnsafe(spaceId) } : null;
+    return spaceId ? { kind: "space", spaceId: SpaceId.make(spaceId) } : null;
   }
   const projectPrefix = "sidebar-parent:project:";
   if (group.startsWith(projectPrefix)) {
     const folderId = group.slice(projectPrefix.length);
-    return folderId ? { kind: "folder", folderId: FolderId.makeUnsafe(folderId) } : null;
+    return folderId ? { kind: "folder", folderId: FolderId.make(folderId) } : null;
   }
   return null;
 }

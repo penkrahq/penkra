@@ -18,7 +18,7 @@ it("keeps a loaded catalog on focus and refreshes it only on its scoped change e
   const scope = {
     provider: "codex" as const,
     connectionId: null,
-    folderId: FolderId.makeUnsafe("folder"),
+    folderId: FolderId.make("folder"),
   };
   let name = "first";
   const getCatalog = vi.fn(async () => ({

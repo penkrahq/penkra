@@ -1,0 +1,29 @@
+diff --git a/dist/internal/nodeChildProcessSpawner.js b/dist/internal/nodeChildProcessSpawner.js
+index 5da1d9acd81276fd3b7136e28c186b8efced89d2..1ceb34669d931b7505b444231fa2d649ea7c636d 100644
+--- a/dist/internal/nodeChildProcessSpawner.js
++++ b/dist/internal/nodeChildProcessSpawner.js
+@@ -4,7 +4,8 @@ export const buildSpawnOptions = (options, base, platform) => {
+     ...base,
+     detached,
+     shell: options.shell,
+-    windowsHide: options.windowsHide ?? !detached
++    windowsHide: options.windowsHide ?? !detached,
++    windowsVerbatimArguments: options.windowsVerbatimArguments
+   };
+ };
+ //# sourceMappingURL=nodeChildProcessSpawner.js.map
+diff --git a/src/internal/nodeChildProcessSpawner.ts b/src/internal/nodeChildProcessSpawner.ts
+index e2e99c73e3291e3c2cbc6a298cc85515c6358096..a02248b279bda7fff0bc930af0b44d8039486754 100644
+--- a/src/internal/nodeChildProcessSpawner.ts
++++ b/src/internal/nodeChildProcessSpawner.ts
+@@ -11,6 +11,9 @@ export const buildSpawnOptions = (
+     ...base,
+     detached,
+     shell: options.shell,
+-    windowsHide: options.windowsHide ?? !detached
++    windowsHide: options.windowsHide ?? !detached,
++    windowsVerbatimArguments: (options as ChildProcess.CommandOptions & {
++      readonly windowsVerbatimArguments?: boolean | undefined
++    }).windowsVerbatimArguments
+   }
+ }

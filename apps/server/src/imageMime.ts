@@ -1,4 +1,5 @@
-import Mime from "@effect/platform-node/Mime";
+import { Option } from "effect";
+import * as Mime from "effect/http/Mime";
 
 export const IMAGE_EXTENSION_BY_MIME_TYPE: Record<string, string> = {
   "image/avif": ".avif",
@@ -63,7 +64,7 @@ export function inferImageExtension(input: { mimeType: string; fileName?: string
     return fromMime;
   }
 
-  const fromMimeExtension = Mime.getExtension(input.mimeType);
+  const fromMimeExtension = Option.getOrUndefined(Mime.getExtension(input.mimeType));
   if (fromMimeExtension && SAFE_IMAGE_FILE_EXTENSIONS.has(fromMimeExtension)) {
     return fromMimeExtension;
   }
@@ -88,7 +89,7 @@ export function inferAttachmentExtension(input: { mimeType: string; fileName?: s
     }
   }
 
-  const fromMimeExtension = Mime.getExtension(input.mimeType);
+  const fromMimeExtension = Option.getOrUndefined(Mime.getExtension(input.mimeType));
   if (fromMimeExtension && /^[a-z0-9]{1,8}$/i.test(fromMimeExtension)) {
     return `.${fromMimeExtension.toLowerCase()}`;
   }

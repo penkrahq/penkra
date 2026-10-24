@@ -1,4 +1,4 @@
-import { Option, Schema, ServiceMap } from "effect";
+import { Option, Schema, Context } from "effect";
 import type { Effect } from "effect";
 
 import type { AuthPairingLinkRepositoryError } from "../Errors";
@@ -70,7 +70,7 @@ export interface AuthPairingLinkRepositoryShape {
   ) => Effect.Effect<Option.Option<AuthPairingLinkRecord>, AuthPairingLinkRepositoryError>;
 }
 
-export class AuthPairingLinkRepository extends ServiceMap.Service<
+export class AuthPairingLinkRepository extends Context.Service<
   AuthPairingLinkRepository,
   AuthPairingLinkRepositoryShape
 >()("penkra/persistence/Services/AuthPairingLinks/AuthPairingLinkRepository") {}

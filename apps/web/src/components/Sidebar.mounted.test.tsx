@@ -43,10 +43,10 @@ import { useSpacesUiStore } from "../spacesUiStore";
 import { useComposerDraftStore } from "../composerDraftStore";
 import type { Project, Space } from "../types";
 
-const spaceId = SpaceId.makeUnsafe("sidebar-stable-space");
-const folderId = FolderId.makeUnsafe("sidebar-stable-folder");
-const targetId = ThreadId.makeUnsafe("sidebar-target");
-const previousId = ThreadId.makeUnsafe("sidebar-previous");
+const spaceId = SpaceId.make("sidebar-stable-space");
+const folderId = FolderId.make("sidebar-stable-folder");
+const targetId = ThreadId.make("sidebar-target");
+const previousId = ThreadId.make("sidebar-previous");
 const at = "2026-10-11T00:00:00.000Z";
 const folder: Project = {
   id: folderId,
@@ -227,17 +227,17 @@ it("loads twenty folders in parallel after restart, including new and restored t
   resetThreadListForTests();
   const folders = Array.from({ length: 20 }, (_, index) => ({
     ...folder,
-    id: FolderId.makeUnsafe(`restart-folder-${index}`),
+    id: FolderId.make(`restart-folder-${index}`),
     name: index === 19 ? "Stage" : `Folder ${index}`,
     cwd: `/restart-${index}`,
   }));
   const stage = folders.at(-1)!;
   const created = {
-    ...row(ThreadId.makeUnsafe("stage-created"), "Stage new chat"),
+    ...row(ThreadId.make("stage-created"), "Stage new chat"),
     folderId: stage.id,
   };
   const restored = {
-    ...row(ThreadId.makeUnsafe("stage-restored"), "Stage restored Claude"),
+    ...row(ThreadId.make("stage-restored"), "Stage restored Claude"),
     folderId: stage.id,
     provider: "claudeAgent" as const,
     model: "claude-sonnet-4-5",
@@ -299,7 +299,7 @@ it("highlights the folder, not the previous thread, while a new draft is open", 
       </QueryClientProvider>,
     ),
   );
-  const draftId = ThreadId.makeUnsafe("new-folder-draft");
+  const draftId = ThreadId.make("new-folder-draft");
   await act(async () => {
     useComposerDraftStore.setState({
       draftThreadsByThreadId: {

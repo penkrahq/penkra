@@ -39,7 +39,7 @@ import { INLINE_TOOL_RESULT_BYTES } from "@penkra/shared/toolResults";
 import { PENDING_INTERACTION_NOT_FOUND_FAILURE_CODE } from "@penkra/shared/threadSummary";
 import { decodeSubagentReceiverThreadIds } from "@penkra/shared/subagents";
 import { prepareWindowsSafeProcess } from "@penkra/shared/windowsProcess";
-import { Effect, ServiceMap } from "effect";
+import { Effect, Context } from "effect";
 
 import {
   formatCodexCliUpgradeMessage,
@@ -954,7 +954,7 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
     );
   }
   constructor(
-    services?: ServiceMap.ServiceMap<never>,
+    services?: Context.Context<never>,
     options?: {
       readonly penkraSkillsDir?: string;
       readonly agentGatewayHostTool?: {
@@ -1304,7 +1304,7 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
       }).pipe(this.runPromise);
       if (resumedActiveTurnId && shouldEmitRecoveredTurnStart) {
         this.emitEvent({
-          id: EventId.makeUnsafe(randomUUID()),
+          id: EventId.make(randomUUID()),
           kind: "notification",
           provider: "codex",
           threadId: context.session.threadId,
@@ -1354,7 +1354,7 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
         this.emitErrorEvent(context, "session/startFailed", message);
       } else {
         this.emitEvent({
-          id: EventId.makeUnsafe(randomUUID()),
+          id: EventId.make(randomUUID()),
           kind: "error",
           provider: "codex",
           threadId,
@@ -1477,7 +1477,7 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
       if (!turnIdRaw) {
         throw new Error("turn/start response did not include a turn id.");
       }
-      const turnId = TurnId.makeUnsafe(turnIdRaw);
+      const turnId = TurnId.make(turnIdRaw);
       if (pendingStart.turnId !== undefined && pendingStart.turnId !== turnId) {
         throw new Error("turn/start response does not match the registered native turn.");
       }
@@ -1590,7 +1590,7 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
     if (!turnIdRaw) {
       throw new Error("turn/steer response did not include a turn id.");
     }
-    const turnId = TurnId.makeUnsafe(turnIdRaw);
+    const turnId = TurnId.make(turnIdRaw);
 
     this.updateSession(context, {
       status: "running",
@@ -1643,7 +1643,7 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
     if (!turnIdRaw) {
       throw new Error("review/start response did not include a turn id.");
     }
-    const turnId = TurnId.makeUnsafe(turnIdRaw);
+    const turnId = TurnId.make(turnIdRaw);
     context.reviewTurnIds.add(turnId);
     log.info("[codex-review] review/start acknowledged", {
       threadId: context.session.threadId,
@@ -1806,7 +1806,7 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
       });
     }
     this.emitEvent({
-      id: EventId.makeUnsafe(randomUUID()),
+      id: EventId.make(randomUUID()),
       kind: "notification",
       provider: "codex",
       threadId: context.session.threadId,
@@ -1877,7 +1877,7 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
     context.pendingUserInputs.delete(pendingRequest.requestId);
 
     this.emitEvent({
-      id: EventId.makeUnsafe(randomUUID()),
+      id: EventId.make(randomUUID()),
       kind: "notification",
       provider: "codex",
       threadId: context.session.threadId,
@@ -2372,7 +2372,7 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
     if (!normalizedThreadId) {
       throw new Error("Voice transcription requires an exact active thread session.");
     }
-    const session = this.requireSession(ThreadId.makeUnsafe(normalizedThreadId));
+    const session = this.requireSession(ThreadId.make(normalizedThreadId));
     if (normalizedCwd && session.session.cwd !== normalizedCwd) {
       throw new Error("The active Codex session does not match the requested working folder.");
     }
@@ -3088,7 +3088,7 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
     });
 
     this.emitEvent({
-      id: EventId.makeUnsafe(randomUUID()),
+      id: EventId.make(randomUUID()),
       kind: "notification",
       provider: "codex",
       threadId: context.session.threadId,
@@ -3214,7 +3214,7 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
         : undefined;
 
     this.emitEvent({
-      id: EventId.makeUnsafe(randomUUID()),
+      id: EventId.make(randomUUID()),
       kind: "notification",
       provider: "codex",
       threadId: context.session.threadId,
@@ -3464,7 +3464,7 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
     }
 
     this.emitEvent({
-      id: EventId.makeUnsafe(randomUUID()),
+      id: EventId.make(randomUUID()),
       kind: "request",
       provider: "codex",
       threadId: context.session.threadId,
@@ -3737,7 +3737,7 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
 
   private emitLifecycleEvent(context: CodexSessionContext, method: string, message: string): void {
     this.emitEvent({
-      id: EventId.makeUnsafe(randomUUID()),
+      id: EventId.make(randomUUID()),
       kind: "session",
       provider: "codex",
       threadId: context.session.threadId,
@@ -3757,7 +3757,7 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
     diagnostic?: CodexRuntimeDiagnostic,
   ): void {
     this.emitEvent({
-      id: EventId.makeUnsafe(randomUUID()),
+      id: EventId.make(randomUUID()),
       kind: "error",
       provider: "codex",
       threadId: context.session.threadId,
@@ -3805,7 +3805,7 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
     context.terminalTurnIds.add(terminalTurnId);
 
     this.emitEvent({
-      id: EventId.makeUnsafe(randomUUID()),
+      id: EventId.make(randomUUID()),
       kind: "notification",
       provider: "codex",
       threadId: context.session.threadId,
@@ -3866,7 +3866,7 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
     const turns = turnsRaw.map((turnValue, index) => {
       const turn = this.readObject(turnValue);
       const turnIdRaw = this.readString(turn, "id") ?? `${threadIdRaw}:turn:${index + 1}`;
-      const turnId = TurnId.makeUnsafe(turnIdRaw);
+      const turnId = TurnId.make(turnIdRaw);
       const items = this.readArray(turn, "items") ?? [];
       const status = this.readString(turn, "status");
       return {
@@ -4432,9 +4432,9 @@ function readResumeThreadId(input: CodexAppServerStartSessionInput): string | un
 }
 
 function toTurnId(value: string | undefined): TurnId | undefined {
-  return brandIfNonEmpty(value, TurnId.makeUnsafe);
+  return brandIfNonEmpty(value, TurnId.make);
 }
 
 function toProviderItemId(value: string | undefined): ProviderItemId | undefined {
-  return brandIfNonEmpty(value, ProviderItemId.makeUnsafe);
+  return brandIfNonEmpty(value, ProviderItemId.make);
 }

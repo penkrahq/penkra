@@ -1,7 +1,7 @@
 // Purpose: Clean-cut migration from nullable Space assignments to persisted Spaces only.
 
 import * as Effect from "effect/Effect";
-import * as SqlClient from "effect/unstable/sql/SqlClient";
+import * as SqlClient from "effect/sql/SqlClient";
 
 const PERSONAL_SPACE_ID = "penkra-personal";
 

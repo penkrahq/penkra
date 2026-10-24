@@ -6,8 +6,8 @@ import { render } from "vitest-browser-react";
 import { useSpacesUiStore } from "../spacesUiStore";
 import { useRouteSpaceSync } from "./useRouteSpaceSync";
 
-const routeFolderId = FolderId.makeUnsafe("project-void");
-const selectedSpaceId = SpaceId.makeUnsafe("space-work");
+const routeFolderId = FolderId.make("project-void");
+const selectedSpaceId = SpaceId.make("space-work");
 
 function RouteSpaceSyncFixture() {
   const activeSpaceId = useSpacesUiStore((state) => state.activeSpaceId);

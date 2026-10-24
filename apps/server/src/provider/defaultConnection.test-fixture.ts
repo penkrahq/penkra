@@ -6,7 +6,7 @@ import {
 
 export function connectionFixture(provider: ProviderKind, id: string): ProviderConnection {
   return {
-    id: ProviderConnectionId.makeUnsafe(id),
+    id: ProviderConnectionId.make(id),
     harness: provider,
     authenticationTargetId:
       provider === "opencode"

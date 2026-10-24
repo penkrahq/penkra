@@ -1,7 +1,7 @@
 import { seedHistoricalThreadItem } from "./historicalFolderFixture.ts";
 import { assert, it } from "@effect/vitest";
 import { Effect } from "effect";
-import * as SqlClient from "effect/unstable/sql/SqlClient";
+import * as SqlClient from "effect/sql/SqlClient";
 
 import { createThread } from "../../cleanCore/threadStore.ts";
 import { seedHistoricalFolderFixture } from "./historicalFolderFixture.ts";

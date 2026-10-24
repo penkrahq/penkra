@@ -1,4 +1,4 @@
-import { Data, Effect, ServiceMap } from "effect";
+import { Data, Effect, Context } from "effect";
 
 export class SecretStoreError extends Data.TaggedError("SecretStoreError")<{
   readonly message: string;
@@ -15,7 +15,6 @@ export interface ServerSecretStoreShape {
   readonly remove: (name: string) => Effect.Effect<void, SecretStoreError>;
 }
 
-export class ServerSecretStore extends ServiceMap.Service<
-  ServerSecretStore,
-  ServerSecretStoreShape
->()("penkra/auth/Services/ServerSecretStore") {}
+export class ServerSecretStore extends Context.Service<ServerSecretStore, ServerSecretStoreShape>()(
+  "penkra/auth/Services/ServerSecretStore",
+) {}

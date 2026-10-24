@@ -1,4 +1,4 @@
-import { Effect, Layer, PubSub, Ref, ServiceMap, Stream } from "effect";
+import { Effect, Layer, PubSub, Ref, Context, Stream } from "effect";
 
 import type { FolderId, ThreadId } from "@penkra/contracts";
 
@@ -53,7 +53,7 @@ export interface ServerLifecycleEventsShape {
   readonly stream: Stream.Stream<ServerLifecycleEvent>;
 }
 
-export class ServerLifecycleEvents extends ServiceMap.Service<
+export class ServerLifecycleEvents extends Context.Service<
   ServerLifecycleEvents,
   ServerLifecycleEventsShape
 >()("penkra/serverLifecycleEvents") {}

@@ -1,6 +1,6 @@
 // Purpose: Verify the 0.14.4 backfill before its migration transaction can commit.
 import { Effect } from "effect";
-import * as SqlClient from "effect/unstable/sql/SqlClient";
+import * as SqlClient from "effect/sql/SqlClient";
 
 export const verifyCleanCoreBackfill = Effect.gen(function* () {
   const sql = yield* SqlClient.SqlClient;

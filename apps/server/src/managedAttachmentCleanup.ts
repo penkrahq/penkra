@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import fs from "node:fs/promises";
 import path from "node:path";
 
-import { Effect, Layer, Semaphore, ServiceMap } from "effect";
+import { Effect, Layer, Semaphore, Context } from "effect";
 
 import { resolveAttachmentRelativePath } from "./attachmentPaths";
 import { ServerConfig } from "./config";
@@ -134,7 +134,7 @@ export interface ManagedAttachmentCleanupShape {
   readonly drain: Effect.Effect<void>;
 }
 
-export class ManagedAttachmentCleanup extends ServiceMap.Service<
+export class ManagedAttachmentCleanup extends Context.Service<
   ManagedAttachmentCleanup,
   ManagedAttachmentCleanupShape
 >()("penkra/ManagedAttachmentCleanup") {}

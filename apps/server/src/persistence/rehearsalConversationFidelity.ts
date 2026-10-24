@@ -1,7 +1,7 @@
 // Offline rehearsal evidence: compare meaning, not merely the number of rows.
 import { createHash } from "node:crypto";
 import { Effect } from "effect";
-import * as SqlClient from "effect/unstable/sql/SqlClient";
+import * as SqlClient from "effect/sql/SqlClient";
 
 function stable(value: unknown): unknown {
   if (Array.isArray(value)) return value.map(stable);

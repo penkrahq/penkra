@@ -287,10 +287,10 @@ describe("server-defined transcript rows", () => {
     kind: CleanCoreThreadItem["kind"],
     extra: Partial<CleanCoreThreadItem> = {},
   ): CleanCoreThreadItem => ({
-    threadId: ThreadId.makeUnsafe("thread"),
+    threadId: ThreadId.make("thread"),
     seq,
     sourceId: "item-" + seq,
-    turnId: TurnId.makeUnsafe("t1"),
+    turnId: TurnId.make("t1"),
     kind,
     status: "done",
     text: "row " + seq,
@@ -443,10 +443,10 @@ describe("server-defined transcript rows", () => {
     ]);
   });
   it("anchors a Claude steer after the previous final and before the consuming turn, preserving stored sequence", () => {
-    const consuming = item(9, "turn", { sourceId: "turn:t2", turnId: TurnId.makeUnsafe("t2") });
-    const answer = item(10, "text", { turnId: TurnId.makeUnsafe("t2") });
+    const consuming = item(9, "turn", { sourceId: "turn:t2", turnId: TurnId.make("t2") });
+    const answer = item(10, "text", { turnId: TurnId.make("t2") });
     const steer = item(5, "user", {
-      turnId: TurnId.makeUnsafe("t2"),
+      turnId: TurnId.make("t2"),
       data: JSON.stringify({
         origin: { _tag: "user" },
         attachments: [],
@@ -488,7 +488,7 @@ describe("server-defined transcript rows", () => {
         finals: {},
         turns: { t1: { ...marker, status: "running" } },
         isWorking: true,
-        activeTurnId: TurnId.makeUnsafe("t1"),
+        activeTurnId: TurnId.make("t1"),
         activeTurnStartedAt: marker.createdAt,
       });
       expect(rows.map((row) => row.id)).toEqual(
@@ -506,7 +506,7 @@ describe("server-defined transcript rows", () => {
         finals: {},
         turns: { t1: { ...marker, status: "running" } },
         isWorking: true,
-        activeTurnId: TurnId.makeUnsafe("t1"),
+        activeTurnId: TurnId.make("t1"),
         activeTurnStartedAt: marker.createdAt,
       });
       expect(unloaded.map((row) => row.id)).toEqual([
@@ -527,7 +527,7 @@ describe("server-defined transcript rows", () => {
           entry: {
             id: "step-" + seq,
             sequence: seq,
-            turnId: TurnId.makeUnsafe("t1"),
+            turnId: TurnId.make("t1"),
             createdAt: marker.createdAt,
             label: "Ran command",
             tone: "tool",
@@ -600,7 +600,7 @@ describe("server-defined transcript rows", () => {
       turns: { t1: { ...marker, status: "running" } },
       isWorking: true,
       activeTurnInProgress: true,
-      activeTurnId: TurnId.makeUnsafe("t1"),
+      activeTurnId: TurnId.make("t1"),
       activeTurnStartedAt: marker.createdAt,
     });
     expect(rows.map((row) => row.id)).toEqual([
@@ -668,8 +668,8 @@ describe("server-defined transcript rows", () => {
     expect(rows.map((row) => row.kind)).toEqual(["turn-header", "work"]);
   });
   it("does not merge adjacent provider turns into one user response", () => {
-    const other = item(10, "turn", { sourceId: "turn:t2", turnId: TurnId.makeUnsafe("t2") });
-    const answer = item(11, "text", { turnId: TurnId.makeUnsafe("t2") });
+    const other = item(10, "turn", { sourceId: "turn:t2", turnId: TurnId.make("t2") });
+    const answer = item(11, "text", { turnId: TurnId.make("t2") });
     const rows = deriveMessagesTimelineRows({
       ...base,
       turns: { t1: marker, t2: other },
@@ -693,7 +693,7 @@ describe("server-defined transcript rows", () => {
         createdAt: marker.createdAt,
         tone: "tool",
         label: "Image",
-        turnId: TurnId.makeUnsafe("t1"),
+        turnId: TurnId.make("t1"),
         sequence: 3 + index,
         presentedMedia: {
           attachmentId: id,
@@ -721,7 +721,7 @@ describe("server-defined transcript rows", () => {
       timelineEntries: [media("second", 1), media("first", 0)],
       turns: { t1: { ...marker, status: "running" } },
       isWorking: true,
-      activeTurnId: TurnId.makeUnsafe("t1"),
+      activeTurnId: TurnId.make("t1"),
       activeTurnInProgress: true,
       activeTurnStartedAt: marker.createdAt,
     });

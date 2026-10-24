@@ -36,7 +36,7 @@ export function providerRuntimeEventIdFromNative(input: {
       }),
     )
     .digest("hex");
-  return EventId.makeUnsafe(`native:${input.provider}:${digest}`);
+  return EventId.make(`native:${input.provider}:${digest}`);
 }
 
 /**
@@ -61,7 +61,7 @@ export function assignDerivedProviderRuntimeEventIds(
     ordinals.set(event.eventId, ordinal + 1);
     return {
       ...event,
-      eventId: EventId.makeUnsafe(`${event.eventId}:${event.type}:${ordinal}`),
+      eventId: EventId.make(`${event.eventId}:${event.type}:${ordinal}`),
     };
   });
 }

@@ -8,7 +8,7 @@ import {
   ThreadId,
   TurnId,
 } from "@penkra/contracts";
-import * as SqlClient from "effect/unstable/sql/SqlClient";
+import * as SqlClient from "effect/sql/SqlClient";
 import * as NodeSqliteClient from "../../persistence/NodeSqliteClient.ts";
 import { runMigrations } from "../../persistence/Migrations.ts";
 import { createThreadFixture, seedThreadFolderFixture } from "../../cleanCore/threadFixtures.ts";
@@ -37,15 +37,15 @@ for (const scenario of ["success", "copy-fails", "commit-fails", "shared-id"] as
         Effect.gen(function* () {
           yield* runMigrations();
           const sql = yield* SqlClient.SqlClient;
-          const threadId = ThreadId.makeUnsafe("switch-thread");
-          const oldConnection = ProviderConnectionId.makeUnsafe("old-connection");
-          const newConnection = ProviderConnectionId.makeUnsafe("new-connection");
+          const threadId = ThreadId.make("switch-thread");
+          const oldConnection = ProviderConnectionId.make("old-connection");
+          const newConnection = ProviderConnectionId.make("new-connection");
           const at = "2026-10-22T00:00:00.000Z";
           yield* seedThreadFolderFixture("folder", "space");
           const seed = (id: ThreadId) =>
             createThreadFixture(sql, {
               threadId: id,
-              folderId: FolderId.makeUnsafe("folder"),
+              folderId: FolderId.make("folder"),
               title: "Switch",
               modelSelection: { provider: "opencode", model: "provider/model" },
               runtimeMode: "full-access",
@@ -56,7 +56,7 @@ for (const scenario of ["success", "copy-fails", "commit-fails", "shared-id"] as
           yield* seed(threadId);
           yield* sql`UPDATE threads SET native_state_id='source-generation',provider_session_id='ses_owned' WHERE id=${threadId}`;
           if (scenario === "shared-id") {
-            const peer = ThreadId.makeUnsafe("peer");
+            const peer = ThreadId.make("peer");
             yield* seed(peer);
             yield* sql`UPDATE threads SET provider_session_id='ses_owned' WHERE id=${peer}`;
           }
@@ -73,7 +73,7 @@ for (const scenario of ["success", "copy-fails", "commit-fails", "shared-id"] as
             connectionLabel: "New",
             previousConnectionId: oldConnection,
             previousModelId: "provider/model",
-            installationId: ProviderInstallationId.makeUnsafe("installation"),
+            installationId: ProviderInstallationId.make("installation"),
             internalProviderId: "provider",
             modelId: "provider/model",
             modelLabel: "Model",
@@ -151,7 +151,7 @@ for (const scenario of ["success", "copy-fails", "commit-fails", "shared-id"] as
                     connection_id: string;
                   }>`SELECT connection_id FROM threads WHERE id=${threadId}`;
                   expect(row!.connection_id).toBe(newConnection);
-                  return { threadId, turnId: TurnId.makeUnsafe("turn") };
+                  return { threadId, turnId: TurnId.make("turn") };
                 }),
             } as typeof TurnDispatch.Service),
           );
@@ -160,7 +160,7 @@ for (const scenario of ["success", "copy-fails", "commit-fails", "shared-id"] as
               command: {
                 threadId,
                 message: {
-                  messageId: MessageId.makeUnsafe("message"),
+                  messageId: MessageId.make("message"),
                   text: "Continue",
                   attachments: [],
                 },

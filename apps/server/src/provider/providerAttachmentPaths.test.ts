@@ -18,7 +18,7 @@ import {
 import { loadProviderPromptImageBlocks } from "./promptAttachments.ts";
 import { buildFileAttachmentsPromptBlock } from "./attachmentProjection.ts";
 
-const THREAD_ID = ThreadId.makeUnsafe("thread-1");
+const THREAD_ID = ThreadId.make("thread-1");
 const MESSAGE_ID = "message-1";
 const roots = new Set<string>();
 

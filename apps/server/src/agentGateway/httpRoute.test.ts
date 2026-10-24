@@ -5,7 +5,7 @@ import * as NodeHttpServer from "@effect/platform-node/NodeHttpServer";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { ThreadId } from "@penkra/contracts";
 import { Effect, Exit, Layer, Scope } from "effect";
-import { HttpRouter } from "effect/unstable/http";
+import { HttpRouter } from "effect/http";
 import { describe, expect, it } from "vitest";
 
 import { AgentGateway, type AgentGatewayShape } from "./Services/AgentGateway.ts";
@@ -47,7 +47,7 @@ async function withGatewayServer(
   let bindingObserved: (() => void) | undefined;
   let nodeServer: http.Server | null = null;
   try {
-    const threadId = ThreadId.makeUnsafe("thread-http-route-test");
+    const threadId = ThreadId.make("thread-http-route-test");
     let sequence = 0;
     const registry = makeAgentGatewaySessionRegistry({
       randomId: () => (++sequence === 2 ? "http_route_test" : `http-route-${sequence}`),

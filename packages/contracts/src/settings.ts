@@ -1,16 +1,16 @@
-import { Schema } from "effect";
+import { Effect, Schema } from "effect";
 import { ProviderConnectionId, TrimmedString } from "./baseSchemas";
 import { ModelSelection, ProviderKind } from "./orchestration";
 
 const StringSetting = TrimmedString.check(Schema.isMaxLength(4096));
 const CustomModels = Schema.Array(Schema.String.check(Schema.isMaxLength(256))).pipe(
-  Schema.withDecodingDefault(() => []),
+  Schema.withDecodingDefault(Effect.sync(() => [])),
 );
 
 const ManagedProviderSettingsBase = {
   // Absent means not selected yet; null explicitly selects an anonymous route.
   defaultConnectionId: Schema.optionalKey(Schema.NullOr(ProviderConnectionId)),
-  enabled: Schema.Boolean.pipe(Schema.withDecodingDefault(() => true)),
+  enabled: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.sync(() => true))),
   customModels: CustomModels,
 };
 
@@ -26,12 +26,12 @@ export type ClaudeServerProviderSettings = typeof ClaudeServerProviderSettings.T
 
 export const OpenCodeServerProviderSettings = Schema.Struct({
   ...ManagedProviderSettingsBase,
-  experimentalWebSockets: Schema.Boolean.pipe(Schema.withDecodingDefault(() => false)),
+  experimentalWebSockets: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.sync(() => false))),
 });
 export type OpenCodeServerProviderSettings = typeof OpenCodeServerProviderSettings.Type;
 
 const DisabledSkillNames = Schema.Array(Schema.String.check(Schema.isMaxLength(256))).pipe(
-  Schema.withDecodingDefault(() => []),
+  Schema.withDecodingDefault(Effect.sync(() => [])),
 );
 
 // User-level skill toggles. Skills are keyed by lowercased name because the
@@ -42,17 +42,23 @@ export const SkillsServerSettings = Schema.Struct({
 export type SkillsServerSettings = typeof SkillsServerSettings.Type;
 
 export const ServerSettings = Schema.Struct({
-  enableAssistantStreaming: Schema.Boolean.pipe(Schema.withDecodingDefault(() => true)),
-  addProjectBaseDirectory: StringSetting.pipe(Schema.withDecodingDefault(() => "")),
+  enableAssistantStreaming: Schema.Boolean.pipe(
+    Schema.withDecodingDefault(Effect.sync(() => true)),
+  ),
+  addProjectBaseDirectory: StringSetting.pipe(Schema.withDecodingDefault(Effect.sync(() => ""))),
   textGenerationModelSelection: Schema.NullOr(ModelSelection).pipe(
-    Schema.withDecodingDefault(() => null),
+    Schema.withDecodingDefault(Effect.sync(() => null)),
   ),
   providers: Schema.Struct({
-    codex: CodexServerProviderSettings.pipe(Schema.withDecodingDefault(() => ({}))),
-    claudeAgent: ClaudeServerProviderSettings.pipe(Schema.withDecodingDefault(() => ({}))),
-    opencode: OpenCodeServerProviderSettings.pipe(Schema.withDecodingDefault(() => ({}))),
-  }).pipe(Schema.withDecodingDefault(() => ({}))),
-  skills: SkillsServerSettings.pipe(Schema.withDecodingDefault(() => ({}))),
+    codex: CodexServerProviderSettings.pipe(Schema.withDecodingDefault(Effect.sync(() => ({})))),
+    claudeAgent: ClaudeServerProviderSettings.pipe(
+      Schema.withDecodingDefault(Effect.sync(() => ({}))),
+    ),
+    opencode: OpenCodeServerProviderSettings.pipe(
+      Schema.withDecodingDefault(Effect.sync(() => ({}))),
+    ),
+  }).pipe(Schema.withDecodingDefault(Effect.sync(() => ({})))),
+  skills: SkillsServerSettings.pipe(Schema.withDecodingDefault(Effect.sync(() => ({})))),
 });
 export type ServerSettings = typeof ServerSettings.Type;
 
@@ -111,12 +117,12 @@ export const ServerSettingsPatch = Schema.Struct({
 });
 export type ServerSettingsPatch = typeof ServerSettingsPatch.Type;
 
-export class ServerSettingsError extends Schema.TaggedErrorClass<ServerSettingsError>()(
+export class ServerSettingsError extends Schema.TaggedError<ServerSettingsError>()(
   "ServerSettingsError",
   {
     settingsPath: Schema.String,
     detail: Schema.String,
-    cause: Schema.optional(Schema.Defect),
+    cause: Schema.optional(Schema.Defect()),
   },
 ) {
   override get message(): string {

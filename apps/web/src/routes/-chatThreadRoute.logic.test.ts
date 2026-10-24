@@ -21,8 +21,8 @@ describe("Thread route logic", () => {
   });
 
   it("uses draft project identity only when the server Thread has none", () => {
-    const server = FolderId.makeUnsafe("server-project");
-    const draft = FolderId.makeUnsafe("draft-project");
+    const server = FolderId.make("server-project");
+    const draft = FolderId.make("draft-project");
     expect(resolveSingleFolderId({ threadFolderId: server, draftFolderId: draft })).toBe(server);
     expect(resolveSingleFolderId({ threadFolderId: null, draftFolderId: draft })).toBe(draft);
   });

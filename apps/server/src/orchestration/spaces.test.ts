@@ -2,17 +2,17 @@
 import { assert, it } from "@effect/vitest";
 import { FolderId, SpaceId } from "@penkra/contracts";
 import { Effect } from "effect";
-import * as SqlClient from "effect/unstable/sql/SqlClient";
+import * as SqlClient from "effect/sql/SqlClient";
 import * as NodeSqliteClient from "../persistence/NodeSqliteClient";
 import { runMigrations } from "../persistence/Migrations";
 import { ensureDefaultSpaces, getNavigation, updateNavigation } from "../cleanCore/navigation";
 import { ThreadPublisher } from "../cleanCore/ThreadPublisher";
 import { createThread, makeThreadPublisher } from "../cleanCore/threadStore";
 const at = "2026-10-12T00:00:00.000Z";
-const personal = SpaceId.makeUnsafe("penkra-personal");
-const work = SpaceId.makeUnsafe("penkra-work");
-const extra = SpaceId.makeUnsafe("extra");
-const folder = FolderId.makeUnsafe("ideas");
+const personal = SpaceId.make("penkra-personal");
+const work = SpaceId.make("penkra-work");
+const extra = SpaceId.make("extra");
+const folder = FolderId.make("ideas");
 const write = updateNavigation;
 const createSpace = (spaceId: SpaceId, name: string) =>
   write({ update: { action: "space.create", spaceId, name, icon: "home", createdAt: at } });
@@ -50,9 +50,7 @@ it.effect("requires every ordinary folder to be born in a persisted Space", () =
 it.effect("rejects dangling Space ids instead of degrading them", () =>
   withDb(
     Effect.gen(function* () {
-      const error = yield* Effect.flip(
-        createFolder(folder, SpaceId.makeUnsafe("missing"), "Ideas"),
-      );
+      const error = yield* Effect.flip(createFolder(folder, SpaceId.make("missing"), "Ideas"));
       assert.include(error.message, "not available");
     }),
   ),
@@ -62,7 +60,7 @@ it.effect("requires case-insensitively unique folder names within a Space", () =
     Effect.gen(function* () {
       yield* createFolder(folder, personal, "Product");
       const error = yield* Effect.flip(
-        createFolder(FolderId.makeUnsafe("second"), personal, " product "),
+        createFolder(FolderId.make("second"), personal, " product "),
       );
       assert.include(error.message, "already exists in this Space");
     }),
@@ -137,7 +135,7 @@ it.effect("moves folders atomically between real Spaces", () =>
   withDb(
     Effect.gen(function* () {
       yield* createFolder(folder, personal, "Ideas");
-      const duplicate = FolderId.makeUnsafe("duplicate");
+      const duplicate = FolderId.make("duplicate");
       yield* createFolder(duplicate, work, "Ideas");
       const sql = yield* SqlClient.SqlClient;
       const before = yield* sql`SELECT * FROM projection_folders`;
@@ -145,7 +143,7 @@ it.effect("moves folders atomically between real Spaces", () =>
         write({
           update: {
             action: "folder.move",
-            folderIds: [FolderId.makeUnsafe("penkra-personal-default"), folder],
+            folderIds: [FolderId.make("penkra-personal-default"), folder],
             spaceId: work,
           },
         }),

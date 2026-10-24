@@ -89,7 +89,7 @@ const make = Effect.gen(function* () {
       );
       const adapter = yield* registry.getByProvider(parsed.provider);
       if (!adapter.getCapabilityHealth) return { capabilities: [], source: "unsupported" };
-      if (!(yield* adapter.hasSession(ThreadId.makeUnsafe(parsed.threadId))))
+      if (!(yield* adapter.hasSession(ThreadId.make(parsed.threadId))))
         return { capabilities: [], source: "no-active-session" };
       return yield* adapter.getCapabilityHealth(parsed);
     });

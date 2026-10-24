@@ -9,7 +9,7 @@ import { tmpdir } from "node:os";
 import * as Path from "node:path";
 
 import { Effect } from "effect";
-import { ChildProcess, ChildProcessSpawner } from "effect/unstable/process";
+import { ChildProcess, ChildProcessSpawner } from "effect/process";
 import { expect, it } from "vitest";
 
 it.runIf(process.platform === "win32")(

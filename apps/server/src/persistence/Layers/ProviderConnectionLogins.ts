@@ -2,7 +2,7 @@
 // Purpose: In-process sign-in progress; credential profiles remain durable.
 
 import { Effect, Layer, Option, PubSub } from "effect";
-import * as SqlClient from "effect/unstable/sql/SqlClient";
+import * as SqlClient from "effect/sql/SqlClient";
 
 import { toPersistenceSqlOrDecodeError } from "../Errors.ts";
 import {

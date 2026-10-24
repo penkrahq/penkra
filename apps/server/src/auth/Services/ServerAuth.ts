@@ -12,7 +12,7 @@ import type {
   ServerAuthDescriptor,
   ServerAuthSessionMethod,
 } from "@penkra/contracts";
-import { Data, DateTime, ServiceMap } from "effect";
+import { Data, DateTime, Context } from "effect";
 import type { Effect } from "effect";
 
 import type { SessionRole } from "./SessionCredentialService";
@@ -88,6 +88,6 @@ export interface ServerAuthShape {
   readonly issueStartupPairingUrl: (baseUrl: string) => Effect.Effect<string, AuthError>;
 }
 
-export class ServerAuth extends ServiceMap.Service<ServerAuth, ServerAuthShape>()(
+export class ServerAuth extends Context.Service<ServerAuth, ServerAuthShape>()(
   "penkra/auth/Services/ServerAuth",
 ) {}

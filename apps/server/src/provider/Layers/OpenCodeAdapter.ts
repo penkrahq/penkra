@@ -254,7 +254,7 @@ function toProcessError(
 }
 
 function asRuntimeItemId(value: string) {
-  return RuntimeItemId.makeUnsafe(value);
+  return RuntimeItemId.make(value);
 }
 
 function buildProviderEventBase(input: {
@@ -275,13 +275,13 @@ function buildProviderEventBase(input: {
     // cumulative native snapshot can also fan out into several canonical deltas, so hashing that
     // snapshot is neither unique per occurrence nor a safe replay identity. Assign identity at
     // this canonical emission boundary; completed text snapshots reconcile replayed fragments.
-    eventId: EventId.makeUnsafe(randomUUID()),
+    eventId: EventId.make(randomUUID()),
     provider: input.provider,
     threadId: input.threadId,
     createdAt: input.createdAt ?? nowIso(),
     ...(input.turnId ? { turnId: input.turnId } : {}),
     ...(input.itemId ? { itemId: asRuntimeItemId(input.itemId) } : {}),
-    ...(input.requestId ? { requestId: RuntimeRequestId.makeUnsafe(input.requestId) } : {}),
+    ...(input.requestId ? { requestId: RuntimeRequestId.make(input.requestId) } : {}),
     ...(input.raw !== undefined
       ? {
           raw: {
@@ -954,7 +954,7 @@ function buildOpenCodeThreadSnapshot(input: {
   return {
     threadId: input.threadId,
     turns: input.messages.map((entry) => ({
-      id: TurnId.makeUnsafe(entry.info.id),
+      id: TurnId.make(entry.info.id),
       items: [entry],
     })),
     cwd: input.cwd ?? null,
@@ -2883,7 +2883,7 @@ export function makeOpenCodeAdapterLive(options?: OpenCodeAdapterLiveOptions) {
 
       const sendTurn: OpenCodeAdapterShape["sendTurn"] = Effect.fn("sendTurn")(function* (input) {
         const context = ensureAdapterSessionContext(input.threadId);
-        const turnId = TurnId.makeUnsafe(`${adapterConfig.turnIdPrefix}-${randomUUID()}`);
+        const turnId = TurnId.make(`${adapterConfig.turnIdPrefix}-${randomUUID()}`);
         const modelSelection =
           input.modelSelection ??
           (context.session.model ? { provider, model: context.session.model } : undefined);

@@ -2,7 +2,7 @@ import { seedThreadFolderFixture } from "./threadFixtures.ts";
 import { assert, it } from "@effect/vitest";
 import { FolderId, SpaceId, ThreadId, TurnId } from "@penkra/contracts";
 import { Effect } from "effect";
-import * as SqlClient from "effect/unstable/sql/SqlClient";
+import * as SqlClient from "effect/sql/SqlClient";
 
 import { listThreads, findThread, listRunningThreads } from "./threadList.ts";
 import { createThread, makeThreadPublisher, upsertThreadItem } from "./threadStore.ts";
@@ -18,8 +18,8 @@ it.effect("sidebar pages exclude archived history before applying the limit and 
     Effect.gen(function* () {
       yield* runMigrations();
       const sql = yield* SqlClient.SqlClient;
-      const spaceId = SpaceId.makeUnsafe("archive-heavy-space");
-      const folderId = FolderId.makeUnsafe("archive-heavy-folder");
+      const spaceId = SpaceId.make("archive-heavy-space");
+      const folderId = FolderId.make("archive-heavy-folder");
       yield* seedThreadFolderFixture(folderId, spaceId);
       for (let i = 0; i < 103; i++) {
         yield* createThread({
@@ -53,7 +53,7 @@ it.effect("sidebar pages exclude archived history before applying the limit and 
       const empty = yield* listThreads({ spaceId, folderId });
       assert.deepStrictEqual(empty.threads, []);
       assert.isNull(empty.nextCursor);
-      assert.isNotNull(yield* findThread(ThreadId.makeUnsafe("archive-heavy-051")));
+      assert.isNotNull(yield* findThread(ThreadId.make("archive-heavy-051")));
     }),
   ),
 );
@@ -65,7 +65,7 @@ it.effect("lists every thread with the columns the web reads", () =>
       yield* seedThreadFolderFixture("list-folder", "space-1");
       yield* createThread({
         id: "thread-1",
-        spaceId: SpaceId.makeUnsafe("space-1"),
+        spaceId: SpaceId.make("space-1"),
         folderId: "list-folder",
         title: "Hello",
         provider: "codex",
@@ -78,7 +78,7 @@ it.effect("lists every thread with the columns the web reads", () =>
       });
       yield* createThread({
         id: "thread-2",
-        spaceId: SpaceId.makeUnsafe("space-1"),
+        spaceId: SpaceId.make("space-1"),
         folderId: "list-folder",
         title: "Second",
         provider: "claudeAgent",
@@ -90,8 +90,8 @@ it.effect("lists every thread with the columns the web reads", () =>
       });
 
       const page = yield* listThreads({
-        spaceId: SpaceId.makeUnsafe("space-1"),
-        folderId: FolderId.makeUnsafe("list-folder"),
+        spaceId: SpaceId.make("space-1"),
+        folderId: FolderId.make("list-folder"),
       });
       const threads = page.threads;
       assert.deepStrictEqual(
@@ -111,8 +111,8 @@ it.effect("lists every thread with the columns the web reads", () =>
 
       // Keyset pagination: one row per page, cursor advances.
       const firstPage = yield* listThreads({
-        spaceId: SpaceId.makeUnsafe("space-1"),
-        folderId: FolderId.makeUnsafe("list-folder"),
+        spaceId: SpaceId.make("space-1"),
+        folderId: FolderId.make("list-folder"),
         limit: 1,
       });
       assert.deepStrictEqual(
@@ -121,8 +121,8 @@ it.effect("lists every thread with the columns the web reads", () =>
       );
       assert.isNotNull(firstPage.nextCursor);
       const secondPage = yield* listThreads({
-        spaceId: SpaceId.makeUnsafe("space-1"),
-        folderId: FolderId.makeUnsafe("list-folder"),
+        spaceId: SpaceId.make("space-1"),
+        folderId: FolderId.make("list-folder"),
         limit: 1,
         after: firstPage.nextCursor,
       });
@@ -140,12 +140,12 @@ it.effect("pages folder members in sidebar order and excludes archived and delet
     Effect.gen(function* () {
       yield* runMigrations();
       const sql = yield* SqlClient.SqlClient;
-      const folderId = FolderId.makeUnsafe("folder-list");
+      const folderId = FolderId.make("folder-list");
       yield* sql`INSERT INTO projection_folders (folder_id, kind, space_id, title, workspace_root, created_at, updated_at) VALUES (${folderId}, 'project', 'space', 'Folder', NULL, '2026-10-10T00:00:00.000Z', '2026-10-10T00:00:00.000Z')`;
       for (let i = 0; i < 53; i++) {
         yield* createThread({
           id: "folder-thread-" + i.toString().padStart(2, "0"),
-          spaceId: SpaceId.makeUnsafe("space"),
+          spaceId: SpaceId.make("space"),
           folderId,
           sidebarSortOrder: i,
           title: "Member",
@@ -159,7 +159,7 @@ it.effect("pages folder members in sidebar order and excludes archived and delet
       yield* sql`UPDATE threads SET deleted_at = '2026-10-10T00:00:01.000Z' WHERE id = 'folder-thread-51'`;
       yield* sql`UPDATE threads SET archived_at = '2026-10-10T00:00:01.000Z' WHERE id = 'folder-thread-52'`;
       const first = yield* listThreads({
-        spaceId: SpaceId.makeUnsafe("space"),
+        spaceId: SpaceId.make("space"),
         folderId,
         after: null,
       });
@@ -168,7 +168,7 @@ it.effect("pages folder members in sidebar order and excludes archived and delet
       assert.equal(first.threads.at(-1)!.id, "folder-thread-49");
       assert.isNotNull(first.nextCursor);
       const next = yield* listThreads({
-        spaceId: SpaceId.makeUnsafe("space"),
+        spaceId: SpaceId.make("space"),
         folderId,
         after: first.nextCursor,
       });
@@ -178,8 +178,8 @@ it.effect("pages folder members in sidebar order and excludes archived and delet
       );
       assert.isNull(next.nextCursor);
       const empty = yield* listThreads({
-        spaceId: SpaceId.makeUnsafe("space"),
-        folderId: FolderId.makeUnsafe("empty-folder"),
+        spaceId: SpaceId.make("space"),
+        folderId: FolderId.make("empty-folder"),
         after: null,
       });
       assert.deepStrictEqual(empty.threads, []);
@@ -205,7 +205,7 @@ it.effect("reads the newest canonical turn from the indexed sidebar and thread r
         createdAt: "2026-10-12T00:00:00.000Z",
       });
       const publisher = makeThreadPublisher();
-      assert.isNull((yield* findThread(ThreadId.makeUnsafe("thread-1")))!.latestTurn);
+      assert.isNull((yield* findThread(ThreadId.make("thread-1")))!.latestTurn);
       yield* applyProviderEvent(publisher, {
         type: "turn.started",
         threadId: "thread-1",
@@ -221,19 +221,16 @@ it.effect("reads the newest canonical turn from the indexed sidebar and thread r
         at: "2026-10-12T00:00:06.000Z",
       });
       const expected = {
-        turnId: TurnId.makeUnsafe("native"),
+        turnId: TurnId.make("native"),
         status: "done" as const,
         startedAt: "2026-10-12T00:00:01.000Z",
         endedAt: "2026-10-12T00:00:06.000Z",
       };
-      assert.deepStrictEqual(
-        (yield* findThread(ThreadId.makeUnsafe("thread-1")))!.latestTurn,
-        expected,
-      );
+      assert.deepStrictEqual((yield* findThread(ThreadId.make("thread-1")))!.latestTurn, expected);
       assert.deepStrictEqual(
         (yield* listThreads({
-          spaceId: SpaceId.makeUnsafe("space-1"),
-          folderId: FolderId.makeUnsafe("list-folder"),
+          spaceId: SpaceId.make("space-1"),
+          folderId: FolderId.make("list-folder"),
         })).threads[0]!.latestTurn,
         expected,
       );
@@ -269,7 +266,7 @@ it.effect("reads only the newest open canonical question and excludes answered q
           updatedAt: at,
         });
       assert.deepStrictEqual(
-        (yield* findThread(ThreadId.makeUnsafe("questions-thread")))?.latestOpenQuestion,
+        (yield* findThread(ThreadId.make("questions-thread")))?.latestOpenQuestion,
         { id: "second", summary: "second", createdAt: at },
       );
       yield* upsertThreadItem({
@@ -281,7 +278,7 @@ it.effect("reads only the newest open canonical question and excludes answered q
         updatedAt: at,
       });
       assert.equal(
-        (yield* findThread(ThreadId.makeUnsafe("questions-thread")))?.latestOpenQuestion?.id,
+        (yield* findThread(ThreadId.make("questions-thread")))?.latestOpenQuestion?.id,
         "first",
       );
     }),

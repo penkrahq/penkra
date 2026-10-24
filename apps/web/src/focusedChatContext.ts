@@ -53,7 +53,7 @@ export function useFocusedChatContext(): FocusedChatContext {
   const draftThreadsByThreadId = useComposerDraftStore((store) => store.draftThreadsByThreadId);
   const routeThreadId = useParams({
     strict: false,
-    select: (params) => (params.threadId ? ThreadId.makeUnsafe(params.threadId) : null),
+    select: (params) => (params.threadId ? ThreadId.make(params.threadId) : null),
   });
   const focusedThreadId = routeThreadId;
   const activeThread = useStore(

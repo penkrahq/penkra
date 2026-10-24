@@ -12,8 +12,8 @@ import {
   resolveComposerConnectionAtAdmission,
 } from "./providerConnectionCapabilities";
 
-const goConnectionId = ProviderConnectionId.makeUnsafe("00000000-0000-4000-8000-000000000001");
-const zenConnectionId = ProviderConnectionId.makeUnsafe("00000000-0000-4000-8000-000000000002");
+const goConnectionId = ProviderConnectionId.make("00000000-0000-4000-8000-000000000001");
+const zenConnectionId = ProviderConnectionId.make("00000000-0000-4000-8000-000000000002");
 const snapshot = {
   installations: [],
   connections: [
@@ -51,9 +51,7 @@ const snapshot = {
 
 describe("provider Connection capabilities", () => {
   it("drops only saved routes that are no longer active", () => {
-    const missingConnectionId = ProviderConnectionId.makeUnsafe(
-      "00000000-0000-4000-8000-000000000099",
-    );
+    const missingConnectionId = ProviderConnectionId.make("00000000-0000-4000-8000-000000000099");
     expect(
       pruneUnavailableComposerConnectionSelections({
         snapshot,
@@ -141,7 +139,7 @@ describe("provider Connection capabilities", () => {
   });
 
   it("preserves a started Thread's exact binding without falling through to another Connection", () => {
-    const unavailableConnectionId = ProviderConnectionId.makeUnsafe(
+    const unavailableConnectionId = ProviderConnectionId.make(
       "00000000-0000-4000-8000-000000000099",
     );
     expect(

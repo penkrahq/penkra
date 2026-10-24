@@ -5,7 +5,7 @@ import path from "node:path";
 
 import * as NodeHttpServer from "@effect/platform-node/NodeHttpServer";
 import { Effect, Exit, Layer, Scope } from "effect";
-import { HttpRouter } from "effect/unstable/http";
+import { HttpRouter } from "effect/http";
 import { afterEach, describe, expect, it } from "vitest";
 
 import { ServerAuth, type ServerAuthShape } from "./auth/Services/ServerAuth";

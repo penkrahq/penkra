@@ -1,6 +1,6 @@
 import { ProviderConnectionId, ProviderKind, RuntimeMode, ThreadId } from "@penkra/contracts";
 import { Effect, Option, Schema } from "effect";
-import * as SqlClient from "effect/unstable/sql/SqlClient";
+import * as SqlClient from "effect/sql/SqlClient";
 
 const ThreadNativeState = Schema.Struct({
   threadId: ThreadId,

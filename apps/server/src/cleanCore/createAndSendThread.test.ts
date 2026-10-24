@@ -23,7 +23,7 @@ import { makeThreadPublisher } from "./threadStore.ts";
 import { ProviderThreadSwitchCoordinator } from "../orchestration/Services/ProviderThreadSwitchCoordinator.ts";
 import { ProviderService } from "../provider/Services/ProviderService.ts";
 import { runMigrations } from "../persistence/Migrations.ts";
-import * as SqlClient from "effect/unstable/sql/SqlClient";
+import * as SqlClient from "effect/sql/SqlClient";
 import * as NodeSqliteClient from "../persistence/NodeSqliteClient.ts";
 
 import { ProviderTurnSelectionResolver } from "../provider/Services/ProviderTurnSelectionResolver.ts";
@@ -47,10 +47,7 @@ for (const nativeFails of [false, true]) {
         const publisher = makeThreadPublisher();
         let dispatchCount = 0;
         const dispatched = yield* Deferred.make<void>();
-        const expectedCwd = ensureDurableThreadWorkspace(
-          ThreadId.makeUnsafe("thread-1"),
-          senderStateDir,
-        );
+        const expectedCwd = ensureDurableThreadWorkspace(ThreadId.make("thread-1"), senderStateDir);
         const coordinator: typeof ProviderThreadSwitchCoordinator.Service = {
           dispatchTurnStart: ({ command, cwd }) =>
             Effect.gen(function* () {
@@ -70,7 +67,7 @@ for (const nativeFails of [false, true]) {
                   new Date().toISOString(),
                 );
                 yield* Deferred.succeed(dispatched, undefined);
-                return { turnId: TurnId.makeUnsafe("fixture-turn") };
+                return { turnId: TurnId.make("fixture-turn") };
               }
               publisher.publishProvider({
                 type: "turn.started",
@@ -89,7 +86,7 @@ for (const nativeFails of [false, true]) {
                 new Date().toISOString(),
               );
               yield* Deferred.succeed(dispatched, undefined);
-              return { turnId: TurnId.makeUnsafe("fixture-turn") };
+              return { turnId: TurnId.make("fixture-turn") };
             }).pipe(Effect.provideService(SqlClient.SqlClient, sql), Effect.orDie),
         };
         const sender = yield* makeThreadSender.pipe(
@@ -114,8 +111,8 @@ for (const nativeFails of [false, true]) {
         });
         const input = {
           thread: {
-            threadId: ThreadId.makeUnsafe("thread-1"),
-            folderId: FolderId.makeUnsafe("sender-folder"),
+            threadId: ThreadId.make("thread-1"),
+            folderId: FolderId.make("sender-folder"),
             title: "Hello",
             modelSelection: { provider: "codex", model: "gpt-5.5" },
             connection: { kind: "selected", connectionId: null },
@@ -125,7 +122,7 @@ for (const nativeFails of [false, true]) {
           },
           dispatchMode: "queue",
           message: {
-            messageId: MessageId.makeUnsafe("first-message"),
+            messageId: MessageId.make("first-message"),
             text: "hello",
             attachments: [],
             queuedAt: at,

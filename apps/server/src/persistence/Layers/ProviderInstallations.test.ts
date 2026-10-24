@@ -30,14 +30,14 @@ layer("ProviderInstallationRepository", (it) => {
       };
       yield* repository.activate({
         ...base,
-        id: ProviderInstallationId.makeUnsafe("install-1"),
+        id: ProviderInstallationId.make("install-1"),
         version: "0.147.0",
         executablePath: "/managed/codex/0.147.0",
         activatedAt: "2026-08-08T00:00:00.000Z",
       });
       yield* repository.activate({
         ...base,
-        id: ProviderInstallationId.makeUnsafe("install-2"),
+        id: ProviderInstallationId.make("install-2"),
         version: "0.148.0",
         executablePath: "/managed/codex/0.148.0",
         activatedAt: "2026-08-08T01:00:00.000Z",
@@ -58,7 +58,7 @@ layer("ProviderInstallationRepository", (it) => {
       );
 
       yield* repository.reactivate(
-        ProviderInstallationId.makeUnsafe("install-1"),
+        ProviderInstallationId.make("install-1"),
         "2026-08-08T02:00:00.000Z",
       );
       assert.strictEqual(
@@ -81,7 +81,7 @@ layer("ProviderInstallationRepository", (it) => {
       yield* runMigrations();
       const repository = yield* ProviderInstallationRepository;
       const base = {
-        id: ProviderInstallationId.makeUnsafe("install-stable"),
+        id: ProviderInstallationId.make("install-stable"),
         harness: "codex" as const,
         version: "0.148.0",
         platform: "darwin",

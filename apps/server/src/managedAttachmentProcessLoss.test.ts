@@ -4,7 +4,7 @@ import path from "node:path";
 
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { Effect, Layer, ManagedRuntime } from "effect";
-import * as SqlClient from "effect/unstable/sql/SqlClient";
+import * as SqlClient from "effect/sql/SqlClient";
 import { afterEach, describe, expect, it } from "vitest";
 
 import { ServerConfig, type ServerConfigShape } from "./config";

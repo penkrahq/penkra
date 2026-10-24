@@ -1,6 +1,6 @@
 import { AuthSessionId } from "@penkra/contracts";
-import { DateTime, Effect, Layer, ServiceMap, Semaphore } from "effect";
-import * as SqlClient from "effect/unstable/sql/SqlClient";
+import { DateTime, Effect, Layer, Context, Semaphore } from "effect";
+import * as SqlClient from "effect/sql/SqlClient";
 import {
   SessionCredentialError,
   SessionCredentialService,
@@ -111,7 +111,7 @@ export const makeRemoteTrustStore = Effect.gen(function* () {
   return { list, get, allow, remove, markPaired, connected };
 });
 
-export class RemoteTrustStore extends ServiceMap.Service<
+export class RemoteTrustStore extends Context.Service<
   RemoteTrustStore,
   Effect.Success<typeof makeRemoteTrustStore>
 >()("penkra/remoteLink/RemoteTrustStore") {}

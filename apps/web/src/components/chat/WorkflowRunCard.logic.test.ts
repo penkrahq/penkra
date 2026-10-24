@@ -21,7 +21,7 @@ function activity(overrides: {
   payload: OrchestrationThreadActivity["payload"];
 }): OrchestrationThreadActivity {
   return {
-    id: EventId.makeUnsafe(overrides.id),
+    id: EventId.make(overrides.id),
     createdAt: overrides.createdAt,
     kind: overrides.kind,
     summary: "Task activity",
@@ -334,7 +334,7 @@ describe("deriveWorkflowRunState", () => {
           return entry;
         }
         return {
-          id: EventId.makeUnsafe(`ordered-${index}`),
+          id: EventId.make(`ordered-${index}`),
           tone: entry.tone,
           kind: entry.kind,
           summary: entry.summary,

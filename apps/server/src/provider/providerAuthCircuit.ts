@@ -1,6 +1,6 @@
 import type { ProviderConnectionId, ProviderKind, ThreadId } from "@penkra/contracts";
-import { Effect, Layer, PubSub, ServiceMap } from "effect";
-import * as SqlClient from "effect/unstable/sql/SqlClient";
+import { Effect, Layer, PubSub, Context } from "effect";
+import * as SqlClient from "effect/sql/SqlClient";
 
 import type { ProviderAuthFailure } from "./providerAuthFailure.ts";
 
@@ -96,7 +96,7 @@ function makeCircuits(sql: SqlClient.SqlClient, releases: PubSub.PubSub<Provider
 }
 
 /** One ephemeral auth block per Connection, shared by ingestion, dispatch and sign-in. */
-export class ProviderAuthCircuits extends ServiceMap.Service<
+export class ProviderAuthCircuits extends Context.Service<
   ProviderAuthCircuits,
   ReturnType<typeof makeCircuits>
 >()("penkra/provider/ProviderAuthCircuits") {}

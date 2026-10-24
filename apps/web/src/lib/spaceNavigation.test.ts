@@ -16,12 +16,12 @@ const paths: ServerWorkspacePaths = {
   chatWorkspaceRoot: null,
 };
 
-const workSpaceId = SpaceId.makeUnsafe("space-work");
-const personalSpaceId = SpaceId.makeUnsafe("space-personal");
+const workSpaceId = SpaceId.make("space-work");
+const personalSpaceId = SpaceId.make("space-personal");
 
 function project(input: { id: string; spaceId?: SpaceId }): Project {
   return {
-    id: FolderId.makeUnsafe(input.id),
+    id: FolderId.make(input.id),
     name: input.id,
     remoteName: input.id,
     folderName: input.id,
@@ -34,7 +34,7 @@ function project(input: { id: string; spaceId?: SpaceId }): Project {
 }
 
 function thread(input: { id: string; folderId: string }): SidebarThreadRow {
-  const id = ThreadId.makeUnsafe(input.id);
+  const id = ThreadId.make(input.id);
   return {
     id,
     sidebarSortOrder: undefined,
@@ -42,7 +42,7 @@ function thread(input: { id: string; folderId: string }): SidebarThreadRow {
     lastMessagePreview: null,
     lastActivityAt: null,
     runtimeMode: "full-access",
-    folderId: FolderId.makeUnsafe(input.folderId),
+    folderId: FolderId.make(input.folderId),
     title: input.id,
     modelSelection: { provider: "codex", model: "gpt-5" },
     session: null,

@@ -6,7 +6,7 @@
  * session-scoped calls via `ProviderSessionDirectory`, and exposes one unified
  * provider event stream to callers.
  *
- * Uses Effect `ServiceMap.Service` for dependency injection and returns typed
+ * Uses Effect `Context.Service` for dependency injection and returns typed
  * domain errors for validation, session, and provider workflows.
  *
  * @module ProviderService
@@ -29,7 +29,7 @@ import type {
   TurnId,
   ProviderTurnStartResult,
 } from "@penkra/contracts";
-import { ServiceMap } from "effect";
+import { Context } from "effect";
 import type { Effect, Stream } from "effect";
 
 import type { ProviderServiceError } from "../Errors.ts";
@@ -199,6 +199,6 @@ export interface ProviderServiceShape {
 /**
  * ProviderService - Service tag for provider orchestration.
  */
-export class ProviderService extends ServiceMap.Service<ProviderService, ProviderServiceShape>()(
+export class ProviderService extends Context.Service<ProviderService, ProviderServiceShape>()(
   "penkra/provider/Services/ProviderService",
 ) {}

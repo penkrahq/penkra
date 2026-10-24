@@ -14,8 +14,8 @@ import {
   type CleanCoreSendMessageInput,
   type CleanCoreQueuedMessageInput,
 } from "@penkra/contracts";
-import { Effect, Layer, Option, PubSub, Schema, ServiceMap, Stream } from "effect";
-import * as SqlClient from "effect/unstable/sql/SqlClient";
+import { Effect, Layer, Option, PubSub, Schema, Context, Stream } from "effect";
+import * as SqlClient from "effect/sql/SqlClient";
 import { ProviderThreadSwitchCoordinator } from "../orchestration/Services/ProviderThreadSwitchCoordinator.ts";
 import { ProviderService } from "../provider/Services/ProviderService.ts";
 import { ProviderSessionDirectory } from "../provider/Services/ProviderSessionDirectory.ts";
@@ -37,7 +37,7 @@ import { readThreadQueue, QueuedMessage } from "./threadQueue.ts";
 import { providerSupportsNativeTurnSteering } from "@penkra/shared/providerMetadata";
 
 export type ThreadSendInput = CleanCoreSendMessageInput;
-export class ThreadSender extends ServiceMap.Service<
+export class ThreadSender extends Context.Service<
   ThreadSender,
   {
     readonly resumeQueuedForConnection: (
@@ -121,7 +121,7 @@ export const makeThreadSender = Effect.gen(function* () {
   const driver: SendDriver = {
     // Acceptance may precede turn.started in the durable stream. This keyed live binding closes that phase gap.
     isRunning: (threadId) =>
-      directory.getBinding(ThreadId.makeUnsafe(threadId)).pipe(
+      directory.getBinding(ThreadId.make(threadId)).pipe(
         Effect.map((binding) => {
           if (Option.isNone(binding) || binding.value.status !== "running") return false;
           const payload = binding.value.runtimePayload;
@@ -159,7 +159,7 @@ export const makeThreadSender = Effect.gen(function* () {
       Effect.scoped(
         Effect.gen(function* () {
           const principal = yield* attachmentPrincipal(input);
-          const threadId = ThreadId.makeUnsafe(input.threadId);
+          const threadId = ThreadId.make(input.threadId);
           const rows = yield* sql<{
             provider: string;
             model: string;
@@ -178,7 +178,7 @@ export const makeThreadSender = Effect.gen(function* () {
             command: {
               threadId,
               message: {
-                messageId: MessageId.makeUnsafe(input.message.messageId),
+                messageId: MessageId.make(input.message.messageId),
                 text: input.message.text,
                 attachments: input.message.attachments,
                 ...(input.skills === undefined ? {} : { skills: input.skills }),
@@ -352,10 +352,10 @@ export const makeThreadSender = Effect.gen(function* () {
             if (
               decodeQueue(JSON.parse(row.queue)).some((message) => message.messageId === messageId)
             )
-              return ThreadId.makeUnsafe(row.id);
+              return ThreadId.make(row.id);
             const failed =
               yield* sql`SELECT 1 FROM thread_items WHERE thread_id=${row.id} AND source_id=${messageId} AND kind='user' AND status='failed'`;
-            if (failed.length) return ThreadId.makeUnsafe(row.id);
+            if (failed.length) return ThreadId.make(row.id);
           }
           if (page.length < 50) return null;
           after = page[page.length - 1]!.id;

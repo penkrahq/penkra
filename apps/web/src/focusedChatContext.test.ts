@@ -5,8 +5,8 @@ import { type DraftThreadState } from "./composerDraftStore";
 import { resolveFocusedChatContext } from "./focusedChatContext";
 import type { Project, Thread } from "./types";
 
-const PROJECT_ID = FolderId.makeUnsafe("project-1");
-const THREAD_A = ThreadId.makeUnsafe("thread-a");
+const PROJECT_ID = FolderId.make("project-1");
+const THREAD_A = ThreadId.make("thread-a");
 
 function makeProject(): Project {
   return {
@@ -18,7 +18,7 @@ function makeProject(): Project {
     cwd: "/tmp/project",
     defaultModelSelection: { provider: "codex", model: "gpt-5.4-mini" },
     expanded: true,
-    spaceId: SpaceId.makeUnsafe("space-test"),
+    spaceId: SpaceId.make("space-test"),
   };
 }
 
@@ -36,7 +36,7 @@ function makeThread(threadId: ThreadId, overrides: Partial<Thread> = {}): Thread
     createdAt: "2026-04-07T10:00:00.000Z",
     updatedAt: "2026-04-07T10:00:00.000Z",
     latestTurn: {
-      turnId: TurnId.makeUnsafe("turn-1"),
+      turnId: TurnId.make("turn-1"),
       state: "completed",
       requestedAt: "2026-04-07T10:00:00.000Z",
       startedAt: "2026-04-07T10:00:00.000Z",

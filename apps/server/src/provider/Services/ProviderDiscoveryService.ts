@@ -8,7 +8,7 @@ import type {
   ProviderListModelsInput,
   ProviderListModelsResult,
 } from "@penkra/contracts";
-import { ServiceMap } from "effect";
+import { Context } from "effect";
 import type { Effect } from "effect";
 
 import type {
@@ -38,7 +38,7 @@ export interface ProviderDiscoveryServiceShape {
   ) => Effect.Effect<ProviderListModelsResult, ProviderDiscoveryError>;
 }
 
-export class ProviderDiscoveryService extends ServiceMap.Service<
+export class ProviderDiscoveryService extends Context.Service<
   ProviderDiscoveryService,
   ProviderDiscoveryServiceShape
 >()("penkra/provider/Services/ProviderDiscoveryService") {}

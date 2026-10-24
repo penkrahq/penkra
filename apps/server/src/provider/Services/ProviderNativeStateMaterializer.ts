@@ -2,7 +2,7 @@
 // Purpose: Atomically clone and clean exact native provider state folders.
 
 import { type ProviderKind } from "@penkra/contracts";
-import { Data, Effect, ServiceMap } from "effect";
+import { Data, Effect, Context } from "effect";
 
 export class ProviderNativeStateMaterializationError extends Data.TaggedError(
   "ProviderNativeStateMaterializationError",
@@ -27,7 +27,7 @@ export interface ProviderNativeStateMaterializerShape {
   ) => Effect.Effect<void, ProviderNativeStateMaterializationError>;
 }
 
-export class ProviderNativeStateMaterializer extends ServiceMap.Service<
+export class ProviderNativeStateMaterializer extends Context.Service<
   ProviderNativeStateMaterializer,
   ProviderNativeStateMaterializerShape
 >()("penkra/provider/Services/ProviderNativeStateMaterializer") {}

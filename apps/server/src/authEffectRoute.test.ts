@@ -11,7 +11,7 @@ import {
   ATTACHMENT_UPLOAD_ROUTE_PATH,
 } from "@penkra/shared/binaryTransfer";
 import { DateTime, Effect, Exit, Layer, Scope, Stream } from "effect";
-import { HttpRouter } from "effect/unstable/http";
+import { HttpRouter } from "effect/http";
 import { describe, expect, it } from "vitest";
 
 import { AuthError, ServerAuth, type ServerAuthShape } from "./auth/Services/ServerAuth";
@@ -31,8 +31,8 @@ import {
 import { ProviderAdapterRegistry } from "./provider/Services/ProviderAdapterRegistry";
 import { ProviderLaunchResolver } from "./provider/Services/ProviderLaunchResolver";
 
-const currentSessionId = AuthSessionId.makeUnsafe("11111111-1111-4111-8111-111111111111");
-const otherSessionId = AuthSessionId.makeUnsafe("22222222-2222-4222-8222-222222222222");
+const currentSessionId = AuthSessionId.make("11111111-1111-4111-8111-111111111111");
+const otherSessionId = AuthSessionId.make("22222222-2222-4222-8222-222222222222");
 
 function makeSessionCredentialService(): SessionCredentialServiceShape {
   return {
@@ -164,7 +164,7 @@ async function withAuthEffectServer(
           } else {
             yield* httpServer.serve(yield* HttpRouter.toHttpEffect(binaryUploadEffectRouteLayer));
           }
-        }).pipe(Effect.provideServices(services)),
+        }).pipe(Effect.provideContext(services)),
         scope,
       ),
     );

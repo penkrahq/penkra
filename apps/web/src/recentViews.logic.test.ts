@@ -16,11 +16,11 @@ import {
 import type { Project, SidebarThreadSummary } from "./types";
 
 function threadId(value: string): ThreadId {
-  return ThreadId.makeUnsafe(value);
+  return ThreadId.make(value);
 }
 
 function folderId(value: string): FolderId {
-  return FolderId.makeUnsafe(value);
+  return FolderId.make(value);
 }
 
 describe("recent view MRU logic", () => {

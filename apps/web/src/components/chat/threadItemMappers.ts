@@ -108,12 +108,12 @@ export function threadItemToActivity(item: CleanCoreThreadItem): OrchestrationTh
       ? { ...(rawPayload as Record<string, unknown>), status: toolStatus }
       : rawPayload;
   return {
-    id: EventId.makeUnsafe(item.sourceId),
+    id: EventId.make(item.sourceId),
     tone: normalizeTone(data?.tone, item.kind),
     kind: normalizeKind(data?.kind, item.kind, item.status),
     summary: normalizeSummary(data?.summary, item.text),
     payload: payload as OrchestrationThreadActivity["payload"],
-    turnId: item.turnId === null ? null : TurnId.makeUnsafe(item.turnId),
+    turnId: item.turnId === null ? null : TurnId.make(item.turnId),
     sequence: item.seq,
     createdAt: item.createdAt,
   };
@@ -212,7 +212,7 @@ export function threadItemToChatMessage(item: CleanCoreThreadItem): ChatMessage 
   const content = threadItemToUserContent(item);
   const isUser = item.kind === "user";
   return {
-    id: MessageId.makeUnsafe(item.sourceId),
+    id: MessageId.make(item.sourceId),
     role: isUser ? "user" : "assistant",
     text: content.text,
     attachments: [...content.attachments],
@@ -221,7 +221,7 @@ export function threadItemToChatMessage(item: CleanCoreThreadItem): ChatMessage 
     ...(content.origin === undefined ? {} : { origin: content.origin }),
     ...(content.steered ? { steered: content.steered } : {}),
     sequence: item.seq,
-    turnId: item.turnId === null ? null : TurnId.makeUnsafe(item.turnId),
+    turnId: item.turnId === null ? null : TurnId.make(item.turnId),
     createdAt: item.createdAt,
     ...(item.status === "done" ? { completedAt: item.updatedAt } : {}),
     ...(isUser && (item.status === "sending" || item.status === "sent" || item.status === "failed")

@@ -8,7 +8,7 @@ import {
   PROVIDER_SEND_TURN_MAX_INPUT_CHARS,
 } from "@penkra/contracts";
 import { Effect, Schema } from "effect";
-import * as SqlClient from "effect/unstable/sql/SqlClient";
+import * as SqlClient from "effect/sql/SqlClient";
 import {
   CurrentManagedAttachmentPrincipal,
   type ManagedAttachmentPrincipal,
@@ -239,7 +239,7 @@ export const readSendDispatch = (input: SendMessageInput) =>
       yield* makeThreadReads,
     );
     const text = yield* buildProviderTurnInput({
-      threadId: ThreadId.makeUnsafe(input.threadId),
+      threadId: ThreadId.make(input.threadId),
       provider,
       messageText: context.messageText,
       skills,
@@ -259,7 +259,7 @@ export const readSendDispatch = (input: SendMessageInput) =>
       ...input,
       message: {
         ...input.message,
-        messageId: MessageId.makeUnsafe(cohort.leaderId),
+        messageId: MessageId.make(cohort.leaderId),
         text: text ?? "",
         attachments: members.flatMap((message) => message.attachments),
       },

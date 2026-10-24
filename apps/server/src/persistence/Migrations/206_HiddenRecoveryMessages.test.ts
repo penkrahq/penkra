@@ -1,6 +1,6 @@
 import { assert, it } from "@effect/vitest";
 import { Effect } from "effect";
-import * as SqlClient from "effect/unstable/sql/SqlClient";
+import * as SqlClient from "effect/sql/SqlClient";
 import * as NodeSqliteClient from "../NodeSqliteClient.ts";
 import migrate from "./206_HiddenRecoveryMessages.ts";
 import { PLAY_TURN_RECOVERY_PROMPT } from "../../cleanCore/sendMessage.ts";

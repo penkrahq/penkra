@@ -7,7 +7,7 @@ import { randomUUID } from "node:crypto";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { afterEach, describe, expect, it } from "vitest";
 import { Effect, Layer } from "effect";
-import * as SqlClient from "effect/unstable/sql/SqlClient";
+import * as SqlClient from "effect/sql/SqlClient";
 
 import { MIGRATION_RECOVERY_MAX_RESUME_ATTEMPTS } from "@penkra/shared/migrationRecovery";
 

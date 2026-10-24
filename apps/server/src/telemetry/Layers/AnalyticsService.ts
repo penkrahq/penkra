@@ -8,7 +8,7 @@
  */
 
 import { Config, DateTime, Duration, Effect, Layer, Queue, Ref, Semaphore } from "effect";
-import { HttpClient, HttpClientRequest, HttpClientResponse } from "effect/unstable/http";
+import { HttpClient, HttpClientRequest, HttpClientResponse } from "effect/http";
 
 import { ServerConfig } from "../../config.ts";
 import { AnalyticsService, type AnalyticsServiceShape } from "../Services/AnalyticsService.ts";
@@ -22,11 +22,11 @@ interface BufferedAnalyticsEvent {
 }
 
 const TelemetryEnvConfig = Config.all({
-  posthogKey: Config.string("PENKRA_POSTHOG_KEY").pipe(Config.withDefault("")),
-  posthogHost: Config.string("PENKRA_POSTHOG_HOST").pipe(Config.withDefault("")),
-  enabled: Config.boolean("PENKRA_TELEMETRY_ENABLED").pipe(Config.withDefault(false)),
-  flushBatchSize: Config.number("PENKRA_TELEMETRY_FLUSH_BATCH_SIZE").pipe(Config.withDefault(20)),
-  maxBufferedEvents: Config.number("PENKRA_TELEMETRY_MAX_BUFFERED_EVENTS").pipe(
+  posthogKey: Config.String("PENKRA_POSTHOG_KEY").pipe(Config.withDefault("")),
+  posthogHost: Config.String("PENKRA_POSTHOG_HOST").pipe(Config.withDefault("")),
+  enabled: Config.Boolean("PENKRA_TELEMETRY_ENABLED").pipe(Config.withDefault(false)),
+  flushBatchSize: Config.Number("PENKRA_TELEMETRY_FLUSH_BATCH_SIZE").pipe(Config.withDefault(20)),
+  maxBufferedEvents: Config.Number("PENKRA_TELEMETRY_MAX_BUFFERED_EVENTS").pipe(
     Config.withDefault(1_000),
   ),
 });
@@ -35,7 +35,7 @@ const TelemetryEnvConfig = Config.all({
 export const ANALYTICS_FLUSH_INTERVAL = Duration.seconds(10);
 
 const makeAnalyticsService = Effect.gen(function* () {
-  const telemetryConfig = yield* TelemetryEnvConfig.asEffect();
+  const telemetryConfig = yield* TelemetryEnvConfig;
   const httpClient = yield* HttpClient.HttpClient;
   const serverConfig = yield* ServerConfig;
   const identifier = yield* getTelemetryIdentifier;

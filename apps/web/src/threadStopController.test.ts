@@ -19,8 +19,8 @@ function deferred<A>() {
 }
 function harness() {
   const receipt = deferred<CleanCoreInterruptResult>();
-  const threadId = ThreadId.makeUnsafe("thread-stop");
-  const turnId = TurnId.makeUnsafe("native-turn");
+  const threadId = ThreadId.make("thread-stop");
+  const turnId = TurnId.make("native-turn");
   let runtime: CleanCoreThreadRuntime = { state: "running", activeTurnId: turnId };
   let listener: ((change: CleanCoreThreadChange) => void) | null = null;
   let requests = 0;
@@ -80,7 +80,7 @@ describe("provider-confirmed Stop", () => {
     });
     await stopping;
     expect(h.controller.getSnapshot()).toBe(true);
-    h.change(ThreadId.makeUnsafe("other-thread"));
+    h.change(ThreadId.make("other-thread"));
     expect(h.controller.getSnapshot()).toBe(true);
     const ended = deferred<void>();
     h.controller.subscribe(() => {
@@ -110,7 +110,7 @@ describe("provider-confirmed Stop", () => {
   it("finishes stopping when the next queued provider turn has already started", async () => {
     const h = harness();
     const stop = h.controller.stop();
-    h.setRuntime({ state: "running", activeTurnId: TurnId.makeUnsafe("next-native-turn") });
+    h.setRuntime({ state: "running", activeTurnId: TurnId.make("next-native-turn") });
     h.receipt.resolve({
       threadId: h.threadId,
       interruptRequested: true,

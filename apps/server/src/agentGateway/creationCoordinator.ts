@@ -56,12 +56,12 @@ export const makeCreateThreadHandler = (dependencies: CreationCoordinatorDepende
   Effect.succeed((input: PenkraCreateThreadInput, context: GatewayCreationContext) =>
     Effect.gen(function* () {
       yield* context.assertAuthority();
-      const caller = yield* dependencies.lifecycle.get(ThreadId.makeUnsafe(context.callerThreadId));
+      const caller = yield* dependencies.lifecycle.get(ThreadId.make(context.callerThreadId));
       if (caller === null || caller.deletedAt !== null)
         return yield* Effect.fail(
           new ToolInputError(`Thread "${context.callerThreadId}" was not found.`),
         );
-      const folderId = FolderId.makeUnsafe(
+      const folderId = FolderId.make(
         input.folderId === undefined ? caller.folderId : input.folderId,
       );
       const [callerFolder, destination] = yield* Effect.all([
@@ -154,7 +154,7 @@ export const makeCreateThreadHandler = (dependencies: CreationCoordinatorDepende
             ? runtimeMode
             : Schema.decodeUnknownSync(RuntimeMode)(existing.runtimeMode),
         connection: { kind: "selected", connectionId },
-        creator: { kind: "agent", threadId: ThreadId.makeUnsafe(context.callerThreadId) },
+        creator: { kind: "agent", threadId: ThreadId.make(context.callerThreadId) },
         createdAt: at,
       });
       if (created.thread.spaceId !== callerFolder.value.spaceId)
@@ -170,10 +170,10 @@ export const makeCreateThreadHandler = (dependencies: CreationCoordinatorDepende
         threadId: ids.threadId,
         dispatchMode: "queue",
         message: {
-          messageId: MessageId.makeUnsafe(ids.messageId),
+          messageId: MessageId.make(ids.messageId),
           text: input.prompt,
           attachments: [],
-          origin: { _tag: "agent", senderThreadId: ThreadId.makeUnsafe(context.callerThreadId) },
+          origin: { _tag: "agent", senderThreadId: ThreadId.make(context.callerThreadId) },
           queuedAt: at,
         },
       });

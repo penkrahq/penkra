@@ -10,8 +10,10 @@ import {
 } from "./agentGateway";
 import { ThreadId } from "./baseSchemas";
 
-const decodeCreate = Schema.decodeUnknownSync(PenkraCreateThreadInput);
-const decodeSend = Schema.decodeUnknownSync(PenkraSendMessageInput);
+const decodeCreate = Schema.decodeUnknownSync(PenkraCreateThreadInput, {
+  onExcessProperty: "error",
+});
+const decodeSend = Schema.decodeUnknownSync(PenkraSendMessageInput, { onExcessProperty: "error" });
 
 const thread = {
   prompt: "Explain this repository",
@@ -38,7 +40,7 @@ describe("agent gateway contracts", () => {
       model: "gpt-5.6-terra",
       options: { reasoningEffort: "low" },
     } as const;
-    const threadId = ThreadId.makeUnsafe("thread-1");
+    const threadId = ThreadId.make("thread-1");
     assert.deepEqual(
       decodeSend({
         threadId,

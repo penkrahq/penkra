@@ -64,9 +64,9 @@ vi.mock("../components/chat/SingleChatSurface", () => ({ SingleChatSurface: "cha
 function row(): CleanCoreThreadSummary {
   return {
     latestTurn: null,
-    id: ThreadId.makeUnsafe(fixture.threadId),
-    spaceId: SpaceId.makeUnsafe("space"),
-    folderId: FolderId.makeUnsafe("canonical-folder"),
+    id: ThreadId.make(fixture.threadId),
+    spaceId: SpaceId.make("space"),
+    folderId: FolderId.make("canonical-folder"),
     title: "Outside the loaded page",
     provider: "codex",
     connectionId: null,
@@ -109,9 +109,7 @@ function render() {
   return result;
 }
 async function finishRead() {
-  await fixture
-    .requests!.current.get(ThreadId.makeUnsafe(fixture.threadId))
-    ?.catch(() => undefined);
+  await fixture.requests!.current.get(ThreadId.make(fixture.threadId))?.catch(() => undefined);
   await Promise.resolve();
 }
 beforeAll(async () => {
@@ -147,7 +145,7 @@ it("reads an unloaded thread once, stays blank in flight, then opens its canonic
   expect(render()).toBeNull();
   expect(render()).toBeNull(); // Effect cleanup/replay must reuse the pending read.
   expect(fixture.getThread).toHaveBeenCalledExactlyOnceWith({
-    threadId: ThreadId.makeUnsafe("thread-51"),
+    threadId: ThreadId.make("thread-51"),
   });
   expect(fixture.navigate).not.toHaveBeenCalled();
   const thread = row();
@@ -199,7 +197,7 @@ it("shows the existing error toast then goes home without retrying", async () =>
 });
 it("opens a local draft without a server read", () => {
   fixture.drafts[fixture.threadId] = {
-    folderId: FolderId.makeUnsafe("draft-folder"),
+    folderId: FolderId.make("draft-folder"),
   };
   expect(render()?.props.folderId).toBe("draft-folder");
   expect(fixture.getThread).not.toHaveBeenCalled();

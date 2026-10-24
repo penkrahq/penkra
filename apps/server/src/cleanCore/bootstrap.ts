@@ -1,6 +1,6 @@
 // One consistent startup snapshot for navigation and running thread shells.
 import { Effect } from "effect";
-import * as SqlClient from "effect/unstable/sql/SqlClient";
+import * as SqlClient from "effect/sql/SqlClient";
 import { getNavigation } from "./navigation";
 import { listRunningThreads } from "./threadList";
 

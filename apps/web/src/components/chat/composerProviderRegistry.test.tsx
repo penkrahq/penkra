@@ -446,7 +446,7 @@ describe("getComposerProviderState", () => {
   });
 
   it("does not render a traits picker for OpenCode models without exposed controls", () => {
-    const threadId = ThreadId.makeUnsafe("thread-opencode-traits-hidden");
+    const threadId = ThreadId.make("thread-opencode-traits-hidden");
 
     const picker = renderProviderTraitsPicker({
       provider: "opencode",
@@ -526,7 +526,7 @@ describe("getComposerProviderState", () => {
   });
 
   it("renders OpenCode thinking controls when runtime metadata exposes levels without a default", () => {
-    const threadId = ThreadId.makeUnsafe("thread-opencode-runtime-thinking");
+    const threadId = ThreadId.make("thread-opencode-runtime-thinking");
 
     const picker = renderProviderTraitsPicker({
       provider: "opencode",

@@ -2,7 +2,7 @@
 //          composer "Use a folder" control selected an ordinary local directory.
 
 import * as Effect from "effect/Effect";
-import * as SqlClient from "effect/unstable/sql/SqlClient";
+import * as SqlClient from "effect/sql/SqlClient";
 
 import { columnExists } from "./schemaHelpers.ts";
 

@@ -4,8 +4,8 @@
 // Depends on: the global WebSocket constructor shim and desktop bridge URL contract.
 
 import { Cause, Effect, Exit, Scope, Queue, Stream } from "effect";
-import { RpcClientError } from "effect/unstable/rpc";
-import * as Socket from "effect/unstable/socket/Socket";
+import { RpcClientError } from "effect/rpc";
+import * as Socket from "effect/socket/Socket";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   CLEAN_CORE_WS_CHANNELS,
@@ -50,6 +50,8 @@ type WsEventType = "open" | "message" | "close" | "error";
 type WsListener = (event?: { data?: unknown }) => void;
 
 const sockets: MockWebSocket[] = [];
+let socketCreated: Promise<MockWebSocket>;
+let resolveSocketCreated: (socket: MockWebSocket) => void;
 
 class MockWebSocket {
   static readonly CONNECTING = 0;
@@ -63,6 +65,7 @@ class MockWebSocket {
 
   constructor(readonly url: string) {
     sockets.push(this);
+    resolveSocketCreated(this);
   }
 
   addEventListener(type: WsEventType, listener: WsListener) {
@@ -94,6 +97,25 @@ class MockWebSocket {
 }
 
 const originalWebSocket = globalThis.WebSocket;
+
+/** State-machine tests own a controlled connection instead of leaking a real handshake. */
+function makeControlledTransport(clientPromise: Promise<unknown> = Promise.resolve({})) {
+  const createSession = vi
+    .spyOn(WsTransport.prototype as unknown as { createSession: () => unknown }, "createSession")
+    .mockReturnValue({
+      runtime: {
+        runPromise: vi.fn().mockResolvedValue(undefined),
+        dispose: vi.fn().mockResolvedValue(undefined),
+      },
+      clientScope: Effect.runSync(Scope.make()),
+      clientPromise,
+    });
+  try {
+    return new WsTransport();
+  } finally {
+    createSession.mockRestore();
+  }
+}
 
 interface WsTransportInternals {
   syncAppliedSequence: number | undefined;
@@ -192,6 +214,9 @@ it("opens one provider-usage subscription channel and tears it down by its strea
 
 beforeEach(() => {
   sockets.length = 0;
+  socketCreated = new Promise((resolve) => {
+    resolveSocketCreated = resolve;
+  });
   vi.stubEnv("VITE_WS_URL", "");
 
   Object.defineProperty(globalThis, "window", {
@@ -215,7 +240,7 @@ afterEach(() => {
 
 describe("WsTransport", () => {
   it("returns an unexpected final RPC failure without reconnecting", async () => {
-    const transport = new WsTransport("ws://localhost:3020/ws");
+    const transport = makeControlledTransport();
     const method = WS_METHODS.cleanCoreSendMessage;
     const client = { [method]: vi.fn(() => ({})) };
     const failure = new Error("unexpected transport failure");
@@ -604,6 +629,7 @@ describe("WsTransport", () => {
 
   it("opens the stable bootstrap endpoint before the feature RPC socket", async () => {
     const transport = new WsTransport("ws://localhost:3020");
+    await socketCreated;
 
     expect(sockets[0]?.url).toBe("ws://localhost:3020/ws/bootstrap");
     expect(transport.getState()).toBe("connecting");
@@ -624,6 +650,7 @@ describe("WsTransport", () => {
     const transport = new WsTransport();
 
     expect(getWsUrl).toHaveBeenCalledTimes(1);
+    await socketCreated;
     expect(sockets[0]?.url).toBe("ws://127.0.0.1:53036/ws/bootstrap?token=old");
 
     await transport.dispose();
@@ -631,6 +658,7 @@ describe("WsTransport", () => {
 
   it("falls back to the current browser host when no desktop bridge URL exists", async () => {
     const transport = new WsTransport();
+    await socketCreated;
 
     expect(sockets[0]?.url).toBe("ws://localhost:3020/ws/bootstrap");
 
@@ -679,7 +707,7 @@ describe("WsTransport", () => {
   });
 
   it("retries an idempotent orchestration command after reconnect", async () => {
-    const transport = new WsTransport();
+    const transport = makeControlledTransport();
     const method = WS_METHODS.cleanCoreSendMessage;
     const firstClient = { [method]: vi.fn((_input: unknown) => ({ attempt: 1 })) };
     const secondClient = { [method]: vi.fn((_input: unknown) => ({ attempt: 2 })) };
@@ -744,7 +772,7 @@ describe("WsTransport", () => {
   });
 
   it("joins an active reconnect instead of returning the retired client", async () => {
-    const transport = new WsTransport();
+    const transport = makeControlledTransport();
     const retiredClient = { id: "retired" };
     const replacementClient = { id: "replacement" };
     let resolveReconnect!: (client: typeof replacementClient) => void;
@@ -853,7 +881,7 @@ describe("WsTransport", () => {
       } as never;
       window.setTimeout = globalThis.setTimeout.bind(globalThis);
       window.clearTimeout = globalThis.clearTimeout.bind(globalThis);
-      const transport = new WsTransport();
+      const transport = makeControlledTransport(new Promise(() => undefined));
       const recoveredClient = { id: "recovered-after-initial-timeout" };
       const reconnect = vi.fn().mockResolvedValue(recoveredClient);
       const internals = transport as unknown as {
@@ -868,9 +896,6 @@ describe("WsTransport", () => {
       void internals.clientPromise.catch(() => undefined);
       internals.reconnectPromise = null;
       internals.reconnect = reconnect;
-      internals.clientPromise = internals.withConnectionAttemptTimeout(
-        new Promise(() => undefined),
-      );
 
       const client = internals.getClient();
       await vi.advanceTimersByTimeAsync(WS_RECONNECT_ATTEMPT_TIMEOUT_MS);
@@ -913,7 +938,7 @@ describe("WsTransport", () => {
     window.desktopBridge = {
       getWsUrl: () => null,
     } as never;
-    const transport = new WsTransport();
+    const transport = makeControlledTransport();
     const attempt = (
       transport as unknown as {
         withConnectionAttemptTimeout: (promise: Promise<unknown>) => Promise<unknown>;
@@ -932,7 +957,7 @@ describe("WsTransport", () => {
     try {
       window.setTimeout = globalThis.setTimeout.bind(globalThis);
       window.clearTimeout = globalThis.clearTimeout.bind(globalThis);
-      const transport = new WsTransport();
+      const transport = makeControlledTransport();
       const firstScope = Effect.runSync(Scope.make());
       const secondScope = Effect.runSync(Scope.make());
       const thirdScope = Effect.runSync(Scope.make());
@@ -998,7 +1023,7 @@ describe("WsTransport", () => {
   });
 
   it("does not retry an explicit orchestration rejection", async () => {
-    const transport = new WsTransport();
+    const transport = makeControlledTransport();
     const method = WS_METHODS.cleanCoreSendMessage;
     const client = { [method]: vi.fn(() => ({})) };
     const rejection = new WsRpcError({ message: "command rejected", retryable: false });

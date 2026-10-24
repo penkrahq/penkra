@@ -15,8 +15,8 @@ import {
 describe("composerDraftStore stable empty draft identity", () => {
   it("reuses the empty draft sentinel across unrelated store updates", () => {
     resetComposerDraftStore();
-    const missingThreadId = ThreadId.makeUnsafe("thread-missing");
-    const otherThreadId = ThreadId.makeUnsafe("thread-other");
+    const missingThreadId = ThreadId.make("thread-missing");
+    const otherThreadId = ThreadId.make("thread-other");
     const before = selectComposerThreadDraft(useComposerDraftStore.getState(), missingThreadId);
 
     useComposerDraftStore.getState().setPrompt(otherThreadId, "unrelated");
@@ -27,7 +27,7 @@ describe("composerDraftStore stable empty draft identity", () => {
 
   it("does not publish a store update when the prompt is unchanged", () => {
     resetComposerDraftStore();
-    const threadId = ThreadId.makeUnsafe("thread-unchanged-prompt");
+    const threadId = ThreadId.make("thread-unchanged-prompt");
     const listener = vi.fn();
     const unsubscribe = useComposerDraftStore.subscribe(listener);
 
@@ -44,7 +44,7 @@ describe("composerDraftStore stable empty draft identity", () => {
 
   it("does not create a draft for an unchanged empty prompt", () => {
     resetComposerDraftStore();
-    const threadId = ThreadId.makeUnsafe("thread-empty-prompt");
+    const threadId = ThreadId.make("thread-empty-prompt");
     const before = useComposerDraftStore.getState();
 
     useComposerDraftStore.getState().setPrompt(threadId, "");
@@ -55,7 +55,7 @@ describe("composerDraftStore stable empty draft identity", () => {
 });
 
 describe("composerDraftStore clearComposerContent", () => {
-  const threadId = ThreadId.makeUnsafe("thread-clear");
+  const threadId = ThreadId.make("thread-clear");
   let originalRevokeObjectUrl: typeof URL.revokeObjectURL;
   let revokeSpy: ReturnType<typeof vi.fn<(url: string) => void>>;
 
@@ -111,7 +111,7 @@ describe("composerDraftStore clearComposerContent", () => {
 });
 
 describe("composerDraftStore queued edit reconciliation", () => {
-  const threadId = ThreadId.makeUnsafe("thread-queued-edit");
+  const threadId = ThreadId.make("thread-queued-edit");
   beforeEach(resetComposerDraftStore);
 
   it("appends a cancelled turn after existing composer content and merges attachments", () => {
@@ -147,10 +147,10 @@ describe("composerDraftStore queued edit reconciliation", () => {
 });
 
 describe("composerDraftStore project draft thread mapping", () => {
-  const folderId = FolderId.makeUnsafe("project-a");
-  const otherFolderId = FolderId.makeUnsafe("project-b");
-  const threadId = ThreadId.makeUnsafe("thread-a");
-  const otherThreadId = ThreadId.makeUnsafe("thread-b");
+  const folderId = FolderId.make("project-a");
+  const otherFolderId = FolderId.make("project-b");
+  const threadId = ThreadId.make("thread-a");
+  const otherThreadId = ThreadId.make("thread-b");
   let originalRevokeObjectUrl: typeof URL.revokeObjectURL;
   let revokeSpy: ReturnType<typeof vi.fn<(url: string) => void>>;
 
@@ -336,7 +336,7 @@ describe("composerDraftStore project draft thread mapping", () => {
 });
 
 describe("composerDraftStore runtime settings", () => {
-  const threadId = ThreadId.makeUnsafe("thread-settings");
+  const threadId = ThreadId.make("thread-settings");
 
   beforeEach(() => {
     resetComposerDraftStore();

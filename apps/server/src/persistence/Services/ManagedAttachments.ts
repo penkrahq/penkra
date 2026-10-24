@@ -1,4 +1,4 @@
-import { Option, ServiceMap } from "effect";
+import { Option, Context } from "effect";
 import type { Effect } from "effect";
 
 import type { PersistenceSqlError } from "../Errors.ts";
@@ -203,7 +203,7 @@ export interface ManagedAttachmentRepositoryShape {
   }) => Effect.Effect<ManagedAttachmentUsage, PersistenceSqlError>;
 }
 
-export class ManagedAttachmentRepository extends ServiceMap.Service<
+export class ManagedAttachmentRepository extends Context.Service<
   ManagedAttachmentRepository,
   ManagedAttachmentRepositoryShape
 >()("penkra/persistence/Services/ManagedAttachments/ManagedAttachmentRepository") {}

@@ -1,6 +1,6 @@
 // Purpose: Verify old pending work satisfies the admission invariant before bounded delivery starts.
 import { Effect, Schema } from "effect";
-import * as SqlClient from "effect/unstable/sql/SqlClient";
+import * as SqlClient from "effect/sql/SqlClient";
 import { QueuedMessage203, SendPayload204, validatePending204 } from "./userItemShapes203.ts";
 
 export default Effect.gen(function* () {

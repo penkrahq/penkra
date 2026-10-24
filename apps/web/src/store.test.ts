@@ -25,8 +25,8 @@ import {
 
 describe("store facade", () => {
   it("applies a Space order immediately for optimistic drag feedback", () => {
-    const workSpaceId = SpaceId.makeUnsafe("space-work");
-    const sideSpaceId = SpaceId.makeUnsafe("space-side");
+    const workSpaceId = SpaceId.make("space-work");
+    const sideSpaceId = SpaceId.make("space-side");
     const state = makeState(makeThread());
     state.spaces = [
       {
@@ -54,9 +54,9 @@ describe("store facade", () => {
   });
 
   it("reorderFolders moves a project to a target index", () => {
-    const project1 = FolderId.makeUnsafe("project-1");
-    const project2 = FolderId.makeUnsafe("project-2");
-    const project3 = FolderId.makeUnsafe("project-3");
+    const project1 = FolderId.make("project-1");
+    const project2 = FolderId.make("project-2");
+    const project3 = FolderId.make("project-3");
     const state: AppState = {
       spaces: [],
 
@@ -94,8 +94,8 @@ describe("store facade", () => {
   });
 
   it("expands every project when toggled on", () => {
-    const project1 = FolderId.makeUnsafe("project-1");
-    const project2 = FolderId.makeUnsafe("project-2");
+    const project1 = FolderId.make("project-1");
+    const project2 = FolderId.make("project-2");
     const state: AppState = {
       spaces: [],
 
@@ -135,14 +135,14 @@ describe("store facade", () => {
 
       folders: [
         makeProject({
-          id: FolderId.makeUnsafe("project-1"),
+          id: FolderId.make("project-1"),
           name: "Project 1",
           remoteName: "Project 1",
           folderName: "project-1",
           cwd: "/tmp/project-1",
         }),
         makeProject({
-          id: FolderId.makeUnsafe("project-2"),
+          id: FolderId.make("project-2"),
           name: "Project 2",
           remoteName: "Project 2",
           folderName: "project-2",
@@ -160,8 +160,8 @@ describe("store facade", () => {
   });
 
   it("collapses every project except the active one", () => {
-    const project1 = FolderId.makeUnsafe("project-1");
-    const project2 = FolderId.makeUnsafe("project-2");
+    const project1 = FolderId.make("project-1");
+    const project2 = FolderId.make("project-2");
     const state: AppState = {
       spaces: [],
 
@@ -197,7 +197,7 @@ describe("store facade", () => {
   it("renames a project locally without changing its remote or folder names", () => {
     const state = makeState(makeThread());
 
-    const next = renameProjectLocally(state, FolderId.makeUnsafe("project-1"), "penkra");
+    const next = renameProjectLocally(state, FolderId.make("project-1"), "penkra");
 
     expect(next.folders[0]).toMatchObject({
       name: "penkra",
@@ -208,9 +208,9 @@ describe("store facade", () => {
   });
 
   it("preserves the current project order when syncing incoming read model updates", () => {
-    const project1 = FolderId.makeUnsafe("project-1");
-    const project2 = FolderId.makeUnsafe("project-2");
-    const project3 = FolderId.makeUnsafe("project-3");
+    const project1 = FolderId.make("project-1");
+    const project2 = FolderId.make("project-2");
+    const project3 = FolderId.make("project-3");
     const initialState: AppState = {
       spaces: [],
 
@@ -264,8 +264,8 @@ describe("store facade", () => {
   });
 
   it("preserves expanded project state when a project briefly disappears from the snapshot", () => {
-    const project1 = FolderId.makeUnsafe("project-1");
-    const project2 = FolderId.makeUnsafe("project-2");
+    const project1 = FolderId.make("project-1");
+    const project2 = FolderId.make("project-2");
     const initialState: AppState = {
       spaces: [],
 
@@ -331,7 +331,7 @@ describe("store facade", () => {
   it("preserves a local project alias across read model syncs", () => {
     const aliasedState = renameProjectLocally(
       makeState(makeThread()),
-      FolderId.makeUnsafe("project-1"),
+      FolderId.make("project-1"),
       "penkra",
     );
 
@@ -382,7 +382,7 @@ describe("store facade", () => {
       vi.resetModules();
 
       const freshStore = await import("./store");
-      const folderId = FolderId.makeUnsafe("project-1");
+      const folderId = FolderId.make("project-1");
       freshStore.useStore.setState((state) => ({
         ...state,
         folders: [
@@ -440,7 +440,7 @@ describe("store facade", () => {
       vi.resetModules();
 
       const freshStore = await import("./store");
-      const folderId = FolderId.makeUnsafe("project-1");
+      const folderId = FolderId.make("project-1");
       freshStore.useStore.setState((state) => ({
         ...state,
         folders: [

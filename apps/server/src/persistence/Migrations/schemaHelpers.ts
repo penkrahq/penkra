@@ -4,7 +4,7 @@
 // Exports: columnExists, tableExists, primaryKeyColumns
 
 import * as Effect from "effect/Effect";
-import type * as SqlClient from "effect/unstable/sql/SqlClient";
+import type * as SqlClient from "effect/sql/SqlClient";
 
 // Checks SQLite table metadata without relying on driver-specific duplicate-column errors.
 export const columnExists = (sql: SqlClient.SqlClient, tableName: string, columnName: string) =>

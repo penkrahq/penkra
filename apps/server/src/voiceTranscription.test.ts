@@ -18,7 +18,7 @@ const WAV_BASE64 = Buffer.from("RIFF0000WAVE", "ascii").toString("base64");
 
 const baseRequest: ServerVoiceTranscriptionInput = {
   provider: "codex",
-  connectionId: ProviderConnectionId.makeUnsafe("connection-voice-test"),
+  connectionId: ProviderConnectionId.make("connection-voice-test"),
   cwd: "/tmp/project",
   mimeType: "audio/wav",
   sampleRateHz: 24_000,

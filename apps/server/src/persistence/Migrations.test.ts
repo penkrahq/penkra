@@ -3,7 +3,7 @@ import { seedThreadFolderFixture } from "../cleanCore/threadFixtures.ts";
 import { seedHistoricalProjectFixture } from "./Migrations/historicalFolderFixture.ts";
 import { assert, it } from "@effect/vitest";
 import { Effect, Layer } from "effect";
-import * as SqlClient from "effect/unstable/sql/SqlClient";
+import * as SqlClient from "effect/sql/SqlClient";
 
 import { migrationEntries, runMigrations } from "./Migrations.ts";
 import { MigrationSchemaTooNewError } from "./Errors.ts";

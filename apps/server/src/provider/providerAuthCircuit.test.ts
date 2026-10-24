@@ -1,7 +1,7 @@
 import { assert, it } from "@effect/vitest";
 import { ProviderConnectionId } from "@penkra/contracts";
 import { Effect, Layer, PubSub } from "effect";
-import * as SqlClient from "effect/unstable/sql/SqlClient";
+import * as SqlClient from "effect/sql/SqlClient";
 
 import { SqlitePersistenceMemory } from "../persistence/Layers/Sqlite.ts";
 import { ProviderAuthCircuits, ProviderAuthCircuitsLive } from "./providerAuthCircuit.ts";
@@ -21,7 +21,7 @@ it.effect(
     Effect.gen(function* () {
       const sql = yield* SqlClient.SqlClient;
       const circuits = yield* ProviderAuthCircuits;
-      const connectionId = ProviderConnectionId.makeUnsafe("auth-circuit-fixture");
+      const connectionId = ProviderConnectionId.make("auth-circuit-fixture");
       yield* sql`
       INSERT INTO provider_connections (
         connection_id, harness_kind, authentication_target_id, authentication_method_id,
@@ -52,7 +52,7 @@ it.effect("a replacement profile releases the previous auth block", () =>
   Effect.gen(function* () {
     const sql = yield* SqlClient.SqlClient;
     const circuits = yield* ProviderAuthCircuits;
-    const connectionId = ProviderConnectionId.makeUnsafe("profile-circuit-fixture");
+    const connectionId = ProviderConnectionId.make("profile-circuit-fixture");
     yield* sql`
       INSERT INTO provider_connections (
         connection_id, harness_kind, authentication_target_id, authentication_method_id,

@@ -7,7 +7,7 @@ import {
   ProviderConnectionTerminationReason,
   type CreateStaticProviderConnectionInput,
 } from "@penkra/contracts";
-import { Data, Effect, ServiceMap } from "effect";
+import { Data, Effect, Context } from "effect";
 
 export class ProviderConnectionLifecycleError extends Data.TaggedError(
   "ProviderConnectionLifecycleError",
@@ -27,7 +27,7 @@ export interface ProviderConnectionLifecycleShape {
   }) => Effect.Effect<ProviderConnection, ProviderConnectionLifecycleError>;
 }
 
-export class ProviderConnectionLifecycle extends ServiceMap.Service<
+export class ProviderConnectionLifecycle extends Context.Service<
   ProviderConnectionLifecycle,
   ProviderConnectionLifecycleShape
 >()("penkra/provider/Services/ProviderConnectionLifecycle") {}

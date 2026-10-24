@@ -8,7 +8,7 @@ import {
   type ServerUpdateSpaceNavigationStateInput,
 } from "@penkra/contracts";
 import { Effect } from "effect";
-import type * as SqlClient from "effect/unstable/sql/SqlClient";
+import type * as SqlClient from "effect/sql/SqlClient";
 
 interface SpaceNavigationRow {
   readonly active_space_id: string | null;
@@ -55,9 +55,9 @@ export function getSpaceNavigationState(sql: SqlClient.SqlClient) {
       } satisfies ServerSpaceNavigationState;
     }
     return {
-      activeSpaceId: row.active_space_id ? SpaceId.makeUnsafe(row.active_space_id) : null,
-      lastThreadIdBySpace: parseIdRecord(row.last_thread_id_by_space_json, ThreadId.makeUnsafe),
-      lastFolderIdBySpace: parseIdRecord(row.last_folder_id_by_space_json, FolderId.makeUnsafe),
+      activeSpaceId: row.active_space_id ? SpaceId.make(row.active_space_id) : null,
+      lastThreadIdBySpace: parseIdRecord(row.last_thread_id_by_space_json, ThreadId.make),
+      lastFolderIdBySpace: parseIdRecord(row.last_folder_id_by_space_json, FolderId.make),
       updatedAt: row.updated_at,
     } satisfies ServerSpaceNavigationState;
   });

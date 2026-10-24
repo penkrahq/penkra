@@ -7,7 +7,7 @@
 // boundaries) and best-effort: parse failures and fs errors degrade to "no
 // update", never to a thrown error.
 
-import { Effect, FileSystem } from "effect";
+import { Effect, FileSystem, Option } from "effect";
 import type { WorkflowAgentRuntimeSnapshot } from "@penkra/contracts";
 
 import { WORKFLOW_PROMPT_PREVIEW_CHARS } from "./claudeWorkflowScript.ts";
@@ -246,8 +246,10 @@ const readAppendedLines = (
       return { lines: [], nextOffset: offset, skipped: true };
     }
     const file = yield* fileSystem.open(path);
-    yield* file.seek(offset, "start");
-    const chunk = yield* file.readAlloc(Math.min(size - offset, MAX_CHUNK_BYTES));
+    yield* file.seek(BigInt(offset), "start");
+    const chunk = Option.getOrUndefined(
+      yield* file.readAlloc(Math.min(size - offset, MAX_CHUNK_BYTES)),
+    );
     if (chunk === undefined || chunk.length === 0) {
       return undefined;
     }
@@ -274,7 +276,7 @@ export const readClaudeWorkflowOutputText = (
       return undefined;
     }
     const file = yield* fileSystem.open(path);
-    const bytes = yield* file.readAlloc(size);
+    const bytes = Option.getOrUndefined(yield* file.readAlloc(size));
     return bytes && bytes.length > 0 ? new TextDecoder().decode(bytes) : undefined;
   }).pipe(
     Effect.scoped,

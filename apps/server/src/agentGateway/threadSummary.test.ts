@@ -16,12 +16,12 @@ function makeActivity(
   payload: OrchestrationThreadActivity["payload"] = { ok: true },
 ): OrchestrationThreadActivity {
   return {
-    id: EventId.makeUnsafe(id),
+    id: EventId.make(id),
     tone: kind.startsWith("tool.") ? "tool" : "info",
     kind,
     summary: `${kind} summary`,
     payload,
-    turnId: TurnId.makeUnsafe("turn-activity"),
+    turnId: TurnId.make("turn-activity"),
     sequence,
     createdAt: `2026-03-01T00:00:${String(sequence).padStart(2, "0")}.000Z`,
   };
@@ -29,7 +29,7 @@ function makeActivity(
 
 function makeMessage(index: number, text = `message ${index}`): OrchestrationMessage {
   return {
-    id: MessageId.makeUnsafe(`m-${index}`),
+    id: MessageId.make(`m-${index}`),
     role: index % 2 === 0 ? "user" : "assistant",
     ...(index % 2 === 0 ? { origin: { _tag: "user" as const } } : {}),
     text,
@@ -45,11 +45,11 @@ const session = (
   status: "running" | "ready" | "error" | "starting" | "stopped",
   activeTurnId: string | null = null,
 ) => ({
-  threadId: ThreadId.makeUnsafe("t-1"),
+  threadId: ThreadId.make("t-1"),
   status,
   providerName: null,
   runtimeMode: "approval-required" as const,
-  activeTurnId: activeTurnId === null ? null : TurnId.makeUnsafe(activeTurnId),
+  activeTurnId: activeTurnId === null ? null : TurnId.make(activeTurnId),
   lastError: null,
   updatedAt: "2026-03-01T00:00:00.000Z",
 });
@@ -57,7 +57,7 @@ const session = (
 const latestTurn = (
   state: "queued" | "running" | "completed" | "interrupted" | "error" | "cancelled",
 ) => ({
-  turnId: TurnId.makeUnsafe("turn-1"),
+  turnId: TurnId.make("turn-1"),
   state,
   requestedAt: "2026-03-01T00:00:00.000Z",
   startedAt: null,
@@ -112,8 +112,8 @@ describe("resolveActiveTurn", () => {
   it("requires the running session to match the canonical or provider turn id", () => {
     const runningTurn = {
       ...latestTurn("running"),
-      turnId: TurnId.makeUnsafe("canonical-turn"),
-      providerTurnId: TurnId.makeUnsafe("provider-turn"),
+      turnId: TurnId.make("canonical-turn"),
+      providerTurnId: TurnId.make("provider-turn"),
     };
 
     assert.strictEqual(
@@ -186,7 +186,7 @@ describe("paginateThreadMessages", () => {
   it("surfaces dispatch origin on messages that carry it", () => {
     const message = {
       ...makeMessage(0),
-      origin: { _tag: "agent" as const, senderThreadId: ThreadId.makeUnsafe("sender-thread") },
+      origin: { _tag: "agent" as const, senderThreadId: ThreadId.make("sender-thread") },
     };
     const page = paginateThreadMessages({ messages: [message] });
     assert.equal(page.messages[0]?.origin?._tag, "agent");
@@ -263,10 +263,10 @@ describe("packAgentTranscriptPage", () => {
     const text = Array.from({ length: 45_514 }, (_, index) => String(index % 10)).join("");
     const message = {
       ...makeMessage(0, text),
-      turnId: TurnId.makeUnsafe("turn-long"),
+      turnId: TurnId.make("turn-long"),
       sequence: 7,
       streaming: true,
-      origin: { _tag: "agent" as const, senderThreadId: ThreadId.makeUnsafe("sender-thread") },
+      origin: { _tag: "agent" as const, senderThreadId: ThreadId.make("sender-thread") },
     };
 
     const fragments: string[] = [];

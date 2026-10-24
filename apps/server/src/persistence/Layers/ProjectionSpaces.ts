@@ -1,5 +1,5 @@
-import * as SqlClient from "effect/unstable/sql/SqlClient";
-import * as SqlSchema from "effect/unstable/sql/SqlSchema";
+import * as SqlClient from "effect/sql/SqlClient";
+import * as SqlSchema from "effect/sql/SqlSchema";
 import { Effect, Layer, Schema } from "effect";
 
 import { toPersistenceSqlError } from "../Errors.ts";

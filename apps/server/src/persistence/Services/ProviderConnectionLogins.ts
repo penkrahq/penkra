@@ -7,7 +7,7 @@ import {
   ProviderKind,
   TrimmedNonEmptyString,
 } from "@penkra/contracts";
-import { Effect, Option, Schema, ServiceMap, type PubSub, type Scope } from "effect";
+import { Effect, Option, Schema, Context, type PubSub, type Scope } from "effect";
 
 import type { PersistenceDecodeError, PersistenceSqlError } from "../Errors.ts";
 
@@ -63,7 +63,7 @@ export interface ProviderConnectionLoginRepositoryShape {
   }) => Effect.Effect<Option.Option<ProviderConnectionLoginRecord>>;
 }
 
-export class ProviderConnectionLoginRepository extends ServiceMap.Service<
+export class ProviderConnectionLoginRepository extends Context.Service<
   ProviderConnectionLoginRepository,
   ProviderConnectionLoginRepositoryShape
 >()("penkra/persistence/Services/ProviderConnectionLogins") {}

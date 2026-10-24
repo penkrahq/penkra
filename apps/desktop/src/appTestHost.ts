@@ -51,7 +51,7 @@ void runHostPhase("electron-ready", () => app.whenReady())
         appControllerRunnerPath: Path.join(__dirname, "appNodeControllerRunner.js"),
         ipcMain,
         onBeforeTabOpened: async (tab) => ({
-          folderId: FolderId.makeUnsafe(tab.folderId),
+          folderId: FolderId.make(tab.folderId),
           folderTitle: "App test",
           updatedAt: new Date().toISOString(),
           tabs: {

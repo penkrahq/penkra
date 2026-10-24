@@ -13,20 +13,20 @@ describe("deriveThreadSummaryMetadata", () => {
   it("derives sidebar summary metadata from thread state", () => {
     const messages: OrchestrationMessage[] = [
       {
-        id: MessageId.makeUnsafe("message-1"),
+        id: MessageId.make("message-1"),
         role: "assistant",
         text: "hello",
-        turnId: TurnId.makeUnsafe("turn-1"),
+        turnId: TurnId.make("turn-1"),
         streaming: false,
         source: "native",
         createdAt: "2026-02-27T00:01:00.000Z",
         updatedAt: "2026-02-27T00:01:00.000Z",
       },
       {
-        id: MessageId.makeUnsafe("message-2"),
+        id: MessageId.make("message-2"),
         role: "user",
         text: "ship it",
-        turnId: TurnId.makeUnsafe("turn-2"),
+        turnId: TurnId.make("turn-2"),
         streaming: false,
         source: "native",
         createdAt: "2026-02-27T00:03:00.000Z",
@@ -35,7 +35,7 @@ describe("deriveThreadSummaryMetadata", () => {
     ];
     const activities: OrchestrationThreadActivity[] = [
       {
-        id: EventId.makeUnsafe("activity-2"),
+        id: EventId.make("activity-2"),
         tone: "info",
         kind: "user-input.requested",
         summary: "Questions requested",
@@ -51,7 +51,7 @@ describe("deriveThreadSummaryMetadata", () => {
           ],
         },
         sequence: 2,
-        turnId: TurnId.makeUnsafe("turn-2"),
+        turnId: TurnId.make("turn-2"),
         createdAt: "2026-02-27T00:05:00.000Z",
       },
     ];
@@ -69,7 +69,7 @@ describe("deriveThreadSummaryMetadata", () => {
   it("drops stale pending requests once failure events mark them obsolete", () => {
     const activities: OrchestrationThreadActivity[] = [
       {
-        id: EventId.makeUnsafe("activity-3"),
+        id: EventId.make("activity-3"),
         tone: "info",
         kind: "user-input.requested",
         summary: "Questions requested",
@@ -85,11 +85,11 @@ describe("deriveThreadSummaryMetadata", () => {
           ],
         },
         sequence: 3,
-        turnId: TurnId.makeUnsafe("turn-1"),
+        turnId: TurnId.make("turn-1"),
         createdAt: "2026-02-27T00:03:00.000Z",
       },
       {
-        id: EventId.makeUnsafe("activity-4"),
+        id: EventId.make("activity-4"),
         tone: "error",
         kind: "provider.user-input.respond.failed",
         summary: "User input response failed",
@@ -99,7 +99,7 @@ describe("deriveThreadSummaryMetadata", () => {
           detail: "unknown pending user-input request",
         },
         sequence: 4,
-        turnId: TurnId.makeUnsafe("turn-1"),
+        turnId: TurnId.make("turn-1"),
         createdAt: "2026-02-27T00:04:00.000Z",
       },
     ];
@@ -124,7 +124,7 @@ describe("deriveThreadSummaryMetadata", () => {
     };
     const activities: OrchestrationThreadActivity[] = [
       {
-        id: EventId.makeUnsafe("input-a"),
+        id: EventId.make("input-a"),
         tone: "info",
         kind: "user-input.requested",
         summary: "Questions requested",
@@ -134,11 +134,11 @@ describe("deriveThreadSummaryMetadata", () => {
           questions: [question],
         },
         sequence: 4,
-        turnId: TurnId.makeUnsafe("turn-1"),
+        turnId: TurnId.make("turn-1"),
         createdAt: "2026-02-27T00:04:00.000Z",
       },
       {
-        id: EventId.makeUnsafe("input-b"),
+        id: EventId.make("input-b"),
         tone: "info",
         kind: "user-input.requested",
         summary: "Questions requested",
@@ -148,11 +148,11 @@ describe("deriveThreadSummaryMetadata", () => {
           questions: [question],
         },
         sequence: 5,
-        turnId: TurnId.makeUnsafe("turn-1"),
+        turnId: TurnId.make("turn-1"),
         createdAt: "2026-02-27T00:05:00.000Z",
       },
       {
-        id: EventId.makeUnsafe("input-a-resolved"),
+        id: EventId.make("input-a-resolved"),
         tone: "info",
         kind: "user-input.resolved",
         summary: "User input resolved",
@@ -161,7 +161,7 @@ describe("deriveThreadSummaryMetadata", () => {
           lifecycleGeneration: "generation-a",
         },
         sequence: 6,
-        turnId: TurnId.makeUnsafe("turn-1"),
+        turnId: TurnId.make("turn-1"),
         createdAt: "2026-02-27T00:06:00.000Z",
       },
     ];
@@ -179,7 +179,7 @@ describe("deriveThreadSummaryMetadata", () => {
   it("ignores malformed user-input questions that the UI could not render", () => {
     const activities: OrchestrationThreadActivity[] = [
       {
-        id: EventId.makeUnsafe("activity-1"),
+        id: EventId.make("activity-1"),
         tone: "info",
         kind: "user-input.requested",
         summary: "Questions requested",
@@ -195,7 +195,7 @@ describe("deriveThreadSummaryMetadata", () => {
           ],
         },
         sequence: 1,
-        turnId: TurnId.makeUnsafe("turn-1"),
+        turnId: TurnId.make("turn-1"),
         createdAt: "2026-02-27T00:01:00.000Z",
       },
     ];
@@ -219,7 +219,7 @@ describe("derivePendingThreadRequestIds", () => {
       derivePendingThreadRequestIds({
         activities: [
           {
-            id: EventId.makeUnsafe("question"),
+            id: EventId.make("question"),
             kind: "user-input.requested",
             createdAt: at,
             payload: {

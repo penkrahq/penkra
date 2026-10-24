@@ -22,7 +22,7 @@ describe("managed Connection providers", () => {
         snapshot({
           installations: [
             {
-              id: ProviderInstallationId.makeUnsafe("installation-codex"),
+              id: ProviderInstallationId.make("installation-codex"),
               harness: "codex",
               version: "1.0.0",
               platform: "darwin",
@@ -36,7 +36,7 @@ describe("managed Connection providers", () => {
               retiredAt: null,
             },
             {
-              id: ProviderInstallationId.makeUnsafe("installation-opencode"),
+              id: ProviderInstallationId.make("installation-opencode"),
               harness: "opencode",
               version: "1.0.0",
               platform: "darwin",

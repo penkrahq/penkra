@@ -1,6 +1,6 @@
 // Purpose: Capture historical migration inputs before the clean-core drop.
 import { Effect } from "effect";
-import * as SqlClient from "effect/unstable/sql/SqlClient";
+import * as SqlClient from "effect/sql/SqlClient";
 export const readRehearsalSourceSnapshot = Effect.gen(function* () {
   const sql = yield* SqlClient.SqlClient;
   // Rehearsal inputs can be pre-cutover or already on clean core. This is

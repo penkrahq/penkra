@@ -1,5 +1,5 @@
 import type { ProviderKind, ThreadId } from "@penkra/contracts";
-import { ServiceMap } from "effect";
+import { Context } from "effect";
 
 export type AgentGatewayCapability = "thread:read" | "thread:write";
 
@@ -69,7 +69,7 @@ export interface AgentGatewaySessionRegistryShape {
   readonly revoke: (token: string) => void;
 }
 
-export class AgentGatewaySessionRegistry extends ServiceMap.Service<
+export class AgentGatewaySessionRegistry extends Context.Service<
   AgentGatewaySessionRegistry,
   AgentGatewaySessionRegistryShape
 >()("penkra/agentGateway/Services/AgentGatewaySessionRegistry") {}

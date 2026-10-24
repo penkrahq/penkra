@@ -13,7 +13,7 @@ import * as NodeSqliteClient from "../persistence/NodeSqliteClient.ts";
 import { ProviderAdapterRegistry } from "../provider/Services/ProviderAdapterRegistry.ts";
 import { ProviderLaunchResolver } from "../provider/Services/ProviderLaunchResolver.ts";
 
-const id = ProviderConnectionId.makeUnsafe("account");
+const id = ProviderConnectionId.make("account");
 const snapshot = (usedPercent: number): ServerProviderUsageSnapshot => ({
   provider: "codex",
   connectionId: id,

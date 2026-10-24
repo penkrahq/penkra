@@ -24,6 +24,7 @@ import {
 import { assert, describe, it } from "@effect/vitest";
 import { Duration, Effect, Exit, Fiber, Layer, Random, Stream } from "effect";
 import { TestClock } from "effect/testing";
+import { vi } from "vitest";
 
 import { attachmentRelativePath } from "../../attachmentStore.ts";
 import {
@@ -72,8 +73,8 @@ it.effect("loads a Claude folder catalog in one selected managed query and close
     const result = yield* adapter.loadCatalog({
       scope: {
         provider: "claudeAgent",
-        connectionId: ProviderConnectionId.makeUnsafe("selected"),
-        folderId: FolderId.makeUnsafe("folder"),
+        connectionId: ProviderConnectionId.make("selected"),
+        folderId: FolderId.make("folder"),
       },
       cwd: "/folder/selected",
       kinds: ["commands", "agents", "plugins"],
@@ -205,8 +206,8 @@ it.effect("a Claude catalog metadata failure closes only its discovery query", (
       adapter.loadCatalog({
         scope: {
           provider: "claudeAgent",
-          connectionId: ProviderConnectionId.makeUnsafe("selected"),
-          folderId: FolderId.makeUnsafe("folder"),
+          connectionId: ProviderConnectionId.make("selected"),
+          folderId: FolderId.make("folder"),
         },
         cwd: "/folder",
         kinds: ["commands"],
@@ -235,8 +236,8 @@ function claudeCatalogInput(
   return {
     scope: {
       provider: "claudeAgent",
-      connectionId: ProviderConnectionId.makeUnsafe(connectionId),
-      ...(kinds.includes("models") ? {} : { folderId: FolderId.makeUnsafe("catalog-folder") }),
+      connectionId: ProviderConnectionId.make(connectionId),
+      ...(kinds.includes("models") ? {} : { folderId: FolderId.make("catalog-folder") }),
     },
     kinds,
     cwd,
@@ -661,8 +662,8 @@ function effortLevelFromOptions(options: ClaudeQueryOptions | undefined): string
   return settings && typeof settings === "object" ? settings.effortLevel : undefined;
 }
 
-const THREAD_ID = ThreadId.makeUnsafe("thread-claude-1");
-const RESUME_THREAD_ID = ThreadId.makeUnsafe("thread-claude-resume");
+const THREAD_ID = ThreadId.make("thread-claude-1");
+const RESUME_THREAD_ID = ThreadId.make("thread-claude-resume");
 
 describe("Claude Penkra harness policy", () => {
   it("uses the canonical Penkra system prompt", () => {
@@ -1377,7 +1378,7 @@ describe("ClaudeAdapterLive", () => {
       const steered = yield* adapter.steerTurn({
         threadId: session.threadId,
         input: "Actually, focus on the tests",
-        clientMessageId: MessageId.makeUnsafe("host-steer-message"),
+        clientMessageId: MessageId.make("host-steer-message"),
         attachments: [],
       });
 
@@ -1435,7 +1436,7 @@ describe("ClaudeAdapterLive", () => {
             threadId: THREAD_ID,
             input: "Steer",
             attachments: [],
-            clientMessageId: MessageId.makeUnsafe("steer-id"),
+            clientMessageId: MessageId.make("steer-id"),
           });
           const iterator = harness.getLastCreateQueryInput()!.prompt[Symbol.asyncIterator]();
           yield* Effect.promise(() => iterator.next());
@@ -7794,7 +7795,14 @@ await agent("Draft the spec", { label: "delta-agent", phase: "Two" });
     const query = new FakeClaudeQuery();
     let queryCreated = false;
     let failedSetup = false;
-    const random = makeDeterministicRandomService();
+    const randomUUID = crypto.randomUUID.bind(crypto);
+    const uuid = vi.spyOn(crypto, "randomUUID").mockImplementation(() => {
+      if (queryCreated && !failedSetup) {
+        failedSetup = true;
+        throw new Error("simulated post-spawn event setup failure");
+      }
+      return randomUUID();
+    });
     const layer = makeClaudeAdapterLive({
       createQuery: () => {
         queryCreated = true;
@@ -7819,19 +7827,7 @@ await agent("Draft the spec", { label: "delta-agent", phase: "Two" });
       assert.equal(query.closeCalls, 1);
       assert.equal(yield* adapter.hasSession(THREAD_ID), false);
       assert.equal((yield* adapter.listSessions()).length, 0);
-    }).pipe(
-      Effect.provideService(Random.Random, {
-        ...random,
-        nextIntUnsafe: () => {
-          if (queryCreated && !failedSetup) {
-            failedSetup = true;
-            throw new Error("simulated post-spawn event setup failure");
-          }
-          return random.nextIntUnsafe();
-        },
-      }),
-      Effect.provide(layer),
-    );
+    }).pipe(Effect.provide(layer), Effect.ensuring(Effect.sync(() => uuid.mockRestore())));
   });
 
   it.effect("discovers canonical future Claude models before a session starts", () => {
@@ -8428,7 +8424,7 @@ await agent("Draft the spec", { label: "delta-agent", phase: "Two" });
       assert.equal(requestedEvent.value.payload.questions.length, 1);
       assert.equal(requestedEvent.value.payload.questions[0]?.question, "Which framework?");
       assert.deepEqual(requestedEvent.value.providerRefs, {
-        providerItemId: ProviderItemId.makeUnsafe("tool-ask-1"),
+        providerItemId: ProviderItemId.make("tool-ask-1"),
       });
 
       // Respond with the user's answers.
@@ -8448,7 +8444,7 @@ await agent("Draft the spec", { label: "delta-agent", phase: "Two" });
         "Which framework?": "React",
       });
       assert.deepEqual(resolvedEvent.value.providerRefs, {
-        providerItemId: ProviderItemId.makeUnsafe("tool-ask-1"),
+        providerItemId: ProviderItemId.make("tool-ask-1"),
       });
 
       // The canUseTool promise should resolve with the answers in SDK format.

@@ -25,17 +25,7 @@ import {
   ThreadId,
   TurnId,
 } from "@penkra/contracts";
-import {
-  Cause,
-  Effect,
-  FileSystem,
-  Layer,
-  Option,
-  Queue,
-  Schema,
-  ServiceMap,
-  Stream,
-} from "effect";
+import { Cause, Effect, FileSystem, Layer, Option, Queue, Schema, Context, Stream } from "effect";
 
 import {
   ProviderAdapterProcessError,
@@ -141,7 +131,7 @@ function codexRuntimeIngressItemBytes(item: CodexRuntimeIngressItem): number {
 
 export interface CodexAdapterLiveOptions {
   readonly manager?: CodexAppServerManager;
-  readonly makeManager?: (services?: ServiceMap.ServiceMap<never>) => CodexAppServerManager;
+  readonly makeManager?: (services?: Context.Context<never>) => CodexAppServerManager;
   readonly nativeEventLogPath?: string;
   readonly nativeEventLogger?: EventNdjsonLogger;
 }
@@ -335,11 +325,11 @@ function normalizeCodexTokenUsage(value: unknown): ThreadTokenUsageSnapshot | un
 }
 
 function toTurnId(value: string | undefined): TurnId | undefined {
-  return value?.trim() ? TurnId.makeUnsafe(value) : undefined;
+  return value?.trim() ? TurnId.make(value) : undefined;
 }
 
 function toProviderItemId(value: string | undefined): ProviderItemId | undefined {
-  return value?.trim() ? ProviderItemId.makeUnsafe(value) : undefined;
+  return value?.trim() ? ProviderItemId.make(value) : undefined;
 }
 
 function toTurnStatus(value: unknown): "completed" | "failed" | "cancelled" | "interrupted" {
@@ -551,15 +541,15 @@ function contentStreamKindFromMethod(
 }
 
 function asRuntimeItemId(itemId: ProviderItemId): RuntimeItemId {
-  return RuntimeItemId.makeUnsafe(itemId);
+  return RuntimeItemId.make(itemId);
 }
 
 function asRuntimeRequestId(requestId: string): RuntimeRequestId {
-  return RuntimeRequestId.makeUnsafe(requestId);
+  return RuntimeRequestId.make(requestId);
 }
 
 function asRuntimeTaskId(taskId: string): RuntimeTaskId {
-  return RuntimeTaskId.makeUnsafe(taskId);
+  return RuntimeTaskId.make(taskId);
 }
 
 function codexEventMessage(
@@ -1490,7 +1480,7 @@ const makeCodexAdapter = (options?: CodexAdapterLiveOptions) =>
             stream: "native",
           })
         : undefined);
-    const services = yield* Effect.services<never>();
+    const services = yield* Effect.context<never>();
 
     const manager = yield* Effect.acquireRelease(
       Effect.gen(function* () {
@@ -1818,7 +1808,7 @@ const makeCodexAdapter = (options?: CodexAdapterLiveOptions) =>
         catch: (cause) =>
           new ProviderAdapterProcessError({
             provider: PROVIDER,
-            threadId: ThreadId.makeUnsafe("codex:all"),
+            threadId: ThreadId.make("codex:all"),
             detail: toMessage(cause, "Failed to stop all Codex app-server processes."),
             cause,
           }),
@@ -1833,9 +1823,7 @@ const makeCodexAdapter = (options?: CodexAdapterLiveOptions) =>
           capabilities: [
             {
               id: "computer-use",
-              ...(await manager.getComputerUseCapabilityHealth(
-                ThreadId.makeUnsafe(input.threadId),
-              )),
+              ...(await manager.getComputerUseCapabilityHealth(ThreadId.make(input.threadId))),
             },
           ],
           source: "codex-app-server",

@@ -4,7 +4,7 @@ import { describe, expect, it } from "vitest";
 import { resolveVoiceTranscriptionBackend } from "./voiceTranscriptionBackend";
 
 describe("resolveVoiceTranscriptionBackend", () => {
-  const codexConnectionId = ProviderConnectionId.makeUnsafe("connection-codex");
+  const codexConnectionId = ProviderConnectionId.make("connection-codex");
 
   it("prefers Codex over supported Apple speech", () => {
     expect(

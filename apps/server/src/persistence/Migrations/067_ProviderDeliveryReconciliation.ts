@@ -1,5 +1,5 @@
 import * as Effect from "effect/Effect";
-import * as SqlClient from "effect/unstable/sql/SqlClient";
+import * as SqlClient from "effect/sql/SqlClient";
 
 // Operator reconciliation is append-only evidence. The delivery row may move
 // back to retry or forward to succeeded, but the decision that authorized that

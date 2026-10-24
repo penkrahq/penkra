@@ -33,8 +33,8 @@ import {
   type WsBootstrapNegotiateResult,
 } from "@penkra/contracts";
 import { Cause, Data, Effect, Exit, Layer, ManagedRuntime, Schema, Scope, Stream } from "effect";
-import { RpcClient, RpcClientError, RpcSerialization } from "effect/unstable/rpc";
-import * as Socket from "effect/unstable/socket/Socket";
+import { RpcClient, RpcClientError, RpcSerialization } from "effect/rpc";
+import * as Socket from "effect/socket/Socket";
 
 import { APP_VERSION } from "./branding";
 import type { WsTransportState } from "./wsTransportEvents";

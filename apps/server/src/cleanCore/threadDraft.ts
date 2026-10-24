@@ -12,7 +12,7 @@ import {
   ProviderConnectionId,
   type CleanCoreSendMessageInput,
 } from "@penkra/contracts";
-import * as SqlClient from "effect/unstable/sql/SqlClient";
+import * as SqlClient from "effect/sql/SqlClient";
 
 import { updateThreadDraft, type ThreadPublisher } from "./threadStore.ts";
 

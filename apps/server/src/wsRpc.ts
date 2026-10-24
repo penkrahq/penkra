@@ -25,10 +25,10 @@ import {
   type ServerLifecycleStreamEvent,
 } from "@penkra/contracts";
 import { Effect, FileSystem, Layer, Option, Path, Schema, Scope, Stream } from "effect";
-import { Headers, HttpRouter, HttpServerRequest, HttpServerResponse } from "effect/unstable/http";
-import { RpcServer } from "effect/unstable/rpc";
+import { Headers, HttpRouter, HttpServerRequest, HttpServerResponse } from "effect/http";
+import { RpcServer } from "effect/rpc";
 import { observedRpcJsonLayer } from "./rpcMessageSizes";
-import * as SqlClient from "effect/unstable/sql/SqlClient";
+import * as SqlClient from "effect/sql/SqlClient";
 
 import { authErrorResponse, makeEffectAuthRequest } from "./auth/effectHttp";
 import {
@@ -272,7 +272,7 @@ const makeWsRpcHandlersLayer = () =>
           ),
         [WS_METHODS.projectsWriteFile]: (input) =>
           rpcEffect(workspaceFileSystem.writeFile(input), "Failed to write workspace file"),
-        [WS_METHODS.subscribeProjectWorkspaceChanges]: (_, { clientId }) =>
+        [WS_METHODS.subscribeProjectWorkspaceChanges]: (_, { client: { id: clientId } }) =>
           streamAdmission.guard(
             clientId,
             { key: "folders.workspace-changes" },
@@ -621,7 +621,7 @@ const makeWsRpcHandlersLayer = () =>
             providerConnectionLoginCoordinator.begin(input),
             "Failed to begin Connection sign in",
           ),
-        [WS_METHODS.providerSubscribeConnectionLogin]: (input, { clientId }) =>
+        [WS_METHODS.providerSubscribeConnectionLogin]: (input, { client: { id: clientId } }) =>
           streamAdmission.guard(
             clientId,
             { key: `provider.login:${input.operationId}` },
@@ -669,7 +669,7 @@ const makeWsRpcHandlersLayer = () =>
             ),
             "Failed to read provider usage",
           ),
-        [WS_METHODS.serverSubscribeProviderUsage]: (_, { clientId }) =>
+        [WS_METHODS.serverSubscribeProviderUsage]: (_, { client: { id: clientId } }) =>
           streamAdmission.guard(clientId, { key: "server.providerUsage" }, providerUsage.changes),
         [WS_METHODS.serverTranscribeVoice]: (input) =>
           rpcEffect(
@@ -703,7 +703,7 @@ const makeWsRpcHandlersLayer = () =>
             }),
             "Voice transcription failed",
           ),
-        [WS_METHODS.subscribeServerLifecycle]: (_, { clientId }) =>
+        [WS_METHODS.subscribeServerLifecycle]: (_, { client: { id: clientId } }) =>
           streamAdmission.guard(
             clientId,
             { key: "server.lifecycle" },
@@ -732,7 +732,7 @@ const makeWsRpcHandlersLayer = () =>
               ),
             ),
           ),
-        [WS_METHODS.subscribeServerConfig]: (_, { clientId }) =>
+        [WS_METHODS.subscribeServerConfig]: (_, { client: { id: clientId } }) =>
           streamAdmission.guard(
             clientId,
             { key: "server.config" },
@@ -779,7 +779,7 @@ const makeWsRpcHandlersLayer = () =>
               ),
             ).pipe(Stream.mapError((cause) => toWsRpcError(cause, "Server config stream failed"))),
           ),
-        [WS_METHODS.subscribeServerProviderStatuses]: (_, { clientId }) =>
+        [WS_METHODS.subscribeServerProviderStatuses]: (_, { client: { id: clientId } }) =>
           streamAdmission.guard(
             clientId,
             { key: "server.provider-statuses" },
@@ -793,7 +793,7 @@ const makeWsRpcHandlersLayer = () =>
               }).pipe(Stream.map((providers) => ({ providers }))),
             ),
           ),
-        [WS_METHODS.subscribeServerSettings]: (_, { clientId }) =>
+        [WS_METHODS.subscribeServerSettings]: (_, { client: { id: clientId } }) =>
           streamAdmission.guard(
             clientId,
             { key: "server.settings" },
@@ -891,7 +891,7 @@ function trustedWebSocketRequestUrl(
   request: HttpServerRequest.HttpServerRequest,
   config: ServerConfigShape,
 ): URL | null {
-  const url = HttpServerRequest.toURL(request);
+  const url = Option.getOrUndefined(HttpServerRequest.toURL(request));
   return url &&
     !shouldRejectUntrustedRequestOrigin({
       rawOrigin: request.headers.origin,

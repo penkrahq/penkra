@@ -5,11 +5,11 @@ import * as Layer from "effect/Layer";
 
 import { CliConfig, penkraCli } from "./main";
 import { OpenLive } from "./open";
-import { Command } from "effect/unstable/cli";
+import { Command } from "effect/cli";
 import { version } from "../package.json" with { type: "json" };
 import { ServerLive } from "./effectServer";
 import { NetService } from "@penkra/shared/Net";
-import { FetchHttpClient } from "effect/unstable/http";
+import { FetchHttpClient } from "effect/http";
 
 const RuntimeLayer = Layer.empty.pipe(
   Layer.provideMerge(CliConfig.layer),

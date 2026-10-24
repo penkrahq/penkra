@@ -67,10 +67,10 @@ type OrchestrationReadModel = Omit<ContractReadModel, "threads"> & {
   threads: readonly OrchestrationThread[];
 };
 
-const THREAD_ID = ThreadId.makeUnsafe("thread-root-browser-test");
-const OTHER_THREAD_ID = ThreadId.makeUnsafe("thread-other-browser-test");
-const PROJECT_ID = FolderId.makeUnsafe("project-root-browser-test");
-const TEST_SPACE_ID = SpaceId.makeUnsafe("space-root-browser-test");
+const THREAD_ID = ThreadId.make("thread-root-browser-test");
+const OTHER_THREAD_ID = ThreadId.make("thread-other-browser-test");
+const PROJECT_ID = FolderId.make("project-root-browser-test");
+const TEST_SPACE_ID = SpaceId.make("space-root-browser-test");
 const NOW_ISO = "2026-03-04T12:00:00.000Z";
 const PROVIDER_RECOVERY_CASES: ReadonlyArray<[string, ModelSelection]> = [
   ["Codex", { provider: "codex", model: "gpt-5" }],
@@ -128,7 +128,7 @@ function createThread(input: {
     deletedAt: null,
     messages: [
       {
-        id: MessageId.makeUnsafe(input.messageId),
+        id: MessageId.make(input.messageId),
         role: "user",
         text: input.messageText,
         turnId: null,
@@ -480,7 +480,7 @@ function createSessionUpdatedEvent(input: {
 }): OrchestrationEvent {
   return {
     sequence: input.sequence,
-    eventId: EventId.makeUnsafe(`event-session-updated-${input.sequence}`),
+    eventId: EventId.make(`event-session-updated-${input.sequence}`),
     aggregateKind: "thread",
     aggregateId: THREAD_ID,
     type: "thread.session-set",
@@ -510,16 +510,16 @@ function createThreadActivityReadModelEvent(input: {
   const occurredAt = new Date(Date.parse(NOW_ISO) + input.sequence * 1_000).toISOString();
   return {
     sequence: input.sequence,
-    eventId: EventId.makeUnsafe(`event-thread-activity-read-model-${input.sequence}`),
+    eventId: EventId.make(`event-thread-activity-read-model-${input.sequence}`),
     aggregateKind: "thread",
     aggregateId: input.threadId,
     type: "thread.activity-read-model-updated",
     payload: {
       threadId: input.threadId,
-      turnId: TurnId.makeUnsafe(`turn-canonical-operation-${input.sequence}`),
+      turnId: TurnId.make(`turn-canonical-operation-${input.sequence}`),
       activity: makeActivity({
         id: `operation-${input.sequence}`,
-        turnId: TurnId.makeUnsafe(`turn-canonical-operation-${input.sequence}`),
+        turnId: TurnId.make(`turn-canonical-operation-${input.sequence}`),
         createdAt: occurredAt,
         kind: "tool.completed",
         summary: `Canonical tool output ${input.sequence}`,

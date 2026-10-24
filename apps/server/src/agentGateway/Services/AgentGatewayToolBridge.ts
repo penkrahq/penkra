@@ -2,7 +2,7 @@
 // Purpose: Provider-neutral in-process boundary for Penkra's host tool.
 
 import type { McpToolCallResult, McpToolDefinition } from "../protocol.ts";
-import { ServiceMap } from "effect";
+import { Context } from "effect";
 
 export interface AgentGatewayNativeToolSurface {
   readonly definitions: ReadonlyArray<McpToolDefinition>;
@@ -22,7 +22,7 @@ export interface AgentGatewayToolBridgeShape {
   readonly requireSurface: () => AgentGatewayNativeToolSurface;
 }
 
-export class AgentGatewayToolBridge extends ServiceMap.Service<
+export class AgentGatewayToolBridge extends Context.Service<
   AgentGatewayToolBridge,
   AgentGatewayToolBridgeShape
 >()("penkra/agentGateway/Services/AgentGatewayToolBridge") {}

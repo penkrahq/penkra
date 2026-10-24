@@ -2,7 +2,7 @@ import { getNavigation } from "../../cleanCore/navigation";
 import { assert, it } from "@effect/vitest";
 import {} from "@penkra/contracts";
 import { Effect } from "effect";
-import * as SqlClient from "effect/unstable/sql/SqlClient";
+import * as SqlClient from "effect/sql/SqlClient";
 import * as NodeSqliteClient from "../NodeSqliteClient";
 import { runMigrations } from "../Migrations";
 import removeNavigationEvents from "./196_RemoveNavigationEvents";

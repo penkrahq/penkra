@@ -11,7 +11,7 @@ it.effect("fails before reading or starting a global provider session", () =>
         getThreadDetailById: () =>
           Effect.succeed(
             Option.some({
-              id: ThreadId.makeUnsafe("import-thread"),
+              id: ThreadId.make("import-thread"),
               session: null,
             } as never),
           ),
@@ -20,7 +20,7 @@ it.effect("fails before reading or starting a global provider session", () =>
 
     const error = yield* Effect.flip(
       handler({
-        threadId: ThreadId.makeUnsafe("import-thread"),
+        threadId: ThreadId.make("import-thread"),
         externalId: "native-session",
       }),
     );

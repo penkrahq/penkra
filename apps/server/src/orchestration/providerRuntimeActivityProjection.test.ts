@@ -17,8 +17,8 @@ import {
 } from "./providerRuntimeActivityProjection.ts";
 
 const CREATED_AT = "2026-07-20T10:00:00.000Z";
-const THREAD_ID = ThreadId.makeUnsafe("thread-activity-projection");
-const TURN_ID = TurnId.makeUnsafe("turn-activity-projection");
+const THREAD_ID = ThreadId.make("thread-activity-projection");
+const TURN_ID = TurnId.make("turn-activity-projection");
 
 function runtimeEvent(input: Record<string, unknown> & { eventId: string }): ProviderRuntimeEvent {
   return {
@@ -26,7 +26,7 @@ function runtimeEvent(input: Record<string, unknown> & { eventId: string }): Pro
     createdAt: CREATED_AT,
     threadId: THREAD_ID,
     ...input,
-    eventId: EventId.makeUnsafe(input.eventId),
+    eventId: EventId.make(input.eventId),
   } as ProviderRuntimeEvent;
 }
 
@@ -58,20 +58,20 @@ describe("provider activities satisfy the canonical activity schema", () => {
       ...runtimeEvent({
         type: "tool.progress",
         eventId: "tool-" + provider + "-native-turn",
-        turnId: TurnId.makeUnsafe(nativeId),
+        turnId: TurnId.make(nativeId),
         payload: { toolUseId: "tool-call", toolName: "Read", summary: "Reading" },
       }),
       provider,
     } as ProviderRuntimeEvent;
     const [unmapped] = projectProviderRuntimeActivities(event);
     expect(unmapped).toMatchObject({ turnId: null, providerTurnId: nativeId });
-    const logicalTurnId = TurnId.makeUnsafe("turn:agent:" + provider + ":send");
+    const logicalTurnId = TurnId.make("turn:agent:" + provider + ":send");
     const [mapped] = projectProviderRuntimeActivities(event, { turnId: logicalTurnId });
     expect(mapped).toMatchObject({ turnId: logicalTurnId, providerTurnId: nativeId });
   });
 
   it("preserves Penkra handles without relabeling them as provider ids", () => {
-    const logicalTurnId = TurnId.makeUnsafe("turn:agent:codex:send");
+    const logicalTurnId = TurnId.make("turn:agent:codex:send");
     const [activity] = projectProviderRuntimeActivities(
       runtimeEvent({
         type: "tool.progress",
@@ -98,7 +98,7 @@ describe("provider activities satisfy the canonical activity schema", () => {
         type: "item.completed",
         eventId: "item-completed-blank-title",
         turnId: TURN_ID,
-        itemId: RuntimeItemId.makeUnsafe("tool-item"),
+        itemId: RuntimeItemId.make("tool-item"),
         payload: { itemType: "command_execution", status: "completed", title: "" },
       }),
     );
@@ -107,7 +107,7 @@ describe("provider activities satisfy the canonical activity schema", () => {
         type: "item.updated",
         eventId: "item-updated-blank-title",
         turnId: TURN_ID,
-        itemId: RuntimeItemId.makeUnsafe("tool-item"),
+        itemId: RuntimeItemId.make("tool-item"),
         payload: { itemType: "command_execution", status: "inProgress", title: "  " },
       }),
     );
@@ -119,7 +119,7 @@ describe("provider activities satisfy the canonical activity schema", () => {
         type: "item.started",
         eventId: "context-compaction-started",
         turnId: TURN_ID,
-        itemId: RuntimeItemId.makeUnsafe("compaction-item"),
+        itemId: RuntimeItemId.make("compaction-item"),
         payload: {
           itemType: "context_compaction",
           status: "inProgress",
@@ -142,7 +142,7 @@ describe("provider activities satisfy the canonical activity schema", () => {
     expect(() => decodeActivityAppendCommand(activity!)).not.toThrow();
   });
 
-  // `TurnId.makeUnsafe` validates: it rejects "" *and* untrimmed input rather than
+  // `TurnId.make` validates: it rejects "" *and* untrimmed input rather than
   // normalizing it, so an unnormalized runtime turn id throws inside the projection
   // itself before it can even reach the command schema.
   it("normalizes a blank or untrimmed runtime turn id instead of throwing", () => {
@@ -233,21 +233,21 @@ describe("provider runtime activity projection", () => {
         type: "content.delta",
         eventId: "assistant-delta",
         turnId: TURN_ID,
-        itemId: RuntimeItemId.makeUnsafe("assistant-item"),
+        itemId: RuntimeItemId.make("assistant-item"),
         payload: { streamKind: "assistant_text", delta: "hello" },
       }),
       runtimeEvent({
         type: "item.started",
         eventId: "assistant-started",
         turnId: TURN_ID,
-        itemId: RuntimeItemId.makeUnsafe("assistant-item"),
+        itemId: RuntimeItemId.make("assistant-item"),
         payload: { itemType: "assistant_message", status: "inProgress" },
       }),
       runtimeEvent({
         type: "item.completed",
         eventId: "assistant-completed",
         turnId: TURN_ID,
-        itemId: RuntimeItemId.makeUnsafe("assistant-item"),
+        itemId: RuntimeItemId.make("assistant-item"),
         payload: { itemType: "assistant_message", status: "completed" },
       }),
     ];
@@ -261,14 +261,14 @@ describe("provider runtime activity projection", () => {
         type: "content.delta",
         eventId: "reasoning-delta",
         turnId: TURN_ID,
-        itemId: RuntimeItemId.makeUnsafe("reasoning-item"),
+        itemId: RuntimeItemId.make("reasoning-item"),
         payload: { streamKind: "reasoning_summary_text", delta: "Inspecting code" },
       }),
       runtimeEvent({
         type: "item.completed",
         eventId: "reasoning-private",
         turnId: TURN_ID,
-        itemId: RuntimeItemId.makeUnsafe("reasoning-private"),
+        itemId: RuntimeItemId.make("reasoning-private"),
         payload: {
           itemType: "reasoning",
           status: "completed",
@@ -280,7 +280,7 @@ describe("provider runtime activity projection", () => {
         eventId: "reasoning-opencode",
         provider: "opencode",
         turnId: TURN_ID,
-        itemId: RuntimeItemId.makeUnsafe("reasoning-opencode"),
+        itemId: RuntimeItemId.make("reasoning-opencode"),
         payload: { itemType: "reasoning", status: "completed", detail: "Readable" },
       }),
     ];
@@ -293,7 +293,7 @@ describe("provider runtime activity projection", () => {
           eventId: `reasoning-${provider}`,
           provider,
           turnId: TURN_ID,
-          itemId: RuntimeItemId.makeUnsafe(`reasoning-${provider}`),
+          itemId: RuntimeItemId.make(`reasoning-${provider}`),
           payload: {
             itemType: "reasoning",
             status: "completed",
@@ -419,7 +419,7 @@ describe("provider runtime activity projection", () => {
         type: "item.completed",
         eventId: "large-tool-payload",
         turnId: TURN_ID,
-        itemId: RuntimeItemId.makeUnsafe("large-tool"),
+        itemId: RuntimeItemId.make("large-tool"),
         payload: {
           itemType: "command_execution",
           status: "completed",

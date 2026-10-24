@@ -22,10 +22,10 @@ import Migration0201 from "./Migrations/201_DropLegacyPipeline.ts";
  * ensuring the database schema is always up-to-date before the application starts.
  */
 
-import * as Migrator from "effect/unstable/sql/Migrator";
+import * as Migrator from "effect/sql/Migrator";
 import * as Layer from "effect/Layer";
 import * as Effect from "effect/Effect";
-import * as SqlClient from "effect/unstable/sql/SqlClient";
+import * as SqlClient from "effect/sql/SqlClient";
 
 import { MigrationLineageError, MigrationSchemaTooNewError } from "./Errors.ts";
 import { verifyCleanCoreBackfill } from "./Migrations/verifyCleanCoreBackfill.ts";

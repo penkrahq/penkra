@@ -20,7 +20,7 @@ describe("filterProviderPromptImageAttachments", () => {
     const selectionAttachment = {
       type: "assistant-selection",
       id: "thread-1-selection-1",
-      assistantMessageId: MessageId.makeUnsafe("assistant-message-1"),
+      assistantMessageId: MessageId.make("assistant-message-1"),
       text: "Selected assistant text is already serialized into the prompt body.",
     } satisfies ChatAttachment;
 

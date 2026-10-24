@@ -95,9 +95,9 @@ export function toActivityPayload(payload: unknown): ActivityPayload {
 
 function toTurnId(value: TurnId | string | undefined): TurnId | undefined {
   // A blank runtime turn id means "no turn", not a turn named "". Trimming here
-  // is not cosmetic: `TurnId.makeUnsafe` throws on both blank and untrimmed input.
+  // is not cosmetic: `TurnId.make` throws on both blank and untrimmed input.
   const trimmed = value === undefined ? undefined : nonEmptyTrimmed(String(value));
-  return trimmed === undefined ? undefined : TurnId.makeUnsafe(trimmed);
+  return trimmed === undefined ? undefined : TurnId.make(trimmed);
 }
 
 function truncateDetail(value: string, limit = 180): string {
@@ -841,7 +841,7 @@ export function projectProviderRuntimeActivities(
             // so projection append replaces the row instead of accumulating
             // one "Compacting..." entry per heartbeat.
             id: event.itemId
-              ? EventId.makeUnsafe(
+              ? EventId.make(
                   `provider-item:${event.provider}:${event.threadId}:${event.itemId}:context-compaction`,
                 )
               : event.eventId,

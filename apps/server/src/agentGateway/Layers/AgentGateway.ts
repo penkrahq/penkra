@@ -25,7 +25,7 @@ import {
 import { Effect, Layer, Option } from "effect";
 
 import { ServerConfig } from "../../config.ts";
-import * as SqlClient from "effect/unstable/sql/SqlClient";
+import * as SqlClient from "effect/sql/SqlClient";
 import { ThreadPublisher } from "../../cleanCore/ThreadPublisher.ts";
 import { findThreadPolicyError } from "../../cleanCore/threadErrors.ts";
 import { ThreadReads } from "../../cleanCore/ThreadReads.ts";
@@ -181,7 +181,7 @@ export const makeAgentGateway = Effect.gen(function* () {
   });
 
   const requireThreadShell = (threadId: string) =>
-    snapshotQuery.getThreadShellById(ThreadId.makeUnsafe(threadId)).pipe(
+    snapshotQuery.getThreadShellById(ThreadId.make(threadId)).pipe(
       Effect.mapError((error) => new ToolInputError(errorText(error))),
       Effect.flatMap(
         Option.match({
@@ -192,7 +192,7 @@ export const makeAgentGateway = Effect.gen(function* () {
     );
 
   const requireCanonicalThread = (id: string) =>
-    lifecycle.get(ThreadId.makeUnsafe(id)).pipe(
+    lifecycle.get(ThreadId.make(id)).pipe(
       Effect.mapError((error) => new ToolInputError(errorText(error))),
       Effect.flatMap((row) =>
         row === null || row.deletedAt !== null
@@ -377,10 +377,10 @@ export const makeAgentGateway = Effect.gen(function* () {
         const result = yield* sender.send({
           threadId: target.id,
           message: {
-            messageId: MessageId.makeUnsafe(randomUUID()),
+            messageId: MessageId.make(randomUUID()),
             text: message,
             attachments: [],
-            origin: { _tag: "agent", senderThreadId: ThreadId.makeUnsafe(context.callerThreadId) },
+            origin: { _tag: "agent", senderThreadId: ThreadId.make(context.callerThreadId) },
             queuedAt: isoNow(),
           },
           dispatchMode: now ? "steer" : "queue",
@@ -424,9 +424,9 @@ export const makeAgentGateway = Effect.gen(function* () {
           yield* sender.steerQueued(
             {
               threadId: target.id,
-              messageId: MessageId.makeUnsafe(messageId),
+              messageId: MessageId.make(messageId),
             },
-            ThreadId.makeUnsafe(context.callerThreadId),
+            ThreadId.make(context.callerThreadId),
           ),
         );
       }).pipe(Effect.catch((error) => Effect.succeed(sendMessageErrorResult(error)))),
@@ -467,7 +467,7 @@ export const makeAgentGateway = Effect.gen(function* () {
         const threadId =
           requestedThreadId === undefined
             ? yield* sender.queuedThread(messageId!)
-            : ThreadId.makeUnsafe(requestedThreadId);
+            : ThreadId.make(requestedThreadId);
         if (threadId === null)
           return mcpToolResultJson({ threadId: null, messageId, removed: false });
         const target = yield* requireCanonicalThread(threadId);

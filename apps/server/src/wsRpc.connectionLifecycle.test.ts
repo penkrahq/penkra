@@ -3,8 +3,8 @@ import http from "node:http";
 import type { AuthSessionId } from "@penkra/contracts";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { Duration, Effect, Exit, Layer, Schema, Scope } from "effect";
-import { HttpRouter, HttpServerRequest } from "effect/unstable/http";
-import { Rpc, RpcGroup, RpcSerialization, RpcServer } from "effect/unstable/rpc";
+import { HttpRouter, HttpServerRequest } from "effect/http";
+import { Rpc, RpcGroup, RpcSerialization, RpcServer } from "effect/rpc";
 import { makeObservedRpcSerialization, type RpcMessageSizeEvent } from "./rpcMessageSizes";
 import { afterEach, describe, expect, it } from "vitest";
 import WebSocket, { type RawData } from "ws";
@@ -226,6 +226,7 @@ async function startTestServer(): Promise<RunningTestServer> {
   });
   const observedSlowRpc = { started: 0, completed: 0, finalized: 0 };
   const serializationLayer = Layer.succeed(RpcSerialization.RpcSerialization, {
+    codecFor: measuredSerialization.codecFor,
     contentType: RpcSerialization.json.contentType,
     includesFraming: RpcSerialization.json.includesFraming,
     makeUnsafe: () => {

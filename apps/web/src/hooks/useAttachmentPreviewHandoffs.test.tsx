@@ -6,7 +6,7 @@ import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import type { ChatMessage } from "../types";
 import { useAttachmentPreviewHandoffs } from "./useAttachmentPreviewHandoffs";
 
-const messageId = MessageId.makeUnsafe("preview-message");
+const messageId = MessageId.make("preview-message");
 function message(previewUrl: string): ChatMessage {
   return {
     id: messageId,

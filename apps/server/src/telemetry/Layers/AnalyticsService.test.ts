@@ -1,10 +1,10 @@
 import * as NodeHttpServer from "@effect/platform-node/NodeHttpServer";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { assert, it } from "@effect/vitest";
-import { ConfigProvider, Deferred, Effect, Exit, Layer, Scope, ServiceMap } from "effect";
-import * as HttpServer from "effect/unstable/http/HttpServer";
-import * as HttpServerRequest from "effect/unstable/http/HttpServerRequest";
-import * as HttpServerResponse from "effect/unstable/http/HttpServerResponse";
+import { ConfigProvider, Deferred, Effect, Exit, Layer, Scope, Context } from "effect";
+import * as HttpServer from "effect/http/HttpServer";
+import * as HttpServerRequest from "effect/http/HttpServerRequest";
+import * as HttpServerResponse from "effect/http/HttpServerResponse";
 
 import { ServerConfig } from "../../config.ts";
 import { getTelemetryIdentifier } from "../Identify.ts";
@@ -42,7 +42,7 @@ it.layer(NodeServices.layer)("AnalyticsService test", (it) => {
       const serve = HttpServer.serve(
         Effect.gen(function* () {
           const request = yield* HttpServerRequest.HttpServerRequest;
-          const payload = (yield* request.json) as RecordedBatchBody;
+          const payload = (yield* request.json) as unknown as RecordedBatchBody;
           requests.push(payload);
           if (payload.batch.length === 20) yield* Deferred.succeed(fullBatch, undefined);
           return HttpServerResponse.jsonUnsafe({});
@@ -66,7 +66,7 @@ it.layer(NodeServices.layer)("AnalyticsService test", (it) => {
         const scope = yield* Scope.make("sequential");
         yield* Effect.addFinalizer(() => Scope.close(scope, Exit.void));
         const services = yield* Layer.buildWithScope(AnalyticsServiceLayerLive, scope);
-        const analytics = ServiceMap.get(services, AnalyticsService);
+        const analytics = Context.get(services, AnalyticsService);
         for (let index = 0; index < 20; index++) yield* analytics.record("threshold", { index });
         yield* Deferred.await(fullBatch);
         assert.equal(requests.length, 1);

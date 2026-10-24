@@ -898,7 +898,7 @@ export const MessagesTimeline = memo(function MessagesTimeline({
               <PenkraThreadCreationCard
                 creation={row.entry.penkraThreadCreation}
                 {...(onOpenThread
-                  ? { onOpenThread: (id: string) => onOpenThread(ThreadId.makeUnsafe(id)) }
+                  ? { onOpenThread: (id: string) => onOpenThread(ThreadId.make(id)) }
                   : {})}
               />
             )

@@ -7,7 +7,7 @@
  * @module ProviderHealth
  */
 import type { ServerProviderStatus } from "@penkra/contracts";
-import { ServiceMap } from "effect";
+import { Context } from "effect";
 import type { Effect, Stream } from "effect";
 
 export interface ProviderHealthShape {
@@ -27,6 +27,6 @@ export interface ProviderHealthShape {
   readonly streamChanges: Stream.Stream<ReadonlyArray<ServerProviderStatus>>;
 }
 
-export class ProviderHealth extends ServiceMap.Service<ProviderHealth, ProviderHealthShape>()(
+export class ProviderHealth extends Context.Service<ProviderHealth, ProviderHealthShape>()(
   "penkra/provider/Services/ProviderHealth",
 ) {}

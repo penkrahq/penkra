@@ -8,7 +8,7 @@ import type { CleanCoreSendMessageInput } from "@penkra/contracts";
 import { nextCommittedDraftTimestamp } from "./threadDraftTimestamp.ts";
 import { draftAfterSend } from "./threadDraft.ts";
 import { Schema, Effect } from "effect";
-import * as SqlClient from "effect/unstable/sql/SqlClient";
+import * as SqlClient from "effect/sql/SqlClient";
 
 export { CleanCoreQueuedMessage as QueuedMessage } from "@penkra/contracts";
 import { CleanCoreQueuedMessage as QueuedMessage } from "@penkra/contracts";

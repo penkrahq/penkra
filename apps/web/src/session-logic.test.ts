@@ -48,27 +48,27 @@ describe("formatElapsed", () => {
 
 describe("latest turn identity", () => {
   const latestTurn = {
-    turnId: TurnId.makeUnsafe("turn-request"),
-    providerTurnId: TurnId.makeUnsafe("turn-provider"),
+    turnId: TurnId.make("turn-request"),
+    providerTurnId: TurnId.make("turn-provider"),
   };
 
   it("matches canonical and provider turn IDs", () => {
-    expect(latestTurnMatchesTurnId(latestTurn, TurnId.makeUnsafe("turn-request"))).toBe(true);
-    expect(latestTurnMatchesTurnId(latestTurn, TurnId.makeUnsafe("turn-provider"))).toBe(true);
-    expect(latestTurnMatchesTurnId(latestTurn, TurnId.makeUnsafe("turn-other"))).toBe(false);
+    expect(latestTurnMatchesTurnId(latestTurn, TurnId.make("turn-request"))).toBe(true);
+    expect(latestTurnMatchesTurnId(latestTurn, TurnId.make("turn-provider"))).toBe(true);
+    expect(latestTurnMatchesTurnId(latestTurn, TurnId.make("turn-other"))).toBe(false);
   });
 
   it("correlates a provider-active session with its canonical latest turn", () => {
     expect(
       isSessionActiveLatestTurn(latestTurn, {
-        activeTurnId: TurnId.makeUnsafe("turn-provider"),
+        activeTurnId: TurnId.make("turn-provider"),
       }),
     ).toBe(true);
   });
 });
 
 describe("hasActivePendingTurnStart", () => {
-  const pendingMessageId = MessageId.makeUnsafe("message-pending");
+  const pendingMessageId = MessageId.make("message-pending");
 
   it("keeps an ordered starting delivery active before the provider session starts", () => {
     expect(
@@ -180,7 +180,7 @@ describe("deriveActiveTaskListState", () => {
       }),
     ];
 
-    expect(deriveActiveTaskListState(activities, TurnId.makeUnsafe("turn-1"))).toEqual({
+    expect(deriveActiveTaskListState(activities, TurnId.make("turn-1"))).toEqual({
       createdAt: "2026-02-23T00:00:02.000Z",
       turnId: "turn-1",
       explanation: "Refined plan",
@@ -203,7 +203,7 @@ describe("deriveActiveTaskListState", () => {
       }),
     ];
 
-    expect(deriveActiveTaskListState(activities, TurnId.makeUnsafe("turn-2"))).toEqual({
+    expect(deriveActiveTaskListState(activities, TurnId.make("turn-2"))).toEqual({
       createdAt: "2026-02-23T00:00:01.000Z",
       turnId: "turn-1",
       tasks: [{ task: "Write tests", status: "inProgress" }],
@@ -225,7 +225,7 @@ describe("deriveActiveTaskListState", () => {
       }),
     ];
 
-    expect(deriveActiveTaskListState(activities, TurnId.makeUnsafe("turn-2"))).toBeNull();
+    expect(deriveActiveTaskListState(activities, TurnId.make("turn-2"))).toBeNull();
   });
 
   it("keeps an unfinished task list visible after its turn completes", () => {
@@ -257,7 +257,7 @@ describe("deriveActiveTaskListState", () => {
       }),
     ];
 
-    expect(deriveActiveTaskListState(activities, TurnId.makeUnsafe("turn-2"))).toEqual({
+    expect(deriveActiveTaskListState(activities, TurnId.make("turn-2"))).toEqual({
       createdAt: "2026-02-23T00:00:01.000Z",
       turnId: "turn-1",
       tasks: [
@@ -292,7 +292,7 @@ describe("deriveActiveTaskListState", () => {
       }),
     ];
 
-    expect(deriveActiveTaskListState(activities, TurnId.makeUnsafe("turn-1"))?.tasks).toEqual([
+    expect(deriveActiveTaskListState(activities, TurnId.make("turn-1"))?.tasks).toEqual([
       { task: "Ship", status: "completed" },
     ]);
   });
@@ -323,7 +323,7 @@ describe("deriveActiveTaskListState", () => {
       }),
     ];
 
-    expect(deriveActiveTaskListState(activities, TurnId.makeUnsafe("turn-1"))).toBeNull();
+    expect(deriveActiveTaskListState(activities, TurnId.make("turn-1"))).toBeNull();
   });
 });
 
@@ -378,7 +378,7 @@ describe("deriveActiveBackgroundTasksState", () => {
       }),
     ];
 
-    expect(deriveActiveBackgroundTasksState(activities, TurnId.makeUnsafe("turn-1"))).toEqual({
+    expect(deriveActiveBackgroundTasksState(activities, TurnId.make("turn-1"))).toEqual({
       activeCount: 1,
       taskIds: ["task-subagent-1"],
     });
@@ -406,13 +406,13 @@ describe("deriveActiveBackgroundTasksState", () => {
       }),
     ];
 
-    expect(deriveActiveBackgroundTasksState(activities, TurnId.makeUnsafe("turn-1"))).toBeNull();
+    expect(deriveActiveBackgroundTasksState(activities, TurnId.make("turn-1"))).toBeNull();
   });
 });
 
 describe("isLatestTurnSettled", () => {
   const latestTurn = {
-    turnId: TurnId.makeUnsafe("turn-1"),
+    turnId: TurnId.make("turn-1"),
     state: "completed",
     startedAt: "2026-02-27T21:10:00.000Z",
     completedAt: "2026-02-27T21:10:06.000Z",
@@ -422,7 +422,7 @@ describe("isLatestTurnSettled", () => {
     expect(
       isLatestTurnSettled(latestTurn, {
         orchestrationStatus: "running",
-        activeTurnId: TurnId.makeUnsafe("turn-1"),
+        activeTurnId: TurnId.make("turn-1"),
       }),
     ).toBe(false);
   });
@@ -431,7 +431,7 @@ describe("isLatestTurnSettled", () => {
     expect(
       isLatestTurnSettled(latestTurn, {
         orchestrationStatus: "running",
-        activeTurnId: TurnId.makeUnsafe("turn-2"),
+        activeTurnId: TurnId.make("turn-2"),
       }),
     ).toBe(false);
   });
@@ -449,7 +449,7 @@ describe("isLatestTurnSettled", () => {
     expect(
       isLatestTurnSettled(
         {
-          turnId: TurnId.makeUnsafe("turn-1"),
+          turnId: TurnId.make("turn-1"),
           state: "completed",
           startedAt: null,
           completedAt: "2026-02-27T21:10:06.000Z",
@@ -463,7 +463,7 @@ describe("isLatestTurnSettled", () => {
     expect(
       isLatestTurnSettled(
         {
-          turnId: TurnId.makeUnsafe("turn-1"),
+          turnId: TurnId.make("turn-1"),
           state: "running",
           startedAt: "2026-02-27T21:10:00.000Z",
           completedAt: null,
@@ -485,7 +485,7 @@ describe("isLatestTurnSettled", () => {
         },
         {
           orchestrationStatus: "running",
-          activeTurnId: TurnId.makeUnsafe("turn-1"),
+          activeTurnId: TurnId.make("turn-1"),
         },
       ),
     ).toBe(true);
@@ -500,7 +500,7 @@ describe("isLatestTurnSettled", () => {
         },
         {
           orchestrationStatus: "running",
-          activeTurnId: TurnId.makeUnsafe("turn-1"),
+          activeTurnId: TurnId.make("turn-1"),
         },
       ),
     ).toBe(true);
@@ -509,7 +509,7 @@ describe("isLatestTurnSettled", () => {
 
 describe("deriveActiveWorkStartedAt", () => {
   const latestTurn = {
-    turnId: TurnId.makeUnsafe("turn-1"),
+    turnId: TurnId.make("turn-1"),
     state: "completed",
     startedAt: "2026-02-27T21:10:00.000Z",
     completedAt: "2026-02-27T21:10:06.000Z",
@@ -521,7 +521,7 @@ describe("deriveActiveWorkStartedAt", () => {
         latestTurn,
         {
           orchestrationStatus: "running",
-          activeTurnId: TurnId.makeUnsafe("turn-1"),
+          activeTurnId: TurnId.make("turn-1"),
         },
         "2026-02-27T21:11:00.000Z",
       ),
@@ -533,11 +533,11 @@ describe("deriveActiveWorkStartedAt", () => {
       deriveActiveWorkStartedAt(
         {
           ...latestTurn,
-          providerTurnId: TurnId.makeUnsafe("turn-provider-1"),
+          providerTurnId: TurnId.make("turn-provider-1"),
         },
         {
           orchestrationStatus: "running",
-          activeTurnId: TurnId.makeUnsafe("turn-provider-1"),
+          activeTurnId: TurnId.make("turn-provider-1"),
         },
         null,
       ),
@@ -550,7 +550,7 @@ describe("deriveActiveWorkStartedAt", () => {
         latestTurn,
         {
           orchestrationStatus: "running",
-          activeTurnId: TurnId.makeUnsafe("turn-2"),
+          activeTurnId: TurnId.make("turn-2"),
         },
         "2026-02-27T21:11:00.000Z",
       ),
@@ -561,7 +561,7 @@ describe("deriveActiveWorkStartedAt", () => {
     expect(
       deriveActiveWorkStartedAt(
         {
-          turnId: TurnId.makeUnsafe("turn-1"),
+          turnId: TurnId.make("turn-1"),
           state: "completed",
           startedAt: "2026-02-27T21:10:00.000Z",
           completedAt: "2026-02-27T21:10:06.000Z",
@@ -575,7 +575,7 @@ describe("deriveActiveWorkStartedAt", () => {
 
 describe("hasLiveLatestTurn", () => {
   const latestTurn = {
-    turnId: TurnId.makeUnsafe("turn-1"),
+    turnId: TurnId.make("turn-1"),
     state: "completed",
     startedAt: "2026-02-27T21:10:00.000Z",
     completedAt: "2026-02-27T21:10:06.000Z",
@@ -585,7 +585,7 @@ describe("hasLiveLatestTurn", () => {
     expect(
       hasLiveLatestTurn(latestTurn, {
         orchestrationStatus: "running",
-        activeTurnId: TurnId.makeUnsafe("turn-1"),
+        activeTurnId: TurnId.make("turn-1"),
       }),
     ).toBe(true);
   });
@@ -599,7 +599,7 @@ describe("hasLiveLatestTurn", () => {
         },
         {
           orchestrationStatus: "running",
-          activeTurnId: TurnId.makeUnsafe("turn-1"),
+          activeTurnId: TurnId.make("turn-1"),
         },
       ),
     ).toBe(false);
@@ -614,7 +614,7 @@ describe("hasLiveLatestTurn", () => {
         },
         {
           orchestrationStatus: "running",
-          activeTurnId: TurnId.makeUnsafe("turn-1"),
+          activeTurnId: TurnId.make("turn-1"),
         },
       ),
     ).toBe(false);
@@ -623,7 +623,7 @@ describe("hasLiveLatestTurn", () => {
 
 describe("hasLiveTurnTailWork", () => {
   const latestTurn = {
-    turnId: TurnId.makeUnsafe("turn-1"),
+    turnId: TurnId.make("turn-1"),
     completedAt: null,
   } as const;
 
@@ -635,7 +635,7 @@ describe("hasLiveTurnTailWork", () => {
           {
             role: "assistant",
             streaming: true,
-            turnId: TurnId.makeUnsafe("turn-1"),
+            turnId: TurnId.make("turn-1"),
           },
         ],
         activities: [],
@@ -655,7 +655,7 @@ describe("hasLiveTurnTailWork", () => {
           {
             role: "assistant",
             streaming: true,
-            turnId: TurnId.makeUnsafe("turn-1"),
+            turnId: TurnId.make("turn-1"),
           },
         ],
         activities: [],

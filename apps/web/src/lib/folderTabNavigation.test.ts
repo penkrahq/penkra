@@ -6,7 +6,7 @@ import {
   removeFolderThreadPreservingNavigation,
 } from "./folderTabNavigation";
 
-const ids = ["first", "archived", "active", "next", "last"].map((id) => ThreadId.makeUnsafe(id));
+const ids = ["first", "archived", "active", "next", "last"].map((id) => ThreadId.make(id));
 
 describe("findNearestVisibleFolderThread", () => {
   it("prefers the nearest visible thread on the right, then the left", () => {
@@ -38,7 +38,7 @@ describe("findNearestVisibleFolderThread", () => {
     expect(
       findNearestVisibleFolderThread({
         threadIds: ids,
-        removedThreadId: ThreadId.makeUnsafe("missing"),
+        removedThreadId: ThreadId.make("missing"),
         isVisible: () => true,
       }),
     ).toBeNull();

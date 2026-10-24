@@ -7,7 +7,7 @@ describe("sidebarInlineRenameStore", () => {
   beforeEach(() => useSidebarInlineRenameStore.getState().cancel());
 
   it("keeps the active target and draft outside the Sidebar component lifecycle", () => {
-    const threadId = ThreadId.makeUnsafe("thread-1");
+    const threadId = ThreadId.make("thread-1");
     useSidebarInlineRenameStore.getState().startThread(threadId, "Original");
     useSidebarInlineRenameStore.getState().updateValue("Unsaved draft");
 
@@ -19,12 +19,12 @@ describe("sidebarInlineRenameStore", () => {
   });
 
   it("only finishes the editor that completed its save", () => {
-    const folderId = FolderId.makeUnsafe("project-1");
+    const folderId = FolderId.make("project-1");
     useSidebarInlineRenameStore.getState().startFolder(folderId, "Product");
 
     useSidebarInlineRenameStore
       .getState()
-      .finish({ kind: "thread", threadId: ThreadId.makeUnsafe("thread-1") });
+      .finish({ kind: "thread", threadId: ThreadId.make("thread-1") });
     expect(useSidebarInlineRenameStore.getState().editor).not.toBeNull();
 
     useSidebarInlineRenameStore.getState().finish({ kind: "folder", folderId });

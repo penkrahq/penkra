@@ -8,7 +8,7 @@ import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { Cause, Effect, Exit } from "effect";
-import * as SqlClient from "effect/unstable/sql/SqlClient";
+import * as SqlClient from "effect/sql/SqlClient";
 
 import { applyProviderEvent, settleRunningThreadsOnStartup } from "./providerStreamConsumer.ts";
 import { createThread, makeThreadPublisher, upsertThreadItem } from "./threadStore.ts";
@@ -60,10 +60,10 @@ it.effect(
           const events = toCleanCoreProviderEvents({
             type: "item.updated",
             provider: "claudeAgent",
-            eventId: EventId.makeUnsafe(sourceId),
-            threadId: ThreadId.makeUnsafe(baseThread.id),
-            turnId: TurnId.makeUnsafe("consuming"),
-            itemId: RuntimeItemId.makeUnsafe(sourceId),
+            eventId: EventId.make(sourceId),
+            threadId: ThreadId.make(baseThread.id),
+            turnId: TurnId.make("consuming"),
+            itemId: RuntimeItemId.make(sourceId),
             createdAt: baseThread.createdAt,
             payload: { itemType: "user_message", data: { admittedTurnId: "offered" } },
           });

@@ -30,13 +30,13 @@ vi.mock("@tanstack/react-query", async (importOriginal) => ({
   useQueries: () => [],
 }));
 
-const spaceId = SpaceId.makeUnsafe("search-space");
+const spaceId = SpaceId.make("search-space");
 function result(id: string): CleanCoreThreadSearchMatch {
   return {
     latestTurn: null,
-    id: ThreadId.makeUnsafe(id),
+    id: ThreadId.make(id),
     spaceId,
-    folderId: FolderId.makeUnsafe("folder"),
+    folderId: FolderId.make("folder"),
     title: id,
     provider: "codex",
     connectionId: null,

@@ -1,6 +1,6 @@
 import type { CleanCoreCreateThreadInput } from "@penkra/contracts";
 import { Effect } from "effect";
-import * as SqlClient from "effect/unstable/sql/SqlClient";
+import * as SqlClient from "effect/sql/SqlClient";
 import { ProviderTurnSelectionResolver } from "../provider/Services/ProviderTurnSelectionResolver.ts";
 import { ThreadPublisher } from "./ThreadPublisher.ts";
 import { makeThreadPublisher } from "./threadStore.ts";

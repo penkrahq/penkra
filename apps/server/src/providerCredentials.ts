@@ -2,7 +2,7 @@
 // Purpose: Owns server-only credentials used to connect to external provider servers.
 // Layer: Server provider security boundary
 
-import { Effect, Layer, ServiceMap } from "effect";
+import { Effect, Layer, Context } from "effect";
 
 import { ServerSecretStoreLive } from "./auth/Layers/ServerSecretStore";
 import { ServerSecretStore, type SecretStoreError } from "./auth/Services/ServerSecretStore";
@@ -25,7 +25,7 @@ export interface ProviderCredentialsShape {
   ) => Effect.Effect<boolean, SecretStoreError>;
 }
 
-export class ProviderCredentials extends ServiceMap.Service<
+export class ProviderCredentials extends Context.Service<
   ProviderCredentials,
   ProviderCredentialsShape
 >()("penkra/providerCredentials/ProviderCredentials") {}

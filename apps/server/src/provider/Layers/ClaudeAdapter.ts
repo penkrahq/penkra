@@ -81,7 +81,6 @@ import {
   Layer,
   Option,
   Queue,
-  Random,
   Ref,
   Semaphore,
   Stream,
@@ -187,7 +186,7 @@ import {
 import { providerPermissionDecision } from "../providerPermissionPolicy.ts";
 
 const PROVIDER = "claudeAgent" as const;
-const CLAUDE_COMMAND_DISCOVERY_THREAD_ID = ThreadId.makeUnsafe("claude:command-discovery");
+const CLAUDE_COMMAND_DISCOVERY_THREAD_ID = ThreadId.make("claude:command-discovery");
 
 // Claude CLI 0.3.206+ emits this event, but SDK 0.3.207 omits it from SDKMessage.
 // Keep the wire extension narrow until the SDK publishes its own declaration.
@@ -597,7 +596,7 @@ function hasPendingUserInterrupt(context: ClaudeSessionContext): boolean {
 }
 
 function asRuntimeItemId(value: string): RuntimeItemId {
-  return RuntimeItemId.makeUnsafe(value);
+  return RuntimeItemId.make(value);
 }
 
 function claudeEffectiveContextBudget(context: ClaudeSessionContext): number | undefined {
@@ -673,7 +672,7 @@ function asCanonicalTurnId(value: TurnId): TurnId {
 }
 
 function asRuntimeRequestId(value: string): RuntimeRequestId {
-  return RuntimeRequestId.makeUnsafe(value);
+  return RuntimeRequestId.make(value);
 }
 
 function toPermissionMode(value: unknown): PermissionMode | undefined {
@@ -1035,7 +1034,7 @@ function nativeProviderRefs(
   return {
     ...context.subagentRefs,
     ...(options?.providerItemId
-      ? { providerItemId: ProviderItemId.makeUnsafe(options.providerItemId) }
+      ? { providerItemId: ProviderItemId.make(options.providerItemId) }
       : {}),
   };
 }
@@ -1347,7 +1346,7 @@ function subagentRunForTask(
 
 function makeClaudeAdapter(options?: ClaudeAdapterLiveOptions) {
   return Effect.gen(function* () {
-    const runFork = Effect.runForkWith(yield* Effect.services<never>());
+    const runFork = Effect.runForkWith(yield* Effect.context<never>());
     const fileSystem = yield* FileSystem.FileSystem;
     const serverConfig = yield* ServerConfig;
     // Optional so adapter tests can run without the gateway layer; when
@@ -1446,7 +1445,10 @@ function makeClaudeAdapter(options?: ClaudeAdapterLiveOptions) {
     );
 
     const nowIso = Effect.map(DateTime.now, DateTime.formatIso);
-    const nextEventId = Effect.map(Random.nextUUIDv4, (id) => EventId.makeUnsafe(id));
+    const nextEventId = Effect.map(
+      Effect.sync(() => crypto.randomUUID()),
+      (id) => EventId.make(id),
+    );
     const makeEventStamp = () => Effect.all({ eventId: nextEventId, createdAt: nowIso });
     const withSessionLifecycleLock = <A, E, R>(
       threadId: ThreadId,
@@ -1617,7 +1619,7 @@ function makeClaudeAdapter(options?: ClaudeAdapterLiveOptions) {
                 ? { providerThreadId: message.session_id }
                 : {}),
               ...(context.turnState ? { turnId: asCanonicalTurnId(context.turnState.turnId) } : {}),
-              ...(itemId ? { itemId: ProviderItemId.makeUnsafe(itemId) } : {}),
+              ...(itemId ? { itemId: ProviderItemId.make(itemId) } : {}),
               payload: message,
             },
           },
@@ -1709,7 +1711,7 @@ function makeClaudeAdapter(options?: ClaudeAdapterLiveOptions) {
         }
 
         const block: AssistantTextBlockState = {
-          itemId: yield* Random.nextUUIDv4,
+          itemId: yield* Effect.sync(() => crypto.randomUUID()),
           blockIndex,
           emittedTextDelta: false,
           fallbackText: options?.fallbackText ?? "",
@@ -2819,7 +2821,7 @@ function makeClaudeAdapter(options?: ClaudeAdapterLiveOptions) {
               threadId: context.session.threadId,
               ...(context.turnState ? { turnId: asCanonicalTurnId(context.turnState.turnId) } : {}),
               payload: {
-                taskId: RuntimeTaskId.makeUnsafe(workflowLaunchTaskId),
+                taskId: RuntimeTaskId.make(workflowLaunchTaskId),
                 ...(workflowLaunch.runId ? { workflowRunId: workflowLaunch.runId } : {}),
                 ...(workflowLaunch.scriptPath
                   ? { workflowScriptPath: workflowLaunch.scriptPath }
@@ -2887,7 +2889,7 @@ function makeClaudeAdapter(options?: ClaudeAdapterLiveOptions) {
         if (context.turnState) {
           return;
         }
-        const turnId = TurnId.makeUnsafe(yield* Random.nextUUIDv4);
+        const turnId = TurnId.make(yield* Effect.sync(() => crypto.randomUUID()));
         const startedAt = yield* nowIso;
         context.turnState = {
           turnId,
@@ -3194,7 +3196,7 @@ function makeClaudeAdapter(options?: ClaudeAdapterLiveOptions) {
               threadId: context.session.threadId,
               ...(context.turnState ? { turnId: asCanonicalTurnId(context.turnState.turnId) } : {}),
               payload: {
-                taskId: RuntimeTaskId.makeUnsafe(taskId),
+                taskId: RuntimeTaskId.make(taskId),
                 description: WORKFLOW_AGENTS_PROGRESS_DESCRIPTION,
                 workflowAgents: snapshots,
               },
@@ -3280,14 +3282,12 @@ function makeClaudeAdapter(options?: ClaudeAdapterLiveOptions) {
             threadId: context.session.threadId,
             ...(context.turnState ? { turnId: asCanonicalTurnId(context.turnState.turnId) } : {}),
             payload: {
-              taskId: RuntimeTaskId.makeUnsafe(message.task_id),
+              taskId: RuntimeTaskId.make(message.task_id),
               ...(status !== undefined ? { status } : {}),
               ...(patch?.error ? { error: patch.error } : {}),
               ...(isBackgrounded !== undefined ? { isBackgrounded } : {}),
               ...(run ? { toolUseId: run.toolUseId } : {}),
-              ...(workflowTaskId
-                ? { workflowTaskId: RuntimeTaskId.makeUnsafe(workflowTaskId) }
-                : {}),
+              ...(workflowTaskId ? { workflowTaskId: RuntimeTaskId.make(workflowTaskId) } : {}),
             },
             providerRefs: nativeProviderRefs(context),
             raw,
@@ -3399,7 +3399,7 @@ function makeClaudeAdapter(options?: ClaudeAdapterLiveOptions) {
                 context.activeCompaction ??
                 (() => {
                   const created = {
-                    itemId: RuntimeItemId.makeUnsafe(`claude-compaction:${base.eventId}`),
+                    itemId: RuntimeItemId.make(`claude-compaction:${base.eventId}`),
                   };
                   context.activeCompaction = created;
                   return created;
@@ -3436,7 +3436,7 @@ function makeClaudeAdapter(options?: ClaudeAdapterLiveOptions) {
             return;
           case "compact_boundary": {
             const compaction = context.activeCompaction ?? {
-              itemId: RuntimeItemId.makeUnsafe(`claude-compaction:${base.eventId}`),
+              itemId: RuntimeItemId.make(`claude-compaction:${base.eventId}`),
             };
             yield* offerRuntimeEvent(context, {
               ...base,
@@ -3552,14 +3552,12 @@ function makeClaudeAdapter(options?: ClaudeAdapterLiveOptions) {
               ...base,
               type: "task.started",
               payload: {
-                taskId: RuntimeTaskId.makeUnsafe(message.task_id),
+                taskId: RuntimeTaskId.make(message.task_id),
                 description: message.description,
                 ...(message.task_type ? { taskType: message.task_type } : {}),
                 ...(message.subagent_type ? { subagentType: message.subagent_type } : {}),
                 ...(workflowName ? { workflowName } : {}),
-                ...(workflowTaskId
-                  ? { workflowTaskId: RuntimeTaskId.makeUnsafe(workflowTaskId) }
-                  : {}),
+                ...(workflowTaskId ? { workflowTaskId: RuntimeTaskId.make(workflowTaskId) } : {}),
                 ...(workflowMeta?.phases ? { workflowPhases: workflowMeta.phases } : {}),
                 ...(workflowAgentPhases ? { workflowAgentPhases } : {}),
                 ...(workflowAgentPlans ? { workflowAgentPlans } : {}),
@@ -3591,14 +3589,12 @@ function makeClaudeAdapter(options?: ClaudeAdapterLiveOptions) {
               ...base,
               type: "task.progress",
               payload: {
-                taskId: RuntimeTaskId.makeUnsafe(message.task_id),
+                taskId: RuntimeTaskId.make(message.task_id),
                 description: message.description,
                 ...(message.summary ? { summary: message.summary } : {}),
                 ...(message.usage ? { usage: message.usage } : {}),
                 ...(message.last_tool_name ? { lastToolName: message.last_tool_name } : {}),
-                ...(workflowTaskId
-                  ? { workflowTaskId: RuntimeTaskId.makeUnsafe(workflowTaskId) }
-                  : {}),
+                ...(workflowTaskId ? { workflowTaskId: RuntimeTaskId.make(workflowTaskId) } : {}),
               },
             });
             return;
@@ -3635,13 +3631,11 @@ function makeClaudeAdapter(options?: ClaudeAdapterLiveOptions) {
               ...base,
               type: "task.completed",
               payload: {
-                taskId: RuntimeTaskId.makeUnsafe(message.task_id),
+                taskId: RuntimeTaskId.make(message.task_id),
                 status: message.status,
                 ...(message.summary ? { summary: message.summary } : {}),
                 ...(message.usage ? { usage: message.usage } : {}),
-                ...(workflowTaskId
-                  ? { workflowTaskId: RuntimeTaskId.makeUnsafe(workflowTaskId) }
-                  : {}),
+                ...(workflowTaskId ? { workflowTaskId: RuntimeTaskId.make(workflowTaskId) } : {}),
                 ...(workflowAgents ? { workflowAgents } : {}),
               },
             });
@@ -3699,7 +3693,7 @@ function makeClaudeAdapter(options?: ClaudeAdapterLiveOptions) {
                 createdAt: taskStamp.createdAt,
                 type: "task.updated",
                 payload: {
-                  taskId: RuntimeTaskId.makeUnsafe(task.task_id),
+                  taskId: RuntimeTaskId.make(task.task_id),
                   isBackgrounded: true,
                 },
               });
@@ -4124,7 +4118,9 @@ function makeClaudeAdapter(options?: ClaudeAdapterLiveOptions) {
         const threadId = input.threadId;
         const existingResumeSessionId = readClaudeResumeSessionId(input.resumeCursor);
         const newSessionId =
-          existingResumeSessionId === undefined ? yield* Random.nextUUIDv4 : undefined;
+          existingResumeSessionId === undefined
+            ? yield* Effect.sync(() => crypto.randomUUID())
+            : undefined;
         const sessionId = existingResumeSessionId ?? newSessionId;
 
         const promptQueue = yield* Queue.unbounded<PromptQueueItem>();
@@ -4156,7 +4152,7 @@ function makeClaudeAdapter(options?: ClaudeAdapterLiveOptions) {
           },
         ) =>
           Effect.gen(function* () {
-            const requestId = yield* Random.nextUUIDv4;
+            const requestId = yield* Effect.sync(() => crypto.randomUUID());
 
             // Parse questions from the SDK's AskUserQuestion input.
             const rawQuestions = Array.isArray(toolInput.questions) ? toolInput.questions : [];
@@ -4866,7 +4862,7 @@ function makeClaudeAdapter(options?: ClaudeAdapterLiveOptions) {
           });
         }
 
-        const turnId = TurnId.makeUnsafe(yield* Random.nextUUIDv4);
+        const turnId = TurnId.make(yield* Effect.sync(() => crypto.randomUUID()));
         const turnState: ClaudeTurnState = {
           turnId,
           startedAt: yield* nowIso,
@@ -5252,7 +5248,7 @@ function makeClaudeAdapter(options?: ClaudeAdapterLiveOptions) {
           ),
           Effect.timeoutOrElse({
             duration: CLAUDE_CONNECTION_USAGE_REQUEST_TIMEOUT_MS,
-            onTimeout: () =>
+            orElse: () =>
               Effect.fail(
                 new ProviderAdapterRequestError({
                   provider: PROVIDER,
@@ -5321,7 +5317,7 @@ function makeClaudeAdapter(options?: ClaudeAdapterLiveOptions) {
     const getCapabilityHealth: NonNullable<ClaudeAdapterShape["getCapabilityHealth"]> = (input) =>
       Effect.tryPromise({
         try: async () => {
-          const context = sessions.get(ThreadId.makeUnsafe(input.threadId));
+          const context = sessions.get(ThreadId.make(input.threadId));
           if (!context) throw new Error(`Unknown Claude session: ${input.threadId}`);
           const health = context.computerUseHealth ?? (await enableClaudeComputerUse(context));
           return {

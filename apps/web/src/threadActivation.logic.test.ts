@@ -30,8 +30,8 @@ describe("isPrimaryThreadActivationIntent", () => {
   });
 });
 
-const THREAD_A = ThreadId.makeUnsafe("thread-a");
-const THREAD_B = ThreadId.makeUnsafe("thread-b");
+const THREAD_A = ThreadId.make("thread-a");
+const THREAD_B = ThreadId.make("thread-b");
 
 describe("resolveThreadCommandActivation", () => {
   it("opens an existing target thread", () => {

@@ -1,7 +1,7 @@
 // Purpose: One admission/delivery lock domain per thread, shared with resumed native dispatch.
-import { Effect, Layer, Semaphore, ServiceMap } from "effect";
+import { Effect, Layer, Semaphore, Context } from "effect";
 
-export class ThreadLanes extends ServiceMap.Service<
+export class ThreadLanes extends Context.Service<
   ThreadLanes,
   {
     readonly run: <A, E, R>(

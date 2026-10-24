@@ -1,9 +1,10 @@
-import { HttpServerRequest, HttpServerResponse } from "effect/unstable/http";
+import { Option } from "effect";
+import { HttpServerRequest, HttpServerResponse } from "effect/http";
 
 import type { AuthError, AuthRequest } from "./Services/ServerAuth";
 
 export function makeEffectAuthRequest(request: HttpServerRequest.HttpServerRequest): AuthRequest {
-  const url = HttpServerRequest.toURL(request);
+  const url = Option.getOrUndefined(HttpServerRequest.toURL(request));
   const headers: Record<string, string | undefined> = {};
   for (const [key, value] of Object.entries(request.headers)) {
     headers[key.toLowerCase()] = Array.isArray(value) ? value.join(", ") : value;

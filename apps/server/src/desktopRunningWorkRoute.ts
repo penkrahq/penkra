@@ -1,8 +1,9 @@
+import { Option } from "effect";
 // Private, window-independent working-thread truth for native power and cursor lifetime.
 import { Effect, Stream } from "effect";
 import type { DesktopRunningWorkState, ThreadId } from "@penkra/contracts";
-import * as SqlClient from "effect/unstable/sql/SqlClient";
-import { HttpRouter, HttpServerRequest, HttpServerResponse } from "effect/unstable/http";
+import * as SqlClient from "effect/sql/SqlClient";
+import { HttpRouter, HttpServerRequest, HttpServerResponse } from "effect/http";
 import { ServerConfig } from "./config";
 import { authorizeDesktopShutdown } from "./serverShutdown";
 import { ThreadPublisher } from "./cleanCore/ThreadPublisher.ts";
@@ -39,7 +40,7 @@ export const desktopRunningWorkRouteLayer = HttpRouter.add(
     const config = yield* ServerConfig;
     const auth = authorizeDesktopShutdown({
       config,
-      remoteAddress: request.remoteAddress,
+      remoteAddress: Option.getOrUndefined(request.remoteAddress),
       authorization: request.headers.authorization,
     });
     if (!auth.authorized)

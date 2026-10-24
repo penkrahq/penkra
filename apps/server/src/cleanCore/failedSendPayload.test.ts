@@ -3,7 +3,7 @@
 import { assert, it } from "@effect/vitest";
 import { MessageId } from "@penkra/contracts";
 import { Effect } from "effect";
-import * as SqlClient from "effect/unstable/sql/SqlClient";
+import * as SqlClient from "effect/sql/SqlClient";
 import { CurrentManagedAttachmentPrincipal } from "../managedAttachmentPrincipal.ts";
 import { ManagedAttachmentRepository } from "../persistence/Services/ManagedAttachments.ts";
 import { ManagedAttachmentRepositoryLive } from "../persistence/Layers/ManagedAttachments.ts";
@@ -72,7 +72,7 @@ it.effect(
         dispatchMode: "queue",
         supportsSteer: true,
         message: {
-          messageId: MessageId.makeUnsafe(id),
+          messageId: MessageId.make(id),
           text: id,
           attachments: [
             {

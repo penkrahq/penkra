@@ -51,15 +51,13 @@ export class RemoteWsBridge {
       message = state.receive.accept(envelope);
     } catch (error) {
       this.#stop(envelope.id, state);
-      return this.input.channel
-        .send({ t: "ack", id: envelope.id, seq: envelope.seq })
-        .then(() =>
-          this.input.channel.send({
-            t: "ws.close",
-            id: envelope.id,
-            code: error instanceof RpcReplyTooLarge ? 1009 : 1002,
-          }),
-        );
+      return this.input.channel.send({ t: "ack", id: envelope.id, seq: envelope.seq }).then(() =>
+        this.input.channel.send({
+          t: "ws.close",
+          id: envelope.id,
+          code: error instanceof RpcReplyTooLarge ? 1009 : 1002,
+        }),
+      );
     }
     // Copying into the bounded per-stream assembly consumes a nonfinal chunk.
     // A final message waits for its loopback write before granting its credit.

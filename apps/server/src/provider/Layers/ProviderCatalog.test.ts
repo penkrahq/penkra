@@ -7,7 +7,7 @@ import {
 } from "@penkra/contracts";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { Effect, Layer, Logger, Option, Stream } from "effect";
-import * as SqlClient from "effect/unstable/sql/SqlClient";
+import * as SqlClient from "effect/sql/SqlClient";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { ServerConfig } from "../../config.ts";
 import { ThreadPublisher, ThreadPublisherLive } from "../../cleanCore/ThreadPublisher.ts";
@@ -25,9 +25,9 @@ import { ProviderCatalogService } from "../Services/ProviderCatalog.ts";
 import { ProviderLaunchResolver } from "../Services/ProviderLaunchResolver.ts";
 import { ProviderCatalogLive, mergeProviderCatalogRoutes } from "./ProviderCatalog.ts";
 
-const connectionId = ProviderConnectionId.makeUnsafe("selected");
+const connectionId = ProviderConnectionId.make("selected");
 const scope: ProviderCatalogScope = { provider: "codex", connectionId };
-const folderId = FolderId.makeUnsafe("folder-a");
+const folderId = FolderId.make("folder-a");
 const models: ProviderCatalogData = { models: [{ slug: "model-a", name: "Model A" }] };
 
 afterEach(() => vi.restoreAllMocks());
@@ -45,7 +45,7 @@ function harness(
       profileRoot: "/profile",
       nativeStateRoot: "/native",
       connectionId: input.connectionId,
-      installationId: ProviderInstallationId.makeUnsafe("installation"),
+      installationId: ProviderInstallationId.make("installation"),
       childEnvironment: () => ({}),
     }),
   );
@@ -93,7 +93,7 @@ function harness(
       list: () =>
         Effect.succeed([
           {
-            id: ProviderInstallationId.makeUnsafe("installation"),
+            id: ProviderInstallationId.make("installation"),
             harness: "codex",
             lifecycle: "active",
           },
@@ -265,7 +265,7 @@ describe("ProviderCatalog layer", () => {
       Effect.gen(function* () {
         const catalog = yield* ProviderCatalogService;
         return yield* catalog.get(
-          { ...scope, connectionId: ProviderConnectionId.makeUnsafe("not-selected") },
+          { ...scope, connectionId: ProviderConnectionId.make("not-selected") },
           ["models"],
         );
       }).pipe(Effect.provide(layer)),

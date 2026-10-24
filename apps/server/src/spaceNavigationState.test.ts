@@ -1,7 +1,7 @@
 import { FolderId, SpaceId, ThreadId } from "@penkra/contracts";
 import { assert, it } from "@effect/vitest";
 import { Effect, Layer } from "effect";
-import * as SqlClient from "effect/unstable/sql/SqlClient";
+import * as SqlClient from "effect/sql/SqlClient";
 
 import { runMigrations } from "./persistence/Migrations.ts";
 import * as NodeSqliteClient from "./persistence/NodeSqliteClient.ts";
@@ -16,14 +16,14 @@ layer("spaceNavigationState", (it) => {
       yield* runMigrations();
 
       const initial = yield* getSpaceNavigationState(sql);
-      assert.strictEqual(initial.activeSpaceId, SpaceId.makeUnsafe("penkra-personal"));
+      assert.strictEqual(initial.activeSpaceId, SpaceId.make("penkra-personal"));
       assert.deepStrictEqual(initial.lastThreadIdBySpace, {});
       assert.deepStrictEqual(initial.lastFolderIdBySpace, {});
       assert.isNotNull(initial.updatedAt);
 
-      const spaceId = SpaceId.makeUnsafe("space-personal");
-      const threadId = ThreadId.makeUnsafe("thread-main");
-      const folderId = FolderId.makeUnsafe("folder-main");
+      const spaceId = SpaceId.make("space-personal");
+      const threadId = ThreadId.make("thread-main");
+      const folderId = FolderId.make("folder-main");
       const updated = yield* updateSpaceNavigationState(sql, {
         activeSpaceId: spaceId,
         lastThreadIdBySpace: { [spaceId]: threadId },

@@ -7,8 +7,8 @@ import {
   useWorkflowRunUiStore,
 } from "./workflowRunUiStore";
 
-const THREAD_A = ThreadId.makeUnsafe("thread-a");
-const THREAD_B = ThreadId.makeUnsafe("thread-b");
+const THREAD_A = ThreadId.make("thread-a");
+const THREAD_B = ThreadId.make("thread-b");
 
 describe("workflowRunUiStore", () => {
   beforeEach(() => {

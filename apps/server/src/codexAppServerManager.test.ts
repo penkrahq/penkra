@@ -61,8 +61,8 @@ function closeProcessForTest(manager: CodexAppServerManager, transport: unknown)
   ).closeAccountProcess(transport);
 }
 
-const asThreadId = (value: string): ThreadId => ThreadId.makeUnsafe(value);
-const asTurnId = (value: string): TurnId => TurnId.makeUnsafe(value);
+const asThreadId = (value: string): ThreadId => ThreadId.make(value);
+const asTurnId = (value: string): TurnId => TurnId.make(value);
 const fullAccessTurnOverrides = {
   approvalPolicy: "never",
   sandboxPolicy: { type: "dangerFullAccess" },
@@ -3522,7 +3522,7 @@ describe("steerTurn", () => {
 
     const result = await manager.steerTurn({
       threadId: asThreadId("thread_1"),
-      clientMessageId: MessageId.makeUnsafe("message_steer_1"),
+      clientMessageId: MessageId.make("message_steer_1"),
       input: "Keep going",
     });
 

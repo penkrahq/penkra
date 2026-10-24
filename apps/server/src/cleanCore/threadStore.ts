@@ -10,7 +10,7 @@ import { ThreadId, type CleanCoreSidebarChange } from "@penkra/contracts";
 import { decodeUserItemData } from "@penkra/shared/userItemData";
 import { normalizeEntityName } from "@penkra/shared/entityNames";
 import { Effect, PubSub } from "effect";
-import * as SqlClient from "effect/unstable/sql/SqlClient";
+import * as SqlClient from "effect/sql/SqlClient";
 
 import type { CleanCoreProviderEvent } from "./providerStreamConsumer.ts";
 import { capThreadItemData, THREAD_ITEM_DATA_LIMIT_BYTES } from "./threadItemData.ts";
@@ -68,7 +68,7 @@ export const makeThreadPublisher = (): ThreadPublisher => {
     threadChanges.publish(change);
     sidebarChanges.publish({
       kind: "thread",
-      threadId: ThreadId.makeUnsafe(change.threadId),
+      threadId: ThreadId.make(change.threadId),
     });
   };
   return {
@@ -81,7 +81,7 @@ export const makeThreadPublisher = (): ThreadPublisher => {
       threadChanges.publish(change);
       sidebarChanges.publish({
         kind: "thread.created",
-        threadId: ThreadId.makeUnsafe(change.threadId),
+        threadId: ThreadId.make(change.threadId),
       });
     },
     publishProvider: (event) => {

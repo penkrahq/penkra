@@ -4,7 +4,7 @@ import * as NodeServices from "@effect/platform-node/NodeServices";
 import { ProviderConnectionId, ProviderInstallationId, ThreadId } from "@penkra/contracts";
 import { assert, it } from "@effect/vitest";
 import { Deferred, Effect, Fiber, Layer, Option, PubSub, Stream } from "effect";
-import * as SqlClient from "effect/unstable/sql/SqlClient";
+import * as SqlClient from "effect/sql/SqlClient";
 import { access, mkdir, readFile, readlink, writeFile } from "node:fs/promises";
 import path from "node:path";
 
@@ -226,7 +226,7 @@ const layer = it.layer(
 const activateCodex = Effect.gen(function* () {
   const installations = yield* ProviderInstallationRepository;
   yield* installations.activate({
-    id: ProviderInstallationId.makeUnsafe("managed-codex-installation"),
+    id: ProviderInstallationId.make("managed-codex-installation"),
     harness: "codex",
     version: "0.147.0",
     platform: "darwin",
@@ -245,7 +245,7 @@ const activateCodex = Effect.gen(function* () {
 const activateClaude = Effect.gen(function* () {
   const installations = yield* ProviderInstallationRepository;
   yield* installations.activate({
-    id: ProviderInstallationId.makeUnsafe("managed-claude-installation"),
+    id: ProviderInstallationId.make("managed-claude-installation"),
     harness: "claudeAgent",
     version: "2.1.245",
     platform: "darwin",
@@ -397,7 +397,7 @@ layer("ProviderConnectionLoginCoordinator", (it) => {
       const coordinator = yield* ProviderConnectionLoginCoordinator;
       const connections = yield* ProviderConnectionRepository;
       const sql = yield* SqlClient.SqlClient;
-      const connectionId = ProviderConnectionId.makeUnsafe("terminated-profile-connection");
+      const connectionId = ProviderConnectionId.make("terminated-profile-connection");
       const profileRef = `provider-profile:${connectionId}`;
       yield* connections.create({
         id: connectionId,
@@ -678,7 +678,7 @@ layer("ProviderConnectionLoginCoordinator", (it) => {
       const connections = yield* ProviderConnectionRepository;
       const sql = yield* SqlClient.SqlClient;
       const config = yield* ServerConfig;
-      const threadId = ThreadId.makeUnsafe("legacy-disconnect-thread");
+      const threadId = ThreadId.make("legacy-disconnect-thread");
       const sessionId = "550e8400-e29b-41d4-a716-446655440015";
       const login = yield* coordinator.begin({
         harness: "claudeAgent",
@@ -711,7 +711,7 @@ layer("ProviderConnectionLoginCoordinator", (it) => {
         VALUES ('legacy-folder', 'project', 'Folder', NULL, ${timestamp}, ${timestamp}, 'legacy-space')`;
       yield* createThreadFixture(sql, {
         threadId,
-        folderId: FolderId.makeUnsafe("legacy-folder"),
+        folderId: FolderId.make("legacy-folder"),
         title: "Legacy",
         modelSelection: { provider: "claudeAgent", model: "claude-sonnet-4-5" },
         runtimeMode: "full-access",
@@ -905,7 +905,7 @@ layer("ProviderConnectionLoginCoordinator", (it) => {
       yield* activateCodex;
       const coordinator = yield* ProviderConnectionLoginCoordinator;
       const connections = yield* ProviderConnectionRepository;
-      const connectionId = ProviderConnectionId.makeUnsafe("signed-out-managed-connection");
+      const connectionId = ProviderConnectionId.make("signed-out-managed-connection");
       yield* connections.create({
         id: connectionId,
         harness: "codex",
@@ -931,7 +931,7 @@ layer("ProviderConnectionLoginCoordinator", (it) => {
       yield* activateCodex;
       const coordinator = yield* ProviderConnectionLoginCoordinator;
       const connections = yield* ProviderConnectionRepository;
-      const connectionId = ProviderConnectionId.makeUnsafe("active-managed-connection");
+      const connectionId = ProviderConnectionId.make("active-managed-connection");
       yield* connections.create({
         id: connectionId,
         harness: "codex",
@@ -1027,7 +1027,7 @@ layer("ProviderConnectionLoginCoordinator", (it) => {
       probedAccount = null;
       const coordinator = yield* ProviderConnectionLoginCoordinator;
       const connections = yield* ProviderConnectionRepository;
-      const connectionId = ProviderConnectionId.makeUnsafe("disconnected-managed-connection");
+      const connectionId = ProviderConnectionId.make("disconnected-managed-connection");
       yield* connections.create({
         id: connectionId,
         harness: "codex",
@@ -1057,7 +1057,7 @@ layer("ProviderConnectionLoginCoordinator", (it) => {
       logoutFailure = new Error("logout failed");
       const coordinator = yield* ProviderConnectionLoginCoordinator;
       const connections = yield* ProviderConnectionRepository;
-      const connectionId = ProviderConnectionId.makeUnsafe("failed-disconnect-managed-connection");
+      const connectionId = ProviderConnectionId.make("failed-disconnect-managed-connection");
       yield* connections.create({
         id: connectionId,
         harness: "codex",

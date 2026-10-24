@@ -1,6 +1,6 @@
 import { DateTime, Effect, Layer, Schema } from "effect";
-import * as SqlClient from "effect/unstable/sql/SqlClient";
-import * as SqlSchema from "effect/unstable/sql/SqlSchema";
+import * as SqlClient from "effect/sql/SqlClient";
+import * as SqlSchema from "effect/sql/SqlSchema";
 
 import { toPersistenceSqlOrDecodeError } from "../Errors";
 import {

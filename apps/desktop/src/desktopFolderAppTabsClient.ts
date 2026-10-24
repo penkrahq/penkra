@@ -36,7 +36,7 @@ export async function readDesktopFolderAppTabs(
   folderId: string,
 ): Promise<FolderAppTabs | null> {
   return Schema.decodeUnknownSync(Schema.NullOr(FolderAppTabs))(
-    await request(backend, { action: "get", folderId: FolderId.makeUnsafe(folderId) }),
+    await request(backend, { action: "get", folderId: FolderId.make(folderId) }),
   );
 }
 
@@ -82,7 +82,7 @@ export async function listDesktopFolderAppTabs(backend: Backend, afterFolderId?:
   return Schema.decodeUnknownSync(CleanCoreListFolderAppTabsResult)(
     await request(backend, {
       action: "list",
-      ...(afterFolderId === undefined ? {} : { afterFolderId: FolderId.makeUnsafe(afterFolderId) }),
+      ...(afterFolderId === undefined ? {} : { afterFolderId: FolderId.make(afterFolderId) }),
     }),
   );
 }

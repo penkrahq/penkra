@@ -5,7 +5,7 @@
 // Exports: ThreadPublisher, ThreadPublisherLive
 
 import * as Layer from "effect/Layer";
-import * as ServiceMap from "effect/ServiceMap";
+import * as Context from "effect/Context";
 import { Effect } from "effect";
 
 import {
@@ -13,7 +13,7 @@ import {
   type ThreadPublisher as ThreadPublisherValue,
 } from "./threadStore.ts";
 
-export class ThreadPublisher extends ServiceMap.Service<ThreadPublisher, ThreadPublisherValue>()(
+export class ThreadPublisher extends Context.Service<ThreadPublisher, ThreadPublisherValue>()(
   "penkra/cleanCore/ThreadPublisher",
 ) {}
 

@@ -7,7 +7,7 @@ import {
   ThreadId,
   ProviderKind,
 } from "@penkra/contracts";
-import { Data, Effect, ServiceMap } from "effect";
+import { Data, Effect, Context } from "effect";
 
 export interface ProviderLaunchSpec {
   readonly assertCurrentCredentials: Effect.Effect<void, ProviderLaunchResolutionError>;
@@ -48,7 +48,7 @@ export interface ProviderLaunchResolverShape {
   }) => Effect.Effect<ProviderLaunchSpec, ProviderLaunchResolutionError>;
 }
 
-export class ProviderLaunchResolver extends ServiceMap.Service<
+export class ProviderLaunchResolver extends Context.Service<
   ProviderLaunchResolver,
   ProviderLaunchResolverShape
 >()("penkra/provider/Services/ProviderLaunchResolver") {}

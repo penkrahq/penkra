@@ -3,7 +3,7 @@
  * a pre-Penkra migration, causing Penkra's pinned thread column migration to
  * be skipped even though read-model queries now require the column.
  */
-import * as SqlClient from "effect/unstable/sql/SqlClient";
+import * as SqlClient from "effect/sql/SqlClient";
 import * as Effect from "effect/Effect";
 
 import { columnExists } from "./schemaHelpers.ts";

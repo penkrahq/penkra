@@ -18,7 +18,7 @@ import { resolveSingleFolderId, shouldRedirectArchivedThreadRoute } from "./-cha
 function ChatThreadRouteView() {
   const startupHydrated = useStore((store) => store.startupHydrated);
   const threadId = Route.useParams({
-    select: (params) => ThreadId.makeUnsafe(params.threadId),
+    select: (params) => ThreadId.make(params.threadId),
   });
   const thread = useThreadSummary(threadId);
   const threadFolderId = thread?.folderId ?? null;

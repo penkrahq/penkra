@@ -4,7 +4,7 @@ import { describe, expect, it } from "vitest";
 import type { Space } from "~/types";
 import { activeSpaceDisplayNameForReference, resolveActiveSpaceId } from "./spaceGrouping";
 
-const workSpaceId = SpaceId.makeUnsafe("space-work");
+const workSpaceId = SpaceId.make("space-work");
 const workSpace: Space = {
   id: workSpaceId,
   name: "Work",
@@ -17,7 +17,7 @@ const workSpace: Space = {
 describe("resolveActiveSpaceId", () => {
   it("keeps known selections and exposes missing persisted ids as missing", () => {
     expect(resolveActiveSpaceId(workSpaceId, [workSpace])).toBe(workSpaceId);
-    expect(resolveActiveSpaceId(SpaceId.makeUnsafe("space-deleted"), [workSpace])).toBeNull();
+    expect(resolveActiveSpaceId(SpaceId.make("space-deleted"), [workSpace])).toBeNull();
     expect(resolveActiveSpaceId(null, [workSpace])).toBeNull();
   });
 });
@@ -26,7 +26,7 @@ describe("activeSpaceDisplayNameForReference", () => {
   it("names active and archived references without retaining archive rows", () => {
     expect(activeSpaceDisplayNameForReference(workSpaceId, [workSpace])).toBe("Work");
     expect(activeSpaceDisplayNameForReference(workSpaceId, [], "Work")).toBe("Work");
-    expect(activeSpaceDisplayNameForReference(SpaceId.makeUnsafe("space-missing"), [])).toBe(
+    expect(activeSpaceDisplayNameForReference(SpaceId.make("space-missing"), [])).toBe(
       "Archived space",
     );
   });

@@ -82,7 +82,7 @@ export const listProviderUsage = Effect.fn(function* (input: ServerListProviderU
       record.lifecycle === "active" &&
       (input.provider === undefined || input.provider === record.harness),
   );
-  const runtime = yield* Effect.services<never>();
+  const runtime = yield* Effect.context<never>();
   const fetched = yield* Effect.promise((signal) =>
     collectProviderConnectionUsageSnapshots({
       connections: active,

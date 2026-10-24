@@ -3,7 +3,7 @@ import os from "node:os";
 import path from "node:path";
 import { DatabaseSync } from "node:sqlite";
 
-import { SqlError } from "effect/unstable/sql/SqlError";
+import { SqlError, classifySqliteError } from "effect/sql/SqlError";
 import { describe, expect, it } from "vitest";
 
 import { toPersistenceSqlError } from "./Errors.ts";
@@ -65,7 +65,9 @@ describe("SQLite safety policy", () => {
     };
     const wrapLikeRepository = (cause: unknown) =>
       toPersistenceSqlError("test.insert")(
-        new SqlError({ cause, message: "Failed to execute statement" }),
+        new SqlError({
+          reason: classifySqliteError(cause, { message: "Failed to execute statement" }),
+        }),
       );
     try {
       owner.exec("CREATE TABLE entries(id INTEGER PRIMARY KEY, label TEXT NOT NULL)");

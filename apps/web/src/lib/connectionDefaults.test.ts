@@ -3,8 +3,8 @@ import { describe, expect, it } from "vitest";
 import { connectionDefaultMigrationPatch } from "./connectionDefaults";
 
 describe("connection default migration", () => {
-  const pro = ProviderConnectionId.makeUnsafe("pro");
-  const plus = ProviderConnectionId.makeUnsafe("plus");
+  const pro = ProviderConnectionId.make("pro");
+  const plus = ProviderConnectionId.make("plus");
 
   it("preserves the remembered account and explicit Free selection", () => {
     expect(

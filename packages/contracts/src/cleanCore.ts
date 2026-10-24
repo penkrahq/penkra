@@ -4,7 +4,7 @@ export {
   CleanCoreLatestTurn,
   CleanCoreOpenQuestion,
 } from "./threadSummary";
-import { Schema } from "effect";
+import { Effect, Schema } from "effect";
 import { MessageOrigin, SendingMessageOrigin } from "./messageOrigin";
 export { MessageOrigin, SendingMessageOrigin } from "./messageOrigin";
 import { ProviderSkillReference, ProviderMentionReference } from "./providerDiscovery";
@@ -379,7 +379,7 @@ export const CleanCoreFolderCreateUpdate = Schema.Struct({
   folderId: FolderId,
   title: TrimmedNonEmptyString,
   workspaceRoot: Schema.optional(Schema.NullOr(TrimmedNonEmptyString)).pipe(
-    Schema.withDecodingDefault(() => null),
+    Schema.withDecodingDefault(Effect.sync(() => null)),
   ),
   defaultModelSelection: Schema.optional(Schema.NullOr(ModelSelection)),
   spaceId: SpaceId,
@@ -591,12 +591,12 @@ export const QUEUED_MESSAGE_EDIT_NONEMPTY_DRAFT_ERROR =
   "Clear or send your message before editing a queued one.";
 export const SAVED_PROMPT_RESTORE_NONEMPTY_DRAFT_ERROR =
   "Clear or send your message before restoring a saved one.";
-export class SavedRestoreDraftNotEmptyError extends Schema.TaggedErrorClass<SavedRestoreDraftNotEmptyError>()(
+export class SavedRestoreDraftNotEmptyError extends Schema.TaggedError<SavedRestoreDraftNotEmptyError>()(
   "SavedRestoreDraftNotEmptyError",
   { message: Schema.String },
 ) {}
 
-export class QueuedEditDraftNotEmptyError extends Schema.TaggedErrorClass<QueuedEditDraftNotEmptyError>()(
+export class QueuedEditDraftNotEmptyError extends Schema.TaggedError<QueuedEditDraftNotEmptyError>()(
   "QueuedEditDraftNotEmptyError",
   {
     message: Schema.String,

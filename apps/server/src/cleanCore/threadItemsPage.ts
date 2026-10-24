@@ -12,7 +12,7 @@ import type {
   CleanCoreTurnSegment,
 } from "@penkra/contracts";
 import { Effect } from "effect";
-import * as SqlClient from "effect/unstable/sql/SqlClient";
+import * as SqlClient from "effect/sql/SqlClient";
 
 export interface ThreadItemRecord {
   readonly threadId: ThreadId;

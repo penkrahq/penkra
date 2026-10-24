@@ -19,7 +19,7 @@ import { claudeThreadTranscriptPath } from "./claudeThreadNativeState.ts";
 import { providerNativeStateRoot } from "./providerNativeStatePaths.ts";
 import { ProviderLaunchResolutionError } from "./Services/ProviderLaunchResolver.ts";
 import type { ResolvedProviderTurnSelection } from "./Services/ProviderTurnSelectionResolver.ts";
-import * as SqlClient from "effect/unstable/sql/SqlClient";
+import * as SqlClient from "effect/sql/SqlClient";
 import * as NodeSqliteClient from "../persistence/NodeSqliteClient.ts";
 import { runMigrations } from "../persistence/Migrations.ts";
 import { createThread } from "../cleanCore/threadStore.ts";
@@ -37,9 +37,9 @@ afterEach(async () => {
 async function fixture(provider: ProviderKind, providerSessionId: string | null) {
   const stateDir = await mkdtemp(join(tmpdir(), "penkra-admitted-runtime-"));
   directories.push(stateDir);
-  const threadId = ThreadId.makeUnsafe("thread");
-  const connectionId = ProviderConnectionId.makeUnsafe("connection");
-  const installationId = ProviderInstallationId.makeUnsafe("installation");
+  const threadId = ThreadId.make("thread");
+  const connectionId = ProviderConnectionId.make("connection");
+  const installationId = ProviderInstallationId.make("installation");
   const nativeStateId = "native";
   const at = "2026-10-11T00:00:00.000Z";
   const runtime = ManagedRuntime.make(NodeSqliteClient.layerMemory());
@@ -147,7 +147,7 @@ it("rejects an ambiguously owned OpenCode conversation before preparing a proces
   const f = await fixture("opencode", "ses_shared");
   await Effect.runPromise(
     createThread({
-      id: ThreadId.makeUnsafe("peer"),
+      id: ThreadId.make("peer"),
       provider: "opencode",
       folderId: "runtime-folder",
       spaceId: "runtime-space",

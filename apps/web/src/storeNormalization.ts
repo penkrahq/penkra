@@ -543,7 +543,7 @@ function readModelAttachmentsFromChatMessage(
         ? {
             id: attachment.id,
             type: "assistant-selection" as const,
-            assistantMessageId: MessageId.makeUnsafe(attachment.assistantMessageId),
+            assistantMessageId: MessageId.make(attachment.assistantMessageId),
             text: attachment.text,
           }
         : attachment.type === "file"
@@ -813,7 +813,7 @@ function readModelSessionFromThreadSession(
   incomingSession: ReadModelThread["session"],
 ): NonNullable<ReadModelThread["session"]> {
   return {
-    threadId: previousThread?.id ?? incomingSession?.threadId ?? ThreadId.makeUnsafe("unknown"),
+    threadId: previousThread?.id ?? incomingSession?.threadId ?? ThreadId.make("unknown"),
     status: previousSession.orchestrationStatus,
     providerName: previousSession.provider,
     activeTurnId: previousSession.activeTurnId ?? null,

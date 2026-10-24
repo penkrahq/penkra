@@ -5,7 +5,7 @@ import * as path from "node:path";
 import { assert, it } from "@effect/vitest";
 import { MessageId, ThreadId } from "@penkra/contracts";
 import { Cause, Effect, Exit } from "effect";
-import * as SqlClient from "effect/unstable/sql/SqlClient";
+import * as SqlClient from "effect/sql/SqlClient";
 
 import { runMigrations } from "../persistence/Migrations";
 import * as NodeSqliteClient from "../persistence/NodeSqliteClient";
@@ -35,7 +35,7 @@ const input = {
   threadId: "thread",
   draftUpdatedAt: at,
   message: {
-    messageId: MessageId.makeUnsafe("message"),
+    messageId: MessageId.make("message"),
     text: "Original text",
     attachments: [],
     origin: { _tag: "user" as const },
@@ -85,7 +85,7 @@ for (const [name, text, attachmentCount, selectionSize, code] of [
         const attachments = Array.from({ length: attachmentCount }, (_, index) => ({
           type: "assistant-selection" as const,
           id: `selection-${index}`,
-          assistantMessageId: MessageId.makeUnsafe("assistant"),
+          assistantMessageId: MessageId.make("assistant"),
           text: "x".repeat(selectionSize),
         }));
         const failure = yield* sendMessage(publisher, driver, {
@@ -156,7 +156,7 @@ it.effect("an unacknowledged admission queues the next plain send", () =>
       const first = yield* sendMessage(publisher, driver, input);
       const second = yield* sendMessage(publisher, driver, {
         ...input,
-        message: { ...input.message, messageId: MessageId.makeUnsafe("second") },
+        message: { ...input.message, messageId: MessageId.make("second") },
       });
       assert.equal(first.plan, "deliver");
       assert.equal(second.plan, "queue");
@@ -234,7 +234,7 @@ it.effect(
         );
         yield* sendMessage(publisher, driver, {
           ...input,
-          message: { ...input.message, messageId: MessageId.makeUnsafe("next-message") },
+          message: { ...input.message, messageId: MessageId.make("next-message") },
         });
         assert.deepStrictEqual(
           yield* sql`SELECT status,turn_id FROM thread_items WHERE source_id='message'`,
@@ -389,7 +389,7 @@ it.effect("a failed queued head remains editable without restoring a draft", () 
       yield* sendMessage(publisher, driver, input);
       const head = (yield* readThreadQueue("thread"))[0]!;
       assert.isFalse("send_payload" in head);
-      const summary = yield* findThread(ThreadId.makeUnsafe("thread"));
+      const summary = yield* findThread(ThreadId.make("thread"));
       assert.deepStrictEqual(JSON.parse(summary!.queue), [head]);
       yield* sql.withTransaction(
         Effect.gen(function* () {
@@ -419,7 +419,7 @@ it.effect("an agent send retains its failed row without changing the composer", 
         ...agent,
         message: {
           ...agent.message,
-          origin: { _tag: "agent", senderThreadId: ThreadId.makeUnsafe("agent-sender") },
+          origin: { _tag: "agent", senderThreadId: ThreadId.make("agent-sender") },
         },
       });
       yield* settleMessage(
@@ -477,7 +477,7 @@ it.effect("a queued selection payload within admission limits stays at the head 
       const attachments = Array.from({ length: 8 }, (_, index) => ({
         type: "assistant-selection" as const,
         id: `selection-${index}`,
-        assistantMessageId: MessageId.makeUnsafe("assistant"),
+        assistantMessageId: MessageId.make("assistant"),
         text: "x".repeat(4000),
       }));
       const request = { ...input, message: { ...input.message, attachments } };
@@ -530,7 +530,7 @@ for (const plan of ["deliver", "steer", "interrupt-deliver"] as const) {
           );
           const second = {
             ...request,
-            message: { ...request.message, messageId: MessageId.makeUnsafe("second") },
+            message: { ...request.message, messageId: MessageId.make("second") },
           };
           yield* sql`UPDATE threads SET state=${plan === "deliver" ? "idle" : "running"} WHERE id='thread'`;
           yield* sendMessage(publisher, driver, second);
@@ -594,7 +594,7 @@ for (const succeeds of [true, false]) {
             ...input,
             message: {
               ...input.message,
-              messageId: MessageId.makeUnsafe("next"),
+              messageId: MessageId.make("next"),
               text: "New text",
             },
           };
@@ -666,7 +666,7 @@ it.effect("retains a full admitted payload privately while item reads show displ
         send_payload: string;
       }>`SELECT send_payload FROM thread_items WHERE source_id='message'`;
       assert.equal(JSON.parse(row!.send_payload).message.text, large);
-      const page = yield* listThreadItemsPage({ threadId: ThreadId.makeUnsafe("thread") });
+      const page = yield* listThreadItemsPage({ threadId: ThreadId.make("thread") });
       assert.isFalse("send_payload" in page.items[0]!);
       assert.isFalse("admission_plan" in page.items[0]!);
     }),
@@ -691,7 +691,7 @@ it.effect("startup fails every member of a pending cohort and keeps each payload
         );
         yield* sendMessage(publisher, driver, {
           ...input,
-          message: { ...input.message, messageId: MessageId.makeUnsafe("next"), text: "Next" },
+          message: { ...input.message, messageId: MessageId.make("next"), text: "Next" },
         });
       }).pipe(Effect.provide(NodeSqliteClient.layer({ filename })));
       yield* Effect.gen(function* () {

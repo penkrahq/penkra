@@ -14,8 +14,8 @@ import {
 } from "@penkra/shared/cli";
 import { Config, Data, Effect, Hash, Layer, Logger, Option, Path, Schema } from "effect";
 import * as ConfigProvider from "effect/ConfigProvider";
-import { Argument, Command, Flag } from "effect/unstable/cli";
-import { ChildProcess } from "effect/unstable/process";
+import { Argument, Command, Flag } from "effect/cli";
+import { ChildProcess } from "effect/process";
 
 try {
   process.loadEnvFile();
@@ -65,22 +65,22 @@ class DevRunnerError extends Data.TaggedError("DevRunnerError")<{
 }> {}
 
 const optionalStringConfig = (name: string): Config.Config<string | undefined> =>
-  Config.string(name).pipe(
+  Config.String(name).pipe(
     Config.option,
     Config.map((value) => Option.getOrUndefined(value)),
   );
 const optionalPortConfig = (name: string): Config.Config<number | undefined> =>
-  Config.port(name).pipe(
+  Config.Port(name).pipe(
     Config.option,
     Config.map((value) => Option.getOrUndefined(value)),
   );
 const optionalIntegerConfig = (name: string): Config.Config<number | undefined> =>
-  Config.int(name).pipe(
+  Config.Int(name).pipe(
     Config.option,
     Config.map((value) => Option.getOrUndefined(value)),
   );
 const optionalUrlConfig = (name: string): Config.Config<URL | undefined> =>
-  Config.url(name).pipe(
+  Config.URL(name).pipe(
     Config.option,
     Config.map((value) => Option.getOrUndefined(value)),
   );
@@ -430,7 +430,7 @@ export function resolveDevRunnerBooleanOverrides(
 
 export function runDevRunnerWithInput(input: DevRunnerCliInput) {
   return Effect.gen(function* () {
-    const { portOffset, devInstance } = yield* OffsetConfig.asEffect().pipe(
+    const { portOffset, devInstance } = yield* OffsetConfig.pipe(
       Effect.mapError(
         (cause) =>
           new DevRunnerError({
@@ -525,14 +525,14 @@ export function runDevRunnerWithInput(input: DevRunnerCliInput) {
 }
 
 const devRunnerCli = Command.make("dev-runner", {
-  mode: Argument.choice("mode", DEV_RUNNER_MODES).pipe(
+  mode: Argument.Literals("mode", DEV_RUNNER_MODES).pipe(
     Argument.withDescription("Development mode to run."),
   ),
-  penkraHome: Flag.string("home-dir").pipe(
+  penkraHome: Flag.String("home-dir").pipe(
     Flag.withDescription("Base directory for all Penkra data (equivalent to PENKRA_HOME)."),
     Flag.withFallbackConfig(HomeConfig),
   ),
-  authToken: Flag.string("auth-token").pipe(
+  authToken: Flag.String("auth-token").pipe(
     Flag.withDescription("Auth token (forwards to PENKRA_AUTH_TOKEN)."),
     Flag.withAlias("token"),
     Flag.withFallbackConfig(optionalStringConfig("PENKRA_AUTH_TOKEN")),
@@ -550,25 +550,25 @@ const devRunnerCli = Command.make("dev-runner", {
     description: "Enable WebSocket event logging (equivalent to PENKRA_LOG_WS_EVENTS).",
     aliases: ["log-ws-events"],
   }),
-  host: Flag.string("host").pipe(
+  host: Flag.String("host").pipe(
     Flag.withDescription("Server host/interface override (forwards to PENKRA_HOST)."),
     Flag.withFallbackConfig(optionalStringConfig("PENKRA_HOST")),
   ),
-  port: Flag.integer("port").pipe(
+  port: Flag.Int("port").pipe(
     Flag.withSchema(Schema.Int.check(Schema.isBetween({ minimum: 1, maximum: 65535 }))),
     Flag.withDescription("Server port override (forwards to PENKRA_PORT)."),
     Flag.withFallbackConfig(optionalPortConfig("PENKRA_PORT")),
   ),
-  devUrl: Flag.string("dev-url").pipe(
+  devUrl: Flag.String("dev-url").pipe(
     Flag.withSchema(Schema.URLFromString),
     Flag.withDescription("Web dev URL override (forwards to VITE_DEV_SERVER_URL)."),
     Flag.withFallbackConfig(optionalUrlConfig("VITE_DEV_SERVER_URL")),
   ),
-  dryRun: Flag.boolean("dry-run").pipe(
+  dryRun: Flag.Boolean("dry-run").pipe(
     Flag.withDescription("Resolve mode/ports/env and print, but do not spawn turbo."),
     Flag.withDefault(false),
   ),
-  turboArgs: Argument.string("turbo-arg").pipe(
+  turboArgs: Argument.String("turbo-arg").pipe(
     Argument.withDescription("Additional turbo args (pass after `--`)."),
     Argument.variadic(),
   ),

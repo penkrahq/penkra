@@ -2,6 +2,10 @@ import * as path from "node:path";
 import { defineConfig } from "vitest/config";
 
 export default defineConfig({
+  test: {
+    // Separate workspace runners must not invalidate each other's transform cache.
+    fsModuleCachePath: path.resolve(process.cwd(), "node_modules/.vitest-cache"),
+  },
   resolve: {
     alias: [
       {

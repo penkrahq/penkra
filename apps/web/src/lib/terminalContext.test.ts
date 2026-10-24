@@ -34,7 +34,7 @@ import { appendFileCommentsToPrompt } from "./fileComments";
 function makeContext(overrides?: Partial<TerminalContextDraft>): TerminalContextDraft {
   return {
     id: "context-1",
-    threadId: ThreadId.makeUnsafe("thread-1"),
+    threadId: ThreadId.make("thread-1"),
     terminalId: "default",
     terminalLabel: "Terminal 1",
     lineStart: 12,

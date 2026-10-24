@@ -8,7 +8,7 @@ import { mkdir, readdir, rm, stat } from "node:fs/promises";
 import path from "node:path";
 
 import { ProviderConnectionId, THREADS_PAGE_SIZE } from "@penkra/contracts";
-import * as SqlClient from "effect/unstable/sql/SqlClient";
+import * as SqlClient from "effect/sql/SqlClient";
 import { Effect, Layer, Option, Stream } from "effect";
 
 import { ServerConfig } from "../../config.ts";
@@ -618,7 +618,7 @@ export function makeProviderConnectionLoginCoordinator(
                   }),
               })
             : "Pending account email";
-        const connectionId = ProviderConnectionId.makeUnsafe(newId());
+        const connectionId = ProviderConnectionId.make(newId());
         const operationId = newId();
         const profileRef = `provider-profile:${connectionId}`;
         const createdAt = now();

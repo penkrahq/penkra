@@ -1,7 +1,7 @@
 // FILE: 200_FailedSendPayload.ts
 // Purpose: Replace dev-only draft recovery with complete private failed-send payloads.
 import { Effect } from "effect";
-import * as SqlClient from "effect/unstable/sql/SqlClient";
+import * as SqlClient from "effect/sql/SqlClient";
 export default Effect.gen(function* () {
   const sql = yield* SqlClient.SqlClient;
   yield* sql`ALTER TABLE thread_items ADD COLUMN send_payload TEXT`;

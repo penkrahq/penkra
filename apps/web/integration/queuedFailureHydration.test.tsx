@@ -1,6 +1,6 @@
 import { ThreadId } from "@penkra/contracts";
 import { Effect, Layer, ManagedRuntime, Option } from "effect";
-import * as SqlClient from "effect/unstable/sql/SqlClient";
+import * as SqlClient from "effect/sql/SqlClient";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 import { ThreadReads, ThreadReadsLive } from "../../server/src/cleanCore/ThreadReads.ts";
@@ -10,7 +10,7 @@ import { ThreadErrorBanner } from "../src/components/chat/ThreadErrorBanner";
 
 describe("failed queued delivery hydration", () => {
   it("renders the stored reason through the canonical cold thread read", async () => {
-    const threadId = ThreadId.makeUnsafe("thread-1");
+    const threadId = ThreadId.make("thread-1");
     const reason =
       "This thread uses a different provider. To use another provider, start a new thread.";
     const runtime = ManagedRuntime.make(

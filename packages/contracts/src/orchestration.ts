@@ -1,6 +1,6 @@
 import { CleanCoreThreadSummary } from "./threadSummary";
 import { MessageOrigin } from "./messageOrigin";
-import { Option, Schema, SchemaIssue } from "effect";
+import { Effect, Schema, SchemaIssue } from "effect";
 import { ClaudeModelOptions, CodexModelOptions, OpenCodeModelOptions } from "./model";
 import { ProviderMentionReference, ProviderSkillReference } from "./providerDiscovery";
 import {
@@ -242,7 +242,7 @@ const TurnMessageContentCheck = Schema.makeFilter(
   (input: { readonly text: string; readonly attachments: ReadonlyArray<unknown> }) =>
     input.text.trim().length > 0 ||
     input.attachments.length > 0 ||
-    new SchemaIssue.InvalidValue(Option.some(input.text), {
+    new SchemaIssue.InvalidValue({
       message: "Turn input must include text or attachments.",
     }),
   { identifier: "TurnMessageContent" },
@@ -288,7 +288,7 @@ export const OrchestrationSpace = Schema.Struct({
   createdAt: IsoDateTime,
   updatedAt: IsoDateTime,
   archivedAt: Schema.optional(Schema.NullOr(IsoDateTime)).pipe(
-    Schema.withDecodingDefault(() => null),
+    Schema.withDecodingDefault(Effect.sync(() => null)),
   ),
   deletedAt: Schema.NullOr(IsoDateTime),
 });
@@ -302,7 +302,7 @@ export const OrchestrationSpaceShell = Schema.Struct({
   createdAt: IsoDateTime,
   updatedAt: IsoDateTime,
   archivedAt: Schema.optional(Schema.NullOr(IsoDateTime)).pipe(
-    Schema.withDecodingDefault(() => null),
+    Schema.withDecodingDefault(Effect.sync(() => null)),
   ),
 });
 export type OrchestrationSpaceShell = typeof OrchestrationSpaceShell.Type;
@@ -314,11 +314,13 @@ export const OrchestrationFolder = Schema.Struct({
   defaultModelSelection: Schema.NullOr(ModelSelection),
   iconDataUrl: Schema.optional(Schema.NullOr(FolderIconDataUrl)),
   spaceId: SpaceId,
-  sidebarSortOrder: Schema.optional(NonNegativeInt).pipe(Schema.withDecodingDefault(() => 0)),
+  sidebarSortOrder: Schema.optional(NonNegativeInt).pipe(
+    Schema.withDecodingDefault(Effect.sync(() => 0)),
+  ),
   createdAt: IsoDateTime,
   updatedAt: IsoDateTime,
   archivedAt: Schema.optional(Schema.NullOr(IsoDateTime)).pipe(
-    Schema.withDecodingDefault(() => null),
+    Schema.withDecodingDefault(Effect.sync(() => null)),
   ),
   deletedAt: Schema.NullOr(IsoDateTime),
 });
@@ -331,11 +333,13 @@ export const OrchestrationFolderShell = Schema.Struct({
   defaultModelSelection: Schema.NullOr(ModelSelection),
   iconDataUrl: Schema.optional(Schema.NullOr(FolderIconDataUrl)),
   spaceId: SpaceId,
-  sidebarSortOrder: Schema.optional(NonNegativeInt).pipe(Schema.withDecodingDefault(() => 0)),
+  sidebarSortOrder: Schema.optional(NonNegativeInt).pipe(
+    Schema.withDecodingDefault(Effect.sync(() => 0)),
+  ),
   createdAt: IsoDateTime,
   updatedAt: IsoDateTime,
   archivedAt: Schema.optional(Schema.NullOr(IsoDateTime)).pipe(
-    Schema.withDecodingDefault(() => null),
+    Schema.withDecodingDefault(Effect.sync(() => null)),
   ),
 });
 export type OrchestrationFolderShell = typeof OrchestrationFolderShell.Type;
@@ -357,7 +361,7 @@ export const OrchestrationMessage = Schema.Struct({
   sequence: Schema.optional(NonNegativeInt),
   turnId: Schema.NullOr(TurnId),
   streaming: Schema.Boolean,
-  source: OrchestrationMessageSource.pipe(Schema.withDecodingDefault(() => "native")),
+  source: OrchestrationMessageSource.pipe(Schema.withDecodingDefault(Effect.sync(() => "native"))),
   createdAt: IsoDateTime,
   updatedAt: IsoDateTime,
 });
@@ -461,42 +465,44 @@ export const OrchestrationThread = Schema.Struct({
   /** Thread's current preferred Connection; null means anonymous route. */
   connectionId: Schema.optional(Schema.NullOr(ProviderConnectionId)),
   creationSource: Schema.optional(Schema.NullOr(ThreadCreationSource)).pipe(
-    Schema.withDecodingDefault(() => null),
+    Schema.withDecodingDefault(Effect.sync(() => null)),
   ),
   sourceThreadId: Schema.optional(Schema.NullOr(ThreadId)).pipe(
-    Schema.withDecodingDefault(() => null),
+    Schema.withDecodingDefault(Effect.sync(() => null)),
   ),
-  sourceTurnId: Schema.optional(Schema.NullOr(TurnId)).pipe(Schema.withDecodingDefault(() => null)),
+  sourceTurnId: Schema.optional(Schema.NullOr(TurnId)).pipe(
+    Schema.withDecodingDefault(Effect.sync(() => null)),
+  ),
   gatewayOperationId: Schema.optional(Schema.NullOr(TrimmedNonEmptyString)).pipe(
-    Schema.withDecodingDefault(() => null),
+    Schema.withDecodingDefault(Effect.sync(() => null)),
   ),
   gatewayOperationIndex: Schema.optional(Schema.NullOr(NonNegativeInt)).pipe(
-    Schema.withDecodingDefault(() => null),
+    Schema.withDecodingDefault(Effect.sync(() => null)),
   ),
   subagentAgentId: Schema.optional(Schema.NullOr(TrimmedNonEmptyString)).pipe(
-    Schema.withDecodingDefault(() => null),
+    Schema.withDecodingDefault(Effect.sync(() => null)),
   ),
   subagentNickname: Schema.optional(Schema.NullOr(TrimmedNonEmptyString)).pipe(
-    Schema.withDecodingDefault(() => null),
+    Schema.withDecodingDefault(Effect.sync(() => null)),
   ),
   subagentRole: Schema.optional(Schema.NullOr(TrimmedNonEmptyString)).pipe(
-    Schema.withDecodingDefault(() => null),
+    Schema.withDecodingDefault(Effect.sync(() => null)),
   ),
   latestTurn: Schema.NullOr(OrchestrationLatestTurn),
   pendingTurnStartMessageId: Schema.optional(Schema.NullOr(MessageId)).pipe(
-    Schema.withDecodingDefault(() => null),
+    Schema.withDecodingDefault(Effect.sync(() => null)),
   ),
   hasPendingUserInput: Schema.optional(Schema.Boolean),
   workStatus: Schema.optional(Schema.Literals(["idle", "running", "done", "attention"])),
   createdAt: IsoDateTime,
   updatedAt: IsoDateTime,
   archivedAt: Schema.optional(Schema.NullOr(IsoDateTime)).pipe(
-    Schema.withDecodingDefault(() => null),
+    Schema.withDecodingDefault(Effect.sync(() => null)),
   ),
   deletedAt: Schema.NullOr(IsoDateTime),
   messages: Schema.Array(OrchestrationMessage),
   queuedMessageIds: Schema.optional(Schema.Array(MessageId)).pipe(
-    Schema.withDecodingDefault(() => []),
+    Schema.withDecodingDefault(Effect.sync(() => [])),
   ),
   activities: Schema.Array(OrchestrationThreadActivity),
   pendingInteractions: Schema.optional(Schema.Array(OrchestrationPendingInteraction)),
@@ -512,26 +518,28 @@ export const OrchestrationThreadShell = Schema.Struct({
   modelSelection: ModelSelection,
   connectionId: Schema.optional(Schema.NullOr(ProviderConnectionId)),
   creationSource: Schema.optional(Schema.NullOr(ThreadCreationSource)).pipe(
-    Schema.withDecodingDefault(() => null),
+    Schema.withDecodingDefault(Effect.sync(() => null)),
   ),
   sourceThreadId: Schema.optional(Schema.NullOr(ThreadId)).pipe(
-    Schema.withDecodingDefault(() => null),
+    Schema.withDecodingDefault(Effect.sync(() => null)),
   ),
-  sourceTurnId: Schema.optional(Schema.NullOr(TurnId)).pipe(Schema.withDecodingDefault(() => null)),
+  sourceTurnId: Schema.optional(Schema.NullOr(TurnId)).pipe(
+    Schema.withDecodingDefault(Effect.sync(() => null)),
+  ),
   gatewayOperationId: Schema.optional(Schema.NullOr(TrimmedNonEmptyString)).pipe(
-    Schema.withDecodingDefault(() => null),
+    Schema.withDecodingDefault(Effect.sync(() => null)),
   ),
   gatewayOperationIndex: Schema.optional(Schema.NullOr(NonNegativeInt)).pipe(
-    Schema.withDecodingDefault(() => null),
+    Schema.withDecodingDefault(Effect.sync(() => null)),
   ),
   subagentAgentId: Schema.optional(Schema.NullOr(TrimmedNonEmptyString)).pipe(
-    Schema.withDecodingDefault(() => null),
+    Schema.withDecodingDefault(Effect.sync(() => null)),
   ),
   subagentNickname: Schema.optional(Schema.NullOr(TrimmedNonEmptyString)).pipe(
-    Schema.withDecodingDefault(() => null),
+    Schema.withDecodingDefault(Effect.sync(() => null)),
   ),
   subagentRole: Schema.optional(Schema.NullOr(TrimmedNonEmptyString)).pipe(
-    Schema.withDecodingDefault(() => null),
+    Schema.withDecodingDefault(Effect.sync(() => null)),
   ),
   latestTurn: Schema.NullOr(OrchestrationLatestTurn),
   hasPendingUserInput: Schema.optional(Schema.Boolean),
@@ -539,7 +547,7 @@ export const OrchestrationThreadShell = Schema.Struct({
   createdAt: IsoDateTime,
   updatedAt: IsoDateTime,
   archivedAt: Schema.optional(Schema.NullOr(IsoDateTime)).pipe(
-    Schema.withDecodingDefault(() => null),
+    Schema.withDecodingDefault(Effect.sync(() => null)),
   ),
   session: Schema.NullOr(OrchestrationSession),
 });

@@ -5,9 +5,9 @@ import { describe, expect, it } from "vitest";
 import type { ThreadReadsShape } from "../cleanCore/ThreadReads.ts";
 import { requireThreadSpaceId, resolveThreadSpaceId } from "./threadSpaceContext.ts";
 
-const threadId = ThreadId.makeUnsafe("thread-1");
-const folderId = FolderId.makeUnsafe("folder-1");
-const personal = SpaceId.makeUnsafe("penkra-personal");
+const threadId = ThreadId.make("thread-1");
+const folderId = FolderId.make("folder-1");
+const personal = SpaceId.make("penkra-personal");
 const folder = { id: folderId, spaceId: personal } as unknown as OrchestrationFolderShell;
 
 function snapshotQueryFor(value: OrchestrationFolderShell): ThreadReadsShape {

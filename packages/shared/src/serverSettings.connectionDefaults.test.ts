@@ -8,8 +8,8 @@ import {
 import { describe, expect, it } from "vitest";
 import { applyServerSettingsPatch } from "./serverSettings";
 
-const alpha = ProviderConnectionId.makeUnsafe("alpha");
-const beta = ProviderConnectionId.makeUnsafe("beta");
+const alpha = ProviderConnectionId.make("alpha");
+const beta = ProviderConnectionId.make("beta");
 
 function settingsWithDefault(
   provider: ProviderKind,

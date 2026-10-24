@@ -3,15 +3,15 @@
 import { assert, it } from "@effect/vitest";
 import { FolderId, SpaceId, ThreadId } from "@penkra/contracts";
 import { Effect } from "effect";
-import * as SqlClient from "effect/unstable/sql/SqlClient";
+import * as SqlClient from "effect/sql/SqlClient";
 import { listThreads, searchThreads } from "./threadList.ts";
 import { createThread } from "./threadStore.ts";
 import { runMigrations } from "../persistence/Migrations.ts";
 import * as NodeSqliteClient from "../persistence/NodeSqliteClient.ts";
 
 import { seedThreadFolderFixture } from "./threadFixtures.ts";
-const folderId = FolderId.makeUnsafe("search-folder");
-const spaceId = SpaceId.makeUnsafe("search-space");
+const folderId = FolderId.make("search-folder");
+const spaceId = SpaceId.make("search-space");
 const withDb = <A, E>(effect: Effect.Effect<A, E, SqlClient.SqlClient>) =>
   effect.pipe(Effect.provide(NodeSqliteClient.layerMemory()));
 const addThread = (id: string, title: string) =>
@@ -130,7 +130,7 @@ it.effect(
         assert.deepStrictEqual(first.nextCursor, {
           matchKind: "title",
           lastActivityAt: "2026-10-10T00:00:01.000Z",
-          id: ThreadId.makeUnsafe("title-49"),
+          id: ThreadId.make("title-49"),
         });
         const second = yield* searchThreads({ spaceId, query: "needle", cursor: first.nextCursor });
         assert.lengthOf(second.threads, 50);
@@ -146,7 +146,7 @@ it.effect(
           cursor: {
             matchKind: "message",
             lastActivityAt: null,
-            id: ThreadId.makeUnsafe("message-51"),
+            id: ThreadId.make("message-51"),
           },
         });
         assert.deepStrictEqual(

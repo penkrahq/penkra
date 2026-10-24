@@ -2,7 +2,7 @@
 // backed by a project continue to inherit their Space from that project.
 
 import * as Effect from "effect/Effect";
-import * as SqlClient from "effect/unstable/sql/SqlClient";
+import * as SqlClient from "effect/sql/SqlClient";
 
 import { columnExists } from "./schemaHelpers.ts";
 

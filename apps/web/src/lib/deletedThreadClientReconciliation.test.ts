@@ -12,7 +12,7 @@ import {
 
 describe("reconcileDeletedThreadFromClient", () => {
   it("removes the local row without applying a shell snapshot", async () => {
-    const threadId = ThreadId.makeUnsafe("thread-delete");
+    const threadId = ThreadId.make("thread-delete");
     const removeDeletedThreadFromClientState = vi.fn();
 
     await reconcileDeletedThreadFromClient({
@@ -27,8 +27,8 @@ describe("reconcileDeletedThreadFromClient", () => {
 
 describe("reconcileDeletedThreadsFromClient", () => {
   it("deduplicates bulk thread removals without applying a shell snapshot", async () => {
-    const threadA = ThreadId.makeUnsafe("thread-delete-a");
-    const threadB = ThreadId.makeUnsafe("thread-delete-b");
+    const threadA = ThreadId.make("thread-delete-a");
+    const threadB = ThreadId.make("thread-delete-b");
     const removeDeletedThreadFromClientState = vi.fn();
 
     await reconcileDeletedThreadsFromClient({

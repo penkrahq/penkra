@@ -1,7 +1,7 @@
 // Purpose: Makes working_directory the single physical path stored for a thread.
 
 import * as Effect from "effect/Effect";
-import * as SqlClient from "effect/unstable/sql/SqlClient";
+import * as SqlClient from "effect/sql/SqlClient";
 
 import { columnExists } from "./schemaHelpers.ts";
 

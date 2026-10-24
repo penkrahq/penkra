@@ -1,6 +1,6 @@
 import { dirname } from "node:path";
 import { Cause, Exit, Effect, Layer, FileSystem, Path } from "effect";
-import * as SqlClient from "effect/unstable/sql/SqlClient";
+import * as SqlClient from "effect/sql/SqlClient";
 
 import { runMigrations } from "../Migrations.ts";
 import { recordMigrationStartupResult } from "../migrationStartupResult.ts";

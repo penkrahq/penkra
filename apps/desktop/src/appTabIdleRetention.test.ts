@@ -14,7 +14,7 @@ const pane = {
   lastVisibleAt: "2026-10-18T12:00:00.000Z",
 };
 const folder = (panes: Array<typeof pane | Omit<typeof pane, "lastVisibleAt">>) => ({
-  folderId: FolderId.makeUnsafe("folder"),
+  folderId: FolderId.make("folder"),
   updatedAt: now,
   tabs: { panes },
 });

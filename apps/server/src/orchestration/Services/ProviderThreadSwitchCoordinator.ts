@@ -15,7 +15,7 @@ import type {
   AssistantDeliveryMode,
   RuntimeMode,
 } from "@penkra/contracts";
-import { Data, Effect, ServiceMap } from "effect";
+import { Data, Effect, Context } from "effect";
 
 import type { ManagedAttachmentPrincipal } from "../../managedAttachmentPrincipal.ts";
 import type { ProviderTurnSelectionFailureCode } from "../../provider/Services/ProviderTurnSelectionResolver.ts";
@@ -71,7 +71,7 @@ export interface ProviderThreadSwitchCoordinatorShape {
   }) => Effect.Effect<{ readonly turnId: TurnId | null }, ProviderThreadSwitchCoordinatorError>;
 }
 
-export class ProviderThreadSwitchCoordinator extends ServiceMap.Service<
+export class ProviderThreadSwitchCoordinator extends Context.Service<
   ProviderThreadSwitchCoordinator,
   ProviderThreadSwitchCoordinatorShape
 >()("penkra/orchestration/Services/ProviderThreadSwitchCoordinator") {}

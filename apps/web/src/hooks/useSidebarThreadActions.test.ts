@@ -153,12 +153,12 @@ vi.mock("../threadDerivation", () => ({
 import type { Project } from "../types";
 import { useSidebarThreadActions } from "./useSidebarThreadActions";
 
-const PROJECT_ID = FolderId.makeUnsafe("project-actions");
-const THREAD_ID = ThreadId.makeUnsafe("thread-actions");
-const FALLBACK_ID = ThreadId.makeUnsafe("thread-fallback");
+const PROJECT_ID = FolderId.make("project-actions");
+const THREAD_ID = ThreadId.make("thread-actions");
+const FALLBACK_ID = ThreadId.make("thread-fallback");
 const PROJECT = {
   id: PROJECT_ID,
-  spaceId: SpaceId.makeUnsafe("space-test"),
+  spaceId: SpaceId.make("space-test"),
   name: "Actions",
   remoteName: "Actions",
   folderName: "actions",
@@ -333,7 +333,7 @@ describe("useSidebarThreadActions", () => {
   });
 
   it("continues project deletion after failures and reconciles only successful ids", async () => {
-    const thirdId = ThreadId.makeUnsafe("thread-third");
+    const thirdId = ThreadId.make("thread-third");
     sidebarThreads = [makeThread(THREAD_ID), makeThread(thirdId)];
     harness.activeThreadDelete
       .mockRejectedValueOnce(new Error("first failed"))

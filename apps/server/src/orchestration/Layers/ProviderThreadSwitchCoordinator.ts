@@ -12,7 +12,7 @@ import {
 import { providerSupportsNativeTurnSteering } from "@penkra/shared/providerMetadata";
 import { ModelSelection, ProviderConnectionId, ThreadId, TurnId } from "@penkra/contracts";
 import { Cause, Effect, Layer, Option, PubSub, Schema, Stream } from "effect";
-import * as SqlClient from "effect/unstable/sql/SqlClient";
+import * as SqlClient from "effect/sql/SqlClient";
 
 import { settleMessage } from "../../cleanCore/sendMessage.ts";
 import { readSendCohort } from "../../cleanCore/sendPayload.ts";
@@ -84,7 +84,7 @@ export const makeProviderThreadSwitchCoordinator = Effect.gen(function* () {
         return {
           ...thread,
           state: "running" as const,
-          activeTurnId: TurnId.makeUnsafe(payload.activeTurnId),
+          activeTurnId: TurnId.make(payload.activeTurnId),
         };
       return thread;
     }).pipe(
@@ -408,13 +408,10 @@ export const makeProviderThreadSwitchCoordinator = Effect.gen(function* () {
   yield* Stream.fromEffectRepeat(PubSub.take(events)).pipe(
     Stream.runForEach((event) => {
       if (event.type === "turn.ended")
-        return Effect.forkIn(
-          deliverPending(ThreadId.makeUnsafe(event.threadId), event.turnId),
-          scope,
-        );
+        return Effect.forkIn(deliverPending(ThreadId.make(event.threadId), event.turnId), scope);
       if (event.type === "provider.exited" || event.type === "provider.failed")
         return Effect.sync(() => {
-          for (const id of event.threadIds) pending.delete(ThreadId.makeUnsafe(id));
+          for (const id of event.threadIds) pending.delete(ThreadId.make(id));
         });
       return Effect.void;
     }),

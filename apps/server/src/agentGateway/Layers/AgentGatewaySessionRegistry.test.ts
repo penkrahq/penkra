@@ -7,8 +7,8 @@ describe("AgentGatewaySessionRegistry", () => {
   it("attributes native sessions only within their registered process and revokes both boundaries", () => {
     let id = 0;
     const registry = makeAgentGatewaySessionRegistry({ randomId: () => String(++id) });
-    const a = registry.issue(ThreadId.makeUnsafe("thread-a"), "opencode", "generation-a");
-    const b = registry.issue(ThreadId.makeUnsafe("thread-b"), "opencode", "generation-b");
+    const a = registry.issue(ThreadId.make("thread-a"), "opencode", "generation-a");
+    const b = registry.issue(ThreadId.make("thread-b"), "opencode", "generation-b");
     const processA = registry.processes.issue("opencode");
     const processB = registry.processes.issue("opencode");
     const releaseA = registry.processes.register(processA, "native-a", a.token);
@@ -40,7 +40,7 @@ describe("AgentGatewaySessionRegistry", () => {
   it("binds only the active execution and rejects an ended or replaced turn", () => {
     let nextId = 0;
     const registry = makeAgentGatewaySessionRegistry({ randomId: () => String(++nextId) });
-    const threadId = ThreadId.makeUnsafe("thread-1");
+    const threadId = ThreadId.make("thread-1");
     const issued = registry.issue(threadId, "claudeAgent", "generation-1");
     assert.deepEqual([...issued.capabilities].sort(), ["thread:read", "thread:write"]);
     assert.isNull(registry.bindWriteAuthority(issued.token));
@@ -72,7 +72,7 @@ describe("AgentGatewaySessionRegistry", () => {
   it("does not grant an outgoing runtime authority over a replacement turn", () => {
     let nextId = 0;
     const registry = makeAgentGatewaySessionRegistry({ randomId: () => String(++nextId) });
-    const threadId = ThreadId.makeUnsafe("thread-1");
+    const threadId = ThreadId.make("thread-1");
     const oldSession = registry.issue(threadId, "claudeAgent", "generation-old");
     registry.beginTurn(threadId, "claudeAgent", "turn-old", "generation-old");
     const oldAuthority = registry.bindWriteAuthority(oldSession.token);
@@ -96,8 +96,8 @@ describe("AgentGatewaySessionRegistry", () => {
   it("allows independent legitimate sessions for the same thread", () => {
     let nextId = 0;
     const registry = makeAgentGatewaySessionRegistry({ randomId: () => String(++nextId) });
-    const first = registry.issue(ThreadId.makeUnsafe("thread-1"), "codex");
-    const second = registry.issue(ThreadId.makeUnsafe("thread-1"), "claudeAgent");
+    const first = registry.issue(ThreadId.make("thread-1"), "codex");
+    const second = registry.issue(ThreadId.make("thread-1"), "claudeAgent");
     assert.notEqual(first.token, second.token);
     assert.equal(registry.verify(first.token)?.threadId, "thread-1");
     assert.equal(registry.verify(second.token)?.threadId, "thread-1");
@@ -108,8 +108,8 @@ describe("AgentGatewaySessionRegistry", () => {
   it("keeps replacement runtime credentials independent from outgoing-session revocation", () => {
     let nextId = 0;
     const registry = makeAgentGatewaySessionRegistry({ randomId: () => String(++nextId) });
-    const first = registry.issue(ThreadId.makeUnsafe("thread-1"), "codex");
-    const second = registry.issue(ThreadId.makeUnsafe("thread-1"), "codex");
+    const first = registry.issue(ThreadId.make("thread-1"), "codex");
+    const second = registry.issue(ThreadId.make("thread-1"), "codex");
     assert.notEqual(first.token, second.token);
     assert.equal(registry.verify(first.token)?.threadId, "thread-1");
     assert.equal(registry.verify(second.token)?.threadId, "thread-1");
@@ -121,7 +121,7 @@ describe("AgentGatewaySessionRegistry", () => {
 
   it("binds writes to one live provider session and invalidates that authority on revoke", () => {
     const registry = makeAgentGatewaySessionRegistry({ randomId: () => "session-one" });
-    const issued = registry.issue(ThreadId.makeUnsafe("thread-1"), "codex");
+    const issued = registry.issue(ThreadId.make("thread-1"), "codex");
     registry.beginTurn(issued.threadId, "codex", "turn-1");
     const authority = registry.bindWriteAuthority(issued.token);
 
@@ -146,7 +146,7 @@ describe("AgentGatewaySessionRegistry", () => {
       now: () => time,
       randomId: () => "first",
     });
-    const issued = firstRegistry.issue(ThreadId.makeUnsafe("thread-1"), "codex");
+    const issued = firstRegistry.issue(ThreadId.make("thread-1"), "codex");
     time += 48 * 60 * 60 * 1_000;
     assert.equal(firstRegistry.verify(issued.token)?.threadId, "thread-1");
 
@@ -156,7 +156,7 @@ describe("AgentGatewaySessionRegistry", () => {
 
   it("keeps raw bearer tokens out of verified session identity snapshots", () => {
     const registry = makeAgentGatewaySessionRegistry({ randomId: () => "opaque-secret" });
-    const issued = registry.issue(ThreadId.makeUnsafe("thread-1"), "codex");
+    const issued = registry.issue(ThreadId.make("thread-1"), "codex");
     const verified = registry.verify(issued.token);
     assert.match(issued.token, /^sagw_session_/);
     assert.notProperty(verified, "token");

@@ -14,7 +14,7 @@ import type {
   ProviderKind,
   ThreadId,
 } from "@penkra/contracts";
-import { Data, Effect, Schema, ServiceMap } from "effect";
+import { Data, Effect, Schema, Context } from "effect";
 
 export const ResolvedProviderTurnSelection = Schema.Struct({
   threadId: ThreadIdSchema,
@@ -88,7 +88,7 @@ export interface ProviderTurnSelectionResolverShape {
   }) => Effect.Effect<ResolvedProviderTurnSelection, ProviderTurnSelectionResolutionError>;
 }
 
-export class ProviderTurnSelectionResolver extends ServiceMap.Service<
+export class ProviderTurnSelectionResolver extends Context.Service<
   ProviderTurnSelectionResolver,
   ProviderTurnSelectionResolverShape
 >()("penkra/provider/Services/ProviderTurnSelectionResolver") {}

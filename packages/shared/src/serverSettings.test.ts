@@ -8,8 +8,8 @@ import { describe, expect, it } from "vitest";
 import { applyServerSettingsPatch, providerStartOptionsFromServerSettings } from "./serverSettings";
 
 describe("default Connection migration", () => {
-  const oldAccount = ProviderConnectionId.makeUnsafe("old-account");
-  const chosenAccount = ProviderConnectionId.makeUnsafe("chosen-account");
+  const oldAccount = ProviderConnectionId.make("old-account");
+  const chosenAccount = ProviderConnectionId.make("chosen-account");
 
   it("seeds missing defaults without persisting migration commands", () => {
     const next = applyServerSettingsPatch(DEFAULT_SERVER_SETTINGS, {

@@ -6,7 +6,7 @@ import type {
   RuntimeMode,
 } from "@penkra/contracts";
 import { Effect } from "effect";
-import * as SqlClient from "effect/unstable/sql/SqlClient";
+import * as SqlClient from "effect/sql/SqlClient";
 import { upsertThreadItem } from "./threadStore.ts";
 import { threadItemActivityData } from "./threadItemData.ts";
 

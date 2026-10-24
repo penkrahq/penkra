@@ -1,7 +1,8 @@
+import { Option } from "effect";
 import { randomUUID } from "node:crypto";
 import fs from "node:fs/promises";
 import path from "node:path";
-import Mime from "@effect/platform-node/Mime";
+import * as Mime from "effect/http/Mime";
 
 import {
   CommandId,
@@ -14,7 +15,7 @@ import {
 } from "@penkra/contracts";
 import { Effect } from "effect";
 
-import * as SqlClient from "effect/unstable/sql/SqlClient";
+import * as SqlClient from "effect/sql/SqlClient";
 import { upsertThreadItem, type ThreadPublisher } from "../cleanCore/threadStore.ts";
 import { threadItemActivityData } from "../cleanCore/threadItemData.ts";
 import type { ManagedAttachmentRepositoryShape } from "../persistence/Services/ManagedAttachments.ts";
@@ -106,7 +107,7 @@ export function presentFile(input: {
     const type = image ? "image" : "file";
     const mimeType = image
       ? imageMimeType!
-      : (Mime.getType(source.name) ?? "application/octet-stream");
+      : (Option.getOrUndefined(Mime.getType(source.name)) ?? "application/octet-stream");
     const principal = { ownerKind: "presented-media" as const, ownerId: input.threadId };
     const now = new Date().toISOString();
     yield* input.assertActive();
@@ -129,14 +130,14 @@ export function presentFile(input: {
       repository: input.repository,
     });
     const artifactId = randomUUID();
-    const commandId = CommandId.makeUnsafe(`agent:show:${artifactId}`);
+    const commandId = CommandId.make(`agent:show:${artifactId}`);
     const claim = yield* input.repository.claimForAcceptedTurn({
       attachmentIds: [attachment.id],
       ownerThreadId: input.threadId,
       ownerKind: principal.ownerKind,
       ownerId: principal.ownerId,
       commandId,
-      messageId: MessageId.makeUnsafe(`media:${artifactId}`),
+      messageId: MessageId.make(`media:${artifactId}`),
       now: new Date().toISOString(),
     });
     if (claim.status !== "claimed") {
@@ -150,7 +151,7 @@ export function presentFile(input: {
       return yield* Effect.fail(new ToolInputError(`Could not present file: ${claim.reason}.`));
     }
     const activity = {
-      id: EventId.makeUnsafe(`media:${artifactId}`),
+      id: EventId.make(`media:${artifactId}`),
       tone: "info" as const,
       kind: "media.presented",
       summary: `Showed ${source.name}`,
@@ -167,7 +168,7 @@ export function presentFile(input: {
               presentationIndex: input.presentationIndex,
             }),
       },
-      turnId: input.turnId === null ? null : TurnId.makeUnsafe(input.turnId),
+      turnId: input.turnId === null ? null : TurnId.make(input.turnId),
       createdAt: new Date().toISOString(),
     };
     const sql = yield* SqlClient.SqlClient;

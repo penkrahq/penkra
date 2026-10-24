@@ -7,8 +7,8 @@ import { invalidateProviderCatalog, providerCatalogQueryOptions } from "./usePro
 
 const scope = {
   provider: "codex" as const,
-  connectionId: ProviderConnectionId.makeUnsafe("selected"),
-  folderId: FolderId.makeUnsafe("folder"),
+  connectionId: ProviderConnectionId.make("selected"),
+  folderId: FolderId.make("folder"),
 };
 const kinds = ["commands", "skills", "plugins", "agents"] as const;
 afterEach(() => vi.restoreAllMocks());
@@ -67,7 +67,7 @@ describe("provider catalog reads", () => {
     const client = createAppQueryClient();
     await client.fetchQuery(providerCatalogQueryOptions(scope, kinds));
     const other = providerCatalogQueryOptions(
-      { ...scope, connectionId: ProviderConnectionId.makeUnsafe("other") },
+      { ...scope, connectionId: ProviderConnectionId.make("other") },
       kinds,
       false,
     );
@@ -95,7 +95,7 @@ describe("provider catalog reads", () => {
     const client = createAppQueryClient();
     const options = providerCatalogQueryOptions(scope, kinds);
     const other = providerCatalogQueryOptions(
-      { ...scope, connectionId: ProviderConnectionId.makeUnsafe("other") },
+      { ...scope, connectionId: ProviderConnectionId.make("other") },
       kinds,
     );
     await client.fetchQuery(options);

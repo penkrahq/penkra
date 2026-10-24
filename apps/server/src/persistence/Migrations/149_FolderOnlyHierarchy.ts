@@ -2,7 +2,7 @@
 // Purpose: Hard-cut persisted orchestration state to Spaces -> folders -> threads.
 
 import * as Effect from "effect/Effect";
-import * as SqlClient from "effect/unstable/sql/SqlClient";
+import * as SqlClient from "effect/sql/SqlClient";
 
 const PERSONAL_SPACE_ID = "penkra-personal";
 const CHATS_FOLDER_PREFIX = "penkra-chats-folder:";

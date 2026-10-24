@@ -10,7 +10,7 @@ import {
   type ThreadId,
 } from "@penkra/contracts";
 import { Effect, Schema } from "effect";
-import * as SqlClient from "effect/unstable/sql/SqlClient";
+import * as SqlClient from "effect/sql/SqlClient";
 import { nextCommittedDraftTimestamp } from "./threadDraftTimestamp.ts";
 import { encodeUserItemAdmission } from "./userItemAdmission.ts";
 import { draftAfterSend } from "./threadDraft.ts";

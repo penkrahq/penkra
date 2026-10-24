@@ -64,7 +64,7 @@ readline.createInterface({input:process.stdin}).on('line',line => {
     },
   });
   const input = {
-    threadId: ThreadId.makeUnsafe("mcp-thread"),
+    threadId: ThreadId.make("mcp-thread"),
     provider: "codex" as const,
     cwd: root,
     model: "gpt-5.5",

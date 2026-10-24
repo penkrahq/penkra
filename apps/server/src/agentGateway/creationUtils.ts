@@ -43,7 +43,7 @@ function creationUuid(name: string): string {
 
 export function makeAgentCreationIds(operationId: string) {
   return {
-    threadId: ThreadId.makeUnsafe(creationUuid(`${operationId}/thread`)),
-    messageId: MessageId.makeUnsafe(creationUuid(`${operationId}/message`)),
+    threadId: ThreadId.make(creationUuid(`${operationId}/thread`)),
+    messageId: MessageId.make(creationUuid(`${operationId}/message`)),
   };
 }

@@ -45,7 +45,7 @@ export function useRecentViewSwitcher(input: UseRecentViewSwitcherInput) {
   const pathname = useLocation({ select: (location) => location.pathname });
   const routeThreadId = useParams({
     strict: false,
-    select: (params) => (params.threadId ? ThreadId.makeUnsafe(params.threadId) : null),
+    select: (params) => (params.threadId ? ThreadId.make(params.threadId) : null),
   });
   const routeSearch = useSearch({ strict: false }) as Record<string, unknown>;
   const [recentSwitcherState, setRecentSwitcherState] = useState<RecentViewSwitcherState | null>(
@@ -75,7 +75,7 @@ export function useRecentViewSwitcher(input: UseRecentViewSwitcherInput) {
     const draftThreadsById: Record<string, RecentViewThreadDraftSummary> = {};
     for (const [threadId, draftThread] of Object.entries(draftThreadsByThreadId)) {
       draftThreadsById[threadId] = {
-        id: ThreadId.makeUnsafe(threadId),
+        id: ThreadId.make(threadId),
         folderId: draftThread.folderId,
       };
     }
@@ -129,12 +129,12 @@ export function useRecentViewSwitcher(input: UseRecentViewSwitcherInput) {
     const availableThreadIds = new Set<ThreadId>();
     for (const threadId of Object.keys(sidebarThreadSummaryById)) {
       if (sidebarThreadSummaryById[threadId]?.archivedAt == null) {
-        availableThreadIds.add(ThreadId.makeUnsafe(threadId));
+        availableThreadIds.add(ThreadId.make(threadId));
       }
     }
     for (const threadId of Object.keys(draftThreadsByThreadId)) {
       if (sidebarThreadSummaryById[threadId]?.archivedAt == null) {
-        availableThreadIds.add(ThreadId.makeUnsafe(threadId));
+        availableThreadIds.add(ThreadId.make(threadId));
       }
     }
     if (

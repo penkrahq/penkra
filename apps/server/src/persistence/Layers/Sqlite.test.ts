@@ -10,7 +10,7 @@ import { DatabaseSync } from "node:sqlite";
 
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { Effect, Layer } from "effect";
-import * as SqlClient from "effect/unstable/sql/SqlClient";
+import * as SqlClient from "effect/sql/SqlClient";
 import { afterEach, describe, expect, it } from "vitest";
 
 import { makeSqlitePersistenceLive } from "./Sqlite.ts";

@@ -1,3 +1,4 @@
+import { Option } from "effect";
 // Purpose: correlate authenticated WebSocket upgrades with RPC handler execution.
 // Layer: server transport support
 //
@@ -9,10 +10,10 @@
 // session middleware resolves it back into handler-scoped services.
 import { randomUUID } from "node:crypto";
 
-import { Effect, Layer, Scope, ServiceMap } from "effect";
+import { Effect, Layer, Scope, Context } from "effect";
 import { WsRpcError } from "@penkra/contracts";
-import { Headers } from "effect/unstable/http";
-import { RpcMiddleware } from "effect/unstable/rpc";
+import { Headers } from "effect/http";
+import { RpcMiddleware } from "effect/rpc";
 
 import {
   CurrentManagedAttachmentPrincipal,
@@ -21,7 +22,7 @@ import {
 
 export type WsSessionRole = "owner" | "client";
 
-export const CurrentWsSessionRole = ServiceMap.Reference<WsSessionRole>(
+export const CurrentWsSessionRole = Context.Reference<WsSessionRole>(
   "penkra/ws/CurrentSessionRole",
   { defaultValue: () => "client" },
 );
@@ -44,7 +45,7 @@ export interface WsConnectionSessionsShape {
   readonly lookup: (key: string | undefined) => WsConnectionSession | undefined;
 }
 
-export class WsConnectionSessions extends ServiceMap.Service<
+export class WsConnectionSessions extends Context.Service<
   WsConnectionSessions,
   WsConnectionSessionsShape
 >()("penkra/ws/WsConnectionSessions") {}
@@ -80,7 +81,9 @@ export const makeWsConnectionSessionMiddleware = Effect.gen(function* () {
   return ((effect, options) =>
     provideWsConnectionSession(
       effect,
-      sessions.lookup(Headers.get(options.headers, WS_CONNECTION_SESSION_HEADER)),
+      sessions.lookup(
+        Option.getOrUndefined(Headers.get(options.headers, WS_CONNECTION_SESSION_HEADER)),
+      ),
     )) satisfies RpcMiddleware.RpcMiddleware<never, WsRpcError, never>;
 });
 

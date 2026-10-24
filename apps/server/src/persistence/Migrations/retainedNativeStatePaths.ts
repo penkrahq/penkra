@@ -1,6 +1,6 @@
 // Historical input captured before the provider-state tables are dropped.
 import { Effect } from "effect";
-import * as SqlClient from "effect/unstable/sql/SqlClient";
+import * as SqlClient from "effect/sql/SqlClient";
 export const readRetainedNativeStateIds = Effect.gen(function* () {
   const sql = yield* SqlClient.SqlClient;
   const table =

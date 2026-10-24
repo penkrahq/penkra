@@ -713,7 +713,7 @@ async function commitAppTabOpened(descriptor: DesktopAppTabOpened) {
   const folderTabs = await updateDesktopFolderAppTabs(
     { url: backendHttpUrl, token: DESKTOP_BACKEND_SHUTDOWN_TOKEN },
     {
-      folderId: FolderId.makeUnsafe(descriptor.folderId),
+      folderId: FolderId.make(descriptor.folderId),
       updatedAt: new Date().toISOString(),
       update: {
         action: "open",
@@ -1579,7 +1579,7 @@ async function stampAppTabs(folderId: string, tabIds: string[], at: string): Pro
   await updateDesktopFolderAppTabs(
     { url: backendHttpUrl, token: DESKTOP_BACKEND_SHUTDOWN_TOKEN },
     {
-      folderId: FolderId.makeUnsafe(folderId),
+      folderId: FolderId.make(folderId),
       updatedAt: at,
       update: { action: "stamp", paneIds: tabIds, at },
     },
@@ -8120,7 +8120,7 @@ async function bootstrap(): Promise<void> {
       await updateDesktopFolderAppTabs(
         { url: backendHttpUrl, token: DESKTOP_BACKEND_SHUTDOWN_TOKEN },
         {
-          folderId: FolderId.makeUnsafe(descriptor.folderId),
+          folderId: FolderId.make(descriptor.folderId),
           updatedAt: new Date().toISOString(),
           update: {
             action: "navigate",
@@ -8138,7 +8138,7 @@ async function bootstrap(): Promise<void> {
       await updateDesktopFolderAppTabs(
         { url: backendHttpUrl, token: DESKTOP_BACKEND_SHUTDOWN_TOKEN },
         {
-          folderId: FolderId.makeUnsafe(descriptor.folderId),
+          folderId: FolderId.make(descriptor.folderId),
           updatedAt: new Date().toISOString(),
           update: {
             action: "present",
@@ -8153,7 +8153,7 @@ async function bootstrap(): Promise<void> {
     onCloseTab: async (descriptor) => {
       if (!backendHttpUrl) throw new Error("The backend is not ready.");
       const write = {
-        folderId: FolderId.makeUnsafe(descriptor.folderId),
+        folderId: FolderId.make(descriptor.folderId),
         updatedAt: new Date().toISOString(),
         update: {
           action: "close" as const,

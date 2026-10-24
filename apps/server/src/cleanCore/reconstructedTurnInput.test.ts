@@ -1,14 +1,14 @@
 import { assert, it } from "@effect/vitest";
 import { PROVIDER_SEND_TURN_MAX_INPUT_CHARS, ThreadId, TurnId } from "@penkra/contracts";
 import { Effect } from "effect";
-import * as SqlClient from "effect/unstable/sql/SqlClient";
+import * as SqlClient from "effect/sql/SqlClient";
 import { runMigrations } from "../persistence/Migrations.ts";
 import * as NodeSqliteClient from "../persistence/NodeSqliteClient.ts";
 import { buildReconstructedTurnInput } from "./reconstructedTurnInput.ts";
 import { seedThreadFolderFixture } from "./threadFixtures.ts";
 import { createThread, upsertThreadItem, type ThreadItemInput } from "./threadStore.ts";
 
-const threadId = ThreadId.makeUnsafe("thread");
+const threadId = ThreadId.make("thread");
 const at = "2026-10-11T00:00:00.000Z";
 const input = {
   threadId,
@@ -125,7 +125,7 @@ it.effect("stops at the latest canonical compaction across pages and excludes it
       yield* upsertThreadItem({
         threadId,
         sourceId: "compaction",
-        turnId: TurnId.makeUnsafe("compacted-turn"),
+        turnId: TurnId.make("compacted-turn"),
         kind: "notice",
         status: "done",
         text: "Context compacted",

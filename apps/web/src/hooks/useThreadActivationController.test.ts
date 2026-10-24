@@ -6,9 +6,9 @@ import {
   type ThreadActivationControllerInput,
 } from "./useThreadActivationController";
 
-const THREAD_A = ThreadId.makeUnsafe("thread-a");
-const THREAD_B = ThreadId.makeUnsafe("thread-b");
-const PROJECT_ID = FolderId.makeUnsafe("project-1");
+const THREAD_A = ThreadId.make("thread-a");
+const THREAD_B = ThreadId.make("thread-b");
+const PROJECT_ID = FolderId.make("project-1");
 
 function makeControllerInput(
   overrides: Partial<ThreadActivationControllerInput> = {},

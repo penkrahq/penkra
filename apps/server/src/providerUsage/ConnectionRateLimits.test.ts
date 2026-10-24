@@ -13,7 +13,7 @@ layer("ConnectionRateLimits", (it) => {
   it.effect("keeps explicit refresh requests separate from native quota observations", () =>
     Effect.gen(function* () {
       const repository = yield* ConnectionRateLimits;
-      const connectionId = ProviderConnectionId.makeUnsafe("refresh-account");
+      const connectionId = ProviderConnectionId.make("refresh-account");
       const requested = yield* Stream.runHead(repository.refreshRequests).pipe(
         Effect.forkChild({ startImmediately: true }),
       );
@@ -38,7 +38,7 @@ layer("ConnectionRateLimits", (it) => {
   it.effect("stores quota buckets independently across login updates", () =>
     Effect.gen(function* () {
       const repository = yield* ConnectionRateLimits;
-      const connectionId = ProviderConnectionId.makeUnsafe("bucket-account");
+      const connectionId = ProviderConnectionId.make("bucket-account");
       for (const [limitId, usedPercent] of [
         ["codex", 66],
         ["codex_bengalfox", 0],
@@ -65,7 +65,7 @@ layer("ConnectionRateLimits", (it) => {
     Effect.gen(function* () {
       const repository = yield* ConnectionRateLimits;
       yield* repository.update({
-        connectionId: ProviderConnectionId.makeUnsafe("codex-login"),
+        connectionId: ProviderConnectionId.make("codex-login"),
         provider: "codex",
         limitsJson: '{"rateLimits":{"primary":{"usedPercent":12}}}',
         status: null,
@@ -73,7 +73,7 @@ layer("ConnectionRateLimits", (it) => {
         updatedAt: "2026-08-21T12:00:00.000Z",
       });
 
-      const fact = yield* repository.get(ProviderConnectionId.makeUnsafe("codex-login"));
+      const fact = yield* repository.get(ProviderConnectionId.make("codex-login"));
       assert.strictEqual(Option.getOrNull(fact)?.sourceEventId, "provider-login:operation-1");
     }),
   );
@@ -82,7 +82,7 @@ layer("ConnectionRateLimits", (it) => {
     Effect.gen(function* () {
       const repository = yield* ConnectionRateLimits;
       yield* repository.update({
-        connectionId: ProviderConnectionId.makeUnsafe("codex-account"),
+        connectionId: ProviderConnectionId.make("codex-account"),
         provider: "codex",
         limitsJson: '{"primary":{"usedPercent":38}}',
         status: null,
@@ -90,9 +90,9 @@ layer("ConnectionRateLimits", (it) => {
         updatedAt: "2026-08-21T12:00:00.000Z",
       });
 
-      const fact = yield* repository.get(ProviderConnectionId.makeUnsafe("codex-account"));
+      const fact = yield* repository.get(ProviderConnectionId.make("codex-account"));
       assert.deepStrictEqual(Option.getOrNull(fact), {
-        connectionId: ProviderConnectionId.makeUnsafe("codex-account"),
+        connectionId: ProviderConnectionId.make("codex-account"),
         provider: "codex",
         limitsJson: '{"primary":{"usedPercent":38}}',
         status: null,
@@ -104,7 +104,7 @@ layer("ConnectionRateLimits", (it) => {
   it.effect("does not load rate limits from the previous process", () =>
     Effect.gen(function* () {
       const previous = yield* makeConnectionRateLimits;
-      const connectionId = ProviderConnectionId.makeUnsafe("restart-account");
+      const connectionId = ProviderConnectionId.make("restart-account");
       yield* previous.update({
         connectionId,
         provider: "codex",

@@ -17,7 +17,7 @@
  * Idempotent and a no-op for fresh Penkra installs (every column already
  * exists from the in-order runs of 17-31).
  */
-import * as SqlClient from "effect/unstable/sql/SqlClient";
+import * as SqlClient from "effect/sql/SqlClient";
 import * as Effect from "effect/Effect";
 
 import BackfillProjectionThreadShellSummary from "./027_BackfillProjectionThreadShellSummary.ts";

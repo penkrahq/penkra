@@ -75,9 +75,9 @@ import {
 } from "../harnessPolicy.ts";
 
 const NOW = "2026-03-01T10:00:00.000Z";
-const PROJECT_ID = FolderId.makeUnsafe("project-1");
-const SPACE_ID = SpaceId.makeUnsafe("space-personal");
-const CONNECTION_ID = ProviderConnectionId.makeUnsafe("connection-default");
+const PROJECT_ID = FolderId.make("project-1");
+const SPACE_ID = SpaceId.make("space-personal");
+const CONNECTION_ID = ProviderConnectionId.make("connection-default");
 
 function makeProjectShell(): OrchestrationFolderShell {
   return {
@@ -100,7 +100,7 @@ function makeThreadShell(
   overrides?: Partial<OrchestrationThreadShell>,
 ): OrchestrationThreadShell {
   return {
-    id: ThreadId.makeUnsafe(id),
+    id: ThreadId.make(id),
     folderId: PROJECT_ID,
     title: `Thread ${id}`,
     modelSelection: { provider: "codex", model: "gpt-5.5" },
@@ -111,7 +111,7 @@ function makeThreadShell(
     latestTurn:
       id === "thread-parent"
         ? {
-            turnId: TurnId.makeUnsafe("turn-parent-active"),
+            turnId: TurnId.make("turn-parent-active"),
             state: "running",
             requestedAt: NOW,
             startedAt: NOW,
@@ -125,10 +125,10 @@ function makeThreadShell(
     session:
       id === "thread-parent"
         ? {
-            threadId: ThreadId.makeUnsafe(id),
+            threadId: ThreadId.make(id),
             status: "running",
             providerName: "codex",
-            activeTurnId: TurnId.makeUnsafe("turn-parent-active"),
+            activeTurnId: TurnId.make("turn-parent-active"),
             lastError: null,
             updatedAt: NOW,
           }
@@ -285,7 +285,7 @@ function makeHarnessLayer(
     if (!threadId) return null;
     return {
       sessionKey: `session-for-${token}`,
-      threadId: ThreadId.makeUnsafe(threadId),
+      threadId: ThreadId.make(threadId),
       provider:
         token === "token-parent-claude"
           ? ("claudeAgent" as const)
@@ -803,7 +803,7 @@ function makeHarnessLayer(
                 "thread-parent",
                 makeThreadShell("thread-parent", {
                   latestTurn: {
-                    turnId: TurnId.makeUnsafe(options.advanceParentTurnAfterDispatch.turnId),
+                    turnId: TurnId.make(options.advanceParentTurnAfterDispatch.turnId),
                     state: advancedTurnState,
                     requestedAt: NOW,
                     startedAt: NOW,
@@ -811,12 +811,12 @@ function makeHarnessLayer(
                     assistantMessageId: null,
                   },
                   session: {
-                    threadId: ThreadId.makeUnsafe("thread-parent"),
+                    threadId: ThreadId.make("thread-parent"),
                     status: advancedTurnState === "running" ? "running" : "ready",
                     providerName: "codex",
                     activeTurnId:
                       advancedTurnState === "running"
-                        ? TurnId.makeUnsafe(options.advanceParentTurnAfterDispatch.turnId)
+                        ? TurnId.make(options.advanceParentTurnAfterDispatch.turnId)
                         : null,
                     lastError: null,
                     updatedAt: NOW,
@@ -904,16 +904,13 @@ function makeHarnessLayer(
     const pinned = projectionTurnsByKey.get(`${threadId}:${turnId}`);
     if (pinned) {
       return {
-        threadId: ThreadId.makeUnsafe(pinned.threadId),
-        turnId: TurnId.makeUnsafe(pinned.turnId),
-        providerTurnId:
-          pinned.providerTurnId === null ? null : TurnId.makeUnsafe(pinned.providerTurnId),
+        threadId: ThreadId.make(pinned.threadId),
+        turnId: TurnId.make(pinned.turnId),
+        providerTurnId: pinned.providerTurnId === null ? null : TurnId.make(pinned.providerTurnId),
         pendingMessageId:
-          pinned.pendingMessageId === null ? null : MessageId.makeUnsafe(pinned.pendingMessageId),
+          pinned.pendingMessageId === null ? null : MessageId.make(pinned.pendingMessageId),
         assistantMessageId:
-          pinned.assistantMessageId === null
-            ? null
-            : MessageId.makeUnsafe(pinned.assistantMessageId),
+          pinned.assistantMessageId === null ? null : MessageId.make(pinned.assistantMessageId),
         state: pinned.state,
         requestedAt: NOW,
         startedAt: pinned.state === "queued" ? null : NOW,
@@ -930,8 +927,8 @@ function makeHarnessLayer(
     const turn = thread?.latestTurn;
     return turn?.turnId === turnId
       ? {
-          threadId: ThreadId.makeUnsafe(threadId),
-          turnId: TurnId.makeUnsafe(turnId),
+          threadId: ThreadId.make(threadId),
+          turnId: TurnId.make(turnId),
           providerTurnId: turn.providerTurnId ?? null,
           pendingMessageId: null,
           assistantMessageId: turn.assistantMessageId,
@@ -989,13 +986,13 @@ function makeHarnessLayer(
         runExclusive: (_threadId, action) => action,
         getRuntime: () => Effect.succeed({ state: "idle", activeTurnId: null }),
         editQueued: () => Effect.die("Gateway does not edit composer drafts"),
-        queuedThread: () => Effect.succeed(ThreadId.makeUnsafe("thread-cancel-queued")),
+        queuedThread: () => Effect.succeed(ThreadId.make("thread-cancel-queued")),
         cancelQueued: (input) => Effect.succeed({ ...input, removed: true }),
         interrupt: (threadId) =>
           Effect.succeed({
             threadId,
             interruptRequested: true,
-            interruptedTurnId: TurnId.makeUnsafe("native-turn"),
+            interruptedTurnId: TurnId.make("native-turn"),
           }),
         send: (input: ThreadSendInput) =>
           Effect.gen(function* () {
@@ -1148,8 +1145,8 @@ describe("AgentGateway", () => {
           projection === "missing"
             ? null
             : {
-                turnId: TurnId.makeUnsafe("logical-parent"),
-                providerTurnId: TurnId.makeUnsafe(nativeTurnId),
+                turnId: TurnId.make("logical-parent"),
+                providerTurnId: TurnId.make(nativeTurnId),
                 state: projection === "terminal" ? "completed" : "running",
                 requestedAt: NOW,
                 startedAt: NOW,
@@ -1157,10 +1154,10 @@ describe("AgentGateway", () => {
                 assistantMessageId: null,
               },
         session: {
-          threadId: ThreadId.makeUnsafe("thread-parent"),
+          threadId: ThreadId.make("thread-parent"),
           status: "running",
           providerName: "claudeAgent",
-          activeTurnId: TurnId.makeUnsafe(nativeTurnId),
+          activeTurnId: TurnId.make(nativeTurnId),
           lastError: null,
           updatedAt: NOW,
         },
@@ -1616,13 +1613,13 @@ describe("AgentGateway", () => {
       extraFolders: [
         {
           ...makeProjectShell(),
-          id: FolderId.makeUnsafe("project-chat-container"),
+          id: FolderId.make("project-chat-container"),
           title: "che progetti ci sono in penkra",
           workspaceRoot: `${homeDir}/Documents/Penkra/2026-03-01/chat`,
         },
         {
           ...makeProjectShell(),
-          id: FolderId.makeUnsafe("project-legacy-home"),
+          id: FolderId.make("project-legacy-home"),
           title: "Home",
           workspaceRoot: homeDir,
         },
@@ -1738,7 +1735,7 @@ describe("AgentGateway", () => {
   it.effect("lists several exact threads with latest and queued turn summaries", () => {
     const first = makeThreadShell("thread-list-first", {
       latestTurn: {
-        turnId: TurnId.makeUnsafe("turn-list-first"),
+        turnId: TurnId.make("turn-list-first"),
         state: "running",
         requestedAt: NOW,
         startedAt: NOW,
@@ -1748,7 +1745,7 @@ describe("AgentGateway", () => {
     });
     const second = makeThreadShell("thread-list-second", {
       latestTurn: {
-        turnId: TurnId.makeUnsafe("turn-list-second"),
+        turnId: TurnId.make("turn-list-second"),
         state: "queued",
         requestedAt: NOW,
         startedAt: null,
@@ -1805,7 +1802,7 @@ describe("AgentGateway", () => {
   it.effect("does not count a stale queued projection after its promotion was cancelled", () => {
     const stale = makeThreadShell("thread-stale-queue", {
       latestTurn: {
-        turnId: TurnId.makeUnsafe("turn-stale-queue"),
+        turnId: TurnId.make("turn-stale-queue"),
         state: "queued",
         requestedAt: NOW,
         startedAt: null,
@@ -1869,7 +1866,7 @@ describe("AgentGateway", () => {
 
   it.effect("collects only assistant output belonging to the requested turn", () => {
     const target = makeThreadShell("thread-turn-result");
-    const requestedTurnId = TurnId.makeUnsafe("turn-requested-result");
+    const requestedTurnId = TurnId.make("turn-requested-result");
     const { gatewayLayer, makeHarness } = makeHarnessLayer(
       [makeThreadShell("thread-parent"), target],
       {
@@ -1880,17 +1877,17 @@ describe("AgentGateway", () => {
               ...makeThreadDetail(target),
               messages: [
                 {
-                  id: MessageId.makeUnsafe("message-other-result"),
+                  id: MessageId.make("message-other-result"),
                   role: "assistant",
                   text: "other answer",
-                  turnId: TurnId.makeUnsafe("turn-other-result"),
+                  turnId: TurnId.make("turn-other-result"),
                   streaming: false,
                   source: "native",
                   createdAt: NOW,
                   updatedAt: NOW,
                 },
                 {
-                  id: MessageId.makeUnsafe("message-requested-result"),
+                  id: MessageId.make("message-requested-result"),
                   role: "assistant",
                   text: "requested answer",
                   turnId: requestedTurnId,
@@ -1929,12 +1926,12 @@ describe("AgentGateway", () => {
 
   it.effect("reads exact stored turn ids without inferring logical dispatch boundaries", () => {
     const target = makeThreadShell("thread-logical-provider-result");
-    const logicalTurnId = TurnId.makeUnsafe("turn-logical-provider-result");
-    const providerTurnId = TurnId.makeUnsafe("turn-provider-native-result");
-    const resumedProviderTurnId = TurnId.makeUnsafe("turn-provider-resumed-result");
-    const pendingMessageId = MessageId.makeUnsafe("message-logical-provider-request");
-    const nextLogicalTurnId = TurnId.makeUnsafe("turn-logical-native-steer");
-    const nextPendingMessageId = MessageId.makeUnsafe("message-logical-native-steer");
+    const logicalTurnId = TurnId.make("turn-logical-provider-result");
+    const providerTurnId = TurnId.make("turn-provider-native-result");
+    const resumedProviderTurnId = TurnId.make("turn-provider-resumed-result");
+    const pendingMessageId = MessageId.make("message-logical-provider-request");
+    const nextLogicalTurnId = TurnId.make("turn-logical-native-steer");
+    const nextPendingMessageId = MessageId.make("message-logical-native-steer");
     const { gatewayLayer, makeHarness } = makeHarnessLayer(
       [makeThreadShell("thread-parent"), target],
       {
@@ -1945,7 +1942,7 @@ describe("AgentGateway", () => {
               ...makeThreadDetail(target),
               messages: [
                 {
-                  id: MessageId.makeUnsafe("message-provider-before-request"),
+                  id: MessageId.make("message-provider-before-request"),
                   role: "assistant",
                   text: "provider output before the logical dispatch",
                   turnId: providerTurnId,
@@ -1984,7 +1981,7 @@ describe("AgentGateway", () => {
                   updatedAt: "2026-09-05T07:11:04.000Z",
                 },
                 {
-                  id: MessageId.makeUnsafe("message-provider-after-request"),
+                  id: MessageId.make("message-provider-after-request"),
                   role: "assistant",
                   text: "provider output after the logical dispatch",
                   turnId: providerTurnId,
@@ -1995,7 +1992,7 @@ describe("AgentGateway", () => {
                   updatedAt: "2026-09-05T07:11:02.000Z",
                 },
                 {
-                  id: MessageId.makeUnsafe("message-provider-after-restart"),
+                  id: MessageId.make("message-provider-after-restart"),
                   role: "assistant",
                   text: "provider output after restart",
                   turnId: resumedProviderTurnId,
@@ -2006,7 +2003,7 @@ describe("AgentGateway", () => {
                   updatedAt: "2026-09-05T07:11:03.000Z",
                 },
                 {
-                  id: MessageId.makeUnsafe("message-provider-after-native-steer"),
+                  id: MessageId.make("message-provider-after-native-steer"),
                   role: "assistant",
                   text: "provider output for the later logical steer",
                   turnId: resumedProviderTurnId,
@@ -2096,14 +2093,14 @@ describe("AgentGateway", () => {
       const details = new Map(
         fixtures.map((fixture, index) => {
           const target = targets[index]!;
-          const nativeTurnId = TurnId.makeUnsafe(fixture.nativeTurnId);
+          const nativeTurnId = TurnId.make(fixture.nativeTurnId);
           return [
             target.id,
             {
               ...makeThreadDetail(target),
               messages: [
                 {
-                  id: MessageId.makeUnsafe("message-" + fixture.provider),
+                  id: MessageId.make("message-" + fixture.provider),
                   role: "assistant",
                   text: "answer",
                   turnId: nativeTurnId,
@@ -2115,7 +2112,7 @@ describe("AgentGateway", () => {
               ],
               activities: [
                 {
-                  id: EventId.makeUnsafe("activity-tool-" + fixture.provider),
+                  id: EventId.make("activity-tool-" + fixture.provider),
                   tone: "tool" as const,
                   kind: "tool.completed",
                   summary: "Tool call",
@@ -2124,7 +2121,7 @@ describe("AgentGateway", () => {
                   createdAt: NOW,
                 },
                 {
-                  id: EventId.makeUnsafe("activity-task-" + fixture.provider),
+                  id: EventId.make("activity-task-" + fixture.provider),
                   tone: "info" as const,
                   kind: "task.progress",
                   summary: "Task progress",
@@ -2133,7 +2130,7 @@ describe("AgentGateway", () => {
                   createdAt: NOW,
                 },
                 {
-                  id: EventId.makeUnsafe("activity-turn-" + fixture.provider),
+                  id: EventId.make("activity-turn-" + fixture.provider),
                   tone: "info" as const,
                   kind: "turn.completed",
                   summary: "Turn completed",
@@ -2155,8 +2152,8 @@ describe("AgentGateway", () => {
         for (let index = 0; index < fixtures.length; index += 1) {
           const fixture = fixtures[index]!;
           const target = targets[index]!;
-          const logicalTurnId = TurnId.makeUnsafe(fixture.logicalTurnId);
-          const nativeTurnId = TurnId.makeUnsafe(fixture.nativeTurnId);
+          const logicalTurnId = TurnId.make(fixture.logicalTurnId);
+          const nativeTurnId = TurnId.make(fixture.nativeTurnId);
           harness.setProjectionTurn({
             threadId: target.id,
             turnId: logicalTurnId,
@@ -2201,7 +2198,7 @@ describe("AgentGateway", () => {
 
   it.effect("polls a running turn with its partial streaming output", () => {
     const target = makeThreadShell("thread-turn-running");
-    const requestedTurnId = TurnId.makeUnsafe("turn-running-result");
+    const requestedTurnId = TurnId.make("turn-running-result");
     const { gatewayLayer, makeHarness } = makeHarnessLayer(
       [makeThreadShell("thread-parent"), target],
       {
@@ -2212,7 +2209,7 @@ describe("AgentGateway", () => {
               ...makeThreadDetail(target),
               messages: [
                 {
-                  id: MessageId.makeUnsafe("message-running-result"),
+                  id: MessageId.make("message-running-result"),
                   role: "assistant",
                   text: "partial answer",
                   turnId: requestedTurnId,
@@ -2333,7 +2330,7 @@ describe("AgentGateway", () => {
       const { gatewayLayer, makeHarness } = makeHarnessLayer(baseThreads, {
         extraFolders: Array.from({ length: THREADS_PAGE_SIZE + 3 }, (_, i) => ({
           ...makeProjectShell(),
-          id: FolderId.makeUnsafe("folder-page-" + String(i).padStart(2, "0")),
+          id: FolderId.make("folder-page-" + String(i).padStart(2, "0")),
         })),
       });
       return Effect.gen(function* () {
@@ -2425,10 +2422,10 @@ describe("AgentGateway", () => {
       ...makeThreadDetail(firstShell),
       messages: [
         {
-          id: MessageId.makeUnsafe("message-search-new"),
+          id: MessageId.make("message-search-new"),
           role: "assistant",
           text: "The architecture uses a durable anchor for every page. ".repeat(THREADS_PAGE_SIZE),
-          turnId: TurnId.makeUnsafe("turn-search-new"),
+          turnId: TurnId.make("turn-search-new"),
           streaming: false,
           source: "native",
           createdAt: "2026-08-31T12:00:02.000Z",
@@ -2442,7 +2439,7 @@ describe("AgentGateway", () => {
         ...firstDetailBase.messages,
         ...Array.from({ length: THREADS_PAGE_SIZE - 1 }, (_, i) => ({
           ...firstDetailBase.messages[0]!,
-          id: MessageId.makeUnsafe("message-search-new-" + i),
+          id: MessageId.make("message-search-new-" + i),
         })),
       ],
     };
@@ -2450,10 +2447,10 @@ describe("AgentGateway", () => {
       ...makeThreadDetail(secondShell),
       messages: [
         {
-          id: MessageId.makeUnsafe("message-search-old"),
+          id: MessageId.make("message-search-old"),
           role: "user",
           text: "Please explain the earlier architecture decision.",
-          turnId: TurnId.makeUnsafe("turn-search-old"),
+          turnId: TurnId.make("turn-search-old"),
           streaming: false,
           source: "native",
           createdAt: "2026-08-31T12:00:01.000Z",
@@ -2518,20 +2515,20 @@ describe("AgentGateway", () => {
         ...makeThreadDetail(shell),
         messages: [
           {
-            id: MessageId.makeUnsafe("message-search-filtered"),
+            id: MessageId.make("message-search-filtered"),
             role: "user",
             text: "Grouping grouping belongs in one panel.",
-            turnId: TurnId.makeUnsafe("turn-search-filtered"),
+            turnId: TurnId.make("turn-search-filtered"),
             streaming: false,
             source: "native",
             createdAt: "2026-09-02T12:00:00.000Z",
             updatedAt: "2026-09-02T12:00:00.000Z",
           },
           {
-            id: MessageId.makeUnsafe("message-search-wrong-role"),
+            id: MessageId.make("message-search-wrong-role"),
             role: "assistant",
             text: "Grouping in one panel.",
-            turnId: TurnId.makeUnsafe("turn-search-filtered"),
+            turnId: TurnId.make("turn-search-filtered"),
             streaming: false,
             source: "native",
             createdAt: "2026-09-02T12:00:01.000Z",
@@ -2582,10 +2579,10 @@ describe("AgentGateway", () => {
       ...makeThreadDetail(shell),
       messages: [
         {
-          id: MessageId.makeUnsafe("message-search-ascii"),
+          id: MessageId.make("message-search-ascii"),
           role: "user",
           text: "elan banana",
-          turnId: TurnId.makeUnsafe("turn-search-ascii"),
+          turnId: TurnId.make("turn-search-ascii"),
           streaming: false,
           source: "native",
           createdAt: "2026-09-02T12:00:00.000Z",
@@ -2626,20 +2623,20 @@ describe("AgentGateway", () => {
       ...makeThreadDetail(shell),
       messages: [
         {
-          id: MessageId.makeUnsafe("message-context-user"),
+          id: MessageId.make("message-context-user"),
           role: "user",
           text: "Discuss grouping",
-          turnId: TurnId.makeUnsafe("turn-context"),
+          turnId: TurnId.make("turn-context"),
           streaming: false,
           source: "native",
           createdAt: "2026-09-02T12:00:00.000Z",
           updatedAt: "2026-09-02T12:00:00.000Z",
         },
         {
-          id: MessageId.makeUnsafe("message-context-assistant"),
+          id: MessageId.make("message-context-assistant"),
           role: "assistant",
           text: "Use a panel",
-          turnId: TurnId.makeUnsafe("turn-context"),
+          turnId: TurnId.make("turn-context"),
           streaming: false,
           source: "native",
           createdAt: "2026-09-02T12:00:01.000Z",
@@ -2682,7 +2679,7 @@ describe("AgentGateway", () => {
           creationSource: "penkra_mcp",
           updatedAt: "2026-03-02T10:00:00.000Z",
           latestTurn: {
-            turnId: TurnId.makeUnsafe("turn-running"),
+            turnId: TurnId.make("turn-running"),
             state: "running",
             requestedAt: NOW,
             startedAt: NOW,
@@ -2794,7 +2791,7 @@ describe("AgentGateway", () => {
   it.effect(
     "preserves the existing thread connection instead of resolving a changed default",
     () => {
-      const originalAccount = ProviderConnectionId.makeUnsafe("original-account");
+      const originalAccount = ProviderConnectionId.make("original-account");
       const discoveryInputs: unknown[] = [];
       const existingIds = makeAgentCreationIds(
         `gateway:create:${stableGatewayDigest({ principalKind: "provider-session", principalId: "thread-parent", requestId: "retry-existing" })}`,
@@ -2943,7 +2940,7 @@ describe("AgentGateway", () => {
           makeThreadDetail(
             makeThreadShell("thread-parent", {
               latestTurn: {
-                turnId: TurnId.makeUnsafe("turn-newer-terminal-summary"),
+                turnId: TurnId.make("turn-newer-terminal-summary"),
                 state: "completed",
                 requestedAt: "2026-08-31T12:24:18.000Z",
                 startedAt: "2026-08-31T12:24:19.000Z",
@@ -2998,10 +2995,10 @@ describe("AgentGateway", () => {
           makeThreadShell("thread-parent", {
             latestTurn: null,
             session: {
-              threadId: ThreadId.makeUnsafe("thread-parent"),
+              threadId: ThreadId.make("thread-parent"),
               status: "running",
               providerName: "codex",
-              activeTurnId: TurnId.makeUnsafe("native-turn-ahead-of-projection"),
+              activeTurnId: TurnId.make("native-turn-ahead-of-projection"),
               lastError: null,
               updatedAt: NOW,
             },
@@ -3039,10 +3036,10 @@ describe("AgentGateway", () => {
         makeThreadDetail(
           makeThreadShell("thread-parent", {
             session: {
-              threadId: ThreadId.makeUnsafe("thread-parent"),
+              threadId: ThreadId.make("thread-parent"),
               status: "running",
               providerName: "codex",
-              activeTurnId: TurnId.makeUnsafe("live-turn-b"),
+              activeTurnId: TurnId.make("live-turn-b"),
               lastError: null,
               updatedAt: NOW,
             },
@@ -3123,10 +3120,10 @@ describe("AgentGateway", () => {
       ...baseThreads.filter((thread) => thread.id !== "thread-child"),
       makeThreadShell("thread-child", {
         session: {
-          threadId: ThreadId.makeUnsafe("thread-child"),
+          threadId: ThreadId.make("thread-child"),
           status: "running",
           providerName: "codex",
-          activeTurnId: TurnId.makeUnsafe("turn-live"),
+          activeTurnId: TurnId.make("turn-live"),
           lastError: null,
           updatedAt: NOW,
         },
@@ -3161,7 +3158,7 @@ describe("AgentGateway", () => {
       if (turn) {
         assert.deepStrictEqual(turn.message.origin, {
           _tag: "agent",
-          senderThreadId: ThreadId.makeUnsafe("thread-parent"),
+          senderThreadId: ThreadId.make("thread-parent"),
         });
         assert.equal(turn.dispatchMode, "steer");
         assert.isUndefined(turn.connectionId);

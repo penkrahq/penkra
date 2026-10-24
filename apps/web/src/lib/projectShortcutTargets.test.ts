@@ -16,7 +16,7 @@ const HOME_PROJECT_ID = "project-home" as FolderId;
 function makeProject(id: FolderId): Project {
   return {
     id,
-    spaceId: SpaceId.makeUnsafe("space-test"),
+    spaceId: SpaceId.make("space-test"),
     name: id,
     remoteName: id,
     folderName: id,

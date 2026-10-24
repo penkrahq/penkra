@@ -1,7 +1,7 @@
 import { assert, it } from "@effect/vitest";
 import { CleanCoreGetBootstrapResult, SpaceId } from "@penkra/contracts";
 import { Effect, Schema } from "effect";
-import * as SqlClient from "effect/unstable/sql/SqlClient";
+import * as SqlClient from "effect/sql/SqlClient";
 import * as NodeSqliteClient from "../persistence/NodeSqliteClient";
 import { runMigrations } from "../persistence/Migrations";
 import { getBootstrap } from "./bootstrap";
@@ -19,7 +19,7 @@ it.effect("startup reads navigation and running threads as one canonical snapsho
     for (const id of ["working", "idle"]) {
       yield* createThread({
         id,
-        spaceId: SpaceId.makeUnsafe("startup-space"),
+        spaceId: SpaceId.make("startup-space"),
         folderId: "startup-folder",
         title: id,
         provider: "codex",

@@ -9,7 +9,7 @@
  * @module agentGateway/Services/AgentGatewayCredentials
  */
 import type { ProviderKind, ThreadId } from "@penkra/contracts";
-import { ServiceMap } from "effect";
+import { Context } from "effect";
 import type {
   AgentGatewaySessionIdentity,
   AgentGatewayWriteAuthority,
@@ -78,7 +78,7 @@ export interface AgentGatewayCredentialsShape {
   readonly stdioProxy: AgentGatewayStdioProxySpawn;
 }
 
-export class AgentGatewayCredentials extends ServiceMap.Service<
+export class AgentGatewayCredentials extends Context.Service<
   AgentGatewayCredentials,
   AgentGatewayCredentialsShape
 >()("penkra/agentGateway/Services/AgentGatewayCredentials") {}

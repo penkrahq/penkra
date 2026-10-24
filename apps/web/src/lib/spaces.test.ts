@@ -38,7 +38,7 @@ describe("moveFoldersToSpace", () => {
     const result = await moveFoldersToSpace({
       api: makeApi(dispatchCommand),
       folderIds,
-      spaceId: SpaceId.makeUnsafe("space-target"),
+      spaceId: SpaceId.make("space-target"),
     });
 
     expect(result).toEqual({
@@ -55,13 +55,13 @@ describe("moveFoldersToSpace", () => {
       moveFoldersToSpace({
         api: makeApi(dispatchCommand),
         folderIds: ["project-1" as FolderId, "project-2" as FolderId],
-        spaceId: SpaceId.makeUnsafe("space-target"),
+        spaceId: SpaceId.make("space-target"),
       }),
     ).resolves.toEqual({ failedFolderIds: [] });
   });
 
   it("does not report folders that committed before a transport failure", async () => {
-    const targetSpaceId = SpaceId.makeUnsafe("space-target");
+    const targetSpaceId = SpaceId.make("space-target");
     const folderIds = ["project-1", "project-2"] as FolderId[];
     const dispatchCommand = vi.fn().mockRejectedValue(new Error("connection closed"));
     const getFolders = vi.fn().mockResolvedValue([
@@ -80,7 +80,7 @@ describe("moveFoldersToSpace", () => {
   });
 
   it("does not report folders deleted concurrently with an ambiguous dispatch", async () => {
-    const targetSpaceId = SpaceId.makeUnsafe("space-target");
+    const targetSpaceId = SpaceId.make("space-target");
     const folderIds = ["project-deleted", "project-still-active"] as FolderId[];
     const dispatchCommand = vi.fn().mockRejectedValue(new Error("connection closed"));
     const getFolders = vi.fn().mockResolvedValue([{ id: folderIds[1], spaceId: null }]);
@@ -95,7 +95,7 @@ describe("moveFoldersToSpace", () => {
   });
 
   it("recovers the entire failed selection in bounded ID batches", async () => {
-    const targetSpaceId = SpaceId.makeUnsafe("space-target");
+    const targetSpaceId = SpaceId.make("space-target");
     const folderIds = Array.from(
       { length: THREADS_PAGE_SIZE + 3 },
       (_, i) => `project-${i}` as FolderId,
@@ -121,9 +121,9 @@ describe("moveFoldersToSpace", () => {
 describe("reorderSpaces", () => {
   it("updates the moved Space's resulting sort order", async () => {
     const dispatchCommand = vi.fn().mockResolvedValue({ sequence: 0 });
-    const first = SpaceId.makeUnsafe("first");
-    const second = SpaceId.makeUnsafe("second");
-    const third = SpaceId.makeUnsafe("third");
+    const first = SpaceId.make("first");
+    const second = SpaceId.make("second");
+    const third = SpaceId.make("third");
 
     await reorderSpaces({
       api: makeApi(dispatchCommand),

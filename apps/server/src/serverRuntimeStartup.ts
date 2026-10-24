@@ -1,4 +1,4 @@
-import { Data, Deferred, Effect, Layer, Ref, ServiceMap } from "effect";
+import { Data, Deferred, Effect, Layer, Ref, Context } from "effect";
 
 export class ServerRuntimeStartupError extends Data.TaggedError("ServerRuntimeStartupError")<{
   readonly message: string;
@@ -14,7 +14,7 @@ export interface ServerRuntimeStartupShape {
   ) => Effect.Effect<A, E | ServerRuntimeStartupError, R>;
 }
 
-export class ServerRuntimeStartup extends ServiceMap.Service<
+export class ServerRuntimeStartup extends Context.Service<
   ServerRuntimeStartup,
   ServerRuntimeStartupShape
 >()("penkra/serverRuntimeStartup") {}

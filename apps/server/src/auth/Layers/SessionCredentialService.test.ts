@@ -164,7 +164,7 @@ describe("SessionCredentialServiceLive", () => {
       expect(
         (yield* Effect.flip(
           sessions.resumeClient({
-            sessionId: AuthSessionId.makeUnsafe("10000000-0000-4000-8000-000000000099"),
+            sessionId: AuthSessionId.make("10000000-0000-4000-8000-000000000099"),
             subject: "phone-a",
           }),
         )).message,

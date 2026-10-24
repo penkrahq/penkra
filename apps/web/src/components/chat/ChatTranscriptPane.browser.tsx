@@ -24,7 +24,7 @@ const TIMELINE_ENTRIES = Array.from({ length: 300 }, (_, index) => ({
   kind: "message" as const,
   createdAt: "2026-03-17T19:12:28.000Z",
   message: {
-    id: MessageId.makeUnsafe(`assistant-message-${index}`),
+    id: MessageId.make(`assistant-message-${index}`),
     role: "assistant" as const,
     text: `Stable assistant message ${index} for the long transcript performance harness.`,
     createdAt: "2026-03-17T19:12:28.000Z",
@@ -221,7 +221,7 @@ describe("ChatTranscriptPane", () => {
             kind: "message",
             createdAt: "2026-03-17T19:12:28.000Z",
             message: {
-              id: MessageId.makeUnsafe("user-message-expand"),
+              id: MessageId.make("user-message-expand"),
               role: "user",
               text: longUserText,
               createdAt: "2026-03-17T19:12:28.000Z",

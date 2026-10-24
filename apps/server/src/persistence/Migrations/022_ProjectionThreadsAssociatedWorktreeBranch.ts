@@ -2,7 +2,7 @@
  * Tracks the durable associated worktree branch for threads so handoff can
  * recreate or reattach the same workspace branch when possible.
  */
-import * as SqlClient from "effect/unstable/sql/SqlClient";
+import * as SqlClient from "effect/sql/SqlClient";
 import * as Effect from "effect/Effect";
 
 export default Effect.gen(function* () {

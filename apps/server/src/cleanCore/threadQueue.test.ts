@@ -2,7 +2,7 @@ import { seedThreadFolderFixture } from "./threadFixtures.ts";
 import { MessageId } from "@penkra/contracts";
 import { assert, it } from "@effect/vitest";
 import { Effect } from "effect";
-import * as SqlClient from "effect/unstable/sql/SqlClient";
+import * as SqlClient from "effect/sql/SqlClient";
 
 import { enqueueMessage, planSend, readThreadQueue } from "./threadQueue.ts";
 import { createThread } from "./threadStore.ts";
@@ -51,14 +51,14 @@ it.effect("queue is a FIFO persisted on threads.queue", () =>
       yield* seedThreadFolderFixture("core-test-folder", "space-1");
       yield* createThread(baseThread);
       yield* enqueueMessage("thread-1", {
-        messageId: MessageId.makeUnsafe("m1"),
+        messageId: MessageId.make("m1"),
         attachments: [],
         origin: { _tag: "user" as const },
         text: "first",
         queuedAt: "2026-10-09T00:00:01.000Z",
       });
       yield* enqueueMessage("thread-1", {
-        messageId: MessageId.makeUnsafe("m2"),
+        messageId: MessageId.make("m2"),
         attachments: [],
         origin: { _tag: "user" as const },
         text: "second",

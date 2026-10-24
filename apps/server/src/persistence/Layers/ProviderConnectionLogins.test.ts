@@ -1,7 +1,7 @@
 import { ProviderConnectionId } from "@penkra/contracts";
 import { assert, it } from "@effect/vitest";
 import { Effect, Option } from "effect";
-import * as SqlClient from "effect/unstable/sql/SqlClient";
+import * as SqlClient from "effect/sql/SqlClient";
 
 import { runMigrations } from "../Migrations.ts";
 import * as NodeSqliteClient from "../NodeSqliteClient.ts";
@@ -10,7 +10,7 @@ import { makeProviderConnectionLogins } from "./ProviderConnectionLogins.ts";
 
 const baseRecord: ProviderConnectionLoginRecord = {
   operationId: "login-one",
-  connectionId: ProviderConnectionId.makeUnsafe("connection-one"),
+  connectionId: ProviderConnectionId.make("connection-one"),
   committedConnectionId: null,
   harness: "codex",
   authenticationTargetId: "openai-first-party",
@@ -33,7 +33,7 @@ it.layer(NodeSqliteClient.layerMemory())("in-process Connection sign-in", (it) =
       const sql = yield* SqlClient.SqlClient;
       const logins = yield* makeProviderConnectionLogins;
       yield* logins.begin(record);
-      const committedConnectionId = ProviderConnectionId.makeUnsafe("canonical-one");
+      const committedConnectionId = ProviderConnectionId.make("canonical-one");
       const completed = yield* logins.transition({
         operationId: record.operationId,
         state: "completed",

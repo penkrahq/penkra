@@ -4,7 +4,7 @@ import path from "node:path";
 
 import { assert, it } from "@effect/vitest";
 import { Effect, Layer, Option } from "effect";
-import * as SqlClient from "effect/unstable/sql/SqlClient";
+import * as SqlClient from "effect/sql/SqlClient";
 
 import {
   MANAGED_ATTACHMENT_CLEANUP_MAX_ATTEMPTS,

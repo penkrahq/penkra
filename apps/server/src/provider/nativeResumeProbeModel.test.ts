@@ -3,7 +3,7 @@ import { describe, expect, it } from "vitest";
 
 import { selectNativeResumeProbeModel } from "./nativeResumeProbeModel.ts";
 
-const connectionId = ProviderConnectionId.makeUnsafe("probe-connection");
+const connectionId = ProviderConnectionId.make("probe-connection");
 const model = (slug: string): ProviderModelDescriptor => ({ slug, name: slug });
 
 describe("selectNativeResumeProbeModel", () => {

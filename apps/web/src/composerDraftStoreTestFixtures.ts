@@ -74,7 +74,7 @@ export function makeTerminalContext(input: {
 }): TerminalContextDraft {
   return {
     id: input.id,
-    threadId: ThreadId.makeUnsafe("thread-dedupe"),
+    threadId: ThreadId.make("thread-dedupe"),
     terminalId: input.terminalId ?? "default",
     terminalLabel: input.terminalLabel ?? "Terminal 1",
     lineStart: input.lineStart ?? 4,
@@ -113,7 +113,7 @@ export function makeQueuedChatTurn(
       provider: "codex",
       model: "gpt-5",
     },
-    connectionId: ProviderConnectionId.makeUnsafe("connection-test"),
+    connectionId: ProviderConnectionId.make("connection-test"),
     runtimeMode: "full-access",
   };
 }

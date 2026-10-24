@@ -3,7 +3,7 @@
  *
  * @module TextGeneration
  */
-import { ServiceMap } from "effect";
+import { Context } from "effect";
 import type { Effect } from "effect";
 import type { ChatAttachment, ModelSelection, ProviderStartOptions } from "@penkra/contracts";
 
@@ -43,7 +43,7 @@ export interface TextGenerationShape {
 /**
  * CodexTextGeneration - Provider-specific Codex implementation for Thread titles.
  */
-export class CodexTextGeneration extends ServiceMap.Service<
+export class CodexTextGeneration extends Context.Service<
   CodexTextGeneration,
   TextGenerationShape
 >()("penkra/textGeneration/Services/TextGeneration/CodexTextGeneration") {}
@@ -51,7 +51,7 @@ export class CodexTextGeneration extends ServiceMap.Service<
 /**
  * OpenCodeTextGeneration - Provider-specific OpenCode implementation for Thread titles.
  */
-export class OpenCodeTextGeneration extends ServiceMap.Service<
+export class OpenCodeTextGeneration extends Context.Service<
   OpenCodeTextGeneration,
   TextGenerationShape
 >()("penkra/textGeneration/Services/TextGeneration/OpenCodeTextGeneration") {}
@@ -59,6 +59,6 @@ export class OpenCodeTextGeneration extends ServiceMap.Service<
 /**
  * TextGeneration - Service tag for first-message thread titles.
  */
-export class TextGeneration extends ServiceMap.Service<TextGeneration, TextGenerationShape>()(
+export class TextGeneration extends Context.Service<TextGeneration, TextGenerationShape>()(
   "penkra/textGeneration/Services/TextGeneration",
 ) {}

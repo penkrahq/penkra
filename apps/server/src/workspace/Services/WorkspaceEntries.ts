@@ -1,4 +1,4 @@
-import { Data, Effect, ServiceMap } from "effect";
+import { Data, Effect, Context } from "effect";
 
 import type {
   FilesystemBrowseInput,
@@ -33,7 +33,7 @@ export interface WorkspaceEntriesShape {
   readonly invalidate: (cwd: string) => Effect.Effect<void, never>;
 }
 
-export class WorkspaceEntries extends ServiceMap.Service<WorkspaceEntries, WorkspaceEntriesShape>()(
+export class WorkspaceEntries extends Context.Service<WorkspaceEntries, WorkspaceEntriesShape>()(
   "penkra/workspace/Services/WorkspaceEntries",
 ) {}
 

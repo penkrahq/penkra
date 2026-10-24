@@ -3,7 +3,7 @@ import { ThreadId } from "@penkra/contracts";
 import { archiveThreadFromClient, unarchiveThreadFromClient } from "./threadArchive";
 describe("clean-core archive", () => {
   it("sets archive and unarchive through the same clean-core operation", async () => {
-    const threadId = ThreadId.makeUnsafe("thread-archive");
+    const threadId = ThreadId.make("thread-archive");
     const updateThread = vi.fn().mockResolvedValue(undefined);
     await archiveThreadFromClient({ updateThread }, threadId);
     await unarchiveThreadFromClient({ updateThread }, threadId);
@@ -24,7 +24,7 @@ describe("clean-core archive", () => {
     await expect(
       unarchiveThreadFromClient(
         { updateThread: vi.fn().mockRejectedValue(error) },
-        ThreadId.makeUnsafe("thread-archive"),
+        ThreadId.make("thread-archive"),
       ),
     ).rejects.toBe(error);
   });

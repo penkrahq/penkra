@@ -68,7 +68,7 @@ import { type EventNdjsonLogger, makeEventNdjsonLogger } from "./EventNdjsonLogg
 import { AnalyticsService } from "../../telemetry/Services/AnalyticsService.ts";
 import { readThreadNativeState } from "../../cleanCore/threadNativeState.ts";
 import { ThreadPublisher } from "../../cleanCore/ThreadPublisher.ts";
-import * as SqlClient from "effect/unstable/sql/SqlClient";
+import * as SqlClient from "effect/sql/SqlClient";
 import { parseOpenCodeModelSlug } from "../opencodeRuntime.ts";
 import { ProviderLaunchResolver } from "../Services/ProviderLaunchResolver.ts";
 import { AgentGatewayCredentials } from "../../agentGateway/Services/AgentGatewayCredentials.ts";
@@ -1718,7 +1718,7 @@ const makeProviderService = (options?: ProviderServiceLiveOptions) =>
               );
             }
 
-            yield* routed.adapter.interruptTurn(input.threadId, TurnId.makeUnsafe(providerTurnId));
+            yield* routed.adapter.interruptTurn(input.threadId, TurnId.make(providerTurnId));
             yield* analytics.record("provider.turn.interrupted", {
               provider: routed.adapter.provider,
             });

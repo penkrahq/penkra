@@ -277,7 +277,7 @@ export function makeProviderConnectionLifecycle(
             (left, right) =>
               left.createdAt.localeCompare(right.createdAt) || left.id.localeCompare(right.id),
           )[0];
-        const connectionId = canonical?.id ?? ProviderConnectionId.makeUnsafe(newId());
+        const connectionId = canonical?.id ?? ProviderConnectionId.make(newId());
         const credentialRef = `provider-secret:${connectionId}`;
         const createdAt = now();
         const label = yield* Effect.try({

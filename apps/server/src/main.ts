@@ -7,8 +7,8 @@
  * @module CliConfig
  */
 import OS from "node:os";
-import { Config, Data, Effect, FileSystem, Layer, Option, Path, Schema, ServiceMap } from "effect";
-import { Command, Flag } from "effect/unstable/cli";
+import { Config, Data, Effect, FileSystem, Layer, Option, Path, Schema, Context } from "effect";
+import { Command, Flag } from "effect/cli";
 import { NetService } from "@penkra/shared/Net";
 import {
   optionalBooleanEnvironmentConfig,
@@ -115,7 +115,7 @@ export interface CliConfigShape {
 /**
  * CliConfig - Service tag for startup CLI/runtime helpers.
  */
-export class CliConfig extends ServiceMap.Service<CliConfig, CliConfigShape>()(
+export class CliConfig extends Context.Service<CliConfig, CliConfigShape>()(
   "penkra/main/CliConfig",
 ) {
   static readonly layer = Layer.effect(
@@ -136,7 +136,7 @@ export class CliConfig extends ServiceMap.Service<CliConfig, CliConfigShape>()(
 }
 
 const CliEnvConfig = Config.all({
-  mode: Config.string("PENKRA_MODE").pipe(
+  mode: Config.String("PENKRA_MODE").pipe(
     Config.option,
     Config.map(
       Option.match<RuntimeMode, string>({
@@ -145,18 +145,18 @@ const CliEnvConfig = Config.all({
       }),
     ),
   ),
-  port: Config.port("PENKRA_PORT").pipe(Config.option, Config.map(Option.getOrUndefined)),
-  host: Config.string("PENKRA_HOST").pipe(Config.option, Config.map(Option.getOrUndefined)),
-  penkraHome: Config.string("PENKRA_HOME").pipe(Config.option, Config.map(Option.getOrUndefined)),
-  devUrl: Config.url("VITE_DEV_SERVER_URL").pipe(Config.option, Config.map(Option.getOrUndefined)),
-  publicUrl: Config.url("PENKRA_PUBLIC_URL").pipe(Config.option, Config.map(Option.getOrUndefined)),
+  port: Config.Port("PENKRA_PORT").pipe(Config.option, Config.map(Option.getOrUndefined)),
+  host: Config.String("PENKRA_HOST").pipe(Config.option, Config.map(Option.getOrUndefined)),
+  penkraHome: Config.String("PENKRA_HOME").pipe(Config.option, Config.map(Option.getOrUndefined)),
+  devUrl: Config.URL("VITE_DEV_SERVER_URL").pipe(Config.option, Config.map(Option.getOrUndefined)),
+  publicUrl: Config.URL("PENKRA_PUBLIC_URL").pipe(Config.option, Config.map(Option.getOrUndefined)),
   allowInsecureRemote: optionalBooleanEnvironmentConfig("PENKRA_ALLOW_INSECURE_REMOTE"),
   noBrowser: optionalBooleanEnvironmentConfig("PENKRA_NO_BROWSER"),
-  authToken: Config.string("PENKRA_AUTH_TOKEN").pipe(
+  authToken: Config.String("PENKRA_AUTH_TOKEN").pipe(
     Config.option,
     Config.map(Option.getOrUndefined),
   ),
-  desktopShutdownToken: Config.string("PENKRA_DESKTOP_SHUTDOWN_TOKEN").pipe(
+  desktopShutdownToken: Config.String("PENKRA_DESKTOP_SHUTDOWN_TOKEN").pipe(
     Config.option,
     Config.map(Option.getOrUndefined),
   ),
@@ -173,7 +173,7 @@ const ServerConfigLive = (input: CliInput) =>
     Effect.gen(function* () {
       const cliConfig = yield* CliConfig;
       const { findAvailablePort } = yield* NetService;
-      const env = yield* CliEnvConfig.asEffect().pipe(
+      const env = yield* CliEnvConfig.pipe(
         Effect.mapError(
           (cause) =>
             new StartupError({ message: "Failed to read environment configuration", cause }),
@@ -488,29 +488,29 @@ const makeServerProgram = (input: CliInput) => {
  * These flags mirrors the environment variables and the config shape.
  */
 
-const modeFlag = Flag.choice("mode", ["web", "desktop"]).pipe(
+const modeFlag = Flag.Literals("mode", ["web", "desktop"]).pipe(
   Flag.withDescription("Runtime mode. `desktop` keeps loopback defaults unless overridden."),
   Flag.optional,
 );
-const portFlag = Flag.integer("port").pipe(
+const portFlag = Flag.Int("port").pipe(
   Flag.withSchema(Schema.Int.check(Schema.isBetween({ minimum: 1, maximum: 65535 }))),
   Flag.withDescription("Port for the HTTP/WebSocket server."),
   Flag.optional,
 );
-const hostFlag = Flag.string("host").pipe(
+const hostFlag = Flag.String("host").pipe(
   Flag.withDescription("Host/interface to bind (for example 127.0.0.1, 0.0.0.0, or a Tailnet IP)."),
   Flag.optional,
 );
-const penkraHomeFlag = Flag.string("home-dir").pipe(
+const penkraHomeFlag = Flag.String("home-dir").pipe(
   Flag.withDescription("Base directory for all Penkra data (equivalent to PENKRA_HOME)."),
   Flag.optional,
 );
-const devUrlFlag = Flag.string("dev-url").pipe(
+const devUrlFlag = Flag.String("dev-url").pipe(
   Flag.withSchema(Schema.URLFromString),
   Flag.withDescription("Dev web URL to proxy/redirect to (equivalent to VITE_DEV_SERVER_URL)."),
   Flag.optional,
 );
-const publicUrlFlag = Flag.string("public-url").pipe(
+const publicUrlFlag = Flag.String("public-url").pipe(
   Flag.withSchema(Schema.URLFromString),
   Flag.withDescription(
     "HTTPS public root origin provided by a TLS-terminating reverse proxy (equivalent to PENKRA_PUBLIC_URL).",
@@ -526,7 +526,7 @@ const noBrowserFlag = optionalBooleanFlag("no-browser", {
   negativeName: "browser",
   negativeDescription: "Enable automatic browser opening.",
 });
-const authTokenFlag = Flag.string("auth-token").pipe(
+const authTokenFlag = Flag.String("auth-token").pipe(
   Flag.withDescription("Auth token required for WebSocket connections."),
   Flag.withAlias("token"),
   Flag.optional,

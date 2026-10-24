@@ -8,7 +8,7 @@ import {
   type ProviderRuntimeEvent,
 } from "@penkra/contracts";
 import { Cause, Effect, Exit, Option } from "effect";
-import * as SqlClient from "effect/unstable/sql/SqlClient";
+import * as SqlClient from "effect/sql/SqlClient";
 import { runMigrations } from "../persistence/Migrations.ts";
 import * as NodeSqliteClient from "../persistence/NodeSqliteClient.ts";
 import {
@@ -20,8 +20,8 @@ import { seedThreadFolderFixture } from "./threadFixtures.ts";
 import { createThread, makeThreadPublisher, upsertThreadItem } from "./threadStore.ts";
 
 const at = "2026-10-11T00:00:00.000Z";
-const threadId = ThreadId.makeUnsafe("thread");
-const owner = ProviderConnectionId.makeUnsafe("bound-owner");
+const threadId = ThreadId.make("thread");
+const owner = ProviderConnectionId.make("bound-owner");
 const setup = Effect.gen(function* () {
   const sql = yield* SqlClient.SqlClient;
   yield* runMigrations();
@@ -57,9 +57,9 @@ const completed = (
   usage: unknown,
 ): ProviderRuntimeEvent => ({
   type: "turn.completed",
-  eventId: EventId.makeUnsafe("completed"),
+  eventId: EventId.make("completed"),
   threadId,
-  turnId: TurnId.makeUnsafe("turn"),
+  turnId: TurnId.make("turn"),
   provider,
   createdAt: at,
   payload: { state: "completed", usage },
@@ -122,7 +122,7 @@ it.effect("updates process-local rate limits on the binding without writing toke
       const limits = yield* ConnectionRateLimits;
       const event: ProviderRuntimeEvent = {
         type: "account.rate-limits.updated",
-        eventId: EventId.makeUnsafe("quota"),
+        eventId: EventId.make("quota"),
         threadId,
         provider: "claudeAgent",
         createdAt: at,

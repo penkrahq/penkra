@@ -1,7 +1,7 @@
 import { Deferred, Effect, Exit, Fiber, Scope } from "effect";
 import { WS_METHODS } from "@penkra/contracts";
-import { Headers } from "effect/unstable/http";
-import type { RpcMiddleware } from "effect/unstable/rpc";
+import { Headers } from "effect/http";
+import type { RpcMiddleware } from "effect/rpc";
 import { describe, expect, it } from "vitest";
 
 import {

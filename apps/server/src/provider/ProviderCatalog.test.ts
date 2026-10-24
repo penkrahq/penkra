@@ -10,9 +10,9 @@ import { ProviderCatalog } from "./ProviderCatalog.ts";
 
 const connection: ProviderCatalogScope = {
   provider: "codex",
-  connectionId: ProviderConnectionId.makeUnsafe("connection-a"),
+  connectionId: ProviderConnectionId.make("connection-a"),
 };
-const folder: ProviderCatalogScope = { ...connection, folderId: FolderId.makeUnsafe("folder-a") };
+const folder: ProviderCatalogScope = { ...connection, folderId: FolderId.make("folder-a") };
 const models: ProviderCatalogData = { models: [{ slug: "model-a", name: "Model A" }] };
 const commands: ProviderCatalogData = { commands: [{ name: "review" }] };
 
@@ -56,8 +56,8 @@ describe("ProviderCatalog", () => {
     const catalog = new ProviderCatalog(load, vi.fn());
     const reads = [
       catalog.get(folder, ["commands"]),
-      catalog.get({ ...folder, folderId: FolderId.makeUnsafe("folder-b") }, ["commands"]),
-      catalog.get({ ...folder, connectionId: ProviderConnectionId.makeUnsafe("connection-b") }, [
+      catalog.get({ ...folder, folderId: FolderId.make("folder-b") }, ["commands"]),
+      catalog.get({ ...folder, connectionId: ProviderConnectionId.make("connection-b") }, [
         "commands",
       ]),
       catalog.get({ ...folder, provider: "claudeAgent" }, ["commands"]),

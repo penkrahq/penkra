@@ -2,7 +2,7 @@ import { assert, it } from "@effect/vitest";
 import { ThreadId } from "@penkra/contracts";
 import { Effect, Option } from "effect";
 import { decodeUserItemData } from "@penkra/shared/userItemData";
-import * as SqlClient from "effect/unstable/sql/SqlClient";
+import * as SqlClient from "effect/sql/SqlClient";
 import * as NodeSqliteClient from "../NodeSqliteClient.ts";
 import { runMigrations } from "../Migrations.ts";
 import { seedThreadFolderFixture } from "../../cleanCore/threadFixtures.ts";
@@ -39,7 +39,7 @@ it.effect("converts the null sender that broke mentioned-thread reads without lo
     assert.throws(() => decodeUserItemData(JSON.parse(legacy)));
     yield* runMigrations();
     const reads = yield* makeThreadReads;
-    const result = yield* reads.getThreadDetailById(ThreadId.makeUnsafe("strategy"));
+    const result = yield* reads.getThreadDetailById(ThreadId.make("strategy"));
     assert.isTrue(Option.isSome(result));
     if (Option.isNone(result)) throw new Error("Missing Strategy");
     assert.deepStrictEqual(result.value.messages[0]!.origin, { _tag: "user" });

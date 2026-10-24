@@ -5,7 +5,7 @@ import * as NodeServices from "@effect/platform-node/NodeServices";
 import { assert, it } from "@effect/vitest";
 import { Effect, Schema } from "effect";
 import { CleanCoreFolderAppTabsResult } from "@penkra/contracts";
-import { HttpRouter } from "effect/unstable/http";
+import { HttpRouter } from "effect/http";
 import { ServerConfig, type ServerConfigShape } from "./config";
 import * as NodeSqliteClient from "./persistence/NodeSqliteClient.ts";
 import { runMigrations } from "./persistence/Migrations.ts";

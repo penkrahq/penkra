@@ -35,7 +35,7 @@ afterEach(() => {
 
 it("reads permission at mount and retains it across unrelated renders", () => {
   harness.readPermission.mockReturnValue("granted");
-  const settings = AppSettingsSchema.makeUnsafe({});
+  const settings = AppSettingsSchema.make({});
   const updateSettings = vi.fn();
   act(() =>
     root.render(
@@ -72,7 +72,7 @@ it.each(["granted", "denied"] as const)(
           resolvePermission = resolve;
         }),
     );
-    const settings = AppSettingsSchema.makeUnsafe({
+    const settings = AppSettingsSchema.make({
       enableSystemTaskCompletionNotifications: false,
     });
     const updateSettings = vi.fn();

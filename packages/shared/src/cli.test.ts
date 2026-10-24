@@ -1,7 +1,7 @@
 import { assert, it } from "@effect/vitest";
 import { Effect, Ref } from "effect";
 import * as ConfigProvider from "effect/ConfigProvider";
-import { Command } from "effect/unstable/cli";
+import { Command } from "effect/cli";
 
 import {
   getBooleanFlagValue,

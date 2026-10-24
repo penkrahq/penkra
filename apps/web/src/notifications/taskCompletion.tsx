@@ -146,7 +146,7 @@ export function TaskCompletionNotifications() {
   const activeThreadId = useParams({
     strict: false,
     select: (params) =>
-      typeof params.threadId === "string" ? ThreadId.makeUnsafe(params.threadId) : null,
+      typeof params.threadId === "string" ? ThreadId.make(params.threadId) : null,
   });
   const startupHydrated = useStore((store) => store.startupHydrated);
   const visibleThreadIds = resolveVisibleToastThreadIds({ activeThreadId });

@@ -357,7 +357,7 @@ export const Proof = async () => ({tool:{proof:{description:'Return the native s
         const session = await api<NativeSession>("/session", directory, {
           title: `Contract ${name}`,
         });
-        const identity = registry.issue(ThreadId.makeUnsafe(`thread-${name}`), "opencode");
+        const identity = registry.issue(ThreadId.make(`thread-${name}`), "opencode");
         registry.processes.register(processToken, session.id, identity.token);
         nativeDirectories.set(session.id, directory);
         const reply = await api<NativeMessage>(`/session/${session.id}/message`, directory, {

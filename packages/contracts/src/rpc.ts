@@ -6,8 +6,8 @@ import {
   CleanCoreRestoreThreadInput,
 } from "./cleanCore";
 import { Schema } from "effect";
-import * as Rpc from "effect/unstable/rpc/Rpc";
-import * as RpcGroup from "effect/unstable/rpc/RpcGroup";
+import * as Rpc from "effect/rpc/Rpc";
+import * as RpcGroup from "effect/rpc/RpcGroup";
 
 import { OpenInEditorInput } from "./editor";
 import { FilesystemBrowseInput, FilesystemBrowseResult } from "./filesystem";
@@ -124,9 +124,9 @@ import {
   WsCompatibilityError,
 } from "./wsCompatibility";
 
-export class WsRpcError extends Schema.TaggedErrorClass<WsRpcError>()("WsRpcError", {
+export class WsRpcError extends Schema.TaggedError<WsRpcError>()("WsRpcError", {
   message: Schema.String,
-  cause: Schema.optional(Schema.Defect),
+  cause: Schema.optional(Schema.Defect()),
   code: Schema.optional(Schema.String),
   retryable: Schema.optional(Schema.Boolean),
   retryAfterMs: Schema.optional(Schema.Number),

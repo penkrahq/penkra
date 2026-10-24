@@ -13,7 +13,7 @@ function request(
 ): ServerVoiceTranscriptionInput {
   return {
     provider: "codex",
-    connectionId: ProviderConnectionId.makeUnsafe("connection-voice-test"),
+    connectionId: ProviderConnectionId.make("connection-voice-test"),
     cwd: "/tmp/project",
     mimeType: "audio/wav",
     sampleRateHz: 24_000,

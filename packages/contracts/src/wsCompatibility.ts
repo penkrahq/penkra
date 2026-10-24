@@ -52,7 +52,7 @@ export const WsBootstrapNegotiateResult = Schema.Struct({
 });
 export type WsBootstrapNegotiateResult = typeof WsBootstrapNegotiateResult.Type;
 
-export class WsCompatibilityError extends Schema.TaggedErrorClass<WsCompatibilityError>()(
+export class WsCompatibilityError extends Schema.TaggedError<WsCompatibilityError>()(
   "WsCompatibilityError",
   {
     message: Schema.String,

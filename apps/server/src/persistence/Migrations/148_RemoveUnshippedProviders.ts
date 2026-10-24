@@ -2,7 +2,7 @@
 // Purpose: Deletes persisted state for provider integrations removed before product release.
 
 import * as Effect from "effect/Effect";
-import * as SqlClient from "effect/unstable/sql/SqlClient";
+import * as SqlClient from "effect/sql/SqlClient";
 
 const REMOVED_PROVIDERS_SQL = "'cursor', 'antigravity', 'grok', 'droid', 'kilo', 'pi'";
 const CODEX_DEFAULT_SELECTION = '{"provider":"codex","model":"gpt-5.5"}';

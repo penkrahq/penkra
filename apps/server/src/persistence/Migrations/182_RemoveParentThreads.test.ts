@@ -1,7 +1,7 @@
 import { assert, it } from "@effect/vitest";
 import { ThreadId } from "@penkra/contracts";
 import { Effect } from "effect";
-import * as SqlClient from "effect/unstable/sql/SqlClient";
+import * as SqlClient from "effect/sql/SqlClient";
 import { runMigrations } from "../Migrations.ts";
 import * as NodeSqliteClient from "../NodeSqliteClient.ts";
 
@@ -34,7 +34,7 @@ it.effect(
       };
       assert.deepStrictEqual(
         page.threads.map((row) => row.id),
-        [ThreadId.makeUnsafe("former-child"), ThreadId.makeUnsafe("original")],
+        [ThreadId.make("former-child"), ThreadId.make("original")],
       );
       assert.isFalse(page.threads.some((row) => "parentThreadId" in row));
       const columns = yield* sql<{ name: string }>`PRAGMA table_info(threads)`;

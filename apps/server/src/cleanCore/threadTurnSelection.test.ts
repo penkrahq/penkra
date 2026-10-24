@@ -1,7 +1,7 @@
 import { assert, it } from "@effect/vitest";
 import { ProviderConnectionId, ThreadId } from "@penkra/contracts";
 import { Effect } from "effect";
-import * as SqlClient from "effect/unstable/sql/SqlClient";
+import * as SqlClient from "effect/sql/SqlClient";
 import { runMigrations } from "../persistence/Migrations.ts";
 import * as NodeSqliteClient from "../persistence/NodeSqliteClient.ts";
 import { seedThreadFolderFixture } from "./threadFixtures.ts";
@@ -28,9 +28,9 @@ it.effect("commits the copied native folder and selected account in one turn-adm
     yield* sql`CREATE TABLE admission_writes(connection_id TEXT, native_state_id TEXT, provider_session_id TEXT, model TEXT, runtime_mode TEXT)`;
     yield* sql`CREATE TRIGGER record_admission AFTER UPDATE OF connection_id, native_state_id ON threads BEGIN INSERT INTO admission_writes VALUES (NEW.connection_id, NEW.native_state_id, NEW.provider_session_id, NEW.model, NEW.runtime_mode); END`;
     const input = {
-      threadId: ThreadId.makeUnsafe("thread"),
+      threadId: ThreadId.make("thread"),
       modelSelection: { provider: "claudeAgent", model: "model-B" } as const,
-      connectionId: ProviderConnectionId.makeUnsafe("new-account"),
+      connectionId: ProviderConnectionId.make("new-account"),
       nativeState: { id: "copied-native", providerSessionId: "copied-session" },
       runtimeMode: "approval-required" as const,
       updatedAt: "2026-10-11T00:00:01.000Z",
@@ -71,7 +71,7 @@ it.effect("commits the copied native folder and selected account in one turn-adm
     });
     const changed = {
       ...input,
-      connectionId: ProviderConnectionId.makeUnsafe("third-account"),
+      connectionId: ProviderConnectionId.make("third-account"),
       modelSelection: { provider: "claudeAgent", model: "model-C" } as const,
     };
     const beforeItems = yield* sql`SELECT * FROM thread_items`;

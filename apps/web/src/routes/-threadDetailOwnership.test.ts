@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { ThreadId } from "@penkra/contracts";
 import { canApplyThreadSnapshot, selectOrphanedThreadDetailIds } from "./-threadDetailOwnership";
 
-const threadId = (value: string) => ThreadId.makeUnsafe(value);
+const threadId = (value: string) => ThreadId.make(value);
 
 describe("canApplyThreadSnapshot", () => {
   it("applies a snapshot for a leased thread", () => {

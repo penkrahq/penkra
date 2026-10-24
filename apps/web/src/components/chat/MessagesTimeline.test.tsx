@@ -25,10 +25,10 @@ import { COLLAPSED_USER_MESSAGE_MAX_CHARS } from "./userMessageCollapse";
 
 const TIMING_FIXTURE_TURNS = {
   "fixture-duration": {
-    threadId: ThreadId.makeUnsafe("fixture"),
+    threadId: ThreadId.make("fixture"),
     seq: 1,
     sourceId: "turn:fixture-duration",
-    turnId: TurnId.makeUnsafe("fixture-duration"),
+    turnId: TurnId.make("fixture-duration"),
     kind: "turn" as const,
     status: "done",
     text: null,
@@ -104,7 +104,7 @@ describe("assistant timestamp settlement", () => {
             },
           ]}
           isWorking
-          activeTurnId={TurnId.makeUnsafe("fixture-duration")}
+          activeTurnId={TurnId.make("fixture-duration")}
           activeTurnInProgress={active}
         />,
       );
@@ -121,7 +121,7 @@ describe("assistant timestamp settlement", () => {
         {...fixture}
         timelineEntries={[]}
         isWorking
-        activeTurnId={TurnId.makeUnsafe("another-turn")}
+        activeTurnId={TurnId.make("another-turn")}
         activeTurnInProgress
       />,
     );
@@ -189,7 +189,7 @@ it("renders the admitted image from its persisted attachment URL", () => {
   const timelineEntries = deriveTimelineEntries(
     [
       {
-        id: MessageId.makeUnsafe("persisted-image-message"),
+        id: MessageId.make("persisted-image-message"),
         role: "user",
         text: "Sent image",
         attachments,
@@ -242,7 +242,7 @@ beforeAll(() => {
 describe("MessagesTimeline", () => {
   it("shows a persisted failed user message as a transcript row", async () => {
     const message = {
-      id: MessageId.makeUnsafe("failed-queued-row"),
+      id: MessageId.make("failed-queued-row"),
       role: "user" as const,
       text: "Continue",
       sendStatus: "failed" as const,
@@ -265,9 +265,9 @@ describe("MessagesTimeline", () => {
   it.each(["first canonical read", "canonical reread"] as const)(
     "renders sender attribution after %s passes through the item mapper",
     async (source) => {
-      const threadId = ThreadId.makeUnsafe(`receiving-${source.replaceAll(" ", "-")}`);
-      const senderThreadId = ThreadId.makeUnsafe(`sender-${source.replaceAll(" ", "-")}`);
-      const messageId = MessageId.makeUnsafe(`message-${source.replaceAll(" ", "-")}`);
+      const threadId = ThreadId.make(`receiving-${source.replaceAll(" ", "-")}`);
+      const senderThreadId = ThreadId.make(`sender-${source.replaceAll(" ", "-")}`);
+      const messageId = MessageId.make(`message-${source.replaceAll(" ", "-")}`);
       const createdAt = "2026-09-26T12:00:00.000Z";
       const message = {
         id: messageId,
@@ -405,7 +405,7 @@ describe("MessagesTimeline", () => {
             kind: "message",
             createdAt: "2026-03-17T19:12:28.000Z",
             message: {
-              id: MessageId.makeUnsafe("assistant-message-1"),
+              id: MessageId.make("assistant-message-1"),
               role: "assistant",
               text: "stable transcript body",
               createdAt: "2026-03-17T19:12:28.000Z",
@@ -441,7 +441,7 @@ describe("MessagesTimeline", () => {
             kind: "message",
             createdAt: "2026-03-17T19:12:28.000Z",
             message: {
-              id: MessageId.makeUnsafe("assistant-message-math"),
+              id: MessageId.make("assistant-message-math"),
               role: "assistant",
               text: ["Inline $a^2 + b^2 = c^2$", "", "$$", "\\sum_{n=1}^{4} n", "$$"].join("\n"),
               createdAt: "2026-03-17T19:12:28.000Z",
@@ -475,7 +475,7 @@ describe("MessagesTimeline", () => {
             kind: "message",
             createdAt: "2026-03-17T19:12:28.000Z",
             message: {
-              id: MessageId.makeUnsafe("message-1"),
+              id: MessageId.make("message-1"),
               role: "user",
               text: "ship the fix",
               createdAt: "2026-03-17T19:12:28.000Z",
@@ -511,7 +511,7 @@ describe("MessagesTimeline", () => {
         activeTurnInProgress={false}
         activeTurnStartedAt={null}
         crossTaskOrigin={{
-          sourceThreadId: ThreadId.makeUnsafe("source-thread"),
+          sourceThreadId: ThreadId.make("source-thread"),
           sourceProvider: "codex",
         }}
         timelineEntries={[
@@ -520,7 +520,7 @@ describe("MessagesTimeline", () => {
             kind: "message",
             createdAt: "2026-03-17T19:12:28.000Z",
             message: {
-              id: MessageId.makeUnsafe("first-user-message"),
+              id: MessageId.make("first-user-message"),
               role: "user",
               text: "Inspect the repository",
               createdAt: "2026-03-17T19:12:28.000Z",
@@ -532,7 +532,7 @@ describe("MessagesTimeline", () => {
             kind: "message",
             createdAt: "2026-03-17T19:13:28.000Z",
             message: {
-              id: MessageId.makeUnsafe("second-user-message"),
+              id: MessageId.make("second-user-message"),
               role: "user",
               text: "Continue",
               createdAt: "2026-03-17T19:13:28.000Z",
@@ -566,7 +566,7 @@ describe("MessagesTimeline", () => {
         activeTurnInProgress={false}
         activeTurnStartedAt={null}
         crossTaskOrigin={{
-          sourceThreadId: ThreadId.makeUnsafe("source-thread"),
+          sourceThreadId: ThreadId.make("source-thread"),
           sourceProvider: "codex",
         }}
         timelineEntries={[
@@ -575,12 +575,12 @@ describe("MessagesTimeline", () => {
             kind: "message",
             createdAt: "2026-03-17T19:12:28.000Z",
             message: {
-              id: MessageId.makeUnsafe("first-user-message"),
+              id: MessageId.make("first-user-message"),
               role: "user",
               text: "Inspect the repository",
               origin: {
                 _tag: "agent" as const,
-                senderThreadId: ThreadId.makeUnsafe("sender-thread"),
+                senderThreadId: ThreadId.make("sender-thread"),
               },
               createdAt: "2026-03-17T19:12:28.000Z",
               streaming: false,
@@ -613,7 +613,7 @@ describe("MessagesTimeline", () => {
             kind: "message",
             createdAt: "2026-03-17T19:12:28.000Z",
             message: {
-              id: MessageId.makeUnsafe("message-folder-mention"),
+              id: MessageId.make("message-folder-mention"),
               role: "user",
               text: "Use @linear",
               createdAt: "2026-03-17T19:12:28.000Z",
@@ -636,7 +636,7 @@ describe("MessagesTimeline", () => {
             kind: "message",
             createdAt: "2026-03-17T19:12:28.000Z",
             message: {
-              id: MessageId.makeUnsafe("message-tsx-file-mention"),
+              id: MessageId.make("message-tsx-file-mention"),
               role: "user",
               text: "Use @src/App.tsx",
               createdAt: "2026-03-17T19:12:28.000Z",
@@ -659,7 +659,7 @@ describe("MessagesTimeline", () => {
             kind: "message",
             createdAt: "2026-03-17T19:12:28.000Z",
             message: {
-              id: MessageId.makeUnsafe("message-plugin-mention"),
+              id: MessageId.make("message-plugin-mention"),
               role: "user",
               text: "Use @linear",
               mentions: [{ name: "linear", path: "plugin://linear@openai-curated" }],
@@ -687,7 +687,7 @@ describe("MessagesTimeline", () => {
             kind: "message",
             createdAt: "2026-03-17T19:12:28.000Z",
             message: {
-              id: MessageId.makeUnsafe("message-steered-user"),
+              id: MessageId.make("message-steered-user"),
               role: "user",
               text: "hello",
               steered: true,
@@ -710,7 +710,7 @@ describe("MessagesTimeline", () => {
   });
 
   it("links a known active sender title and preserves steer mode for now=true sends", async () => {
-    const senderThreadId = ThreadId.makeUnsafe("sender-thread");
+    const senderThreadId = ThreadId.make("sender-thread");
     const senderTitle = "Coordinator with a deliberately long title ".repeat(8).trim();
     const clampedSenderTitle = clampMentionTitle(senderTitle);
     const initialStoreState = useStore.getInitialState();
@@ -742,7 +742,7 @@ describe("MessagesTimeline", () => {
             kind: "message",
             createdAt: "2026-03-17T19:12:28.000Z",
             message: {
-              id: MessageId.makeUnsafe("message-agent-user"),
+              id: MessageId.make("message-agent-user"),
               role: "user",
               text: "status check from the coordinator",
               origin: { _tag: "agent" as const, senderThreadId },
@@ -775,7 +775,7 @@ describe("MessagesTimeline", () => {
     useStore.setState(initialStoreState);
   });
   it("keeps an archived sender title as plain text and uses the generic fallback only when unknown", async () => {
-    const senderThreadId = ThreadId.makeUnsafe("sender-thread-archived");
+    const senderThreadId = ThreadId.make("sender-thread-archived");
     const initialStoreState = useStore.getInitialState();
     const initialThreadShellById = initialStoreState.threadShellById;
     useStore.setState((state) => ({
@@ -803,12 +803,12 @@ describe("MessagesTimeline", () => {
               kind: "message",
               createdAt: "2026-03-17T19:12:28.000Z",
               message: {
-                id: MessageId.makeUnsafe(`message-${id}`),
+                id: MessageId.make(`message-${id}`),
                 role: "user",
                 text: "hello",
                 origin: {
                   _tag: "agent",
-                  senderThreadId: senderId ?? ThreadId.makeUnsafe("unknown-sender"),
+                  senderThreadId: senderId ?? ThreadId.make("unknown-sender"),
                 },
                 createdAt: "2026-03-17T19:12:28.000Z",
                 streaming: false,
@@ -828,7 +828,7 @@ describe("MessagesTimeline", () => {
     expect(archivedMarkup).toContain("Sent by Archived coordinator");
     expect(archivedMarkup).not.toContain('aria-label="Open Archived coordinator"');
 
-    const unknownMarkup = renderMarker("unknown", ThreadId.makeUnsafe("unknown-sender"));
+    const unknownMarkup = renderMarker("unknown", ThreadId.make("unknown-sender"));
     expect(unknownMarkup).toContain("Sent by agent");
     expect(unknownMarkup).not.toContain('aria-label="Open unknown-sender"');
 
@@ -862,7 +862,7 @@ describe("MessagesTimeline", () => {
             kind: "message",
             createdAt: "2026-03-17T19:12:28.000Z",
             message: {
-              id: MessageId.makeUnsafe("message-edited-agent"),
+              id: MessageId.make("message-edited-agent"),
               role: "user",
               text: "edited by user",
               origin: { _tag: "user" },
@@ -898,7 +898,7 @@ describe("MessagesTimeline", () => {
             kind: "message",
             createdAt: "2026-03-17T19:12:28.000Z",
             message: {
-              id: MessageId.makeUnsafe("message-steered-user-media"),
+              id: MessageId.make("message-steered-user-media"),
               role: "user",
               text: "hello",
               steered: true,
@@ -906,7 +906,7 @@ describe("MessagesTimeline", () => {
                 {
                   id: "assistant-selection-1",
                   type: "assistant-selection",
-                  assistantMessageId: MessageId.makeUnsafe("assistant-1"),
+                  assistantMessageId: MessageId.make("assistant-1"),
                   text: "draft this",
                 },
                 {
@@ -948,7 +948,7 @@ describe("MessagesTimeline", () => {
             kind: "message",
             createdAt: "2026-03-17T19:12:28.000Z",
             message: {
-              id: MessageId.makeUnsafe("message-plain-user"),
+              id: MessageId.make("message-plain-user"),
               role: "user",
               text: "tl\ndr",
               createdAt: "2026-03-17T19:12:28.000Z",
@@ -986,7 +986,7 @@ describe("MessagesTimeline", () => {
             kind: "message",
             createdAt: "2026-03-17T19:12:28.000Z",
             message: {
-              id: MessageId.makeUnsafe("message-long-user"),
+              id: MessageId.make("message-long-user"),
               role: "user",
               text: longText,
               createdAt: "2026-03-17T19:12:28.000Z",
@@ -1027,7 +1027,7 @@ describe("MessagesTimeline", () => {
             kind: "message",
             createdAt: "2026-03-17T19:12:28.000Z",
             message: {
-              id: MessageId.makeUnsafe("message-2"),
+              id: MessageId.make("message-2"),
               role: "user",
               text: [
                 "yoo what's **bold** @terminal-1:1-5 mean",
@@ -1071,7 +1071,7 @@ describe("MessagesTimeline", () => {
             kind: "message",
             createdAt: "2026-03-17T19:12:28.000Z",
             message: {
-              id: MessageId.makeUnsafe("message-user-selection-fallback"),
+              id: MessageId.make("message-user-selection-fallback"),
               role: "user",
               text: [
                 "please use this",
@@ -1113,7 +1113,7 @@ describe("MessagesTimeline", () => {
             kind: "message",
             createdAt: "2026-03-17T19:12:28.000Z",
             message: {
-              id: MessageId.makeUnsafe("message-user-skill"),
+              id: MessageId.make("message-user-skill"),
               role: "user",
               text: "$check-code",
               createdAt: "2026-03-17T19:12:28.000Z",
@@ -1148,7 +1148,7 @@ describe("MessagesTimeline", () => {
             kind: "message",
             createdAt: "2026-03-17T19:12:28.000Z",
             message: {
-              id: MessageId.makeUnsafe("message-user-agent"),
+              id: MessageId.make("message-user-agent"),
               role: "user",
               text: "@spark(check the UI)",
               createdAt: "2026-03-17T19:12:28.000Z",
@@ -1204,7 +1204,7 @@ describe("MessagesTimeline", () => {
   it("keeps the generic working copy alongside the active compaction entry", async () => {
     const markup = renderToStaticMarkup(
       <MessagesTimeline
-        activeTurnId={TurnId.makeUnsafe("fixture-duration")}
+        activeTurnId={TurnId.make("fixture-duration")}
         turns={{
           "fixture-duration": { ...TIMING_FIXTURE_TURNS["fixture-duration"], status: "running" },
         }}
@@ -1262,7 +1262,7 @@ describe("MessagesTimeline", () => {
             kind: "message",
             createdAt: "2026-03-17T19:12:29.000Z",
             message: {
-              id: MessageId.makeUnsafe("answer"),
+              id: MessageId.make("answer"),
               role: "assistant",
               text: "done",
               createdAt: "2026-03-17T19:12:29.000Z",
@@ -1341,7 +1341,7 @@ describe("MessagesTimeline", () => {
             kind: "message",
             createdAt: "2026-05-09T16:31:24.000Z",
             message: {
-              id: MessageId.makeUnsafe("message-cursor-assistant"),
+              id: MessageId.make("message-cursor-assistant"),
               role: "assistant",
               text: "done",
               createdAt: "2026-05-09T16:31:24.000Z",
@@ -1487,7 +1487,7 @@ describe("MessagesTimeline", () => {
             kind: "message",
             createdAt: "2026-03-17T19:12:29.000Z",
             message: {
-              id: MessageId.makeUnsafe("message-assistant-inline-tools-live"),
+              id: MessageId.make("message-assistant-inline-tools-live"),
               role: "assistant",
               text: "done",
               createdAt: "2026-03-17T19:12:29.000Z",
@@ -1514,7 +1514,7 @@ describe("MessagesTimeline", () => {
   });
 
   it("keeps Thinking visible alongside the counting Working header, with no divider under it", async () => {
-    const activeTurnId = TurnId.makeUnsafe("turn-reasoning-live");
+    const activeTurnId = TurnId.make("turn-reasoning-live");
     const markup = renderToStaticMarkup(
       <MessagesTimeline
         turns={{
@@ -1579,7 +1579,7 @@ describe("MessagesTimeline", () => {
   });
 
   it("keeps Thinking when a new local send has no server turn id yet", async () => {
-    const previousTurnId = TurnId.makeUnsafe("turn-previous");
+    const previousTurnId = TurnId.make("turn-previous");
     const markup = renderToStaticMarkup(
       <MessagesTimeline
         hasMessages
@@ -1593,7 +1593,7 @@ describe("MessagesTimeline", () => {
             kind: "message",
             createdAt: "2026-03-17T19:12:20.000Z",
             message: {
-              id: MessageId.makeUnsafe("message-user-previous"),
+              id: MessageId.make("message-user-previous"),
               role: "user",
               text: "Previous request",
               createdAt: "2026-03-17T19:12:20.000Z",
@@ -1605,7 +1605,7 @@ describe("MessagesTimeline", () => {
             kind: "message",
             createdAt: "2026-03-17T19:12:22.000Z",
             message: {
-              id: MessageId.makeUnsafe("message-assistant-previous"),
+              id: MessageId.make("message-assistant-previous"),
               role: "assistant",
               turnId: previousTurnId,
               text: "Previous answer",
@@ -1619,7 +1619,7 @@ describe("MessagesTimeline", () => {
             kind: "message",
             createdAt: "2026-03-17T19:12:30.000Z",
             message: {
-              id: MessageId.makeUnsafe("message-user-current"),
+              id: MessageId.make("message-user-current"),
               role: "user",
               text: "Current request",
               createdAt: "2026-03-17T19:12:30.000Z",
@@ -1666,7 +1666,7 @@ describe("MessagesTimeline", () => {
             kind: "message",
             createdAt: "2026-03-17T19:12:27.000Z",
             message: {
-              id: MessageId.makeUnsafe("message-assistant-inline-tools-expanded"),
+              id: MessageId.make("message-assistant-inline-tools-expanded"),
               role: "assistant",
               text: "done",
               createdAt: "2026-03-17T19:12:27.000Z",
@@ -2379,7 +2379,7 @@ describe("MessagesTimeline", () => {
   });
 
   it("renders the thread creation recap as an independent settled step", async () => {
-    const assistantMessageId = MessageId.makeUnsafe("message-penkra-recap");
+    const assistantMessageId = MessageId.make("message-penkra-recap");
     const workEntries = [
       {
         id: "entry-penkra-create-tool",
@@ -2462,7 +2462,7 @@ describe("MessagesTimeline", () => {
             kind: "message",
             createdAt: "2026-03-17T19:12:30.000Z",
             message: {
-              turnId: TurnId.makeUnsafe("fixture-duration"),
+              turnId: TurnId.make("fixture-duration"),
               id: assistantMessageId,
               role: "assistant",
               text: "Both threads are running.",

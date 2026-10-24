@@ -1,7 +1,7 @@
 import { assert, it } from "@effect/vitest";
 import { ThreadId, SpaceId, FolderId } from "@penkra/contracts";
 import { Effect } from "effect";
-import * as SqlClient from "effect/unstable/sql/SqlClient";
+import * as SqlClient from "effect/sql/SqlClient";
 import { runMigrations } from "../persistence/Migrations.ts";
 import * as NodeSqliteClient from "../persistence/NodeSqliteClient.ts";
 import {
@@ -32,7 +32,7 @@ it.effect("reads archived navigation counts and chat keyset pages through the ar
       const nav = yield* listArchivedNavigation();
       assert.deepStrictEqual(nav.spaces, [
         {
-          id: SpaceId.makeUnsafe("archive-space"),
+          id: SpaceId.make("archive-space"),
           name: "Work",
           folders: 1,
           chats: 120,
@@ -41,7 +41,7 @@ it.effect("reads archived navigation counts and chat keyset pages through the ar
       ]);
       assert.deepStrictEqual(nav.folders, [
         {
-          id: FolderId.makeUnsafe("archive-folder"),
+          id: FolderId.make("archive-folder"),
           name: "Notes",
           space: "Work",
           chats: 120,
@@ -85,7 +85,7 @@ it.effect("restores only a chat, leaving its ancestors and sibling archived", ()
       yield* fixture;
       const sql = yield* SqlClient.SqlClient;
       const result = yield* restoreThread({
-        threadId: ThreadId.makeUnsafe("chat-000"),
+        threadId: ThreadId.make("chat-000"),
         updatedAt: "2026-10-11T00:00:00.000Z",
       });
       assert.isTrue(result);
@@ -106,7 +106,7 @@ it.effect("restores only a chat, leaving its ancestors and sibling archived", ()
       assert.deepStrictEqual(folders, [{ archivedAt: timestamp }]);
       assert.deepStrictEqual(spaces, [{ archivedAt: timestamp }]);
       const repeated = yield* restoreThread({
-        threadId: ThreadId.makeUnsafe("chat-000"),
+        threadId: ThreadId.make("chat-000"),
         updatedAt: "2026-10-11T00:00:00.000Z",
       });
       assert.isFalse(repeated);

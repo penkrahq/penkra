@@ -1,4 +1,4 @@
-import { Effect, Schema, ServiceMap } from "effect";
+import { Effect, Schema, Context } from "effect";
 
 import type {
   ProjectReadFileInput,
@@ -8,14 +8,14 @@ import type {
 } from "@penkra/contracts";
 import { WorkspacePathOutsideRootError } from "./WorkspacePaths";
 
-export class WorkspaceFileSystemError extends Schema.TaggedErrorClass<WorkspaceFileSystemError>()(
+export class WorkspaceFileSystemError extends Schema.TaggedError<WorkspaceFileSystemError>()(
   "WorkspaceFileSystemError",
   {
     cwd: Schema.String,
     relativePath: Schema.optional(Schema.String),
     operation: Schema.String,
     detail: Schema.String,
-    cause: Schema.optional(Schema.Defect),
+    cause: Schema.optional(Schema.Defect()),
   },
 ) {
   override get message(): string {
@@ -38,7 +38,7 @@ export interface WorkspaceFileSystemShape {
   >;
 }
 
-export class WorkspaceFileSystem extends ServiceMap.Service<
+export class WorkspaceFileSystem extends Context.Service<
   WorkspaceFileSystem,
   WorkspaceFileSystemShape
 >()("penkra/workspace/Services/WorkspaceFileSystem") {}

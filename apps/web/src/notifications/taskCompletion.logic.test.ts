@@ -19,9 +19,9 @@ function makeCanonicalThread(
   overrides: Partial<CleanCoreThreadSummary> = {},
 ): CleanCoreThreadSummary {
   return {
-    id: ThreadId.makeUnsafe("thread-1"),
-    spaceId: SpaceId.makeUnsafe("space-1"),
-    folderId: FolderId.makeUnsafe("project-1"),
+    id: ThreadId.make("thread-1"),
+    spaceId: SpaceId.make("space-1"),
+    folderId: FolderId.make("project-1"),
     title: "Polish notifications",
     provider: "codex",
     connectionId: null,
@@ -47,7 +47,7 @@ function makeCanonicalThread(
     createdAt: "2026-04-05T10:00:00.000Z",
     updatedAt: "2026-04-05T10:00:05.000Z",
     latestTurn: {
-      turnId: TurnId.makeUnsafe("turn-1"),
+      turnId: TurnId.make("turn-1"),
       status: "done",
       startedAt: "2026-04-05T10:00:00.000Z",
       endedAt: "2026-04-05T10:00:05.000Z",
@@ -66,7 +66,7 @@ function buildCollectedTaskCompletionCopy(assistantText: string) {
 
 describe("notification thread activation", () => {
   it("checks the current shell when a toast or native notification is clicked", () => {
-    const threadId = ThreadId.makeUnsafe("thread-1");
+    const threadId = ThreadId.make("thread-1");
     const navigate = vi.fn();
     const shell = { id: threadId, archivedAt: null } as Thread;
     const state = { threadShellById: { [threadId]: shell } };
@@ -102,7 +102,7 @@ describe("canonical completion tracking", () => {
     expect(tracker.consume(row, new Set())).toBeNull();
     expect(
       tracker.consume(
-        { ...row, latestTurn: { ...row.latestTurn!, turnId: TurnId.makeUnsafe("turn-2") } },
+        { ...row, latestTurn: { ...row.latestTurn!, turnId: TurnId.make("turn-2") } },
         new Set(),
       ),
     ).not.toBeNull();
@@ -410,8 +410,8 @@ describe("buildInputNeededCopy", () => {
     expect(
       buildInputNeededCopy({
         kind: "user-input",
-        threadId: ThreadId.makeUnsafe("thread-1"),
-        folderId: FolderId.makeUnsafe("project-1"),
+        threadId: ThreadId.make("thread-1"),
+        folderId: FolderId.make("project-1"),
         title: "Polish notifications",
         createdAt: "2026-04-05T10:00:06.000Z",
         requestId: "user-input-request-1",

@@ -68,7 +68,7 @@ function fail(code: string, message: string): never {
   throw Object.assign(new Error(message), { code });
 }
 
-const threadId = () => ThreadId.makeUnsafe(randomUUID());
+const threadId = () => ThreadId.make(randomUUID());
 
 export class DesktopThreadCommands {
   readonly #receipts = new Map<string, StagedComposition>();
@@ -193,7 +193,7 @@ export class DesktopThreadCommands {
         const position = request.input.position;
         const normalized =
           position.type === "before" || position.type === "after"
-            ? ({ type: position.type, itemId: ThreadId.makeUnsafe(position.threadId) } as const)
+            ? ({ type: position.type, itemId: ThreadId.make(position.threadId) } as const)
             : position.type === "start"
               ? { type: "start" as const }
               : { type: "end" as const };
@@ -335,7 +335,7 @@ export class DesktopThreadCommands {
             {
               threadId: target.id,
               message: {
-                messageId: MessageId.makeUnsafe(`app:${request.input.composeId}`),
+                messageId: MessageId.make(`app:${request.input.composeId}`),
                 text,
                 attachments: [...receipt.attachments],
                 origin: { _tag: "user" as const },

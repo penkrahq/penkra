@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 
 import { Effect, FileSystem, Layer, Option, Path, Schema, Stream } from "effect";
-import { ChildProcess, ChildProcessSpawner } from "effect/unstable/process";
+import { ChildProcess, ChildProcessSpawner } from "effect/process";
 
 import { sanitizeGeneratedThreadTitle } from "@penkra/shared/chatThreads";
 import { resolveCodexHome } from "@penkra/shared/codexConfig";

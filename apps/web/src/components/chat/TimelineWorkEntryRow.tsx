@@ -892,7 +892,7 @@ export const TimelineWorkEntryRow = memo(function TimelineWorkEntryRow(props: {
                         disabled={!canOpenThread}
                         onClick={() =>
                           onOpenThread?.(
-                            ThreadId.makeUnsafe(subagent.resolvedThreadId ?? subagent.threadId),
+                            ThreadId.make(subagent.resolvedThreadId ?? subagent.threadId),
                           )
                         }
                       >

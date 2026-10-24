@@ -366,7 +366,7 @@ export default function Sidebar() {
   const { handleNewChat } = useHandleNewChat();
   const routeThreadId = useParams({
     strict: false,
-    select: (params) => (params.threadId ? ThreadId.makeUnsafe(params.threadId) : null),
+    select: (params) => (params.threadId ? ThreadId.make(params.threadId) : null),
   });
 
   useEffect(() => {
@@ -666,7 +666,7 @@ export default function Sidebar() {
 
   const handleOpenProjectFromSearch = useCallback(
     (folderId: string) => {
-      const typedFolderId = FolderId.makeUnsafe(folderId);
+      const typedFolderId = FolderId.make(folderId);
       const hasProjectThread = sidebarThreads.some((thread) => thread.folderId === typedFolderId);
       if (hasProjectThread) {
         focusMostRecentThreadForProject(typedFolderId);
@@ -1144,7 +1144,7 @@ export default function Sidebar() {
       if (!action.startsWith("space:focus:")) return;
       const spaceId = action.slice("space:focus:".length);
       if (!spaces.some((space) => space.id === spaceId)) return;
-      handleSelectSpace(SpaceId.makeUnsafe(spaceId));
+      handleSelectSpace(SpaceId.make(spaceId));
     });
   }, [handleSelectSpace, navigate, openSpaceCreator, spaces]);
 
@@ -1404,7 +1404,7 @@ export default function Sidebar() {
     if (isMoveProjectToSpaceContextMenuId(clicked)) {
       const spaceId = clicked.slice(MOVE_PROJECT_TO_SPACE_CONTEXT_MENU_PREFIX.length);
       if (spaces.some((space) => space.id === spaceId)) {
-        await handleMoveProjectToSpace(folderId, SpaceId.makeUnsafe(spaceId));
+        await handleMoveProjectToSpace(folderId, SpaceId.make(spaceId));
       }
       return;
     }
@@ -1745,7 +1745,7 @@ export default function Sidebar() {
   if (dismissedThreadStatusEntries.length > 0) {
     const retainedThreadIds = new Set(sidebarThreads.map((thread) => thread.id));
     const retainedEntries = dismissedThreadStatusEntries.filter(([threadId]) =>
-      retainedThreadIds.has(ThreadId.makeUnsafe(threadId)),
+      retainedThreadIds.has(ThreadId.make(threadId)),
     );
     if (retainedEntries.length !== dismissedThreadStatusEntries.length) {
       setDismissedThreadStatusKeyByThreadId(Object.fromEntries(retainedEntries));
@@ -2735,7 +2735,7 @@ export default function Sidebar() {
           ? {
               onBack: () => {
                 if (lastThreadRoute) {
-                  const rememberedThreadId = ThreadId.makeUnsafe(lastThreadRoute.threadId);
+                  const rememberedThreadId = ThreadId.make(lastThreadRoute.threadId);
                   if (sidebarThreadSummaryById[rememberedThreadId]) {
                     activateThreadFromSidebarIntent(rememberedThreadId);
                     return;
@@ -2985,7 +2985,7 @@ export default function Sidebar() {
           onOpenProject={handleOpenProjectFromSearch}
           onImportThread={handleImportThread}
           onOpenThread={(threadId) => {
-            activateThreadFromSidebarIntent(ThreadId.makeUnsafe(threadId));
+            activateThreadFromSidebarIntent(ThreadId.make(threadId));
           }}
         />
       ) : null}

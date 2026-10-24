@@ -151,7 +151,7 @@ export function ProviderConnectionMenu(props: {
         <MenuRadioGroup
           value={props.selectedConnectionId ?? ""}
           onValueChange={(value) => {
-            props.onConnectionChange(ProviderConnectionId.makeUnsafe(value));
+            props.onConnectionChange(ProviderConnectionId.make(value));
             props.onAfterSelection?.();
           }}
         >

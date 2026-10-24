@@ -24,8 +24,8 @@ describe("startChatForActiveSurface", () => {
 
 describe("startContainerChat", () => {
   it("returns the created thread so callers can attach context deterministically", async () => {
-    const folderId = FolderId.makeUnsafe("project-1");
-    const threadId = ThreadId.makeUnsafe("thread-1");
+    const folderId = FolderId.make("project-1");
+    const threadId = ThreadId.make("thread-1");
     const handleNewThread = vi.fn(async () => threadId);
 
     await expect(
@@ -40,8 +40,8 @@ describe("startContainerChat", () => {
   });
 
   it("starts a stored Folder draft without extra overrides", async () => {
-    const folderId = FolderId.makeUnsafe("folder-project");
-    const threadId = ThreadId.makeUnsafe("folder-thread");
+    const folderId = FolderId.make("folder-project");
+    const threadId = ThreadId.make("folder-thread");
     const handleNewThread = vi.fn(async () => threadId);
 
     await startContainerChat({

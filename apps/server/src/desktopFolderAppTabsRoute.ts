@@ -1,3 +1,4 @@
+import { Option } from "effect";
 // FILE: desktopFolderAppTabsRoute.ts
 // Purpose: Give the desktop host bounded folder App-tab reads and writes without a shell window.
 
@@ -7,7 +8,7 @@ import {
   CleanCoreListFolderAppTabsInput,
 } from "@penkra/contracts";
 import { Effect, Schema } from "effect";
-import { HttpRouter, HttpServerRequest, HttpServerResponse } from "effect/unstable/http";
+import { HttpRouter, HttpServerRequest, HttpServerResponse } from "effect/http";
 import {
   getFolderAppTabs,
   updateFolderAppTabs,
@@ -30,7 +31,7 @@ export const desktopFolderAppTabsRouteLayer = HttpRouter.add(
     const config = yield* ServerConfig;
     const auth = authorizeDesktopShutdown({
       config,
-      remoteAddress: request.remoteAddress,
+      remoteAddress: Option.getOrUndefined(request.remoteAddress),
       authorization: request.headers.authorization,
     });
     if (!auth.authorized)

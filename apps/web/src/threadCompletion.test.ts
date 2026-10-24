@@ -4,7 +4,7 @@ import { describe, expect, it } from "vitest";
 import { getThreadCompletionKey, hasUnseenThreadCompletion } from "./threadCompletion";
 
 const latestTurn = {
-  turnId: TurnId.makeUnsafe("turn-completed"),
+  turnId: TurnId.make("turn-completed"),
   completedAt: "2026-08-20T12:07:54.332Z",
 } as const;
 

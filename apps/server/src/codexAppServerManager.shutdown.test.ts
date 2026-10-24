@@ -64,7 +64,7 @@ function fixture(
     stderrLineFramer: new CodexStderrLineFramer(),
     stderrRecordFramer: new CodexStderrRecordFramer(),
   };
-  const threadId = ThreadId.makeUnsafe("shutdown-thread");
+  const threadId = ThreadId.make("shutdown-thread");
   const context = {
     transport,
     session: {
@@ -121,7 +121,7 @@ it("terminates a live child after stdout closes and reports the drained stderr o
   const result = f.request().catch((error) => error);
   f.child.stdout.emit("end");
   expect(terminate).toHaveBeenCalledTimes(1);
-  expect(f.manager.hasSession(ThreadId.makeUnsafe("shutdown-thread"))).toBe(false);
+  expect(f.manager.hasSession(ThreadId.make("shutdown-thread"))).toBe(false);
   await expect(f.request()).rejects.toThrow("protocol is closed");
   f.child.stderr.write("fatal: auth refused\n");
   f.close(7);

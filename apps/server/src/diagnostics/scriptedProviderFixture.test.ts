@@ -12,7 +12,7 @@ const repoRoot = fileURLToPath(new URL("../../../..", import.meta.url));
 describe("scripted provider fixture through the real adapter", () => {
   it("starts a session, sends a held turn, and interrupts it", async () => {
     const manager = new CodexAppServerManager();
-    const threadId = ThreadId.makeUnsafe("thread-diagnostics-qa-fixture");
+    const threadId = ThreadId.make("thread-diagnostics-qa-fixture");
     try {
       const session = await manager.startSession({
         threadId,

@@ -2,7 +2,7 @@ import { seedThreadFolderFixture } from "./threadFixtures.ts";
 import { assert, it } from "@effect/vitest";
 import { Deferred, Effect } from "effect";
 import { observePublisher } from "./threadPublisherTestHelpers.ts";
-import * as SqlClient from "effect/unstable/sql/SqlClient";
+import * as SqlClient from "effect/sql/SqlClient";
 
 import {
   answerQuestion,

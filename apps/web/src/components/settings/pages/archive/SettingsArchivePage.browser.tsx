@@ -30,11 +30,11 @@ import { toastManager } from "~/components/ui/toast";
 import { useStore } from "~/store";
 import { SettingsArchivePage } from "./SettingsArchivePage";
 const timestamp = "2026-10-10T00:00:00.000Z";
-const spaceId = SpaceId.makeUnsafe("archive-space");
-const folderId = FolderId.makeUnsafe("archive-folder");
+const spaceId = SpaceId.make("archive-space");
+const folderId = FolderId.make("archive-folder");
 const icon = "data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciLz4=";
 const chat = (n: number): CleanCoreArchivedChat => ({
-  id: ThreadId.makeUnsafe(`chat-${n}`),
+  id: ThreadId.make(`chat-${n}`),
   deletesInActiveDays: 30,
   folderId,
   spaceId,
@@ -67,7 +67,7 @@ describe("Settings Archive", () => {
       .mockResolvedValueOnce({
         total: 51,
         threads: Array.from({ length: 50 }, (_, n) => chat(n)),
-        nextCursor: { archivedAt: timestamp, id: ThreadId.makeUnsafe("chat-49") },
+        nextCursor: { archivedAt: timestamp, id: ThreadId.make("chat-49") },
       })
       .mockResolvedValue({ total: 51, threads: [chat(50)], nextCursor: null });
     harness.restore.mockResolvedValue(undefined);

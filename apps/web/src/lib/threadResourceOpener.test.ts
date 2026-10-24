@@ -29,8 +29,8 @@ describe("openThreadAttachmentReference", () => {
     const opener = createThreadResourceOpener({
       directory: null,
       spaceId: "space",
-      folderId: FolderId.makeUnsafe("folder"),
-      threadId: ThreadId.makeUnsafe("thread"),
+      folderId: FolderId.make("folder"),
+      threadId: ThreadId.make("thread"),
     });
     await openThreadAttachmentReference(opener, "att_v2_saved");
     expect(fetch).toHaveBeenCalledWith(
@@ -87,11 +87,11 @@ describe("createThreadResourceOpener", () => {
       configurable: true,
       value: { desktopBridge: { resources: { open, showContextMenu } } },
     });
-    const threadId = ThreadId.makeUnsafe("thread-1");
+    const threadId = ThreadId.make("thread-1");
     const opener = createThreadResourceOpener({
       directory: "/workspace/project",
       spaceId: "space-1",
-      folderId: FolderId.makeUnsafe("folder-1"),
+      folderId: FolderId.make("folder-1"),
 
       threadId,
     });
@@ -103,26 +103,26 @@ describe("createThreadResourceOpener", () => {
     expect(open).toHaveBeenNthCalledWith(1, {
       path: "/workspace/project/README.md",
       spaceId: "space-1",
-      folderId: FolderId.makeUnsafe("folder-1"),
+      folderId: FolderId.make("folder-1"),
       threadId: "thread-1",
     });
     expect(open).toHaveBeenNthCalledWith(2, {
       url: "https://penkra.com/docs",
       spaceId: "space-1",
-      folderId: FolderId.makeUnsafe("folder-1"),
+      folderId: FolderId.make("folder-1"),
       threadId: "thread-1",
     });
     expect(showContextMenu).toHaveBeenNthCalledWith(1, {
       path: "/workspace/project/README.md",
       spaceId: "space-1",
-      folderId: FolderId.makeUnsafe("folder-1"),
+      folderId: FolderId.make("folder-1"),
       threadId: "thread-1",
       position: { x: 10, y: 20 },
     });
     expect(showContextMenu).toHaveBeenNthCalledWith(2, {
       url: "https://penkra.com/docs",
       spaceId: "space-1",
-      folderId: FolderId.makeUnsafe("folder-1"),
+      folderId: FolderId.make("folder-1"),
       threadId: "thread-1",
       position: { x: 30, y: 40 },
     });

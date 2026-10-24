@@ -24,39 +24,40 @@ export type IsoDateTime = typeof IsoDateTime.Type;
 /**
  * Construct a branded identifier. Enforces non-empty trimmed strings
  */
-const makeEntityId = <Brand extends string>(brand: Brand) =>
-  TrimmedNonEmptyString.pipe(Schema.brand(brand));
-
-export const ThreadId = makeEntityId("ThreadId");
+export const ThreadId = TrimmedNonEmptyString.pipe(Schema.brand("ThreadId"));
 export type ThreadId = typeof ThreadId.Type;
-export const FolderId = makeEntityId("FolderId");
+export const FolderId = TrimmedNonEmptyString.pipe(Schema.brand("FolderId"));
 export type FolderId = typeof FolderId.Type;
-export const SpaceId = makeEntityId("SpaceId");
+export const SpaceId = TrimmedNonEmptyString.pipe(Schema.brand("SpaceId"));
 export type SpaceId = typeof SpaceId.Type;
-export const ProviderInstallationId = makeEntityId("ProviderInstallationId");
+export const ProviderInstallationId = TrimmedNonEmptyString.pipe(
+  Schema.brand("ProviderInstallationId"),
+);
 export type ProviderInstallationId = typeof ProviderInstallationId.Type;
-export const ProviderConnectionId = makeEntityId("ProviderConnectionId");
+export const ProviderConnectionId = TrimmedNonEmptyString.pipe(
+  Schema.brand("ProviderConnectionId"),
+);
 export type ProviderConnectionId = typeof ProviderConnectionId.Type;
-export const EnvironmentId = makeEntityId("EnvironmentId");
+export const EnvironmentId = TrimmedNonEmptyString.pipe(Schema.brand("EnvironmentId"));
 export type EnvironmentId = typeof EnvironmentId.Type;
-export const AuthSessionId = makeEntityId("AuthSessionId");
+export const AuthSessionId = TrimmedNonEmptyString.pipe(Schema.brand("AuthSessionId"));
 export type AuthSessionId = typeof AuthSessionId.Type;
-export const CommandId = makeEntityId("CommandId");
+export const CommandId = TrimmedNonEmptyString.pipe(Schema.brand("CommandId"));
 export type CommandId = typeof CommandId.Type;
-export const EventId = makeEntityId("EventId");
+export const EventId = TrimmedNonEmptyString.pipe(Schema.brand("EventId"));
 export type EventId = typeof EventId.Type;
-export const MessageId = makeEntityId("MessageId");
+export const MessageId = TrimmedNonEmptyString.pipe(Schema.brand("MessageId"));
 export type MessageId = typeof MessageId.Type;
-export const TurnId = makeEntityId("TurnId");
+export const TurnId = TrimmedNonEmptyString.pipe(Schema.brand("TurnId"));
 export type TurnId = typeof TurnId.Type;
 
-export const ProviderItemId = makeEntityId("ProviderItemId");
+export const ProviderItemId = TrimmedNonEmptyString.pipe(Schema.brand("ProviderItemId"));
 export type ProviderItemId = typeof ProviderItemId.Type;
-export const RuntimeSessionId = makeEntityId("RuntimeSessionId");
+export const RuntimeSessionId = TrimmedNonEmptyString.pipe(Schema.brand("RuntimeSessionId"));
 export type RuntimeSessionId = typeof RuntimeSessionId.Type;
-export const RuntimeItemId = makeEntityId("RuntimeItemId");
+export const RuntimeItemId = TrimmedNonEmptyString.pipe(Schema.brand("RuntimeItemId"));
 export type RuntimeItemId = typeof RuntimeItemId.Type;
-export const RuntimeRequestId = makeEntityId("RuntimeRequestId");
+export const RuntimeRequestId = TrimmedNonEmptyString.pipe(Schema.brand("RuntimeRequestId"));
 export type RuntimeRequestId = typeof RuntimeRequestId.Type;
-export const RuntimeTaskId = makeEntityId("RuntimeTaskId");
+export const RuntimeTaskId = TrimmedNonEmptyString.pipe(Schema.brand("RuntimeTaskId"));
 export type RuntimeTaskId = typeof RuntimeTaskId.Type;

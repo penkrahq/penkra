@@ -1,7 +1,7 @@
 /** Durable projection repository for persisted Spaces. */
 import { IsoDateTime, NonNegativeInt, SpaceIconName, SpaceId, SpaceName } from "@penkra/contracts";
-import { Option, Schema, ServiceMap } from "effect";
-import type { Effect } from "effect";
+import { Option, Schema, Context } from "effect";
+import { Effect } from "effect";
 
 import type { ProjectionRepositoryError } from "../Errors.ts";
 
@@ -13,7 +13,7 @@ export const ProjectionSpace = Schema.Struct({
   createdAt: IsoDateTime,
   updatedAt: IsoDateTime,
   archivedAt: Schema.optional(Schema.NullOr(IsoDateTime)).pipe(
-    Schema.withDecodingDefault(() => null),
+    Schema.withDecodingDefault(Effect.sync(() => null)),
   ),
   deletedAt: Schema.NullOr(IsoDateTime),
 });
@@ -30,7 +30,7 @@ export interface ProjectionSpaceRepositoryShape {
   readonly listAll: () => Effect.Effect<ReadonlyArray<ProjectionSpace>, ProjectionRepositoryError>;
 }
 
-export class ProjectionSpaceRepository extends ServiceMap.Service<
+export class ProjectionSpaceRepository extends Context.Service<
   ProjectionSpaceRepository,
   ProjectionSpaceRepositoryShape
 >()("penkra/persistence/Services/ProjectionSpaces/ProjectionSpaceRepository") {}

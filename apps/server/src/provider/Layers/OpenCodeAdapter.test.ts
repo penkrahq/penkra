@@ -67,7 +67,7 @@ function makeOpenCodeAdapterLive(options?: OpenCodeAdapterLiveOptions) {
   );
 }
 
-const asThreadId = (value: string): ThreadId => ThreadId.makeUnsafe(value);
+const asThreadId = (value: string): ThreadId => ThreadId.make(value);
 interface OpenCodeInventory {
   readonly providerList: ProviderListResponse;
   readonly agents: ReadonlyArray<Agent>;
@@ -943,7 +943,7 @@ describe("OpenCodeAdapter runtime lifecycle", () => {
         const input = {
           scope: {
             provider: "opencode" as const,
-            connectionId: ProviderConnectionId.makeUnsafe("selected"),
+            connectionId: ProviderConnectionId.make("selected"),
           },
           cwd: "/repo",
           internalProviderId: "openai",
@@ -966,7 +966,7 @@ describe("OpenCodeAdapter runtime lifecycle", () => {
         const error = yield* Effect.flip(
           adapter.loadCatalog({
             ...input,
-            scope: { ...input.scope, folderId: FolderId.makeUnsafe("folder") },
+            scope: { ...input.scope, folderId: FolderId.make("folder") },
             kinds: ["agents"],
           }),
         );
@@ -997,8 +997,8 @@ describe("OpenCodeAdapter runtime lifecycle", () => {
         const result = yield* adapter.loadCatalog({
           scope: {
             provider: "opencode",
-            connectionId: ProviderConnectionId.makeUnsafe("selected"),
-            folderId: FolderId.makeUnsafe("folder"),
+            connectionId: ProviderConnectionId.make("selected"),
+            folderId: FolderId.make("folder"),
           },
           cwd: "/repo/selected",
           kinds: ["commands", "skills", "plugins"],
@@ -1007,7 +1007,7 @@ describe("OpenCodeAdapter runtime lifecycle", () => {
             binaryPath: "/managed/opencode",
             assertCurrentCredentials: Effect.void,
             isolationKey: "selected",
-            connectionId: ProviderConnectionId.makeUnsafe("selected"),
+            connectionId: ProviderConnectionId.make("selected"),
             profileRoot: "/profile",
             nativeStateRoot: "/native",
             childEnvironment: () => ({ SELECTED: "yes" }),
@@ -1052,7 +1052,7 @@ describe("OpenCodeAdapter runtime lifecycle", () => {
             scope: {
               provider: "opencode",
               connectionId: null,
-              folderId: FolderId.makeUnsafe("folder"),
+              folderId: FolderId.make("folder"),
             },
             cwd: "/repo",
             kinds: ["commands"],
@@ -1160,7 +1160,7 @@ describe("OpenCodeAdapter runtime lifecycle", () => {
           scope: {
             provider: "opencode",
             connectionId: null,
-            folderId: FolderId.makeUnsafe("agent-folder"),
+            folderId: FolderId.make("agent-folder"),
           },
           kinds: ["agents"],
           internalProviderId: "opencode",
@@ -1198,8 +1198,8 @@ describe("OpenCodeAdapter runtime lifecycle", () => {
 
   it("account removal closes only its sessions and program, and update closes warm programs", async () => {
     const runtime = createMockOpenCodeRuntime();
-    const a = ProviderConnectionId.makeUnsafe("account-a");
-    const b = ProviderConnectionId.makeUnsafe("account-b");
+    const a = ProviderConnectionId.make("account-a");
+    const b = ProviderConnectionId.make("account-b");
     const threadA = asThreadId("account-thread-a");
     const threadB = asThreadId("account-thread-b");
     await Effect.runPromise(

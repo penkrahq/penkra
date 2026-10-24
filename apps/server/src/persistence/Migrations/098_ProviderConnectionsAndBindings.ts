@@ -2,7 +2,7 @@
 // Purpose: Adds the clean-cut durable model for managed installations, Connections, native state, and bindings.
 
 import * as Effect from "effect/Effect";
-import * as SqlClient from "effect/unstable/sql/SqlClient";
+import * as SqlClient from "effect/sql/SqlClient";
 
 const HARNESS_CHECK = "length(trim(harness_kind)) > 0";
 
