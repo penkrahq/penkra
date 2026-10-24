@@ -5,6 +5,7 @@ import * as NodeServices from "@effect/platform-node/NodeServices";
 import { Duration, Effect, Exit, Layer, Schema, Scope } from "effect";
 import { HttpRouter, HttpServerRequest } from "effect/unstable/http";
 import { Rpc, RpcGroup, RpcSerialization, RpcServer } from "effect/unstable/rpc";
+import { makeObservedRpcSerialization, type RpcMessageSizeEvent } from "./rpcMessageSizes";
 import { afterEach, describe, expect, it } from "vitest";
 import WebSocket, { type RawData } from "ws";
 
@@ -46,6 +47,7 @@ interface RunningTestServer {
   readonly logout: (sessionId: AuthSessionId) => Promise<boolean>;
   readonly transportFinalizers: { count: number };
   readonly observedRpc: { decoderCalls: number; handlerCalls: number };
+  readonly messageSizes: RpcMessageSizeEvent[];
   readonly observedSlowRpc: { started: number; completed: number; finalized: number };
   readonly connectionSessions: WsConnectionSessionsShape;
   readonly observedConnectionSessionKeys: string[];
@@ -217,12 +219,17 @@ async function startTestServer(): Promise<RunningTestServer> {
 
   const transportFinalizers = { count: 0 };
   const observedRpc = { decoderCalls: 0, handlerCalls: 0 };
+  const messageSizes: RpcMessageSizeEvent[] = [];
+  const measuredSerialization = makeObservedRpcSerialization({
+    methods: new Set(PingRpcGroup.requests.keys()),
+    report: (event) => messageSizes.push(event),
+  });
   const observedSlowRpc = { started: 0, completed: 0, finalized: 0 };
   const serializationLayer = Layer.succeed(RpcSerialization.RpcSerialization, {
     contentType: RpcSerialization.json.contentType,
     includesFraming: RpcSerialization.json.includesFraming,
     makeUnsafe: () => {
-      const parser = RpcSerialization.json.makeUnsafe();
+      const parser = measuredSerialization.makeUnsafe();
       return {
         decode: (data: Uint8Array | string) => {
           observedRpc.decoderCalls += 1;
@@ -311,6 +318,7 @@ async function startTestServer(): Promise<RunningTestServer> {
     logout: (sessionId) => Effect.runPromise(started.serverAuth.logoutSession(sessionId)),
     transportFinalizers,
     observedRpc,
+    messageSizes,
     observedSlowRpc,
     connectionSessions,
     observedConnectionSessionKeys,
@@ -356,6 +364,27 @@ async function waitForObserved(predicate: () => boolean, timeoutMs = 2_000): Pro
 }
 
 describe("websocket RPC payload admission", () => {
+  it("attributes an actual outgoing RPC frame to its method without changing it", async () => {
+    const server = await startTestServer();
+    try {
+      const connected = await connectSession(server);
+      const frame = makeRpcFrame(256, "701");
+      const received = new Promise<Buffer>((resolve) =>
+        connected.socket.once("message", (data) => resolve(Buffer.from(data.toString()))),
+      );
+      connected.socket.send(frame);
+      const bytes = await received;
+      expect(JSON.parse(bytes.toString()).requestId).toBe("701");
+      expect(server.messageSizes).toContainEqual({
+        method: "test.ping",
+        bytes: bytes.length,
+        aboveObservationThreshold: false,
+      });
+    } finally {
+      await server.close();
+    }
+  });
+
   it("rejects feature sockets before auth or RPC decoding when negotiation is missing", async () => {
     const server = await startTestServer();
     try {

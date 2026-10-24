@@ -26,7 +26,8 @@ import {
 } from "@penkra/contracts";
 import { Effect, FileSystem, Layer, Option, Path, Schema, Scope, Stream } from "effect";
 import { Headers, HttpRouter, HttpServerRequest, HttpServerResponse } from "effect/unstable/http";
-import { RpcSerialization, RpcServer } from "effect/unstable/rpc";
+import { RpcServer } from "effect/unstable/rpc";
+import { observedRpcJsonLayer } from "./rpcMessageSizes";
 import * as SqlClient from "effect/unstable/sql/SqlClient";
 
 import { authErrorResponse, makeEffectAuthRequest } from "./auth/effectHttp";
@@ -858,7 +859,15 @@ const makeRpcWebSocketHttpEffect = RpcServer.toHttpEffectWebsocket(SessionScoped
   // JSON keeps the wire format symmetric with any web build. A serialization
   // mismatch on this single multiplexed socket is a hard connect failure, and the
   // desktop/dev setup routinely runs server and web on independently-built copies.
-}).pipe(Effect.provide(makeWsRpcLayer().pipe(Layer.provideMerge(RpcSerialization.layerJson))));
+}).pipe(
+  Effect.provide(
+    makeWsRpcLayer().pipe(
+      Layer.provideMerge(
+        observedRpcJsonLayer(new Set(SessionScopedWsFeatureRpcGroup.requests.keys())),
+      ),
+    ),
+  ),
+);
 
 const makeBootstrapWebSocketHttpEffect = RpcServer.toHttpEffectWebsocket(WsBootstrapRpcGroup, {
   spanPrefix: "ws.bootstrap",
@@ -874,7 +883,7 @@ const makeBootstrapWebSocketHttpEffect = RpcServer.toHttpEffectWebsocket(WsBoots
           [WS_BOOTSTRAP_METHOD]: negotiateWsCompatibility,
         }),
       ),
-    ).pipe(Layer.provideMerge(RpcSerialization.layerJson)),
+    ).pipe(Layer.provideMerge(observedRpcJsonLayer(new Set(WsBootstrapRpcGroup.requests.keys())))),
   ),
 );
 
