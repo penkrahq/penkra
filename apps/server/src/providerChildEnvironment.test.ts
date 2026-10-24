@@ -3,6 +3,23 @@ import { describe, expect, it } from "vitest";
 import { buildProviderChildEnvironment } from "./providerChildEnvironment";
 
 describe("buildProviderChildEnvironment", () => {
+  it.each(["codex", "claude", "opencode"] as const)(
+    "does not pass RemoteLink's desktop capability to %s",
+    (provider) => {
+      const env = buildProviderChildEnvironment({
+        provider,
+        baseEnv: {
+          PATH: "/usr/bin",
+          PENKRA_APP_COMMAND_PIPE: "/private/command.sock",
+          PENKRA_APP_COMMAND_TOKEN: "caller",
+          PENKRA_APP_COMMAND_ADMIN_TOKEN: "backend-only",
+        },
+      });
+      expect(env.PENKRA_APP_COMMAND_PIPE).toBeUndefined();
+      expect(env.PENKRA_APP_COMMAND_TOKEN).toBeUndefined();
+      expect(env.PENKRA_APP_COMMAND_ADMIN_TOKEN).toBeUndefined();
+    },
+  );
   it("strips Penkra control-plane and inherited native capabilities", () => {
     const env = buildProviderChildEnvironment({
       provider: "acp",

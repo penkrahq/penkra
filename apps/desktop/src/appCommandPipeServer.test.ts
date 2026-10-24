@@ -20,6 +20,57 @@ afterEach(async () => {
 });
 
 describe("AppCommandPipeServer", () => {
+  it("keeps every RemoteLink credential operation behind backend-only authority", async () => {
+    const parent = Path.resolve(import.meta.dirname, "../../../.penkra/scratch");
+    FS.mkdirSync(parent, { recursive: true });
+    const directory = FS.mkdtempSync(Path.join(parent, "remote-credentials-"));
+    const path =
+      process.platform === "win32"
+        ? resolveAppCommandPipePath(directory)
+        : Path.relative(process.cwd(), Path.join(directory, "command.sock"));
+    const remoteCredentials = vi.fn(async () => ({ sentinel: "private-device-key" }));
+    const server = new AppCommandPipeServer({
+      path,
+      token: "secret",
+      adminToken: "backend-secret",
+      readFolderTabs: async () => [],
+      catalog: {} as never,
+      broker: {} as never,
+      observer: {} as never,
+      providerCredentialVault: {} as never,
+      remoteCredentials,
+      tabs: { list: () => [], hostedPageState: vi.fn(), current: () => null, close: vi.fn() },
+      presentation: () => ({ state: "background" }),
+    });
+    await server.start();
+    disposers.push(async () => {
+      await server.dispose();
+      FS.rmSync(directory, { recursive: true, force: true });
+    });
+    for (const action of ["read", "create", "register", "remove"]) {
+      const response = await send(path, {
+        id: action,
+        token: "secret",
+        method: `remote.credentials.${action}`,
+      });
+      expect(response).toMatchObject({ ok: false });
+      expect(JSON.stringify(response)).not.toContain("private-device-key");
+    }
+    expect(remoteCredentials).not.toHaveBeenCalled();
+    await expect(
+      send(path, {
+        id: "trusted",
+        token: "secret",
+        adminToken: "backend-secret",
+        method: "remote.credentials.read",
+        params: {},
+      }),
+    ).resolves.toMatchObject({
+      ok: true,
+      result: { sentinel: "private-device-key" },
+    });
+    expect(remoteCredentials).toHaveBeenCalledWith("read", {});
+  });
   it("streams App skill changes only to an authenticated backend subscriber", async () => {
     const directory = FS.mkdtempSync(Path.join(OS.tmpdir(), "penkra-skill-changes-"));
     const path =

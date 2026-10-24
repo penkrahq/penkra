@@ -46,6 +46,7 @@ void runHostPhase("electron-ready", () => app.whenReady())
       startDesktopAppRuntime({
         resolveFolderTitle: async () => "App test",
         userDataPath: profilePath,
+        accountServiceUrl: "https://app-test.invalid",
         appPreloadPath: Path.join(__dirname, "appPreload.js"),
         appControllerRunnerPath: Path.join(__dirname, "appNodeControllerRunner.js"),
         ipcMain,

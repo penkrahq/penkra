@@ -4,6 +4,10 @@
   "private": true,
   "type": "module",
   "exports": {
+    "./desktopCredentialLimits": {
+      "types": "./src/desktopCredentialLimits.ts",
+      "import": "./src/desktopCredentialLimits.ts"
+    },
     "./providerModelPresentation": {
       "types": "./src/providerModelPresentation.ts",
       "import": "./src/providerModelPresentation.ts"

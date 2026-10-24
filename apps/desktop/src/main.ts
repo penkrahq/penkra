@@ -7956,6 +7956,7 @@ async function bootstrap(): Promise<void> {
   registerIpcHandlers();
   writeDesktopLogHeader("bootstrap ipc handlers registered");
   desktopAppRuntime = await startDesktopAppRuntime({
+    accountServiceUrl: penkraAccountServices.apiUrl,
     resolveFolderTitle: async (folderId) => {
       if (!backendHttpUrl) throw new Error("The backend is not ready.");
       const row = await readDesktopFolderAppTabs(
@@ -8444,6 +8445,37 @@ async function bootstrap(): Promise<void> {
     activate: activateAppTabForAgent,
     presentation: appTabAgentPresentation,
     providerCredentialVault: desktopAppRuntime.providerCredentialVault,
+    remoteCredentials: async (action, params) => {
+      if (!desktopAppRuntime) throw new Error("RemoteLink credentials are unavailable.");
+      const accountId = await getPenkraAccountId();
+      if (!accountId) throw new Error("Sign in to Penkra before enabling iPhone access.");
+      const vault = desktopAppRuntime.remoteLinkCredentialVault;
+      switch (action) {
+        case "read":
+          return { accountId, credentials: await vault.read(accountId) };
+        case "create":
+          return { accountId, credentials: await vault.getOrCreate(accountId) };
+        case "remove": {
+          if (typeof params.identityPrivateKey !== "string")
+            throw new Error("Invalid RemoteLink identity.");
+          await vault.remove(accountId, params.identityPrivateKey);
+          return null;
+        }
+        case "register": {
+          if (
+            typeof params.identityPrivateKey !== "string" ||
+            typeof params.deviceId !== "string" ||
+            typeof params.deviceToken !== "string"
+          )
+            throw new Error("Invalid RemoteLink registration.");
+          await vault.register(accountId, params.identityPrivateKey, {
+            deviceId: params.deviceId,
+            deviceToken: params.deviceToken,
+          });
+          return null;
+        }
+      }
+    },
     thread: async ({ spaceId, folderId, threadId, method, value }) =>
       requestAppThreadOperation(
         desktopAppRuntime!,

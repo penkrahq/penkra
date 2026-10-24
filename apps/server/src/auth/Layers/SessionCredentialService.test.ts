@@ -309,6 +309,26 @@ describe("SessionCredentialServiceLive", () => {
     );
   });
 
+  it("expires a phone's default client session after thirty days without revocation", async () => {
+    await Effect.gen(function* () {
+      const sessions = yield* SessionCredentialService;
+      const issued = yield* sessions.issue({
+        subject: "10000000-0000-4000-8000-000000000001",
+        role: "client",
+        method: "bearer-session-token",
+        client: { label: "Test iPhone", deviceType: "mobile" },
+      });
+      expect((yield* sessions.verify(issued.token)).role).toBe("client");
+      yield* TestClock.adjust(Duration.days(30));
+      const error = yield* Effect.flip(sessions.verify(issued.token));
+      expect(error.message).toBe("Session token expired.");
+    }).pipe(
+      Effect.provide(Layer.merge(testLayer, TestClock.layer())),
+      Effect.scoped,
+      Effect.runPromise,
+    );
+  });
+
   it("interrupts an established connection when its session expires", async () => {
     await Effect.gen(function* () {
       const sessions = yield* SessionCredentialService;

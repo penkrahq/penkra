@@ -4,10 +4,10 @@
 import * as Crypto from "node:crypto";
 import * as Net from "node:net";
 import { Data, Effect, Layer, ServiceMap } from "effect";
+import { DESKTOP_CREDENTIAL_MAX_RESPONSE_BYTES } from "@penkra/shared/desktopCredentialLimits";
 
 const PIPE_ENV = "PENKRA_APP_COMMAND_PIPE";
 const TOKEN_ENV = "PENKRA_APP_COMMAND_TOKEN";
-const MAX_RESPONSE_BYTES = 128 * 1024;
 
 export class ProviderCredentialBrokerError extends Data.TaggedError(
   "ProviderCredentialBrokerError",
@@ -82,7 +82,7 @@ function request(input: {
     });
     socket.on("data", (chunk) => {
       bytes = Buffer.concat([bytes, chunk]);
-      if (bytes.length > MAX_RESPONSE_BYTES) {
+      if (bytes.length > DESKTOP_CREDENTIAL_MAX_RESPONSE_BYTES) {
         socket.destroy(new Error("Provider credential response exceeded the size limit."));
         return;
       }

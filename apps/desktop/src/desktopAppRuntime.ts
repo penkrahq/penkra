@@ -45,6 +45,7 @@ import { AppRuntimeDiagnostics, resolveAppRuntimeDiagnosticsPath } from "./appRu
 import { AppIdentityService } from "./appIdentityService";
 import { AppDataVault } from "./appDataVault";
 import { ProviderCredentialVault } from "./providerCredentialVault";
+import { RemoteLinkCredentialVault } from "./remoteLinkCredentialVault";
 import { DeferredAppTabHost } from "./deferredAppTabHost";
 import { ElectronAppControllerProcessFactory } from "./electronAppControllerProcess";
 import {
@@ -78,6 +79,7 @@ export interface DesktopAppRuntime {
   readonly identities: AppIdentityService;
   readonly vault: AppDataVault;
   readonly providerCredentialVault: ProviderCredentialVault;
+  readonly remoteLinkCredentialVault: RemoteLinkCredentialVault;
   readonly blobUrls: AppBlobUrlRegistry;
   readonly transfers: AppTransferService;
   readonly safeStartRecovery: null | { quarantinedPath: string; error: Error };
@@ -126,6 +128,7 @@ function requireControllerRecord(value: unknown, label: string): Record<string, 
 export async function startDesktopAppRuntime(input: {
   resolveFolderTitle: (folderId: string) => Promise<string>;
   userDataPath: string;
+  accountServiceUrl: string;
   appPreloadPath: string;
   appControllerRunnerPath: string;
   ipcMain: Pick<IpcMain, "on" | "removeListener">;
@@ -182,6 +185,12 @@ export async function startDesktopAppRuntime(input: {
   });
   const providerCredentialVault = await ProviderCredentialVault.open({
     userDataPath: input.userDataPath,
+    encrypt: (value) => safeStorage.encryptString(value),
+    decrypt: (value) => safeStorage.decryptString(value),
+  });
+  const remoteLinkCredentialVault = new RemoteLinkCredentialVault({
+    userDataPath: input.userDataPath,
+    accountServiceUrl: input.accountServiceUrl,
     encrypt: (value) => safeStorage.encryptString(value),
     decrypt: (value) => safeStorage.decryptString(value),
   });
@@ -566,6 +575,7 @@ export async function startDesktopAppRuntime(input: {
     identities,
     vault,
     providerCredentialVault,
+    remoteLinkCredentialVault,
     blobUrls,
     transfers,
     safeStartRecovery: storeResult.recovery,

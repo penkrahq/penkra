@@ -101,7 +101,11 @@ type Request = {
     | "providers.credentials.consume-lease"
     | "providers.credentials.has"
     | "providers.credentials.remove"
-    | "providers.credentials.fingerprint";
+    | "providers.credentials.fingerprint"
+    | "remote.credentials.read"
+    | "remote.credentials.create"
+    | "remote.credentials.register"
+    | "remote.credentials.remove";
   params?: unknown;
 };
 
@@ -147,6 +151,12 @@ interface AppTabObserverBridge {
     outputPath: string,
   ): Promise<unknown>;
 }
+
+type RemoteCredentialAction = "read" | "create" | "register" | "remove";
+type RemoteCredentialHandler = (
+  action: RemoteCredentialAction,
+  params: Record<string, unknown>,
+) => Promise<unknown>;
 
 export function resolveAppCommandPipePath(_userDataPath: string): string {
   if (resolveDesktopPlatformAdapter().paths.pathSyntax === "windows") {
@@ -205,6 +215,7 @@ export class AppCommandPipeServer {
       }) => Promise<unknown>)
     | null;
   readonly #providerCredentialVault: ProviderCredentialVault;
+  readonly #remoteCredentials: RemoteCredentialHandler | undefined;
   readonly #thread: (input: {
     spaceId: string;
     folderId: string;
@@ -267,6 +278,7 @@ export class AppCommandPipeServer {
       threadId: string;
     }) => Promise<unknown>;
     providerCredentialVault: ProviderCredentialVault;
+    remoteCredentials?: RemoteCredentialHandler;
     thread?: (input: {
       spaceId: string;
       folderId: string;
@@ -301,6 +313,7 @@ export class AppCommandPipeServer {
     this.#activate = input.activate ?? null;
     this.#presentation = input.presentation;
     this.#providerCredentialVault = input.providerCredentialVault;
+    this.#remoteCredentials = input.remoteCredentials;
     this.#thread =
       input.thread ??
       (async () => {
@@ -418,6 +431,15 @@ export class AppCommandPipeServer {
     }
     const params = asRecord(request.params);
     switch (request.method) {
+      case "remote.credentials.read":
+      case "remote.credentials.create":
+      case "remote.credentials.register":
+      case "remote.credentials.remove": {
+        this.#requireBackend(request);
+        if (!this.#remoteCredentials) throw new Error("RemoteLink credentials are unavailable.");
+        const action = request.method.slice("remote.credentials.".length) as RemoteCredentialAction;
+        return { ok: true, id: request.id, result: await this.#remoteCredentials(action, params) };
+      }
       case "skills.subscribe": {
         this.#requireBackend(request);
         socket.removeAllListeners("data");
