@@ -5,7 +5,7 @@ import { sha256 } from "@noble/hashes/sha2.js";
 import { hmac } from "@noble/hashes/hmac.js";
 import { hkdf } from "@noble/hashes/hkdf.js";
 
-const MAX_MESSAGE = 65_535;
+export const NOISE_MAX_MESSAGE_BYTES = 65_535;
 const MAX_NONCE = (1n << 64n) - 1n;
 const REKEY_MESSAGES = 2 ** 20; // Approved Noise session rekey boundary (TODO §7.2.6).
 const EMPTY = new Uint8Array();
@@ -37,7 +37,10 @@ export class NoiseCipher {
   }
   private crypt(input: Uint8Array, associatedData: Uint8Array, decrypt: boolean): Uint8Array {
     if (this.failed || this.counter === MAX_NONCE) throw new Error("Noise cipher is closed");
-    if (input.length + (decrypt ? 0 : 16) > MAX_MESSAGE || (decrypt && input.length < 16)) {
+    if (
+      input.length + (decrypt ? 0 : 16) > NOISE_MAX_MESSAGE_BYTES ||
+      (decrypt && input.length < 16)
+    ) {
       this.destroy();
       throw new Error("Invalid Noise message length");
     }
@@ -206,7 +209,7 @@ export class NoiseHandshake {
       }
       pieces.push(this.encryptHash(payload));
       const message = concat(...pieces);
-      if (message.length > MAX_MESSAGE) throw new Error("Noise handshake is too large");
+      if (message.length > NOISE_MAX_MESSAGE_BYTES) throw new Error("Noise handshake is too large");
       this.advance();
       return message;
     } catch (error) {
@@ -217,7 +220,7 @@ export class NoiseHandshake {
   readMessage(message: Uint8Array): Uint8Array {
     this.checkTurn(false);
     try {
-      if (message.length > MAX_MESSAGE) throw new Error("Noise handshake is too large");
+      if (message.length > NOISE_MAX_MESSAGE_BYTES) throw new Error("Noise handshake is too large");
       let offset = 0;
       const take = (size: number) => {
         if (offset + size > message.length) throw new Error("Truncated Noise handshake");
