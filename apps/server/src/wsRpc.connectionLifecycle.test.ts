@@ -2,9 +2,10 @@ import http from "node:http";
 
 import type { AuthSessionId } from "@penkra/contracts";
 import * as NodeServices from "@effect/platform-node/NodeServices";
+import * as NodeSocket from "@effect/platform-node/NodeSocket";
 import { Duration, Effect, Exit, Layer, Schema, Scope } from "effect";
 import { HttpRouter, HttpServerRequest } from "effect/http";
-import { Rpc, RpcGroup, RpcSerialization, RpcServer } from "effect/rpc";
+import { Rpc, RpcClient, RpcGroup, RpcSerialization, RpcServer } from "effect/rpc";
 import { makeObservedRpcSerialization, type RpcMessageSizeEvent } from "./rpcMessageSizes";
 import { afterEach, describe, expect, it } from "vitest";
 import WebSocket, { type RawData } from "ws";
@@ -365,6 +366,32 @@ async function waitForObserved(predicate: () => boolean, timeoutMs = 2_000): Pro
 }
 
 describe("websocket RPC payload admission", () => {
+  it("round trips the released Effect client through authenticated RPC and preserves method measurement", async () => {
+    const server = await startTestServer();
+    try {
+      const session = await Effect.runPromise(server.sessions.issue());
+      const ticket = await Effect.runPromise(
+        server.sessions.issueWebSocketToken(session.sessionId),
+      );
+      const protocol = RpcClient.layerProtocolSocket().pipe(
+        Layer.provide(
+          Layer.mergeAll(
+            NodeSocket.layerWebSocket(featureSocketUrl(server, ticket.token)),
+            RpcSerialization.layerJson,
+          ),
+        ),
+      );
+      const reply = await Effect.gen(function* () {
+        const client = yield* RpcClient.make(PingRpcGroup);
+        return yield* client["test.ping"]({ label: "Unicode 😀" });
+      }).pipe(Effect.scoped, Effect.provide(protocol), Effect.runPromise);
+      expect(reply).toBe("ok");
+      expect(server.observedRpc.handlerCalls).toBe(1);
+      expect(server.messageSizes.some((event) => event.method === "test.ping")).toBe(true);
+    } finally {
+      await server.close();
+    }
+  });
   it("attributes an actual outgoing RPC frame to its method without changing it", async () => {
     const server = await startTestServer();
     try {

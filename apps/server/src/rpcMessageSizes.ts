@@ -9,6 +9,11 @@ export interface RpcMessageSizeEvent {
   readonly aboveObservationThreshold: boolean;
 }
 
+// RpcMessage.RequestEncoded and reply frames use this exact wire union.
+function isRequestId(value: unknown): value is string | number {
+  return typeof value === "string" || typeof value === "number";
+}
+
 /** One tracker per server layer; high-water marks span connections. No payloads,
  * request IDs, credentials or arbitrary method names are retained in the log.
  */
@@ -21,7 +26,7 @@ export function makeObservedRpcSerialization(input: {
     ...RpcSerialization.json,
     makeUnsafe: () => {
       const parser = RpcSerialization.json.makeUnsafe();
-      const requests = new Map<string, string>();
+      const requests = new Map<string | number, string>();
       return {
         decode: (data) => {
           const decoded = parser.decode(data);
@@ -30,7 +35,7 @@ export function makeObservedRpcSerialization(input: {
             const message = value as Record<string, unknown>;
             if (
               message._tag === "Request" &&
-              typeof message.id === "string" &&
+              isRequestId(message.id) &&
               typeof message.tag === "string"
             )
               requests.set(message.id, input.methods.has(message.tag) ? message.tag : "<unknown>");
@@ -44,7 +49,7 @@ export function makeObservedRpcSerialization(input: {
             typeof value === "object" && value !== null
               ? (value as Record<string, unknown>)
               : undefined;
-          const requestId = typeof message?.requestId === "string" ? message.requestId : undefined;
+          const requestId = isRequestId(message?.requestId) ? message.requestId : undefined;
           const method =
             requestId === undefined ? "<control>" : (requests.get(requestId) ?? "<unknown>");
           const bytes =

@@ -5,11 +5,23 @@ import {
   type RpcMessageSizeEvent,
 } from "./rpcMessageSizes";
 
-function request(id: string, tag: string) {
+function request(id: string | number, tag: string) {
   return JSON.stringify({ _tag: "Request", id, tag, payload: {}, headers: [] });
 }
 
 describe("outgoing RPC size observation", () => {
+  it("tracks the protocol's numeric and string ids without conflating them", () => {
+    const reports: RpcMessageSizeEvent[] = [];
+    const parser = makeObservedRpcSerialization({
+      methods: new Set(["numeric", "text"]),
+      report: (event) => reports.push(event),
+    }).makeUnsafe();
+    parser.decode(request(1, "numeric"));
+    parser.decode(request("1", "text"));
+    parser.encode({ _tag: "Exit", requestId: 1, exit: { _tag: "Success", value: "ok" } });
+    parser.encode({ _tag: "Exit", requestId: "1", exit: { _tag: "Success", value: "ok" } });
+    expect(reports.map((event) => event.method)).toEqual(["numeric", "text"]);
+  });
   it("measures exact UTF-8 wire bytes, attributes chunks and exit, and shares maxima across connections", () => {
     const reports: RpcMessageSizeEvent[] = [];
     const serialization = makeObservedRpcSerialization({
