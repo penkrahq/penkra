@@ -1,5 +1,5 @@
 import { request as httpRequest, type IncomingMessage } from "node:http";
-import { isLoopbackHost } from "../startupAccess";
+import { loopbackOrigin } from "./loopbackOrigin";
 import { resolveTunnelPath } from "./tunnelPaths";
 
 export class LoopbackHttpError extends Error {
@@ -44,20 +44,10 @@ export function openLoopbackHttp(input: {
 }): LoopbackHttpTransfer {
   let origin: URL;
   try {
-    origin = new URL(input.origin);
+    origin = loopbackOrigin(input.origin);
   } catch {
     throw new LoopbackHttpError("invalid-origin");
   }
-  if (
-    origin.protocol !== "http:" ||
-    !isLoopbackHost(origin.hostname) ||
-    origin.username ||
-    origin.password ||
-    origin.pathname !== "/" ||
-    origin.search ||
-    origin.hash
-  )
-    throw new LoopbackHttpError("invalid-origin");
   if (input.signal?.aborted) throw new LoopbackHttpError("cancelled");
   const path = resolveTunnelPath({ kind: "http", method: input.method, path: input.path });
   const headers = {
