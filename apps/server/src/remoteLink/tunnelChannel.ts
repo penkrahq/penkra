@@ -31,6 +31,7 @@ export class TunnelChannel {
             combined,
           )
         : undefined;
+    let failure: { cause: unknown } | undefined;
     const writing = this.#writer.then(async () => {
       if (combined.aborted) {
         lease?.cancel();
@@ -43,12 +44,35 @@ export class TunnelChannel {
         lease?.sent();
         await this.sendWire(ciphertext);
       } catch (error) {
+        failure = { cause: error };
         this.close();
         throw error;
       }
     });
     this.#writer = writing.catch(() => undefined);
-    await writing;
+    // The relay owns an already-encrypted write. Cancelling a request stops
+    // its wait, not that write or the cipher's ordering gate. A later write
+    // failure still runs the catch above and destroys the cipher pair.
+    await new Promise<void>((resolve, reject) => {
+      const abort = () => {
+        combined.removeEventListener("abort", abort);
+        // Closing aborts sibling waiters too; retain this writer's original
+        // failure instead of relabeling it as cancellation.
+        reject(failure ? failure.cause : new Error("RemoteLink send cancelled."));
+      };
+      void writing.then(
+        () => {
+          combined.removeEventListener("abort", abort);
+          resolve();
+        },
+        (error) => {
+          combined.removeEventListener("abort", abort);
+          reject(error);
+        },
+      );
+      if (combined.aborted) abort();
+      else combined.addEventListener("abort", abort, { once: true });
+    });
   }
 
   /** Call in relay arrival order. The caller ACKs data only after consuming it. */

@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, onTestFinished } from "vitest";
 import { NoiseCipher, NOISE_MAX_MESSAGE_BYTES } from "./noise";
 import { TUNNEL_MAX_INFLIGHT_BYTES } from "./sendWindow";
 import { TunnelChannel } from "./tunnelChannel";
@@ -19,6 +19,75 @@ function ciphers() {
 }
 
 describe("RemoteLink ordered encrypted channel", () => {
+  it("still destroys the cipher pair if an abandoned relay write fails later", async () => {
+    const [left, right] = ciphers();
+    const entered = Promise.withResolvers<void>(),
+      completion = Promise.withResolvers<void>();
+    const sender = new TunnelChannel(left, async () => {
+      entered.resolve();
+      await completion.promise;
+    });
+    const abort = new AbortController();
+    const sending = sender.send({ t: "http.cancel", id: 1 }, abort.signal);
+    void sending.catch(() => undefined);
+    onTestFinished(() => {
+      completion.resolve();
+      sender.close();
+      right.send.destroy();
+      right.receive.destroy();
+    });
+    await entered.promise;
+    abort.abort();
+    await expect(sending).rejects.toThrow("cancelled");
+    completion.reject(new Error("late relay failure"));
+    await expect(sender.send({ t: "http.cancel", id: 2 })).rejects.toThrow();
+    expect(sender.signal.aborted).toBe(true);
+    expect(() => left.receive.decrypt(new Uint8Array(16))).toThrow("closed");
+  });
+  it("cancels a request's wait during a blocked relay write without skipping the cipher order", async () => {
+    const [left, right] = ciphers();
+    const entered = Promise.withResolvers<void>(),
+      release = Promise.withResolvers<void>();
+    const received: TunnelEnvelope[] = [];
+    let first = true;
+    let sender: TunnelChannel;
+    const receiver = new TunnelChannel(right, async (bytes) => {
+      sender.receive(bytes);
+    });
+    sender = new TunnelChannel(left, async (bytes) => {
+      if (first) {
+        first = false;
+        entered.resolve();
+        await release.promise;
+      }
+      const envelope = receiver.receive(bytes);
+      if (!envelope) return;
+      received.push(envelope);
+      if (envelope.t === "http.body")
+        await receiver.send({ t: "ack", id: envelope.id, seq: envelope.seq });
+    });
+    const abort = new AbortController();
+    const sending = sender.send({ t: "http.body", id: 1, seq: 0, body: "YQ==" }, abort.signal);
+    void sending.catch(() => undefined);
+    onTestFinished(async () => {
+      release.resolve();
+      sender.close();
+      receiver.close();
+      await sending.catch(() => undefined);
+    });
+    await entered.promise;
+    abort.abort();
+    await expect(sending).rejects.toThrow("cancelled");
+    expect(sender.signal.aborted).toBe(false);
+    const cancelling = sender.send({ t: "http.cancel", id: 1 });
+    release.resolve();
+    await cancelling;
+    expect(received).toEqual([
+      { t: "http.body", id: 1, seq: 0, body: "YQ==" },
+      { t: "http.cancel", id: 1 },
+    ]);
+    expect(sender.window.snapshot().bytes).toBe(0);
+  });
   it("demonstrates why waiting for whole-message consumption cannot be the WebSocket ACK rule", async () => {
     const [left, right] = ciphers();
     // Legal JSON and legal UTF-8 at today's WS limit. JSON escaping doubles

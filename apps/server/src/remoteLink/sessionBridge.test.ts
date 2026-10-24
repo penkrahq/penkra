@@ -1,11 +1,11 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, onTestFinished } from "vitest";
 import { WebSocketServer } from "ws";
 import { httpFixture } from "./httpFixture.test-support";
 import { NoiseCipher } from "./noise";
 import { RemoteSessionBridge, type RemoteSessionEvent } from "./sessionBridge";
 import { encodeTunnelEnvelope, decodeTunnelEnvelope, type TunnelEnvelope } from "./tunnelCodec";
 
-function fixture(origin = "http://127.0.0.1:1") {
+function fixture(origin = "http://127.0.0.1:1", sendWire?: (bytes: Uint8Array) => Promise<void>) {
   const first = new Uint8Array(32).fill(1),
     second = new Uint8Array(32).fill(2);
   const phone = { send: new NoiseCipher(second), receive: new NoiseCipher(first) };
@@ -17,9 +17,11 @@ function fixture(origin = "http://127.0.0.1:1") {
     origin,
     credential: "private-fixture-bearer",
     transport: { send: new NoiseCipher(first), receive: new NoiseCipher(second) },
-    sendWire: async (bytes) => {
-      decodeTunnelEnvelope(phone.receive.decrypt(bytes));
-    },
+    sendWire:
+      sendWire ??
+      (async (bytes) => {
+        decodeTunnelEnvelope(phone.receive.decrypt(bytes));
+      }),
     observe: (event) => events.push(event),
     onViewing: (value) => viewing.push(value),
   });
@@ -38,6 +40,33 @@ function fixture(origin = "http://127.0.0.1:1") {
 }
 
 describe("authenticated session resource ownership", () => {
+  it("closes without waiting for a relay-owned write that is backpressured", async () => {
+    await httpFixture(
+      (_request, response) => response.end("fixture payload"),
+      async (origin) => {
+        const entered = Promise.withResolvers<void>(),
+          release = Promise.withResolvers<void>();
+        const owner = fixture(origin, async () => {
+          entered.resolve();
+          await release.promise;
+        });
+        onTestFinished(async () => {
+          release.resolve();
+          await owner.close();
+        });
+        try {
+          owner.send({ t: "http", id: 1, method: "GET", path: "/attachments/file" });
+          await entered.promise;
+          await owner.bridge.close();
+          expect(owner.bridge.channel.signal.aborted).toBe(true);
+          expect(owner.viewing).toEqual([null]);
+        } finally {
+          release.resolve();
+          await owner.close();
+        }
+      },
+    );
+  });
   it("closes active HTTP and WebSocket connections and clears viewing exactly once", async () => {
     const httpOpened = Promise.withResolvers<void>();
     const httpClosed = Promise.withResolvers<void>();
