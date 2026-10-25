@@ -56,6 +56,9 @@ export function configurePenkraAccountAuth(input: {
   inspectInitialProtocolUrlFromArgv: boolean;
   registerAsDefaultProtocolClient?: boolean;
   websiteOrigin: string;
+  /** Successful explicit authentication, never an ordinary session read. */
+  onAuthenticated?: (accountId: string) => void;
+  onBeforeSignOut?: () => void;
 }): PenkraAccountAuthRuntime {
   const accountStorage = storage({
     configName: `account-auth-${input.desktopFlavor}-${serviceKey(input.authBaseUrl)}`,
@@ -116,11 +119,17 @@ export function configurePenkraAccountAuth(input: {
   const signUpClient = createPenkraAuthClient("/sign-up");
   let pendingIntent: AuthIntent | null = null;
   let callbackAttempt = 0;
+  let callbackTimeout: ReturnType<typeof setTimeout> | null = null;
+  const cancelCallbackTimeout = (timeout = callbackTimeout) => {
+    if (timeout !== null) clearTimeout(timeout);
+    if (callbackTimeout === timeout) callbackTimeout = null;
+  };
 
   const completeAuthCallback = async (url: string | undefined) => {
     if (!url) return;
     const token = readPenkraAccountAuthCallbackToken(url, input.accountAuthScheme);
     if (!token) return;
+    cancelCallbackTimeout();
     const attempt = ++callbackAttempt;
     const callbackIntent = pendingIntent;
     pendingIntent = null;
@@ -130,15 +139,17 @@ export function configurePenkraAccountAuth(input: {
     const timeout = setTimeout(() => {
       if (attempt !== callbackAttempt) return;
       callbackAttempt += 1;
+      cancelCallbackTimeout(timeout);
       input.getWindow()?.webContents.send(DESKTOP_IPC_CHANNELS.accountAuth.error, {
         message: "Authentication did not complete. Please try again.",
       });
     }, AUTH_CALLBACK_TIMEOUT_MS);
+    callbackTimeout = timeout;
     try {
       const result = await signInClient.authenticate({ token });
+      cancelCallbackTimeout(timeout);
       if (attempt !== callbackAttempt) return;
       callbackAttempt += 1;
-      clearTimeout(timeout);
       if (result.error || !result.data?.user) {
         input.getWindow()?.webContents.send(DESKTOP_IPC_CHANNELS.accountAuth.error, {
           message: result.error?.message || "Authentication did not complete. Please try again.",
@@ -147,10 +158,11 @@ export function configurePenkraAccountAuth(input: {
       }
       // authenticate() emits the channel-prefixed authenticated event after it
       // stores the returned session. Do not send a second copy here.
+      if (typeof result.data.user.id === "string") input.onAuthenticated?.(result.data.user.id);
     } catch {
+      cancelCallbackTimeout(timeout);
       if (attempt !== callbackAttempt) return;
       callbackAttempt += 1;
-      clearTimeout(timeout);
       input.getWindow()?.webContents.send(DESKTOP_IPC_CHANNELS.accountAuth.error, {
         message: "Authentication did not complete. Please try again.",
       });
@@ -240,6 +252,10 @@ export function configurePenkraAccountAuth(input: {
   input.ipcMain.removeHandler(DESKTOP_IPC_CHANNELS.accountAuth.signOut);
   input.ipcMain.handle(DESKTOP_IPC_CHANNELS.accountAuth.signOut, async (event) => {
     if (!input.isShellRenderer(event.sender)) return;
+    callbackAttempt++;
+    cancelCallbackTimeout();
+    pendingIntent = null;
+    input.onBeforeSignOut?.();
     await signInClient.signOut();
     input.getWindow()?.webContents.send(DESKTOP_IPC_CHANNELS.accountAuth.userUpdated, null);
   });

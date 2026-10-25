@@ -45,6 +45,35 @@ async function pipe(
   }
 }
 describe("DesktopRemoteCredentials", () => {
+  it("asks desktop to register the account without passing a cookie or supplied device token", async () => {
+    await pipe(
+      (request, socket) => {
+        expect(request.method).toBe("remote.credentials.register");
+        expect(request.params).toEqual({ accountId: "a" });
+        socket.end(
+          `${JSON.stringify({
+            id: request.id,
+            ok: true,
+            result: {
+              accountId: "a",
+              credentials: {
+                identityPrivateKey: Buffer.alloc(32, 7).toString("base64"),
+                registration: {
+                  deviceId: "10000000-0000-4000-8000-000000000001",
+                  deviceToken: Buffer.alloc(32, 2).toString("base64url"),
+                },
+              },
+            },
+          })}\n`,
+        );
+      },
+      async (client) => {
+        expect((await client.register("a")).credentials?.registration?.deviceId).toBe(
+          "10000000-0000-4000-8000-000000000001",
+        );
+      },
+    );
+  });
   it("requires backend authority before opening a pipe", async () => {
     await expect(
       new DesktopRemoteCredentials({

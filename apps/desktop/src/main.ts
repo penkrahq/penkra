@@ -254,6 +254,7 @@ import { createScopedBrowserSessionPartition } from "./browserSessionPolicy";
 import { createContextMenuSelection } from "./contextMenuSelection";
 import { normalizeAppContextMenuItems, type NormalizedAppContextMenuItem } from "./appContextMenu";
 import { AppCommandPipeServer, resolveAppCommandPipePath } from "./appCommandPipeServer";
+import { RemoteLinkRegistrationOwner, RemoteRegistrationError } from "./remoteLinkRegistration";
 import { AppTabObserver } from "./appTabObserver";
 import { BROWSER_APP_ID, isRequiredApp } from "./appDistributionPolicy";
 import { normalizeDesktopWsUrl, resolveDesktopWsUrlFromEnv } from "./desktopWsBridge";
@@ -1149,6 +1150,21 @@ let automaticAppUpdateTimer: ReturnType<typeof setTimeout> | null = null;
 let automaticAppUpdateReport: AutomaticRegistryAppUpdateReport | null = null;
 let getPenkraAccountId: () => Promise<string | null> = async () => null;
 let getPenkraAccountCookie: () => string = () => "";
+let remoteRegistrationOwner: RemoteLinkRegistrationOwner | null = null;
+let pendingRemoteSignInAccountId: string | null = null;
+const remoteRegistrationLifetime = new AbortController();
+function renewRemoteRegistrationAfterSignIn(): void {
+  const owner = remoteRegistrationOwner;
+  const accountId = pendingRemoteSignInAccountId;
+  if (!owner || !accountId) return;
+  pendingRemoteSignInAccountId = null;
+  void owner.renewAfterSignIn(accountId, remoteRegistrationLifetime.signal).catch((error) => {
+    console.warn("[remote-link] Explicit sign-in registration renewal failed", {
+      code: error instanceof RemoteRegistrationError ? error.code : "internal",
+      status: error instanceof RemoteRegistrationError ? error.status : undefined,
+    });
+  });
+}
 const appAccountSubscriptions = new AppAccountSubscriptionStore();
 const runtimeV2FileHandles = new AppScopedFileHandleStore();
 const runtimeV2FileWrites = new AppScopedFileWriteStore();
@@ -4997,6 +5013,8 @@ async function stopBackendAndWaitForExit(options?: {
 }
 
 async function disposeAppCommandPipeServerForShutdown(reason: string): Promise<void> {
+  remoteRegistrationLifetime.abort();
+  remoteRegistrationOwner?.invalidate();
   const pipeServer = appCommandPipeServer;
   appCommandPipeServer = null;
   if (!pipeServer) return;
@@ -7889,6 +7907,15 @@ if (hasSingleInstanceLock) {
     registerAsDefaultProtocolClient: !desktopSmokeUserDataPath,
     inspectInitialProtocolUrlFromArgv: desktopPlatform.deepLinks.inspectInitialArgv,
     websiteOrigin: penkraAccountServices.websiteOrigin,
+    onAuthenticated: (accountId) => {
+      remoteRegistrationOwner?.invalidate();
+      pendingRemoteSignInAccountId = accountId;
+      renewRemoteRegistrationAfterSignIn();
+    },
+    onBeforeSignOut: () => {
+      pendingRemoteSignInAccountId = null;
+      remoteRegistrationOwner?.invalidate();
+    },
   });
   getPenkraAccountId = accountAuthRuntime.getAccountId;
   getPenkraAccountCookie = accountAuthRuntime.getCookie;
@@ -8412,6 +8439,23 @@ async function bootstrap(): Promise<void> {
     },
   });
   appHostedBrowserObserver = appTabObserver;
+  remoteRegistrationOwner = new RemoteLinkRegistrationOwner({
+    apiUrl: penkraAccountServices.apiUrl,
+    vault: desktopAppRuntime.remoteLinkCredentialVault,
+    account: async () => {
+      const cookie = getPenkraAccountCookie();
+      const accountId = await getPenkraAccountId();
+      return accountId && cookie && cookie === getPenkraAccountCookie()
+        ? { accountId, cookie }
+        : null;
+    },
+    metadata: {
+      name: OS.hostname(),
+      model: `${OS.type()} ${OS.machine()}`,
+      appVersion: app.getVersion(),
+    },
+  });
+  renewRemoteRegistrationAfterSignIn();
   appCommandPipeServer = new AppCommandPipeServer({
     path: resolveAppCommandPipePath(app.getPath("userData")),
     token: Crypto.randomBytes(32).toString("hex"),
@@ -8445,7 +8489,7 @@ async function bootstrap(): Promise<void> {
     activate: activateAppTabForAgent,
     presentation: appTabAgentPresentation,
     providerCredentialVault: desktopAppRuntime.providerCredentialVault,
-    remoteCredentials: async (action, params) => {
+    remoteCredentials: async (action, params, signal) => {
       if (!desktopAppRuntime) throw new Error("RemoteLink credentials are unavailable.");
       const accountId = await getPenkraAccountId();
       if (!accountId) throw new Error("Sign in to Penkra before enabling iPhone access.");
@@ -8462,17 +8506,10 @@ async function bootstrap(): Promise<void> {
           return null;
         }
         case "register": {
-          if (
-            typeof params.identityPrivateKey !== "string" ||
-            typeof params.deviceId !== "string" ||
-            typeof params.deviceToken !== "string"
-          )
+          if (params.accountId !== accountId || !remoteRegistrationOwner)
             throw new Error("Invalid RemoteLink registration.");
-          await vault.register(accountId, params.identityPrivateKey, {
-            deviceId: params.deviceId,
-            deviceToken: params.deviceToken,
-          });
-          return null;
+          const credentials = await remoteRegistrationOwner.ensure(accountId, signal);
+          return { accountId, credentials };
         }
       }
     },

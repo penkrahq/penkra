@@ -12,6 +12,7 @@ import {
   serializeFailureResponse,
 } from "./appCommandPipeServer";
 import { AppRuntimeFailureError } from "./appRuntimeFailure";
+import { deferred } from "./deferred.test-support";
 
 const disposers: Array<() => Promise<void>> = [];
 
@@ -28,7 +29,11 @@ describe("AppCommandPipeServer", () => {
       process.platform === "win32"
         ? resolveAppCommandPipePath(directory)
         : Path.relative(process.cwd(), Path.join(directory, "command.sock"));
-    const remoteCredentials = vi.fn(async () => ({ sentinel: "private-device-key" }));
+    const remoteCredentials = vi.fn(
+      async (_action: string, _params: Record<string, unknown>, _signal: AbortSignal) => ({
+        sentinel: "private-device-key",
+      }),
+    );
     const server = new AppCommandPipeServer({
       path,
       token: "secret",
@@ -69,7 +74,34 @@ describe("AppCommandPipeServer", () => {
       ok: true,
       result: { sentinel: "private-device-key" },
     });
-    expect(remoteCredentials).toHaveBeenCalledWith("read", {});
+    expect(remoteCredentials).toHaveBeenCalledWith("read", {}, expect.any(AbortSignal));
+    const entered = deferred();
+    const cancelled = deferred();
+    remoteCredentials.mockImplementation(async (_action, _params, signal) => {
+      entered.resolve();
+      await new Promise<void>((resolve) =>
+        signal.addEventListener(
+          "abort",
+          () => {
+            cancelled.resolve();
+            resolve();
+          },
+          { once: true },
+        ),
+      );
+      return { sentinel: "private-device-key" };
+    });
+    const caller = Net.createConnection(path);
+    await new Promise<void>((resolve, reject) => {
+      caller.once("connect", resolve);
+      caller.once("error", reject);
+    });
+    caller.write(
+      `${JSON.stringify({ id: "cancelled-register", token: "secret", adminToken: "backend-secret", method: "remote.credentials.register", params: { accountId: "a" } })}\n`,
+    );
+    await entered.promise;
+    caller.destroy();
+    await cancelled.promise;
   });
   it("streams App skill changes only to an authenticated backend subscriber", async () => {
     const directory = FS.mkdtempSync(Path.join(OS.tmpdir(), "penkra-skill-changes-"));

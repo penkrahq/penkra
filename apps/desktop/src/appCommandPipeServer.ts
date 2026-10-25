@@ -156,6 +156,7 @@ type RemoteCredentialAction = "read" | "create" | "register" | "remove";
 type RemoteCredentialHandler = (
   action: RemoteCredentialAction,
   params: Record<string, unknown>,
+  signal: AbortSignal,
 ) => Promise<unknown>;
 
 export function resolveAppCommandPipePath(_userDataPath: string): string {
@@ -438,7 +439,11 @@ export class AppCommandPipeServer {
         this.#requireBackend(request);
         if (!this.#remoteCredentials) throw new Error("RemoteLink credentials are unavailable.");
         const action = request.method.slice("remote.credentials.".length) as RemoteCredentialAction;
-        return { ok: true, id: request.id, result: await this.#remoteCredentials(action, params) };
+        return {
+          ok: true,
+          id: request.id,
+          result: await this.#remoteCredentials(action, params, signal),
+        };
       }
       case "skills.subscribe": {
         this.#requireBackend(request);

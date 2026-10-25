@@ -13,6 +13,22 @@ export interface RemoteLinkCredentials {
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const TOKEN = /^[A-Za-z0-9_-]{43}$/;
 
+export function decodeRemoteLinkRegistration(
+  value: unknown,
+): NonNullable<RemoteLinkCredentials["registration"]> {
+  if (!value || typeof value !== "object") throw new Error("Invalid RemoteLink registration.");
+  const item = value as Record<string, unknown>;
+  if (
+    typeof item.deviceId !== "string" ||
+    !UUID.test(item.deviceId) ||
+    typeof item.deviceToken !== "string" ||
+    !TOKEN.test(item.deviceToken) ||
+    Buffer.from(item.deviceToken, "base64url").toString("base64url") !== item.deviceToken
+  )
+    throw new Error("Invalid RemoteLink registration.");
+  return { deviceId: item.deviceId, deviceToken: item.deviceToken };
+}
+
 function decode(value: unknown): RemoteLinkCredentials {
   if (!value || typeof value !== "object") throw new Error("Invalid RemoteLink credentials.");
   const row = value as Record<string, unknown>;
@@ -25,20 +41,9 @@ function decode(value: unknown): RemoteLinkCredentials {
     throw new Error("Invalid RemoteLink identity.");
   const registration = row.registration;
   if (registration !== null) {
-    if (!registration || typeof registration !== "object")
-      throw new Error("Invalid RemoteLink registration.");
-    const item = registration as Record<string, unknown>;
-    if (
-      typeof item.deviceId !== "string" ||
-      !UUID.test(item.deviceId) ||
-      typeof item.deviceToken !== "string" ||
-      !TOKEN.test(item.deviceToken) ||
-      Buffer.from(item.deviceToken, "base64url").toString("base64url") !== item.deviceToken
-    )
-      throw new Error("Invalid RemoteLink registration.");
     return {
       identityPrivateKey: row.identityPrivateKey,
-      registration: { deviceId: item.deviceId, deviceToken: item.deviceToken },
+      registration: decodeRemoteLinkRegistration(registration),
     };
   }
   return { identityPrivateKey: row.identityPrivateKey, registration: null };

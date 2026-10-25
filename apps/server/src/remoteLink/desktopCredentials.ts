@@ -109,12 +109,8 @@ export class DesktopRemoteCredentials {
     }
     return snapshot;
   }
-  async register(
-    identityPrivateKey: string,
-    registration: { deviceId: string; deviceToken: string },
-    signal?: AbortSignal,
-  ) {
-    await this.request("register", { identityPrivateKey, ...registration }, signal);
+  async register(accountId: string, signal?: AbortSignal): Promise<RemoteCredentialSnapshot> {
+    return this.snapshot(await this.request("register", { accountId }, signal));
   }
   async remove(identityPrivateKey: string, signal?: AbortSignal) {
     await this.request("remove", { identityPrivateKey }, signal);
