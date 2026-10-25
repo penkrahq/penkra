@@ -143,6 +143,9 @@ interface AppTabRecord {
 interface HostedPage {
   id: string;
   view: WebContentsView;
+  readonly contents: WebContents;
+  readonly rendererId: number;
+  disposed: boolean;
   state: AppBrowserPage;
   disposers: Array<() => void>;
   pendingLoad: Promise<void> | null;
@@ -363,7 +366,7 @@ export class AppTabViewHost implements AppTabHost {
   readonly #resolveIconDataUrl: typeof resolveInstalledAppIconDataUrl;
   readonly #diagnostics: ProtectedPublisher<AppRuntimeDiagnosticInput>;
   readonly #records = new Map<string, AppTabRecord>();
-  readonly #detachedHostByWebContentsId = new Map<number, BrowserWindow>();
+  readonly #detachedHostByView = new Map<WebContentsView, BrowserWindow>();
   readonly #presentationsByTabId = new Map<string, Map<number, AppTabWindowPresentation>>();
   readonly #replicaFrameByTabId = new Map<string, AppTabReplicaFrame>();
   readonly #overlayDepthByWindowId = new Map<number, number>();
@@ -427,7 +430,7 @@ export class AppTabViewHost implements AppTabHost {
         hasRegisteredShellWindow(
           BrowserWindow.getAllWindows(),
           this.#windowById,
-          new Set(this.#detachedHostByWebContentsId.values()),
+          new Set(this.#detachedHostByView.values()),
         ));
     const platform = input.platform ?? process.platform;
     this.#detachedHostPolicy = detachedHostPlatformPolicy({
@@ -747,7 +750,7 @@ export class AppTabViewHost implements AppTabHost {
       hostedPageVisible: record.page?.view.getVisible() ?? false,
       appViewLoading: record.appView.webContents.isLoading(),
       appViewCrashed: record.appView.webContents.isCrashed(),
-      hostedPageLoading: record.page?.view.webContents.isLoading() ?? false,
+      hostedPageLoading: record.page?.contents.isLoading() ?? false,
     });
     this.#emitPresentation(input.tabId);
   }
@@ -1004,8 +1007,8 @@ export class AppTabViewHost implements AppTabHost {
     const record = this.#require(tabId);
     const [appFrame, pageFrame] = await Promise.all([
       record.appView.webContents.capturePage(),
-      record.page && !record.page.view.webContents.isDestroyed()
-        ? record.page.view.webContents.capturePage()
+      record.page && !record.page.contents.isDestroyed()
+        ? record.page.contents.capturePage()
         : Promise.resolve(null),
     ]);
     record.lastFrame = appFrame;
@@ -1068,10 +1071,10 @@ export class AppTabViewHost implements AppTabHost {
   target(tabId: string, document: "d1" | "d2"): WebContents {
     const record = this.#require(tabId);
     if (document === "d2") {
-      if (!record.page || record.page.view.webContents.isDestroyed()) {
+      if (!record.page || record.page.contents.isDestroyed()) {
         throw new Error(`App tab ${tabId} has no hosted document.`);
       }
-      return record.page.view.webContents;
+      return record.page.contents;
     }
     return record.appView.webContents;
   }
@@ -1110,7 +1113,7 @@ export class AppTabViewHost implements AppTabHost {
   hostedPageForWebContentsId(webContentsId: number): { tabId: string; pageId: string } | null {
     for (const record of this.#records.values()) {
       const pages = [...record.popupOpeners, ...(record.page ? [record.page] : [])];
-      const page = pages.find((candidate) => candidate.view.webContents.id === webContentsId);
+      const page = pages.find((candidate) => candidate.rendererId === webContentsId);
       if (page) return { tabId: record.descriptor.id, pageId: page.id };
     }
     return null;
@@ -1192,7 +1195,7 @@ export class AppTabViewHost implements AppTabHost {
       tabId,
       pageId,
     });
-    page.view.webContents.reload();
+    page.contents.reload();
     return this.hostedPageState(tabId);
   }
 
@@ -1229,7 +1232,7 @@ export class AppTabViewHost implements AppTabHost {
     await this.#browserExtensions.open({
       partition: this.#browserPartition(record),
       extensionId: input.extensionId,
-      target: page.view.webContents,
+      target: page.contents,
       parent,
     });
   }
@@ -1287,7 +1290,7 @@ export class AppTabViewHost implements AppTabHost {
   }> {
     const page = this.#requireHostedPage(this.#require(tabId), pageId);
     await page.pendingLoad;
-    const bytes = page.view.webContents.capturePage().then((image) => image.toPNG());
+    const bytes = page.contents.capturePage().then((image) => image.toPNG());
     const png = await bytes;
     if (png.byteLength === 0) throw new Error("Couldn't capture the hosted page.");
     return {
@@ -1306,7 +1309,7 @@ export class AppTabViewHost implements AppTabHost {
   }): Promise<unknown> {
     const page = this.#requireHostedPage(this.#require(input.tabId), input.pageId);
     await page.pendingLoad;
-    const contents = page.view.webContents;
+    const contents = page.contents;
     if (!contents.debugger.isAttached()) contents.debugger.attach("1.3");
     try {
       return await contents.debugger.sendCommand(input.method, input.params ?? {});
@@ -1321,7 +1324,7 @@ export class AppTabViewHost implements AppTabHost {
     const record = this.#records.get(tabId);
     if (!record?.page || record.page.id !== pageId) return false;
     await record.page.pendingLoad;
-    return !record.page.view.webContents.isDestroyed();
+    return !record.page.contents.isDestroyed();
   }
 
   ownerWindowId(tabId: string): number | null {
@@ -1389,8 +1392,8 @@ export class AppTabViewHost implements AppTabHost {
       if (!record.appView.webContents.isDestroyed()) {
         record.appView.webContents.setZoomFactor(zoomFactor);
       }
-      if (record.page && !record.page.view.webContents.isDestroyed()) {
-        record.page.view.webContents.setZoomFactor(zoomFactor);
+      if (record.page && !record.page.contents.isDestroyed()) {
+        record.page.contents.setZoomFactor(zoomFactor);
       }
     }
   }
@@ -1994,6 +1997,9 @@ export class AppTabViewHost implements AppTabHost {
     const page: HostedPage = {
       id: pageId,
       view,
+      contents: view.webContents,
+      rendererId: view.webContents.id,
+      disposed: false,
       state: {
         id: pageId,
         url,
@@ -2020,7 +2026,25 @@ export class AppTabViewHost implements AppTabHost {
   }
 
   #configureHostedPage(record: AppTabRecord, page: HostedPage): void {
-    const contents = page.view.webContents;
+    const contents = page.contents;
+    const destroyed = () => {
+      const wasCurrent = record.page === page;
+      if (wasCurrent) record.page = record.popupOpeners.pop() ?? null;
+      else record.popupOpeners = record.popupOpeners.filter((opener) => opener !== page);
+      this.#disposeHostedPage(record, page, false);
+      if (!wasCurrent) return;
+      while (record.page?.contents.isDestroyed()) {
+        const ended = record.page;
+        record.page = record.popupOpeners.pop() ?? null;
+        this.#disposeHostedPage(record, ended, false);
+      }
+      this.#attachPage(record);
+      this.#layoutApp(record);
+      this.#layoutPage(record);
+      this.#hostedPageChanged(record);
+    };
+    contents.once("destroyed", destroyed);
+    page.disposers.push(() => contents.removeListener("destroyed", destroyed));
     this.#browserSessionPolicy.applyUserAgent(contents, page.state.url);
     const beforeInput = (event: Electron.Event, input: Electron.Input) =>
       this.#onBeforeInput(event, input);
@@ -2206,18 +2230,6 @@ export class AppTabViewHost implements AppTabHost {
     record.page = popup;
     this.#attachPage(record);
     this.#layoutPage(record);
-    const restore = () => {
-      if (record.page !== popup) return;
-      const restored = record.popupOpeners.pop() ?? null;
-      record.page = restored;
-      this.#disposeHostedPage(record, popup, false);
-      this.#attachPage(record);
-      this.#layoutApp(record);
-      this.#layoutPage(record);
-      this.#hostedPageChanged(record);
-    };
-    contents.once("destroyed", restore);
-    popup.disposers.push(() => contents.removeListener("destroyed", restore));
     return popup;
   }
 
@@ -2239,10 +2251,18 @@ export class AppTabViewHost implements AppTabHost {
   }
 
   #disposeHostedPage(record: AppTabRecord, page: HostedPage, close = true): void {
-    this.#browserExtensions.closePopupForTarget(
-      this.#browserPartition(record),
-      page.view.webContents.id,
-    );
+    if (page.disposed) return;
+    page.disposed = true;
+    traceAppTabHost("hosted-page-dispose", {
+      tabId: record.descriptor.id,
+      pageId: page.id,
+      rendererId: page.rendererId,
+      ownerWindowId: record.ownerWindowId,
+      isPopup: page.isPopup,
+      nativeDestroyed: page.contents.isDestroyed(),
+      closeRequested: close,
+    });
+    this.#browserExtensions.closePopupForTarget(this.#browserPartition(record), page.rendererId);
     const window = record.ownerWindowId === null ? null : this.#windowById(record.ownerWindowId);
     if (window && !window.isDestroyed()) {
       try {
@@ -2253,15 +2273,15 @@ export class AppTabViewHost implements AppTabHost {
     }
     if (record.ownerWindowId === null) this.#detachDetachedView(page.view);
     for (const dispose of page.disposers.splice(0)) dispose();
-    if (close && !page.view.webContents.isDestroyed()) {
-      if (page.view.webContents.debugger.isAttached()) {
+    if (close && !page.contents.isDestroyed()) {
+      if (page.contents.debugger.isAttached()) {
         try {
-          page.view.webContents.debugger.detach();
+          page.contents.debugger.detach();
         } catch {
           // Closing the WebContents is authoritative cleanup.
         }
       }
-      page.view.webContents.close({ waitForBeforeUnload: false });
+      page.contents.close({ waitForBeforeUnload: false });
     }
   }
 
@@ -2269,14 +2289,14 @@ export class AppTabViewHost implements AppTabHost {
     traceAppTabHost("hosted-page-load-queued", {
       tabId: record.descriptor.id,
       pageId: page.id,
-      rendererId: page.view.webContents.id,
+      rendererId: page.rendererId,
       hadPendingLoad: page.pendingLoad !== null,
     });
     const previous = page.pendingLoad ?? Promise.resolve();
     const load = previous
       .catch(() => undefined)
       .then(async () => {
-        if (record.page !== page || page.view.webContents.isDestroyed()) {
+        if (record.page !== page || page.contents.isDestroyed()) {
           traceAppTabHost("hosted-page-load-skipped", {
             tabId: record.descriptor.id,
             pageId: page.id,
@@ -2287,15 +2307,15 @@ export class AppTabViewHost implements AppTabHost {
         traceAppTabHost("hosted-page-load-requested", {
           tabId: record.descriptor.id,
           pageId: page.id,
-          rendererId: page.view.webContents.id,
+          rendererId: page.rendererId,
         });
-        this.#browserSessionPolicy.applyUserAgent(page.view.webContents, url);
+        this.#browserSessionPolicy.applyUserAgent(page.contents, url);
         try {
-          await page.view.webContents.loadURL(url);
+          await page.contents.loadURL(url);
           traceAppTabHost("hosted-page-load-resolved", {
             tabId: record.descriptor.id,
             pageId: page.id,
-            rendererId: page.view.webContents.id,
+            rendererId: page.rendererId,
           });
         } catch (error) {
           if (error instanceof Error && /ERR_ABORTED|\(-3\)/i.test(error.message)) {
@@ -2326,8 +2346,8 @@ export class AppTabViewHost implements AppTabHost {
   }
 
   #syncHostedPage(record: AppTabRecord, page: HostedPage): void {
-    if (page.view.webContents.isDestroyed()) return;
-    const contents = page.view.webContents;
+    if (page.contents.isDestroyed()) return;
+    const contents = page.contents;
     const liveUrl = contents.getURL();
     const committed = liveUrl.startsWith("chrome-error://") ? "" : liveUrl;
     const url = committed || page.state.url;
@@ -2423,10 +2443,10 @@ export class AppTabViewHost implements AppTabHost {
   }
 
   #ensureDetachedHost(view: WebContentsView, bounds: Rectangle): BrowserWindow {
-    const key = view.webContents.id;
+    const key = view;
     const width = Math.max(640, Math.ceil(bounds.width));
     const height = Math.max(720, Math.ceil(bounds.height));
-    let host = this.#detachedHostByWebContentsId.get(key);
+    let host = this.#detachedHostByView.get(key);
     const hostPolicy = this.#detachedHostPolicy;
     if (!host || host.isDestroyed()) {
       host = new BrowserWindow({
@@ -2446,10 +2466,10 @@ export class AppTabViewHost implements AppTabHost {
         maximizable: false,
         fullscreenable: false,
       });
-      this.#detachedHostByWebContentsId.set(key, host);
+      this.#detachedHostByView.set(key, host);
       host.once("closed", () => {
-        if (this.#detachedHostByWebContentsId.get(key) === host) {
-          this.#detachedHostByWebContentsId.delete(key);
+        if (this.#detachedHostByView.get(key) === host) {
+          this.#detachedHostByView.delete(key);
         }
       });
     } else {
@@ -2513,21 +2533,21 @@ export class AppTabViewHost implements AppTabHost {
   }
 
   #isDetachedHostView(view: WebContentsView | undefined): boolean {
-    return view !== undefined && this.#detachedHostByWebContentsId.has(view.webContents.id);
+    return view !== undefined && this.#detachedHostByView.has(view);
   }
 
   #detachDetachedView(view: WebContentsView): void {
-    const key = view.webContents.id;
-    const host = this.#detachedHostByWebContentsId.get(key);
+    const key = view;
+    const host = this.#detachedHostByView.get(key);
     if (!host) return;
     this.#removeChildView(host, view);
-    this.#detachedHostByWebContentsId.delete(key);
+    this.#detachedHostByView.delete(key);
     if (!host.isDestroyed()) host.close();
   }
 
   #closeDetachedHosts(): void {
-    const hosts = new Set(this.#detachedHostByWebContentsId.values());
-    this.#detachedHostByWebContentsId.clear();
+    const hosts = new Set(this.#detachedHostByView.values());
+    this.#detachedHostByView.clear();
     for (const host of hosts) {
       if (!host.isDestroyed()) host.close();
     }
@@ -2576,7 +2596,7 @@ export class AppTabViewHost implements AppTabHost {
       traceAppTabHost("hosted-page-view-layout-change", {
         tabId: record.descriptor.id,
         pageId: record.page.id,
-        rendererId: record.page.view.webContents.id,
+        rendererId: record.page.rendererId,
         currentBounds,
         bounds,
         currentVisible,
