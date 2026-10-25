@@ -1,5 +1,10 @@
 import { Schema } from "effect";
-import { NOISE_MAX_MESSAGE_BYTES } from "./noise";
+import {
+  decodeNoiseJson,
+  encodeNoiseJson,
+  NoiseJsonError,
+  noiseJsonRemainingBytes,
+} from "./noiseJson";
 
 const Id = Schema.Int.check(Schema.isGreaterThanOrEqualTo(1));
 const Seq = Schema.Int.check(Schema.isGreaterThanOrEqualTo(0));
@@ -36,10 +41,6 @@ const Envelope = Schema.Union([
 export type TunnelEnvelope = typeof Envelope.Type;
 export type HttpBodyChunk = Extract<TunnelEnvelope, { t: "http.body" }>;
 const validate = Schema.decodeUnknownSync(Envelope);
-const TAG_BYTES = 16; // ChaChaPoly authentication tag.
-const PREFIX_BYTES = 4; // Network-order uint32 JSON byte length, inside Noise.
-const MAX_PLAINTEXT = NOISE_MAX_MESSAGE_BYTES - TAG_BYTES;
-const utf8 = new TextDecoder("utf-8", { fatal: true });
 
 export class TunnelCodecError extends Error {
   constructor(readonly code: "invalid-envelope" | "oversized-envelope") {
@@ -66,23 +67,27 @@ function checked(value: unknown): TunnelEnvelope {
 
 /** Exactly one length-prefixed JSON envelope per Noise transport message. */
 export function encodeTunnelEnvelope(value: TunnelEnvelope): Uint8Array {
-  const json = Buffer.from(JSON.stringify(checked(value)), "utf8");
-  if (json.length + PREFIX_BYTES > MAX_PLAINTEXT) throw new TunnelCodecError("oversized-envelope");
-  const bytes = Buffer.allocUnsafe(PREFIX_BYTES + json.length);
-  bytes.writeUInt32BE(json.length);
-  json.copy(bytes, PREFIX_BYTES);
-  return bytes;
+  const envelope = checked(value);
+  try {
+    return encodeNoiseJson(envelope);
+  } catch (error) {
+    throw new TunnelCodecError(
+      error instanceof NoiseJsonError && error.code === "oversized-json"
+        ? "oversized-envelope"
+        : "invalid-envelope",
+    );
+  }
 }
 
 export function decodeTunnelEnvelope(bytes: Uint8Array): TunnelEnvelope {
-  if (bytes.byteLength > MAX_PLAINTEXT) throw new TunnelCodecError("oversized-envelope");
   try {
-    if (bytes.byteLength < PREFIX_BYTES) throw new Error();
-    const view = Buffer.from(bytes.buffer, bytes.byteOffset, bytes.byteLength);
-    if (view.readUInt32BE() !== view.length - PREFIX_BYTES) throw new Error();
-    return checked(JSON.parse(utf8.decode(view.subarray(PREFIX_BYTES))));
-  } catch {
-    throw new TunnelCodecError("invalid-envelope");
+    return checked(decodeNoiseJson(bytes));
+  } catch (error) {
+    throw new TunnelCodecError(
+      error instanceof NoiseJsonError && error.code === "oversized-json"
+        ? "oversized-envelope"
+        : "invalid-envelope",
+    );
   }
 }
 
@@ -98,9 +103,8 @@ export async function* encodeHttpBody(input: {
     let offset = 0;
     while (offset < part.byteLength) {
       const empty: HttpBodyChunk = { t: "http.body", id: input.id, seq, body: "", more: true };
-      const overhead = Buffer.byteLength(JSON.stringify(empty)) + PREFIX_BYTES;
       // Base64 is exactly four JSON-safe ASCII bytes per three input bytes.
-      const capacity = Math.floor((MAX_PLAINTEXT - overhead) / 4) * 3;
+      const capacity = Math.floor(noiseJsonRemainingBytes(empty) / 4) * 3;
       const fit = Math.min(part.byteLength - offset, capacity);
       if (!fit) throw new TunnelCodecError("oversized-envelope");
       const envelope: HttpBodyChunk = {
