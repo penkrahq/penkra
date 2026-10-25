@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { makeKeyedRuntimeLock } from "../keyedRuntimeLock.ts";
+import { makeKeyedLock } from "../../keyedLock.ts";
 import { rm } from "node:fs/promises";
 import path from "node:path";
 import {
@@ -989,7 +989,7 @@ export function makeOpenCodeAdapterLive(options?: OpenCodeAdapterLiveOptions) {
         options?.agentGatewayCredentials;
       const gatewayToolBridge = yield* AgentGatewayToolBridge;
       const provider = adapterConfig.provider;
-      const withNativeDeletion = makeKeyedRuntimeLock<string>();
+      const withNativeDeletion = makeKeyedLock<string>();
       const prepareManagedProcess = (launch: ProviderManagedLaunchContext) =>
         Effect.gen(function* () {
           if (!agentGatewayCredentials)

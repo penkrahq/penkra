@@ -67,6 +67,8 @@ describe("RemoteTrustStore", () => {
       });
       expect(replaced.sessionId).not.toBe(first.sessionId);
       expect((yield* Effect.flip(sessions.verify(first.token))).message).toContain("revoked");
+      expect(yield* store.remove(input.deviceId, first.sessionId)).toBe(false);
+      expect((yield* sessions.verify(replaced.token)).sessionId).toBe(replaced.sessionId);
       yield* store.markPaired(input.deviceId, first.sessionId);
       expect((yield* store.get(input.deviceId))?.pendingBackend).toBe(1);
       yield* store.markPaired(input.deviceId, replaced.sessionId);

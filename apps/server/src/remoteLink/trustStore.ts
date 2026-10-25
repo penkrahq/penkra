@@ -67,11 +67,12 @@ export const makeRemoteTrustStore = Effect.gen(function* () {
       }),
     );
 
-  const remove = (deviceId: string) =>
+  const remove = (deviceId: string, expectedSessionId?: AuthSessionId) =>
     mutations.withPermit(
       Effect.gen(function* () {
         const phone = yield* get(deviceId);
         if (!phone) return false;
+        if (expectedSessionId !== undefined && phone.sessionId !== expectedSessionId) return false;
         yield* sessions.unpairClient(
           phone.sessionId,
           Effect.gen(function* () {

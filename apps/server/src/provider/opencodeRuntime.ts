@@ -43,7 +43,7 @@ import {
   Scope,
   Stream,
 } from "effect";
-import { makeKeyedRuntimeLock } from "./keyedRuntimeLock.ts";
+import { makeKeyedLock } from "../keyedLock.ts";
 import { ChildProcess, ChildProcessSpawner } from "effect/process";
 
 import { prepareWindowsSafeProcess } from "@penkra/shared/windowsProcess";
@@ -519,7 +519,7 @@ const makeOpenCodeRuntime = (options?: OpenCodeRuntimeLiveOptions) =>
     const pooledServerScope = yield* Effect.acquireRelease(Scope.make(), (scope) =>
       Scope.close(scope, Exit.void),
     );
-    const withPoolLock = makeKeyedRuntimeLock<string>();
+    const withPoolLock = makeKeyedLock<string>();
     const pendingServers = new Map<string, { connectionId: ProviderConnectionId | undefined }>();
     let stoppingAll = 0;
     let disposed = false;

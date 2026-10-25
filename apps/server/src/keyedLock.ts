@@ -2,7 +2,7 @@ import { Effect } from "effect";
 import * as Semaphore from "effect/Semaphore";
 
 /** Independent lifecycle locks, retained only while executing or queued. */
-export function makeKeyedRuntimeLock<Key>() {
+export function makeKeyedLock<Key>() {
   const locks = new Map<Key, { semaphore: Semaphore.Semaphore; users: number }>();
   return <A, E, R>(key: Key, operation: Effect.Effect<A, E, R>): Effect.Effect<A, E, R> =>
     Effect.suspend(() => {

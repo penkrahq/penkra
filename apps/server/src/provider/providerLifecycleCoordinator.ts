@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 
 import type { ThreadId } from "@penkra/contracts";
 import { Effect } from "effect";
-import { makeKeyedRuntimeLock } from "./keyedRuntimeLock.ts";
+import { makeKeyedLock } from "../keyedLock.ts";
 
 export interface ProviderLifecycleLease {
   readonly generation: string;
@@ -40,7 +40,7 @@ export interface ProviderLifecycleCoordinator {
 
 /** Serializes provider lifecycle mutations per thread and gives each mutation a unique epoch. */
 export function makeProviderLifecycleCoordinator(): ProviderLifecycleCoordinator {
-  const withThreadLock = makeKeyedRuntimeLock<ThreadId>();
+  const withThreadLock = makeKeyedLock<ThreadId>();
   const currentGenerations = new Map<ThreadId, string>();
 
   const run: ProviderLifecycleCoordinator["run"] = (threadId, operation) =>
