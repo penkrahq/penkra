@@ -11,13 +11,11 @@ import {
   getDesktopThreadLiveHandlers,
   subscribeDesktopThreadLiveStateChanges,
 } from "../desktopThreadApiBroker";
-import { deriveUnmountedThreadLiveState } from "../lib/desktopThreadState";
 import { useStore } from "../store";
 import { getThreadList, subscribeThreadList } from "../threadListStore";
 import { sortThreadsForSidebar } from "./Sidebar.logic";
 
-function folderStates(folderId: FolderId): ReadonlyArray<AppThreadState> {
-  const state = useStore.getState();
+export function folderStates(folderId: FolderId): ReadonlyArray<AppThreadState> {
   const rows = sortThreadsForSidebar(
     getThreadList().filter(
       (row) => row.folderId === folderId && row.archivedAt === null && row.deletedAt === null,
@@ -25,20 +23,11 @@ function folderStates(folderId: FolderId): ReadonlyArray<AppThreadState> {
     "created_at",
   );
   const drafts = useComposerDraftStore.getState().draftsByThreadId;
-  const queuedCountForThread = (threadId: ThreadId) => {
-    const row = rows.find((row) => row.id === threadId);
-    return row === undefined ? 0 : (JSON.parse(row.queue) as unknown[]).length;
-  };
   return rows.flatMap((row, index) => {
     const threadId = row.id;
     const draft = drafts[threadId];
-    const live =
-      getDesktopThreadLiveHandlers(threadId)?.read() ??
-      deriveUnmountedThreadLiveState(
-        threadId,
-        state.sidebarThreadSummaryById[threadId],
-        queuedCountForThread(threadId),
-      );
+    const live = getDesktopThreadLiveHandlers(threadId)?.read();
+    const queuedCount = (JSON.parse(row.queue) as unknown[]).length;
     const hasDraft =
       !!draft &&
       Boolean(
@@ -57,9 +46,14 @@ function folderStates(folderId: FolderId): ReadonlyArray<AppThreadState> {
         archived: row.archivedAt != null,
         phase:
           live?.phase ??
-          (row.openQuestionCount > 0 ? "waiting" : row.state === "running" ? "running" : "idle"),
-        activeTurnId:
-          live?.activeTurnId ?? state.threadSessionById?.[threadId]?.activeTurnId ?? null,
+          (row.openQuestionCount > 0
+            ? "waiting"
+            : row.state === "running"
+              ? "running"
+              : row.state === "error"
+                ? "failed"
+                : "idle"),
+        activeTurnId: live === undefined ? row.activeTurnId : live.activeTurnId,
         pendingQuestion: live?.pendingUserInput ?? row.openQuestionCount > 0,
         composer: {
           empty: !hasDraft,
@@ -67,7 +61,7 @@ function folderStates(folderId: FolderId): ReadonlyArray<AppThreadState> {
           composeId: null,
         },
         queued: {
-          count: live?.queuedCount ?? queuedCountForThread(threadId),
+          count: live?.queuedCount ?? queuedCount,
           hasAppSubmission: false,
         },
         updatedAt: row.updatedAt,
