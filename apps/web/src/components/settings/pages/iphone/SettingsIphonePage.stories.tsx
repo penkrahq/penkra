@@ -7,7 +7,13 @@ const ago = (minutes: number) => new Date(Date.now() - minutes * 60_000).toISOSt
 const meta = {
   component: SettingsIphonePage,
   title: "Settings/Pages/iPhone",
-  args: { onAccessChange: () => {}, onRemove: () => {} },
+  args: {
+    onAccessChange: () => {},
+    onRemove: () => {},
+    onSignInAgain: () => {},
+    onCheckForUpdates: () => {},
+    relay: { kind: "connected" },
+  },
   decorators: [
     (Story) => (
       <div className="max-w-[640px] p-6">
@@ -38,3 +44,12 @@ export const Paired: Story = {
 export const NoPhonesYet: Story = { args: { signedIn: true, accessOn: true, phones: [] } };
 export const Off: Story = { args: { signedIn: true, accessOn: false, phones: [] } };
 export const SignedOut: Story = { args: { signedIn: false, accessOn: false, phones: [] } };
+export const Connecting: Story = {
+  args: { signedIn: true, accessOn: true, phones: [], relay: { kind: "connecting" } },
+};
+export const SignInRejected: Story = {
+  args: { signedIn: true, accessOn: true, phones: [], relay: { kind: "rejected-sign-in" } },
+};
+export const VersionRejected: Story = {
+  args: { signedIn: true, accessOn: true, phones: [], relay: { kind: "rejected-version" } },
+};

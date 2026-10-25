@@ -17,6 +17,16 @@ export interface PairedIphone {
   readonly lastConnectedAt: string | null;
 }
 
+/**
+ * This Mac's connection to the relay (TODO §7.5.10). `rejected-*` are the relay's refusals that
+ * retrying cannot fix, so Penkra stops and says what to do instead.
+ */
+export type RelayStatus =
+  | { readonly kind: "connected" }
+  | { readonly kind: "connecting" }
+  | { readonly kind: "rejected-sign-in" }
+  | { readonly kind: "rejected-version" };
+
 export function SettingsIphonePage(props: {
   /** Penkra account sign-in on this Mac; phone access needs it. */
   readonly signedIn: boolean;
@@ -26,7 +36,14 @@ export function SettingsIphonePage(props: {
   readonly phones: ReadonlyArray<PairedIphone>;
   /** Removes the iPhone's trust and session on this Mac; the caller confirms first. */
   readonly onRemove: (deviceId: string) => void;
+  /** Shown under the switch while access is on. */
+  readonly relay: RelayStatus;
+  /** "Sign in again" for `rejected-sign-in` (opens the existing account sign-in). */
+  readonly onSignInAgain: () => void;
+  /** "Check for updates" for `rejected-version` (the existing desktop updater). */
+  readonly onCheckForUpdates: () => void;
 }) {
+  const on = props.signedIn && props.accessOn;
   return (
     <div className="flex flex-col gap-6" data-pencil-page="iphone">
       <SettingsSectionShared title="Phone access">
@@ -36,6 +53,15 @@ export function SettingsIphonePage(props: {
             props.signedIn
               ? "Use this Mac's threads from Penkra on your iPhone, at home or away. Everything between them is end-to-end encrypted."
               : "Sign in to your Penkra account in Settings → Account to use Penkra on iPhone."
+          }
+          status={
+            on ? (
+              <RelayStatusLine
+                relay={props.relay}
+                onSignInAgain={props.onSignInAgain}
+                onCheckForUpdates={props.onCheckForUpdates}
+              />
+            ) : undefined
           }
           control={
             <SwitchShared
@@ -87,4 +113,54 @@ export function SettingsIphonePage(props: {
 function lastConnectedLabel(iso: string): string {
   const age = formatRelativeTime(iso);
   return age === "now" ? "Last connected just now" : `Last connected ${age} ago`;
+}
+
+function RelayStatusLine(props: {
+  relay: RelayStatus;
+  onSignInAgain: () => void;
+  onCheckForUpdates: () => void;
+}) {
+  const dot = (color: string) => (
+    <span aria-hidden="true" className={`inline-block size-1.5 rounded-full ${color}`} />
+  );
+  switch (props.relay.kind) {
+    case "connected":
+      return (
+        <span className="inline-flex items-center gap-1.5">
+          {dot("bg-emerald-500")}Ready for your iPhone
+        </span>
+      );
+    case "connecting":
+      return (
+        <span className="inline-flex items-center gap-1.5">
+          {dot("bg-muted-foreground/50")}Connecting…
+        </span>
+      );
+    case "rejected-sign-in":
+      return (
+        <span className="inline-flex flex-wrap items-center gap-1.5">
+          {dot("bg-amber-500")}Your Penkra sign-in on this Mac needs renewing.
+          <button
+            type="button"
+            className="text-[var(--color-text-foreground)] underline-offset-2 hover:underline"
+            onClick={props.onSignInAgain}
+          >
+            Sign in again
+          </button>
+        </span>
+      );
+    case "rejected-version":
+      return (
+        <span className="inline-flex flex-wrap items-center gap-1.5">
+          {dot("bg-amber-500")}This version of Penkra can't connect to your iPhone.
+          <button
+            type="button"
+            className="text-[var(--color-text-foreground)] underline-offset-2 hover:underline"
+            onClick={props.onCheckForUpdates}
+          >
+            Check for updates
+          </button>
+        </span>
+      );
+  }
 }
