@@ -10,12 +10,33 @@ import {
 
 export class RemoteRelayError extends Error {
   constructor(
-    readonly code: "invalid-url" | "connection-failed" | "closed" | "write-failed",
+    readonly code:
+      | "invalid-url"
+      | "connection-failed"
+      | "protocol-failed"
+      | "closed"
+      | "write-failed",
     readonly status?: number,
   ) {
     super(`RemoteLink relay ${code}.`);
   }
 }
+// Public ws receiver error codes: https://github.com/websockets/ws/blob/master/doc/ws.md#error-codes
+// Match the structured code, never error prose or a guessed string prefix.
+const PROTOCOL_ERROR_CODES = new Set([
+  "WS_ERR_EXPECTED_FIN",
+  "WS_ERR_EXPECTED_MASK",
+  "WS_ERR_INVALID_CLOSE_CODE",
+  "WS_ERR_INVALID_CONTROL_PAYLOAD_LENGTH",
+  "WS_ERR_INVALID_OPCODE",
+  "WS_ERR_INVALID_UTF8",
+  "WS_ERR_UNEXPECTED_MASK",
+  "WS_ERR_UNEXPECTED_RSV_1",
+  "WS_ERR_UNEXPECTED_RSV_2_3",
+  "WS_ERR_TOO_MANY_BUFFERED_PARTS",
+  "WS_ERR_UNSUPPORTED_DATA_PAYLOAD_LENGTH",
+  "WS_ERR_UNSUPPORTED_MESSAGE_LENGTH",
+]);
 type CloseReason =
   | "remote-close"
   | "aborted"
@@ -28,7 +49,7 @@ export interface RelaySocketEvent {
   readonly reason?: CloseReason;
   readonly code?: number;
 }
-interface Input {
+export interface RelaySocketInput {
   readonly url: string;
   readonly deviceToken: string;
   readonly signal: AbortSignal;
@@ -64,7 +85,7 @@ export class RemoteRelaySocket {
   #reason: CloseReason = "remote-close";
 
   private constructor(
-    private readonly input: Input,
+    private readonly input: RelaySocketInput,
     url: URL,
   ) {
     this.#socket = new WebSocket(url, {
@@ -88,9 +109,13 @@ export class RemoteRelaySocket {
       this.#opening.resolve();
       this.#observe({ event: "opened" });
     });
-    this.#socket.on("error", () => {
-      this.#opening.reject(new RemoteRelayError("connection-failed"));
-      this.#stop("connection-failed");
+    this.#socket.on("error", (error) => {
+      const reason =
+        "code" in error && typeof error.code === "string" && PROTOCOL_ERROR_CODES.has(error.code)
+          ? "protocol-failed"
+          : "connection-failed";
+      this.#opening.reject(new RemoteRelayError(reason));
+      this.#stop(reason);
     });
     this.#socket.once("unexpected-response", (_request, response) => {
       response.resume();
@@ -130,7 +155,7 @@ export class RemoteRelaySocket {
     if (input.signal.aborted) abort();
   }
 
-  static async open(input: Input): Promise<RemoteRelaySocket> {
+  static async open(input: RelaySocketInput): Promise<RemoteRelaySocket> {
     if (input.signal.aborted) throw new RemoteRelayError("closed");
     let url: URL;
     try {

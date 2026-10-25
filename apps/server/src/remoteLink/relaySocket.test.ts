@@ -112,9 +112,7 @@ describe("real RemoteLink relay socket", () => {
         });
         try {
           const closed = await relay.finished;
-          expect(closed.reason).toBe(
-            kind === "oversized" ? "connection-failed" : "protocol-failed",
-          );
+          expect(closed.reason).toBe("protocol-failed");
           expect(delivered).toBe(false);
         } finally {
           relay.close();
