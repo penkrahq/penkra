@@ -206,6 +206,51 @@ it("renders the admitted image from its persisted attachment URL", () => {
   expect(markup).toContain('alt="sent.png"');
 });
 
+it("keeps sent photos and videos in one media gallery", () => {
+  const markup = renderToStaticMarkup(
+    <MessagesTimeline
+      {...makeTimelineBaseProps()}
+      timelineEntries={[
+        {
+          id: "mixed-media-entry",
+          kind: "message",
+          createdAt: "2026-03-17T19:12:28.000Z",
+          message: {
+            id: MessageId.make("mixed-media-message"),
+            role: "user",
+            text: "Compare these recordings and the screenshot.",
+            attachments: [
+              {
+                id: "photo",
+                type: "image",
+                name: "photo.png",
+                mimeType: "image/png",
+                sizeBytes: 5,
+              },
+              { id: "clip", type: "file", name: "clip.mp4", mimeType: "video/mp4", sizeBytes: 10 },
+              {
+                id: "document",
+                type: "file",
+                name: "notes.pdf",
+                mimeType: "application/pdf",
+                sizeBytes: 5,
+              },
+            ],
+            createdAt: "2026-03-17T19:12:28.000Z",
+            streaming: false,
+          },
+        },
+      ]}
+    />,
+  );
+  expect(markup).toContain('data-presented-gallery-id="photo"');
+  expect(markup).toContain('aria-label="Show image 1: photo.png"');
+  expect(markup).toContain('aria-label="Show video 2: clip.mp4"');
+  expect(markup).not.toContain('aria-label="Preview photo.png"');
+  expect(markup).toContain('data-presented-media-id="document"');
+  expect(markup).toContain("Open");
+});
+
 beforeAll(() => {
   const classList = {
     add: () => {},

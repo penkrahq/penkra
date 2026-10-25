@@ -41,6 +41,7 @@ import { CrossTaskOriginLabel, type CrossTaskOrigin } from "./CrossTaskOriginLab
 import { useStore } from "../../store";
 import { PenkraThreadCreationCard } from "./PenkraThreadCreationCard";
 import { PresentedMediaRow } from "./PresentedMediaRow";
+import { presentedVideoMimeType } from "./presentedMediaType";
 import { buildExpandedImagePreview, ExpandedImagePreview } from "./ExpandedImagePreview";
 import { FileEntryIcon } from "./FileEntryIcon";
 import { InlineMentionChip } from "./InlineMentionChip";
@@ -942,6 +943,15 @@ export const MessagesTimeline = memo(function MessagesTimeline({
                 { type: "file" }
               > => attachment.type === "file",
             );
+            const hasVideo = userFiles.some((file) => presentedVideoMimeType(file) !== null);
+            const presentedAttachments = hasVideo
+              ? (row.message.attachments ?? []).filter(
+                  (
+                    attachment,
+                  ): attachment is (typeof userImages)[number] | (typeof userFiles)[number] =>
+                    attachment.type === "image" || attachment.type === "file",
+                )
+              : userFiles;
             const displayedUserMessage = deriveDisplayedUserMessageState(row.message.text, {
               hideImageOnlyBootstrapPrompt:
                 userImages.length > 0 || userFiles.length > 0 || assistantSelections.length > 0,
@@ -1053,10 +1063,10 @@ export const MessagesTimeline = memo(function MessagesTimeline({
                         ))}
                       </div>
                     )}
-                    {userFiles.length > 0 && (
+                    {presentedAttachments.length > 0 && (
                       <div className="mb-1 max-w-full self-end">
                         <PresentedMediaRow
-                          items={userFiles.map((file) => ({
+                          items={presentedAttachments.map((file) => ({
                             attachmentId: file.id,
                             name: file.name,
                             mimeType: file.mimeType,
@@ -1067,7 +1077,7 @@ export const MessagesTimeline = memo(function MessagesTimeline({
                         />
                       </div>
                     )}
-                    {userImages.length > 0 && (
+                    {!hasVideo && userImages.length > 0 && (
                       <div
                         className={cn(
                           "flex max-w-[240px] flex-wrap justify-end gap-2 self-end",

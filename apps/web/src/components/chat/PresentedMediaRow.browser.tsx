@@ -5,6 +5,8 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { render } from "vitest-browser-react";
 
 import { PresentedMediaRow } from "./PresentedMediaRow";
+import { MessagesTimeline } from "./MessagesTimeline";
+import { MessageId } from "@penkra/contracts";
 
 const { mediaUrls } = vi.hoisted(() => ({ mediaUrls: new Map<string, string>() }));
 vi.mock("~/lib/wsHttpUrl", async (importOriginal) => {
@@ -39,6 +41,90 @@ async function videoFixture(id: string, extension: string) {
 }
 
 describe("presented image gallery", () => {
+  it("groups photos and videos on the actual sent-message timeline", async () => {
+    await videoFixture("sent-clip", "mp4");
+    mediaUrls.set(
+      "/attachments/sent-photo",
+      "data:image/svg+xml," +
+        encodeURIComponent(
+          '<svg xmlns="http://www.w3.org/2000/svg" width="160" height="90"><rect width="160" height="90" fill="#3478f6"/></svg>',
+        ),
+    );
+    const screen = await render(
+      <div style={{ width: 480, height: 600 }}>
+        <MessagesTimeline
+          hasMessages
+          isWorking={false}
+          activeTurnInProgress={false}
+          activeTurnStartedAt={null}
+          timelineEntries={[
+            {
+              id: "sent-media-entry",
+              kind: "message",
+              createdAt: "2026-10-25T21:18:00.000Z",
+              message: {
+                id: MessageId.make("sent-media"),
+                role: "user",
+                text: "Compare these attachments.",
+                createdAt: "2026-10-25T21:18:00.000Z",
+                streaming: false,
+                attachments: [
+                  {
+                    id: "sent-photo",
+                    type: "image",
+                    name: "photo.png",
+                    mimeType: "image/png",
+                    sizeBytes: 5,
+                  },
+                  {
+                    id: "sent-clip",
+                    type: "file",
+                    name: "clip.mp4",
+                    mimeType: "video/mp4",
+                    sizeBytes: 10,
+                  },
+                  {
+                    id: "sent-pdf",
+                    type: "file",
+                    name: "notes.pdf",
+                    mimeType: "application/pdf",
+                    sizeBytes: 5,
+                  },
+                ],
+              },
+            },
+          ]}
+          nowIso="2026-10-25T21:18:30.000Z"
+          onImageExpand={() => {}}
+          markdownCwd={undefined}
+          resolvedTheme="dark"
+          timestampFormat="locale"
+          workspaceRoot={undefined}
+        />
+      </div>,
+    );
+    try {
+      await expect
+        .element(page.getByRole("button", { name: "Show image 1: photo.png" }))
+        .toBeVisible();
+      await expect
+        .element(page.getByRole("button", { name: "Show video 2: clip.mp4" }))
+        .toBeVisible();
+      expect(document.querySelectorAll("[data-presented-gallery-id]")).toHaveLength(1);
+      expect(document.querySelector('[aria-label="Preview photo.png"]')).toBeNull();
+      await page.getByRole("button", { name: "Show video 2: clip.mp4" }).click();
+      await expect
+        .poll(() => document.querySelector<HTMLVideoElement>("video[controls]")?.readyState ?? 0)
+        .toBeGreaterThanOrEqual(2);
+      await expect.element(page.getByText("2 / 2", { exact: true })).toBeVisible();
+      await expect.element(page.getByRole("button", { name: "notes.pdf Open" })).toBeVisible();
+      await page.screenshot({
+        path: "../../../../../.penkra/scratch/sent-media-group/timeline.png",
+      });
+    } finally {
+      await screen.unmount();
+    }
+  });
   it.each(["webm", "mp4"])(
     "renders video controls and plays and seeks an actual %s",
     async (extension) => {
