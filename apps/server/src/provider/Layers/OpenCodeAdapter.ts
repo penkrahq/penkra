@@ -970,10 +970,12 @@ const stopOpenCodeContext = Effect.fn("stopOpenCodeContext")(function* (
 
   yield* runOpenCodeSdk("session.abort", () =>
     context.client.session.abort({ sessionID: context.openCodeSessionId }),
-  ).pipe(Effect.ignore({ log: true }));
-
-  yield* Scope.close(context.sessionScope, Exit.void).pipe(
-    Effect.ensuring(Effect.sync(() => releaseOpenCodeGatewayLease(context))),
+  ).pipe(
+    Effect.ensuring(
+      Scope.close(context.sessionScope, Exit.void).pipe(
+        Effect.ensuring(Effect.sync(() => releaseOpenCodeGatewayLease(context))),
+      ),
+    ),
   );
 });
 
@@ -2567,8 +2569,14 @@ export function makeOpenCodeAdapterLive(options?: OpenCodeAdapterLiveOptions) {
               : undefined;
           const existing = sessions.get(input.threadId);
           if (existing) {
-            yield* stopOpenCodeContext(existing);
-            sessions.delete(input.threadId);
+            yield* stopOpenCodeContext(existing).pipe(
+              Effect.mapError(toAdapterRequestError),
+              Effect.ensuring(
+                Effect.sync(() => {
+                  if (sessions.get(input.threadId) === existing) sessions.delete(input.threadId);
+                }),
+              ),
+            );
           }
 
           const resumedSessionId = extractResumeSessionId(input.resumeCursor);
@@ -3060,8 +3068,14 @@ export function makeOpenCodeAdapterLive(options?: OpenCodeAdapterLiveOptions) {
           const context = sessions.get(threadId);
           if (!context) return;
           const wasStopped = yield* Ref.get(context.stopped);
-          yield* stopOpenCodeContext(context);
-          sessions.delete(threadId);
+          yield* stopOpenCodeContext(context).pipe(
+            Effect.mapError(toAdapterRequestError),
+            Effect.ensuring(
+              Effect.sync(() => {
+                if (sessions.get(threadId) === context) sessions.delete(threadId);
+              }),
+            ),
+          );
           if (!wasStopped) {
             yield* emit(context, {
               ...buildEventBase({ threadId }),

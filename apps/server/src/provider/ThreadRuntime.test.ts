@@ -1,13 +1,24 @@
-import { ProviderConnectionId, ThreadId, type ProviderRuntimeEvent } from "@penkra/contracts";
+import {
+  ProviderConnectionId,
+  ThreadId,
+  type ProviderKind,
+  type ProviderRuntimeEvent,
+} from "@penkra/contracts";
 import { Deferred, Effect, Fiber } from "effect";
 import { describe, expect, it, vi } from "vitest";
 
-import { makeThreadRuntime } from "./ThreadRuntime.ts";
+import { makeThreadRuntime as makeRuntimeOwner } from "./ThreadRuntime.ts";
 import { ProviderAdapterProcessError, type ProviderAdapterError } from "./Errors.ts";
 import type { ProviderAdapterShape } from "./Services/ProviderAdapter.ts";
 
 const thread = ThreadId.make("runtime-owner");
 const peer = ThreadId.make("runtime-peer");
+const makeThreadRuntime = (
+  retireNativeContinuation: (
+    threadId: ThreadId,
+    provider: ProviderKind,
+  ) => Effect.Effect<void, unknown> = () => Effect.void,
+) => makeRuntimeOwner({ retireNativeContinuation });
 
 describe("ThreadRuntime ownership", () => {
   it("preserves the existing Connection when a different Connection is disconnected during preparation", async () => {
@@ -87,12 +98,14 @@ describe("ThreadRuntime ownership", () => {
           runtime.scheduleIdle(
             thread,
             100,
-            runtime.stop(thread, "idle", (lease) =>
-              Deferred.succeed(entered, undefined).pipe(
-                Effect.andThen(Deferred.await(release)),
-                Effect.andThen(Effect.sync(lease.retire)),
-              ),
-            ),
+            runtime
+              .stop(thread, "idle", (lease) =>
+                Deferred.succeed(entered, undefined).pipe(
+                  Effect.andThen(Deferred.await(release)),
+                  Effect.andThen(Effect.sync(lease.retire)),
+                ),
+              )
+              .pipe(Effect.orDie),
           );
           yield* Effect.promise(() => vi.advanceTimersByTimeAsync(100));
           yield* Deferred.await(entered);
@@ -401,49 +414,58 @@ describe("ThreadRuntime ownership", () => {
     );
   });
 
-  it("does not admit a replacement after a failed disposal until explicit cleanup succeeds", async () => {
-    await Effect.runPromise(
-      Effect.gen(function* () {
-        const runtime = makeThreadRuntime();
-        yield* runtime.ensure(thread, "codex", (lease) => Effect.sync(lease.commit));
-        let cleanup: Effect.Effect<void, ProviderAdapterError> = Effect.fail(
-          new ProviderAdapterProcessError({
-            provider: "codex",
-            threadId: thread,
-            detail: "exit proof failed",
-          }),
-        );
-        const adapter = {
-          provider: "codex",
-          stopSession: () => cleanup,
-        } as unknown as ProviderAdapterShape<ProviderAdapterError>;
-        yield* Effect.result(
-          runtime.stop(thread, "selection-change", () =>
-            runtime.dispose(adapter, thread, "selection-change"),
-          ),
-        );
-        expect(runtime.state(thread)).toBe("stopping");
-        let started = false;
-        const result = yield* Effect.result(
-          runtime.ensure(thread, "claudeAgent", () =>
+  it.each(["codex", "claudeAgent", "opencode"] as const)(
+    "retires an unconfirmed %s continuation before admitting a replacement",
+    async (provider) => {
+      await Effect.runPromise(
+        Effect.gen(function* () {
+          const retired: ProviderKind[] = [];
+          const runtime = makeThreadRuntime((id, kind) =>
             Effect.sync(() => {
-              started = true;
+              expect(id).toBe(thread);
+              retired.push(kind);
             }),
-          ),
-        );
-        expect(result._tag).toBe("Failure");
-        expect(started).toBe(false);
-        cleanup = Effect.void;
-        yield* runtime.stop(thread, "selection-change", () =>
-          runtime.dispose(adapter, thread, "selection-change"),
-        );
-        yield* runtime.ensure(thread, "claudeAgent", (lease) => Effect.sync(lease.commit));
-        expect(runtime.state(thread)).toBe("ready");
-      }),
-    );
-  });
+          );
+          yield* runtime.ensure(thread, provider, (lease) => Effect.sync(lease.commit));
+          const oldGeneration = runtime.currentGeneration(thread);
+          const cleanup: Effect.Effect<void, ProviderAdapterError> = Effect.fail(
+            new ProviderAdapterProcessError({
+              provider,
+              threadId: thread,
+              detail: "exit proof failed",
+            }),
+          );
+          const adapter = {
+            provider,
+            stopSession: () => cleanup,
+          } as unknown as ProviderAdapterShape<ProviderAdapterError>;
+          yield* Effect.result(
+            runtime.stop(thread, "selection-change", () =>
+              runtime.dispose(adapter, thread, "selection-change"),
+            ),
+          );
+          expect(runtime.state(thread)).toBe("none");
+          expect(runtime.currentGeneration(thread)).toBeUndefined();
+          expect(retired).toEqual([provider]);
+          let started = false;
+          const result = yield* Effect.result(
+            runtime.ensure(thread, provider, (lease) =>
+              Effect.sync(() => {
+                lease.commit();
+                started = true;
+              }),
+            ),
+          );
+          expect(result._tag).toBe("Success");
+          expect(started).toBe(true);
+          expect(runtime.currentGeneration(thread)).not.toBe(oldGeneration);
+          expect(runtime.state(thread)).toBe("ready");
+        }),
+      );
+    },
+  );
 
-  it("keeps failed start cleanup owned instead of declaring a cancelled process gone", async () => {
+  it("reports failed start cleanup but retires its continuation instead of blocking future starts", async () => {
     await Effect.runPromise(
       Effect.gen(function* () {
         const runtime = makeThreadRuntime();
@@ -459,8 +481,101 @@ describe("ThreadRuntime ownership", () => {
         yield* Deferred.await(entered);
         const cancelled = yield* Effect.result(runtime.interrupt(thread, () => Effect.void));
         expect(cancelled._tag).toBe("Failure");
-        expect(runtime.state(thread)).toBe("stopping");
+        expect(runtime.state(thread)).toBe("none");
         yield* Fiber.await(start);
+      }),
+    );
+  });
+
+  it("joins retirement before the replacement starts while another thread remains independent", async () => {
+    await Effect.runPromise(
+      Effect.gen(function* () {
+        const entered = yield* Deferred.make<void>();
+        const durable = yield* Deferred.make<void>();
+        const runtime = makeThreadRuntime(() =>
+          Deferred.succeed(entered, undefined).pipe(Effect.andThen(Deferred.await(durable))),
+        );
+        yield* runtime.ensure(thread, "codex", (lease) => Effect.sync(lease.commit));
+        const adapter = {
+          provider: "codex",
+          stopSession: () =>
+            Effect.fail(
+              new ProviderAdapterProcessError({
+                provider: "codex",
+                threadId: thread,
+                detail: "controlled stop failure",
+              }),
+            ),
+        } as unknown as ProviderAdapterShape<ProviderAdapterError>;
+        const stop = yield* Effect.result(
+          runtime.stop(thread, "user-stop", () => runtime.dispose(adapter, thread, "user-stop")),
+        ).pipe(Effect.forkChild);
+        yield* Deferred.await(entered);
+        let started = false;
+        const replacement = yield* runtime
+          .ensure(thread, "codex", (lease) =>
+            Effect.sync(() => {
+              started = true;
+              lease.commit();
+            }),
+          )
+          .pipe(Effect.forkChild);
+        yield* runtime.ensure(peer, "codex", (lease) => Effect.sync(lease.commit));
+        expect(runtime.state(peer)).toBe("ready");
+        expect(started).toBe(false);
+        yield* Deferred.succeed(durable, undefined);
+        expect((yield* Fiber.join(stop))._tag).toBe("Failure");
+        yield* Fiber.join(replacement);
+        expect(started).toBe(true);
+        expect(runtime.state(thread)).toBe("ready");
+      }),
+    );
+  });
+
+  it("does not admit native work while retirement persistence fails and retries only on a new admission", async () => {
+    await Effect.runPromise(
+      Effect.gen(function* () {
+        let writable = false;
+        let writes = 0;
+        const runtime = makeThreadRuntime(() =>
+          Effect.suspend(() => {
+            writes++;
+            return writable
+              ? Effect.void
+              : Effect.fail(new Error("controlled persistence failure"));
+          }),
+        );
+        yield* runtime.ensure(thread, "codex", (lease) => Effect.sync(lease.commit));
+        const adapter = {
+          provider: "codex",
+          stopSession: () =>
+            Effect.fail(
+              new ProviderAdapterProcessError({
+                provider: "codex",
+                threadId: thread,
+                detail: "controlled stop failure",
+              }),
+            ),
+        } as unknown as ProviderAdapterShape<ProviderAdapterError>;
+        yield* Effect.exit(
+          runtime.stop(thread, "user-stop", () => runtime.dispose(adapter, thread, "user-stop")),
+        );
+        expect(writes).toBe(1);
+        let started = false;
+        const attempt = () =>
+          runtime.ensure(thread, "codex", (lease) =>
+            Effect.sync(() => {
+              started = true;
+              lease.commit();
+            }),
+          );
+        expect((yield* Effect.result(attempt()))._tag).toBe("Failure");
+        expect(started).toBe(false);
+        expect(writes).toBe(2);
+        writable = true;
+        yield* attempt();
+        expect(writes).toBe(3);
+        expect(started).toBe(true);
       }),
     );
   });

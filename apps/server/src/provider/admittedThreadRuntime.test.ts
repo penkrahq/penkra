@@ -3,7 +3,6 @@
 // Layer: Provider runtime preparation tests
 
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
-import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import {
   ProviderConnectionId,
@@ -22,7 +21,7 @@ import type { ResolvedProviderTurnSelection } from "./Services/ProviderTurnSelec
 import * as SqlClient from "effect/sql/SqlClient";
 import * as NodeSqliteClient from "../persistence/NodeSqliteClient.ts";
 import { runMigrations } from "../persistence/Migrations.ts";
-import { createThread } from "../cleanCore/threadStore.ts";
+import { createThread, upsertThreadItem } from "../cleanCore/threadStore.ts";
 import { seedThreadFolderFixture } from "../cleanCore/threadFixtures.ts";
 
 const directories: string[] = [];
@@ -35,7 +34,9 @@ afterEach(async () => {
 });
 
 async function fixture(provider: ProviderKind, providerSessionId: string | null) {
-  const stateDir = await mkdtemp(join(tmpdir(), "penkra-admitted-runtime-"));
+  const scratch = join(import.meta.dirname, "../../../../.penkra/scratch");
+  await mkdir(scratch, { recursive: true });
+  const stateDir = await mkdtemp(join(scratch, "p30-admitted-runtime-"));
   directories.push(stateDir);
   const threadId = ThreadId.make("thread");
   const connectionId = ProviderConnectionId.make("connection");
@@ -123,6 +124,50 @@ it("starts fresh without materializing when a previously connected Claude thread
     TEST_PROVIDER: "ready",
   });
 });
+
+it.each(["codex", "claudeAgent", "opencode"] as const)(
+  "rebuilds %s from canonical history after durable continuation retirement",
+  async (provider) => {
+    const f = await fixture(provider, "retired-native-session");
+    await Effect.runPromise(
+      upsertThreadItem({
+        threadId: f.input.threadId,
+        sourceId: "retained-history",
+        turnId: null,
+        kind: "text",
+        status: "done",
+        text: "Preserved conversation history",
+        createdAt: "2026-10-11T00:00:00.000Z",
+        updatedAt: "2026-10-11T00:00:00.000Z",
+      }).pipe(Effect.provideService(SqlClient.SqlClient, f.sql)),
+    );
+    const history = await Effect.runPromise(
+      f.sql`SELECT * FROM thread_items WHERE thread_id=${f.input.threadId}`,
+    );
+    await Effect.runPromise(
+      f.sql`UPDATE threads SET provider_session_id=NULL WHERE id=${f.input.threadId} AND provider=${provider}`,
+    );
+    const result = await Effect.runPromise(resolveAdmittedThreadRuntime(f.input, f.dependencies));
+    expect(result.resumeCursor).toBeUndefined();
+    expect(result.requiresReconstruction).toBe(true);
+    expect(
+      await Effect.runPromise(
+        f.sql`SELECT * FROM thread_items WHERE thread_id=${f.input.threadId}`,
+      ),
+    ).toEqual(history);
+    expect(
+      await Effect.runPromise(
+        f.sql`SELECT connection_id, native_state_id, provider_session_id FROM threads WHERE id=${f.input.threadId}`,
+      ),
+    ).toEqual([
+      {
+        connection_id: f.selection.connectionId,
+        native_state_id: f.selection.nativeStateId,
+        provider_session_id: null,
+      },
+    ]);
+  },
+);
 
 it("keeps the canonical OpenCode cursor after per-thread storage has been migrated away", async () => {
   const f = await fixture("opencode", "ses_shared");

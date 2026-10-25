@@ -403,7 +403,33 @@ const makeProviderService = (options?: ProviderServiceLiveOptions) =>
       yield* Effect.serviceOption(AgentGatewayCredentials),
     );
     const directory = yield* ProviderSessionDirectory;
-    const lifecycle = makeThreadRuntime();
+    const lifecycle = makeThreadRuntime({
+      retireNativeContinuation: (threadId, provider) =>
+        withNativeCommitLock(
+          threadId,
+          withBindingWriteLock(
+            threadId,
+            Effect.gen(function* () {
+              if (options?.persistNativeResumeCursor)
+                yield* options.persistNativeResumeCursor({
+                  threadId,
+                  provider,
+                  resumeCursor: null,
+                });
+              yield* directory.remove(threadId);
+              const state = getDispatchState(threadId);
+              state.nextGeneration++;
+              state.latestGeneration = state.nextGeneration;
+              state.ownerGeneration = state.nextGeneration;
+              state.outstandingTurnIds.clear();
+              state.successfulResults.clear();
+              liveRuntimeTaskIds.delete(threadId);
+              recentlyCompletedTurnsByThread.delete(threadId);
+              cleanupDispatchState(threadId);
+            }),
+          ),
+        ),
+    });
     for (const binding of yield* directory.listBindings()) {
       if (binding.lifecycleGeneration !== undefined) {
         lifecycle.adoptCurrent(binding.threadId, binding.lifecycleGeneration, binding.provider);
@@ -531,7 +557,9 @@ const makeProviderService = (options?: ProviderServiceLiveOptions) =>
       }
     };
 
-    const publishRuntimeEvent = (event: ProviderRuntimeEvent): Effect.Effect<void, unknown> =>
+    const commitRuntimeEvent = (
+      event: ProviderRuntimeEvent,
+    ): Effect.Effect<ProviderRuntimeEvent | null, unknown> =>
       Effect.uninterruptible(
         (options?.consumeRuntimeEvent
           ? options.consumeRuntimeEvent(event)
@@ -539,14 +567,11 @@ const makeProviderService = (options?: ProviderServiceLiveOptions) =>
         ).pipe(
           Effect.flatMap((admittedEvent) =>
             admittedEvent === null
-              ? Effect.void
+              ? Effect.succeed(null)
               : (canonicalEventLogger
                   ? canonicalEventLogger.write(admittedEvent, null)
                   : Effect.void
-                ).pipe(
-                  Effect.andThen(PubSub.publish(runtimeEventPubSub, admittedEvent)),
-                  Effect.asVoid,
-                ),
+                ).pipe(Effect.as(admittedEvent)),
           ),
         ),
       );
@@ -685,6 +710,9 @@ const makeProviderService = (options?: ProviderServiceLiveOptions) =>
     // mutex adds no meaningful contention. Creation is synchronous
     // (Semaphore.makeUnsafe), so concurrent callers cannot mint two locks.
     const withBindingWriteLock = makeKeyedThreadLock();
+    // Canonical native writes and retirement share one per-thread boundary.
+    // Observer backpressure stays outside it so a slow client cannot hold stop.
+    const withNativeCommitLock = makeKeyedThreadLock();
 
     interface StartedTurnPersistenceInput {
       readonly threadId: ThreadId;
@@ -1070,62 +1098,71 @@ const makeProviderService = (options?: ProviderServiceLiveOptions) =>
     );
     const processRuntimeEvent = (event: ProviderRuntimeEvent): Effect.Effect<void, unknown> =>
       Effect.uninterruptible(
-        Effect.suspend(() => {
-          if (
-            event.lifecycleGeneration !== undefined &&
-            lifecycle.currentGeneration(event.threadId) !== event.lifecycleGeneration
-          ) {
-            return Effect.logDebug("provider.session.stale_generation_event_ignored", {
-              threadId: event.threadId,
-              provider: event.provider,
-              eventType: event.type,
-              eventLifecycleGeneration: event.lifecycleGeneration,
-            });
-          }
-          const canonicalEvent = normalizeProviderRuntimeEvent(event);
-          return Effect.sync(() => {
-            // Child runtime events are attributed to the parent thread but do
-            // not own its gateway session or turn.
-            if (canonicalEvent.providerRefs?.providerParentThreadId === undefined) {
-              if (canonicalEvent.type === "turn.started" && canonicalEvent.turnId !== undefined) {
-                agentGatewayCredentials?.beginTurn(
-                  canonicalEvent.threadId,
-                  canonicalEvent.provider,
-                  String(canonicalEvent.turnId),
-                  canonicalEvent.lifecycleGeneration,
-                  "runtime-event",
-                );
-              } else if (
-                (canonicalEvent.type === "turn.completed" ||
-                  canonicalEvent.type === "turn.aborted") &&
-                canonicalEvent.turnId !== undefined
+        Effect.gen(function* () {
+          const admitted = yield* withNativeCommitLock(
+            event.threadId,
+            Effect.suspend(() => {
+              if (
+                event.lifecycleGeneration !== undefined &&
+                lifecycle.currentGeneration(event.threadId) !== event.lifecycleGeneration
               ) {
-                agentGatewayCredentials?.endTurn(
-                  canonicalEvent.threadId,
-                  canonicalEvent.provider,
-                  String(canonicalEvent.turnId),
-                  canonicalEvent.lifecycleGeneration,
-                );
-              } else if (canonicalEvent.type === "session.exited") {
-                agentGatewayCredentials?.endSession(
-                  canonicalEvent.threadId,
-                  canonicalEvent.provider,
-                  canonicalEvent.lifecycleGeneration,
-                );
+                return Effect.logDebug("provider.session.stale_generation_event_ignored", {
+                  threadId: event.threadId,
+                  provider: event.provider,
+                  eventType: event.type,
+                  eventLifecycleGeneration: event.lifecycleGeneration,
+                }).pipe(Effect.as(null));
               }
-            }
-            if (canonicalEvent.type === "turn.started") {
-              reconcileRuntimeIdleTimer(canonicalEvent);
-            }
-          }).pipe(
-            Effect.andThen(updateSessionBindingFromRuntimeEvent(canonicalEvent)),
-            Effect.andThen(
-              canonicalEvent.providerRefs?.providerParentThreadId === undefined
-                ? lifecycle.observe(canonicalEvent)
-                : Effect.void,
-            ),
-            Effect.andThen(publishRuntimeEvent(canonicalEvent)),
+              const canonicalEvent = normalizeProviderRuntimeEvent(event);
+              return Effect.sync(() => {
+                // Child runtime events are attributed to the parent thread but do
+                // not own its gateway session or turn.
+                if (canonicalEvent.providerRefs?.providerParentThreadId === undefined) {
+                  if (
+                    canonicalEvent.type === "turn.started" &&
+                    canonicalEvent.turnId !== undefined
+                  ) {
+                    agentGatewayCredentials?.beginTurn(
+                      canonicalEvent.threadId,
+                      canonicalEvent.provider,
+                      String(canonicalEvent.turnId),
+                      canonicalEvent.lifecycleGeneration,
+                      "runtime-event",
+                    );
+                  } else if (
+                    (canonicalEvent.type === "turn.completed" ||
+                      canonicalEvent.type === "turn.aborted") &&
+                    canonicalEvent.turnId !== undefined
+                  ) {
+                    agentGatewayCredentials?.endTurn(
+                      canonicalEvent.threadId,
+                      canonicalEvent.provider,
+                      String(canonicalEvent.turnId),
+                      canonicalEvent.lifecycleGeneration,
+                    );
+                  } else if (canonicalEvent.type === "session.exited") {
+                    agentGatewayCredentials?.endSession(
+                      canonicalEvent.threadId,
+                      canonicalEvent.provider,
+                      canonicalEvent.lifecycleGeneration,
+                    );
+                  }
+                }
+                if (canonicalEvent.type === "turn.started") {
+                  reconcileRuntimeIdleTimer(canonicalEvent);
+                }
+              }).pipe(
+                Effect.andThen(updateSessionBindingFromRuntimeEvent(canonicalEvent)),
+                Effect.andThen(
+                  canonicalEvent.providerRefs?.providerParentThreadId === undefined
+                    ? lifecycle.observe(canonicalEvent)
+                    : Effect.void,
+                ),
+                Effect.andThen(commitRuntimeEvent(canonicalEvent)),
+              );
+            }),
           );
+          if (admitted !== null) yield* PubSub.publish(runtimeEventPubSub, admitted);
         }),
       );
 
@@ -1155,11 +1192,19 @@ const makeProviderService = (options?: ProviderServiceLiveOptions) =>
           }
           yield* Effect.uninterruptible(
             Effect.gen(function* () {
-              yield* options.consumeRuntimeDeltaRun!(run);
-              for (const delta of run) {
-                if (canonicalEventLogger) yield* canonicalEventLogger.write(delta, null);
-                yield* PubSub.publish(runtimeEventPubSub, delta);
-              }
+              const commit = Effect.gen(function* () {
+                const admitted = run.filter(current);
+                if (admitted.length !== 0) yield* options.consumeRuntimeDeltaRun!(admitted);
+                for (const delta of admitted)
+                  if (canonicalEventLogger) yield* canonicalEventLogger.write(delta, null);
+                return admitted;
+              });
+              const threadIds = [...new Set(run.map((delta) => delta.threadId))].toSorted();
+              const committed = yield* threadIds.reduceRight(
+                (operation, threadId) => withNativeCommitLock(threadId, operation),
+                commit,
+              );
+              for (const delta of committed) yield* PubSub.publish(runtimeEventPubSub, delta);
             }),
           );
         }
@@ -2026,47 +2071,54 @@ const makeProviderService = (options?: ProviderServiceLiveOptions) =>
         // Share the runtime-event binding lock so a delayed session.exited
         // update cannot restore the stale cursor after this explicit clear.
         const clearedProvider = yield* lifecycle.stop(input.threadId, "user-stop", (lease) =>
-          withBindingWriteLock(
-            input.threadId,
-            Effect.gen(function* () {
-              const binding = Option.getOrUndefined(yield* directory.getBinding(input.threadId));
-              if (!binding) {
-                return undefined;
-              }
-              const adapter = yield* registry.getByProvider(binding.provider);
-              const hasActiveSession = yield* adapter.hasSession(input.threadId);
-              const preserveActive = hasActiveSession && input.preserveActiveRuntime === true;
-              if (hasActiveSession && !preserveActive) {
-                yield* lifecycle.dispose(adapter, input.threadId, "user-stop");
-              }
-              if (!preserveActive) {
-                liveRuntimeTaskIds.delete(input.threadId);
-              }
-              // A preserved runtime keeps stamping its events with the
-              // generation it was started under, so clearing the cursor must
-              // not re-label the thread with a generation that runtime will
-              // never emit.
-              const effectiveGeneration = preserveActive
-                ? (binding.lifecycleGeneration ?? lease.generation)
-                : lease.generation;
-              yield* directory.upsert({
-                threadId: input.threadId,
-                provider: binding.provider,
-                ...(binding.adapterKey !== undefined ? { adapterKey: binding.adapterKey } : {}),
-                ...(binding.runtimeMode !== undefined ? { runtimeMode: binding.runtimeMode } : {}),
-                status: preserveActive ? (binding.status ?? "running") : "stopped",
-                lifecycleGeneration: effectiveGeneration,
-                resumeCursor: null,
-                runtimePayload: {
-                  ...runtimePayloadRecord(binding.runtimePayload),
-                  ...(preserveActive ? {} : { activeTurnId: null }),
-                  lifecycleGeneration: effectiveGeneration,
-                },
-              });
-              lease.adopt(effectiveGeneration);
-              return binding.provider;
-            }),
-          ),
+          Effect.gen(function* () {
+            const binding = Option.getOrUndefined(yield* directory.getBinding(input.threadId));
+            if (!binding) {
+              return undefined;
+            }
+            const adapter = yield* registry.getByProvider(binding.provider);
+            const hasActiveSession = yield* adapter.hasSession(input.threadId);
+            const preserveActive = hasActiveSession && input.preserveActiveRuntime === true;
+            if (hasActiveSession && !preserveActive) {
+              yield* lifecycle.dispose(adapter, input.threadId, "user-stop");
+            }
+            return yield* withNativeCommitLock(
+              input.threadId,
+              withBindingWriteLock(
+                input.threadId,
+                Effect.gen(function* () {
+                  if (!preserveActive) {
+                    liveRuntimeTaskIds.delete(input.threadId);
+                  }
+                  // A preserved runtime keeps stamping its events with the
+                  // generation it was started under, so clearing the cursor must
+                  // not re-label the thread with a generation that runtime will
+                  // never emit.
+                  const effectiveGeneration = preserveActive
+                    ? (binding.lifecycleGeneration ?? lease.generation)
+                    : lease.generation;
+                  yield* directory.upsert({
+                    threadId: input.threadId,
+                    provider: binding.provider,
+                    ...(binding.adapterKey !== undefined ? { adapterKey: binding.adapterKey } : {}),
+                    ...(binding.runtimeMode !== undefined
+                      ? { runtimeMode: binding.runtimeMode }
+                      : {}),
+                    status: preserveActive ? (binding.status ?? "running") : "stopped",
+                    lifecycleGeneration: effectiveGeneration,
+                    resumeCursor: null,
+                    runtimePayload: {
+                      ...runtimePayloadRecord(binding.runtimePayload),
+                      ...(preserveActive ? {} : { activeTurnId: null }),
+                      lifecycleGeneration: effectiveGeneration,
+                    },
+                  });
+                  lease.adopt(effectiveGeneration);
+                  return binding.provider;
+                }),
+              ),
+            );
+          }),
         );
         yield* waitForRuntimeIdleStop(input.threadId);
         if (clearedProvider !== undefined) {

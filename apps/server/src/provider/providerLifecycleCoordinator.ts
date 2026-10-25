@@ -36,6 +36,8 @@ export interface ProviderLifecycleCoordinator {
   ) => Effect.Effect<A, E, R>;
   readonly adoptCurrent: (threadId: ThreadId, generation: string) => void;
   readonly currentGeneration: (threadId: ThreadId) => string | undefined;
+  /** Fence a retired native owner while its lifecycle mutation owns the thread lock. */
+  readonly retireCurrent: (threadId: ThreadId) => void;
 }
 
 /** Serializes provider lifecycle mutations per thread and gives each mutation a unique epoch. */
@@ -112,5 +114,8 @@ export function makeProviderLifecycleCoordinator(): ProviderLifecycleCoordinator
       ),
     adoptCurrent: (threadId, generation) => currentGenerations.set(threadId, generation),
     currentGeneration: (threadId) => currentGenerations.get(threadId),
+    retireCurrent: (threadId) => {
+      currentGenerations.delete(threadId);
+    },
   };
 }

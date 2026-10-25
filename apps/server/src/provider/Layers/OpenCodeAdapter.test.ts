@@ -1403,6 +1403,42 @@ describe("OpenCodeAdapter runtime lifecycle", () => {
     expect(runtime.abortCalls).toHaveLength(1);
   });
 
+  it("reports failed native abort but detaches the local session", async () => {
+    const runtime = createMockOpenCodeRuntime({
+      abort: async () => {
+        throw new Error("controlled abort failure");
+      },
+    });
+    const threadId = asThreadId("thread-failed-stop");
+    await Effect.runPromise(
+      Effect.gen(function* () {
+        const adapter = yield* OpenCodeAdapter;
+        yield* adapter.startSession({
+          managedLaunch: managedLaunchForTest(threadId),
+          provider: "opencode",
+          threadId,
+          runtimeMode: "full-access",
+          cwd: "/repo",
+        });
+        const stopped = yield* Effect.result(adapter.stopSession(threadId));
+        expect(stopped._tag).toBe("Failure");
+        expect(yield* adapter.hasSession(threadId)).toBe(false);
+        expect(yield* adapter.listSessions()).toEqual([]);
+        yield* adapter.stopSession(threadId);
+      }).pipe(
+        Effect.provide(
+          makeOpenCodeAdapterLive({ runtime: runtime.runtime }).pipe(
+            Layer.provideMerge(
+              ServerConfig.layerTest(process.cwd(), { prefix: "opencode-adapter-test-" }),
+            ),
+            Layer.provideMerge(NodeServices.layer),
+          ),
+        ),
+      ),
+    );
+    expect(runtime.abortCalls).toHaveLength(1);
+  });
+
   it("rejects unmanaged session starts before acquiring a program or gateway", async () => {
     const runtime = createMockOpenCodeRuntime();
     const gateway = makeGatewayCredentials();

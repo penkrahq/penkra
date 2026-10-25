@@ -191,7 +191,6 @@ interface CodexAccountProcess {
   readonly cwd: string;
   readonly connectionIds: Set<ProviderConnectionId>;
   readonly threads: Set<CodexSessionContext>;
-  readonly pendingCloses: Map<string, { resolve: () => void; reject: (cause: Error) => void }>;
   authProbeThreadId?: string;
   authProbeTail?: Promise<boolean>;
   readonly probes: Map<
@@ -1382,6 +1381,13 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
     context.nativeTurnStartTail = tail;
     await previous;
     try {
+      if (
+        context.stopping ||
+        context.transport.stopping ||
+        context.transport.protocolClosed ||
+        this.sessions.get(context.session.threadId) !== context
+      )
+        throw new CodexSessionStoppedRequestError();
       return await start();
     } finally {
       release();
@@ -1983,33 +1989,43 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
     context.gatewaySessionLease?.release();
     this.rejectPendingRequests(context.transport, new CodexSessionStoppedRequestError(), threadId);
     const nativeId = readResumeCursorThreadId(context.session.resumeCursor);
-    const activeTurnId = context.session.activeTurnId;
-    const closed =
-      nativeId === undefined
-        ? Promise.resolve()
-        : new Promise<void>((resolve, reject) => {
-            context.transport.pendingCloses.set(nativeId, { resolve, reject });
-          });
+    const activeTurnId = context.session.activeTurnId ?? context.pendingGatewayTurnStart?.turnId;
+    const turnStartPending = context.nativeTurnStartTail !== undefined;
     context.stopPromise = (async () => {
       try {
-        await Promise.all([
-          closed,
-          (async () => {
-            await withCodexPendingSettleDeadline(
-              this.settlePendingHumanRequests(context, "session stopped"),
-            );
-            if (nativeId !== undefined && !context.transport.stopping) {
-              if (activeTurnId !== undefined)
-                await this.sendRequest(context.transport, threadId, "turn/interrupt", {
-                  threadId: nativeId,
-                  turnId: activeTurnId,
-                });
-              await this.sendRequest(context.transport, threadId, "thread/unsubscribe", {
-                threadId: nativeId,
-              });
-            }
-          })(),
-        ]);
+        await withCodexPendingSettleDeadline(
+          this.settlePendingHumanRequests(context, "session stopped"),
+        );
+        if (nativeId !== undefined) {
+          const assertAttached = () => {
+            if (context.transport.stopping || this.sessions.get(threadId) !== context)
+              throw new CodexSessionStoppedRequestError();
+          };
+          assertAttached();
+          if (activeTurnId !== undefined)
+            await this.sendRequest(context.transport, threadId, "turn/interrupt", {
+              threadId: nativeId,
+              turnId: activeTurnId,
+            });
+          assertAttached();
+          const response = await this.sendRequest(
+            context.transport,
+            threadId,
+            "thread/unsubscribe",
+            {
+              threadId: nativeId,
+            },
+          );
+          const status = this.readString(this.readObject(response), "status");
+          if (status !== "unsubscribed" && status !== "notSubscribed" && status !== "notLoaded")
+            throw new Error("Codex unsubscribe did not return a recognized detachment status.");
+        }
+        if (
+          activeTurnId === undefined ? turnStartPending : !context.terminalTurnIds.has(activeTurnId)
+        )
+          throw new Error(
+            "Codex accepted local detachment without confirming the active turn ended.",
+          );
         await this.finishThreadClose(context);
       } catch (cause) {
         // Detachment is local cleanup, not proof of native termination. Keep the
@@ -2017,8 +2033,6 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
         this.detachThreadContext(context);
         await this.clearTemporaryResources(context);
         throw cause;
-      } finally {
-        if (nativeId !== undefined) context.transport.pendingCloses.delete(nativeId);
       }
     })();
     return context.stopPromise;
@@ -2549,7 +2563,6 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
       connectionIds: new Set(input.connectionId === null ? [] : [input.connectionId]),
       threads: new Set(),
       probes: new Map(),
-      pendingCloses: new Map(),
       stopping: false,
       protocolClosed: false,
       account: { type: "unknown", planType: null, sparkEnabled: true },
@@ -2732,12 +2745,7 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
       this.handleTransportFailure(transport, error);
     };
     const onProcessExit = (code: number | null, signal: NodeJS.Signals | null) => {
-      if (transport.stopping) {
-        const error = new Error(formatCodexProcessFailure(transport, "process-exit", code, signal));
-        for (const waiter of transport.pendingCloses.values()) waiter.reject(error);
-        transport.pendingCloses.clear();
-        return;
-      }
+      if (transport.stopping) return;
       // Unexpected protocol closure owns reporting after stdio drains. Ordinary
       // exit keeps the existing immediate lifecycle notification.
       if (!transport.protocolClosed)
@@ -2796,8 +2804,6 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
         ? new Error(message, { cause: transport.protocolFailure })
         : outcome.error;
     if (outcome.kind === "termination-failed") error.message = message;
-    for (const waiter of transport.pendingCloses.values()) waiter.reject(error);
-    transport.pendingCloses.clear();
     this.rejectPendingRequests(transport, error, null);
     for (const probe of transport.probes.values()) probe.reject(error);
     transport.probes.clear();
@@ -3014,9 +3020,23 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
       if (parsed.method === "turn/started" || parsed.method === "turn/completed")
         void transport.diagnostics?.sampleMemory();
       const nativeId = this.readProviderConversationId(parsed.params);
-      if (parsed.method === "thread/closed" && nativeId !== undefined) {
-        transport.pendingCloses.get(nativeId)?.resolve();
-        return;
+      if (parsed.method === "thread/closed") return;
+      if (parsed.method === "turn/completed" && nativeId !== undefined) {
+        const turn = this.readObject(parsed.params, "turn");
+        const turnId = this.readString(turn, "id");
+        const status = this.readString(turn, "status");
+        if (
+          turnId !== undefined &&
+          (status === "completed" || status === "interrupted" || status === "failed")
+        ) {
+          for (const context of transport.threads) {
+            if (
+              context.stopping &&
+              readResumeCursorThreadId(context.session.resumeCursor) === nativeId
+            )
+              context.terminalTurnIds.add(TurnId.make(turnId));
+          }
+        }
       }
       const probe = nativeId ? transport.probes.get(nativeId) : undefined;
       if (probe) {

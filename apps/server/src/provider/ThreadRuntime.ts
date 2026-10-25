@@ -46,6 +46,7 @@ interface RuntimeOwner {
   connectionId?: ProviderConnectionId | null | undefined;
   pendingConnectionId?: ProviderConnectionId | null | undefined;
   failure?: unknown;
+  retirement: "none" | "pending" | "committed";
 }
 
 // Ready acknowledgement and failed-start teardown are bounded external calls,
@@ -58,7 +59,12 @@ const PROVIDER_FAILED_START_CLEANUP_TIMEOUT = Duration.seconds(10);
  * serializes replacement/disposal, never the user's urgent interrupt. Cancelling
  * a start joins its finalizers before this owner can admit another start.
  */
-export function makeThreadRuntime() {
+export function makeThreadRuntime(options: {
+  readonly retireNativeContinuation: (
+    threadId: ThreadId,
+    provider: ProviderKind,
+  ) => Effect.Effect<void, unknown>;
+}) {
   const lifecycle = makeProviderLifecycleCoordinator();
   const owners = new Map<ThreadId, RuntimeOwner>();
   const idleJobs = new Map<
@@ -104,6 +110,40 @@ export function makeThreadRuntime() {
       });
     });
 
+  const retireUnconfirmed = (
+    threadId: ThreadId,
+    owner: RuntimeOwner,
+    reason: ThreadRuntimeStopReason | null,
+  ): Effect.Effect<void, ProviderValidationError> =>
+    Effect.uninterruptible(
+      Effect.gen(function* () {
+        owner.retirement = "pending";
+        const generation = lifecycle.currentGeneration(threadId) ?? null;
+        lifecycle.retireCurrent(threadId);
+        yield* transition(threadId, owner, "none", reason);
+        yield* Effect.logWarning("provider.session.native_termination_unconfirmed", {
+          threadId,
+          provider: owner.provider,
+          generation,
+          reason,
+          cause: owner.failure,
+        });
+        yield* options.retireNativeContinuation(threadId, owner.provider).pipe(
+          Effect.mapError(
+            (cause) =>
+              new ProviderValidationError({
+                operation: "ThreadRuntime.retireNativeContinuation",
+                issue: "Could not persist retirement of the unconfirmed provider conversation.",
+                cause,
+              }),
+          ),
+        );
+        owner.retirement = "committed";
+        owner.connectionId = undefined;
+        owner.turns.clear();
+      }),
+    );
+
   const ensure = <A, E, R>(
     threadId: ThreadId,
     provider: ProviderKind,
@@ -118,19 +158,15 @@ export function makeThreadRuntime() {
               issue: "Provider runtimes are shutting down.",
             });
           const previous = owners.get(threadId);
-          if (previous?.state === "stopping") {
-            return yield* new ProviderValidationError({
-              operation: "ThreadRuntime.ensure",
-              issue: "The previous provider runtime has not finished stopping.",
-              cause: previous.failure,
-            });
-          }
+          if (previous?.retirement === "pending")
+            yield* retireUnconfirmed(threadId, previous, previous.cancelReason ?? null);
           const owner: RuntimeOwner = {
             provider,
             state: previous?.state ?? "none",
             cancelled: false,
             nativeTouched: false,
             nativeCleaned: false,
+            retirement: "none",
             turns: new Set(),
             activate: lease.activate,
             generation: lease.generation,
@@ -138,10 +174,12 @@ export function makeThreadRuntime() {
           };
           owners.set(threadId, owner);
           yield* transition(threadId, owner, "starting");
-          const settled = yield* Deferred.make<Exit.Exit<A, E>>();
+          const settled = yield* Deferred.make<Exit.Exit<A, E | ProviderValidationError>>();
           const starting = yield* Effect.uninterruptibleMask((runInterruptibly) =>
             Effect.gen(function* () {
-              const exit = yield* Effect.exit(runInterruptibly(operation(lease)));
+              let exit: Exit.Exit<A, E | ProviderValidationError> = yield* Effect.exit(
+                runInterruptibly(operation(lease)),
+              );
               owner.start = undefined;
               owner.pendingConnectionId = undefined;
               if (!owner.nativeTouched && previous && previous.state !== "none") {
@@ -154,20 +192,24 @@ export function makeThreadRuntime() {
               if (Exit.isSuccess(exit)) {
                 if (owner.state === "starting") yield* transition(threadId, owner, "ready");
               } else {
-                // An interrupted start is not gone until its cleanup actually
-                // succeeded. A cleanup defect keeps ownership at stopping.
                 const cleanupFailed =
+                  owner.retirement !== "none" ||
                   (owner.state === "stopping" && owner.failure !== undefined) ||
                   (owner.cancelled && !owner.nativeCleaned && !Cause.hasInterruptsOnly(exit.cause));
                 owner.failure = cleanupFailed ? (owner.failure ?? exit.cause) : undefined;
-                yield* transition(
-                  threadId,
-                  owner,
-                  cleanupFailed ? "stopping" : "none",
-                  owner.cancelReason ?? null,
-                );
-                if (cleanupFailed && owner.nativeTouched) lease.commit();
-                else if (owner.nativeTouched && owner.nativeCleaned) lease.retire();
+                if (cleanupFailed && owner.retirement === "none") {
+                  const retired = yield* Effect.exit(
+                    retireUnconfirmed(threadId, owner, owner.cancelReason ?? null),
+                  );
+                  if (Exit.isFailure(retired))
+                    exit = Exit.failCause(Cause.combine(exit.cause, retired.cause));
+                }
+                yield* transition(threadId, owner, "none", owner.cancelReason ?? null);
+                if (
+                  owner.nativeTouched &&
+                  (owner.nativeCleaned || owner.retirement === "committed")
+                )
+                  lease.retire();
               }
               yield* Deferred.succeed(settled, exit);
             }),
@@ -188,7 +230,7 @@ export function makeThreadRuntime() {
     threadId: ThreadId,
     reason: ThreadRuntimeStopReason,
     operation: (lease: ProviderLifecycleLease) => Effect.Effect<A, E, R>,
-  ): Effect.Effect<A, E, R> =>
+  ): Effect.Effect<A, E | ProviderValidationError, R> =>
     lifecycle.run(threadId, (lease) =>
       Effect.gen(function* () {
         const owner = owners.get(threadId);
@@ -208,7 +250,9 @@ export function makeThreadRuntime() {
             if (Exit.isFailure(exit)) {
               if (!owner.nativeTouched) return transition(threadId, owner, previousState, reason);
               owner.failure = exit.cause;
-              return Effect.void;
+              return owner.retirement === "none"
+                ? retireUnconfirmed(threadId, owner, reason)
+                : Effect.void;
             }
             owner.failure = undefined;
             return transition(
@@ -234,10 +278,10 @@ export function makeThreadRuntime() {
         owner.cancelReason = reason;
         yield* Fiber.interrupt(starting.fiber);
         yield* starting.settled;
-        if (owner.state === "stopping") {
+        if (owner.failure !== undefined) {
           return yield* new ProviderValidationError({
             operation: "ThreadRuntime.interrupt",
-            issue: "Provider startup cleanup did not complete.",
+            issue: "Provider startup stop failed; its native continuation cannot be reused.",
             cause: owner.failure,
           });
         }
@@ -295,7 +339,7 @@ export function makeThreadRuntime() {
     adapter: ProviderAdapterShape<ProviderAdapterError>,
     threadId: ThreadId,
     reason: ThreadRuntimeStopReason | null,
-  ): Effect.Effect<void, ProviderAdapterError> =>
+  ): Effect.Effect<void, ProviderAdapterError | ProviderValidationError> =>
     Effect.gen(function* () {
       const owner = owners.get(threadId);
       if (owner) {
@@ -308,7 +352,7 @@ export function makeThreadRuntime() {
           if (!owner) return Effect.void;
           if (Exit.isFailure(exit)) {
             owner.failure = exit.cause;
-            return Effect.void;
+            return retireUnconfirmed(threadId, owner, reason);
           }
           owner.nativeCleaned = true;
           owner.connectionId = undefined;
@@ -486,6 +530,7 @@ export function makeThreadRuntime() {
         cancelled: false,
         nativeTouched: false,
         nativeCleaned: true,
+        retirement: "none",
         turns: new Set(),
       });
     },

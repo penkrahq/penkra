@@ -73,6 +73,149 @@ const approvalRequiredTurnOverrides = {
 } as const;
 
 describe("failed Codex thread stop detachment", () => {
+  it("does not issue a queued native turn after its session starts stopping", async () => {
+    const manager = new CodexAppServerManager();
+    const internals = manager as unknown as {
+      sessions: Map<ThreadId, unknown>;
+      withNativeTurnStart(context: unknown, start: () => Promise<void>): Promise<void>;
+    };
+    let release!: () => void;
+    const previous = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const threadId = asThreadId("queued-before-stop");
+    const context = {
+      transport: { stopping: false },
+      session: { threadId },
+      stopping: false,
+      nativeTurnStartTail: previous,
+    };
+    internals.sessions.set(threadId, context);
+    const start = vi.fn(async () => undefined);
+    const queued = internals.withNativeTurnStart(context, start);
+    context.stopping = true;
+    release();
+    await expect(queued).rejects.toBeInstanceOf(CodexSessionStoppedRequestError);
+    expect(start).not.toHaveBeenCalled();
+  });
+  it.each(["exact", "other-thread", "other-turn", "none", "pending-start"])(
+    "distinguishes local detachment from active-turn termination (%s proof)",
+    async (proof) => {
+      const manager = new CodexAppServerManager();
+      const internals = manager as unknown as {
+        sessions: Map<ThreadId, unknown>;
+        settlePendingHumanRequests(context: unknown, reason: string): Promise<void>;
+        sendRequest(...args: unknown[]): Promise<unknown>;
+        handleStdoutLine(transport: unknown, line: string): void;
+      };
+      const transport = {
+        threads: new Set<unknown>(),
+        pending: new Map(),
+        probes: new Map(),
+        connectionIds: new Set(),
+        stopping: false,
+      };
+      const context = {
+        transport,
+        stopping: false,
+        pendingUserInputs: new Map(),
+        terminalTurnIds: new Set(),
+        session: {
+          threadId: asThreadId("active-stop"),
+          provider: "codex",
+          status: "running",
+          activeTurnId: proof === "pending-start" ? undefined : asTurnId("active-turn"),
+          resumeCursor: { threadId: "active-native" },
+        },
+        ...(proof === "pending-start" ? { nativeTurnStartTail: Promise.resolve() } : {}),
+      };
+      transport.threads.add(context);
+      internals.sessions.set(context.session.threadId, context);
+      const settle = vi.spyOn(internals, "settlePendingHumanRequests").mockResolvedValue(undefined);
+      const send = vi
+        .spyOn(internals, "sendRequest")
+        .mockImplementation(async (_transport, _owner, method) => {
+          if (method === "turn/interrupt" && proof !== "none")
+            internals.handleStdoutLine(
+              transport,
+              JSON.stringify({
+                method: "turn/completed",
+                params: {
+                  threadId: proof === "other-thread" ? "another-native" : "active-native",
+                  turn: {
+                    id: proof === "other-turn" ? "another-turn" : "active-turn",
+                    status: "interrupted",
+                  },
+                },
+              }),
+            );
+          return method === "thread/unsubscribe" ? { status: "unsubscribed" } : {};
+        });
+      try {
+        const stop = manager.stopSession(context.session.threadId);
+        if (proof === "exact") await expect(stop).resolves.toBeUndefined();
+        else await expect(stop).rejects.toThrow("without confirming the active turn ended");
+        expect(internals.sessions.has(context.session.threadId)).toBe(false);
+        expect(transport.stopping).toBe(false);
+        expect(send.mock.calls.map((call) => call[2])).toEqual(
+          proof === "pending-start"
+            ? ["thread/unsubscribe"]
+            : ["turn/interrupt", "thread/unsubscribe"],
+        );
+      } finally {
+        settle.mockRestore();
+        send.mockRestore();
+      }
+    },
+  );
+  it.each(["unsubscribed", "notSubscribed", "notLoaded"])(
+    "finishes local stop on %s without awaiting native unload",
+    async (status) => {
+      const manager = new CodexAppServerManager();
+      const internals = manager as unknown as {
+        sessions: Map<ThreadId, unknown>;
+        settlePendingHumanRequests(context: unknown, reason: string): Promise<void>;
+        sendRequest(...args: unknown[]): Promise<unknown>;
+      };
+      const transport = {
+        threads: new Set<unknown>(),
+        pending: new Map(),
+        stopping: false,
+      };
+      const context = {
+        transport,
+        session: {
+          threadId: asThreadId("acknowledged-stop"),
+          provider: "codex",
+          status: "ready",
+          resumeCursor: { threadId: "native-acknowledged" },
+        },
+        pendingUserInputs: new Map(),
+        stopping: false,
+      };
+      transport.threads.add(context);
+      internals.sessions.set(context.session.threadId, context);
+      const settle = vi.spyOn(internals, "settlePendingHumanRequests").mockResolvedValue(undefined);
+      const send = vi.spyOn(internals, "sendRequest").mockResolvedValue({ status });
+      try {
+        await manager.stopSession(context.session.threadId);
+        expect(send).toHaveBeenCalledWith(
+          transport,
+          context.session.threadId,
+          "thread/unsubscribe",
+          { threadId: "native-acknowledged" },
+        );
+        expect(internals.sessions.has(context.session.threadId)).toBe(false);
+        expect(transport.threads.has(context)).toBe(false);
+        expect(transport.stopping).toBe(false);
+      } finally {
+        settle.mockRestore();
+        send.mockRestore();
+      }
+    },
+    1000,
+  );
+
   it.each([false, true])(
     "detaches only the failed context (replacement attached: %s)",
     async (replace) => {
@@ -84,7 +227,6 @@ describe("failed Codex thread stop detachment", () => {
       const transport = {
         threads: new Set<unknown>(),
         pending: new Map(),
-        pendingCloses: new Map(),
         stopping: false,
       };
       const release = vi.fn();
@@ -137,7 +279,6 @@ describe("failed Codex thread stop detachment", () => {
         expect(internals.sessions.get(peer.session.threadId)).toBe(peer);
         expect(transport.threads.has(peer)).toBe(true);
         expect(transport.stopping).toBe(false);
-        expect(transport.pendingCloses.size).toBe(0);
         expect(transport.threads.has(replacement)).toBe(replace);
         expect(rejectReplacementRequest).not.toHaveBeenCalled();
         expect(events.filter((event) => event.method === "session/closed")).toEqual([]);
@@ -180,7 +321,6 @@ describe("Codex capability preflight logging", () => {
       protocolClosed: false,
       threads: new Set<unknown>(),
       probes: new Map(),
-      pendingCloses: new Map(),
       pending: new Map(),
       stdoutFramer: new CodexJsonlFramer(256),
       stdinWriter: new CodexJsonlWriter(child.stdin),
@@ -520,7 +660,6 @@ describe("Codex Penkra harness policy", () => {
         token: Symbol("test-account"),
         threads: new Set<unknown>(),
         probes: new Map(),
-        pendingCloses: new Map(),
         stopping: false,
       },
       gatewaySessionLease: {
@@ -687,7 +826,6 @@ describe("Codex Penkra harness policy", () => {
         token: Symbol("test-account"),
         threads: new Set<unknown>(),
         probes: new Map(),
-        pendingCloses: new Map(),
         stopping: false,
       },
       pendingGatewayTurnStart: undefined as { turnId?: TurnId; registered: boolean } | undefined,
@@ -801,7 +939,6 @@ function createSendTurnHarness(runtimeMode: "approval-required" | "full-access" 
     transport: {
       threads: new Set<unknown>(),
       probes: new Map(),
-      pendingCloses: new Map(),
       account: {
         type: "unknown",
         planType: null,
@@ -817,6 +954,10 @@ function createSendTurnHarness(runtimeMode: "approval-required" | "full-access" 
   };
 
   context.transport.threads.add(context);
+  (manager as unknown as { sessions: Map<string, unknown> }).sessions.set(
+    context.session.threadId,
+    context,
+  );
   const requireSession = vi
     .spyOn(
       manager as unknown as { requireSession: (sessionId: string) => unknown },
@@ -954,7 +1095,6 @@ function createThreadControlHarness() {
       token: Symbol("test-account"),
       threads: new Set<unknown>(),
       probes: new Map(),
-      pendingCloses: new Map(),
       stopping: false,
     },
     lifecycleGeneration: "generation-request-a",
@@ -977,6 +1117,10 @@ function createThreadControlHarness() {
   };
   context.transport.threads.add(context);
 
+  (manager as unknown as { sessions: Map<string, unknown> }).sessions.set(
+    context.session.threadId,
+    context,
+  );
   const requireSession = vi
     .spyOn(
       manager as unknown as { requireSession: (sessionId: string) => unknown },
@@ -1016,7 +1160,6 @@ function createPendingUserInputHarness() {
       token: Symbol("test-account"),
       threads: new Set<unknown>(),
       probes: new Map(),
-      pendingCloses: new Map(),
       stopping: false,
     },
     session: {
@@ -1078,7 +1221,6 @@ function createCollabNotificationHarness() {
       token: Symbol("test-account"),
       threads: new Set<unknown>(),
       probes: new Map(),
-      pendingCloses: new Map(),
       stopping: false,
       account: {
         type: "unknown",
@@ -1179,7 +1321,6 @@ function createProcessOutputHarness() {
       token: Symbol("test-account"),
       threads: new Set<unknown>(),
       probes: new Map(),
-      pendingCloses: new Map(),
       stopping: false,
     },
     session: {
@@ -1225,7 +1366,6 @@ describe("Codex app-server teardown", () => {
         token: Symbol("test-account"),
         threads: new Set<unknown>(),
         probes: new Map(),
-        pendingCloses: new Map(),
         stopping: false,
         account: { type: "unknown", planType: null, sparkEnabled: true },
         child,
@@ -1320,7 +1460,6 @@ describe("Codex app-server teardown", () => {
         token: Symbol("test-account"),
         threads: new Set<unknown>(),
         probes: new Map(),
-        pendingCloses: new Map(),
         stopping: false,
         account: { type: "unknown", planType: null, sparkEnabled: true },
         child,
@@ -1403,7 +1542,6 @@ describe("Codex app-server teardown", () => {
         token: Symbol("test-account"),
         threads: new Set<unknown>(),
         probes: new Map(),
-        pendingCloses: new Map(),
         stopping: false,
         account: { type: "unknown", planType: null, sparkEnabled: true },
         child,
@@ -1468,7 +1606,6 @@ describe("Codex app-server teardown", () => {
         token: Symbol("test-account"),
         threads: new Set<unknown>(),
         probes: new Map(),
-        pendingCloses: new Map(),
         stopping: false,
         account: { type: "unknown", planType: null, sparkEnabled: true },
         child,
@@ -1559,7 +1696,6 @@ describe("Codex app-server teardown", () => {
         token: Symbol("test-account"),
         threads: new Set<unknown>(),
         probes: new Map(),
-        pendingCloses: new Map(),
         stopping: false,
         account: { type: "unknown", planType: null, sparkEnabled: true },
         child,
@@ -1747,7 +1883,6 @@ describe("Codex app-server teardown", () => {
         token: Symbol("test-account"),
         threads: new Set<unknown>(),
         probes: new Map(),
-        pendingCloses: new Map(),
         stopping: false,
         protocolClosed: false,
         account: { type: "unknown", planType: null, sparkEnabled: true },
@@ -2030,7 +2165,6 @@ describe("Codex MCP startup diagnostics", () => {
         token: Symbol("test-account"),
         threads: new Set<unknown>(),
         probes: new Map(),
-        pendingCloses: new Map(),
         stopping: false,
         mcpStartupStatuses: new Map(),
         reportedMcpStartupFailures: new Set<string>(),
@@ -2079,7 +2213,6 @@ describe("Codex MCP startup diagnostics", () => {
         token: Symbol("test-account"),
         threads: new Set<unknown>(),
         probes: new Map(),
-        pendingCloses: new Map(),
         stopping: false,
         mcpStartupStatuses: new Map(),
         reportedMcpStartupFailures: new Set<string>(),
@@ -2133,7 +2266,6 @@ describe("Codex MCP startup diagnostics", () => {
         token: Symbol("test-account"),
         threads: new Set<unknown>(),
         probes: new Map(),
-        pendingCloses: new Map(),
         stopping: false,
         mcpStartupStatuses: new Map(),
         reportedMcpStartupFailures: new Set<string>(),
@@ -3704,7 +3836,6 @@ describe("CodexAppServerManager discovery", () => {
         token: Symbol("test-account"),
         threads: new Set<unknown>(),
         probes: new Map(),
-        pendingCloses: new Map(),
         stopping: false,
         account: {
           type: "unknown",
@@ -3785,7 +3916,6 @@ describe("CodexAppServerManager discovery", () => {
         token: Symbol("test-account"),
         threads: new Set<unknown>(),
         probes: new Map(),
-        pendingCloses: new Map(),
         stopping: false,
         child: {
           exitCode: null,
@@ -4926,7 +5056,6 @@ describe("CodexAppServerManager process teardown", () => {
         token: Symbol("test-account"),
         threads: new Set<unknown>(),
         probes: new Map(),
-        pendingCloses: new Map(),
         stopping: false,
         account: { type: "unknown", planType: null, sparkEnabled: true },
         child: {
@@ -5019,7 +5148,6 @@ describe("CodexAppServerManager process teardown", () => {
         token: Symbol("test-account"),
         threads: new Set<unknown>(),
         probes: new Map(),
-        pendingCloses: new Map(),
         stopping: false,
         account: { type: "unknown", planType: null, sparkEnabled: true },
         child: {

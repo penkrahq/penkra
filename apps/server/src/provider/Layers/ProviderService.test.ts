@@ -422,7 +422,201 @@ function makeProviderServiceLayer(
 }
 
 const routing = makeProviderServiceLayer();
+const retiredContinuations: Array<{
+  threadId: ThreadId;
+  provider: ProviderKind;
+  resumeCursor: unknown;
+}> = [];
+const retirement = makeProviderServiceLayer({
+  persistNativeResumeCursor: (input) =>
+    Effect.sync(() => {
+      retiredContinuations.push(input);
+    }),
+});
+retirement.layer("unconfirmed native stop retirement", (it) => {
+  for (const kind of ["codex", "claudeAgent"] as const) {
+    it.effect(
+      `clears the ${kind} continuation and admits the next start without stopping its peer`,
+      () =>
+        Effect.gen(function* () {
+          const provider = yield* ProviderService;
+          const directory = yield* ProviderSessionDirectory;
+          const adapter = kind === "codex" ? retirement.codex : retirement.claude;
+          const threadId = asThreadId(`retire-${kind}`);
+          const peerId = asThreadId(`retire-peer-${kind}`);
+          yield* provider.ensure(threadId, {
+            threadId,
+            provider: kind,
+            runtimeMode: "full-access",
+            resumeCursor: { opaque: "old-native" },
+          });
+          yield* provider.ensure(peerId, {
+            threadId: peerId,
+            provider: kind,
+            runtimeMode: "full-access",
+          });
+          adapter.stopSession.mockImplementationOnce(() =>
+            Effect.fail(
+              new ProviderAdapterProcessError({
+                provider: kind,
+                threadId,
+                detail: "controlled native stop failure",
+              }),
+            ),
+          );
+          const stopped = yield* Effect.result(provider.stop({ threadId, reason: "user-stop" }));
+          assert.equal(stopped._tag, "Failure");
+          assert.equal(Option.isNone(yield* directory.getBinding(threadId)), true);
+          assert.deepEqual(
+            retiredContinuations.findLast((entry) => entry.threadId === threadId),
+            { threadId, provider: kind, resumeCursor: null },
+          );
+          assert.equal(Option.isSome(yield* directory.getBinding(peerId)), true);
+          yield* provider.ensure(threadId, {
+            threadId,
+            provider: kind,
+            runtimeMode: "full-access",
+            resumePolicy: "fresh",
+          });
+          assert.equal(adapter.startSession.mock.calls.at(-1)?.[0].resumeCursor, undefined);
+          assert.equal(Option.isSome(yield* directory.getBinding(threadId)), true);
+          assert.equal(yield* adapter.adapter.hasSession(peerId), true);
+        }),
+    );
+  }
+});
 const gatewayTurnRegistry = makeAgentGatewaySessionRegistry();
+const deltaBatchCommitted = Deferred.makeUnsafe<void>();
+const deltaEventChunk = Deferred.makeUnsafe<readonly ProviderRuntimeEvent[]>();
+const deltaBatches: string[][] = [];
+const batchedRetirement = makeProviderServiceLayer({
+  consumeRuntimeDeltaRun: (events) =>
+    Effect.sync(() => {
+      deltaBatches.push(events.map((event) => event.eventId));
+    }).pipe(Effect.andThen(Deferred.succeed(deltaBatchCommitted, undefined)), Effect.asVoid),
+});
+Object.defineProperty(batchedRetirement.codex.adapter, "streamEvents", {
+  value: Stream.fromEffect(Deferred.await(deltaEventChunk)).pipe(
+    Stream.flatMap((events) => Stream.fromIterable(events)),
+  ),
+});
+batchedRetirement.layer("retirement preserves native write batching", (it) => {
+  it.effect("commits an interleaved multi-thread delta chunk as one ordered batch", () =>
+    Effect.gen(function* () {
+      const provider = yield* ProviderService;
+      const directory = yield* ProviderSessionDirectory;
+      const a = asThreadId("delta-a"),
+        b = asThreadId("delta-b");
+      for (const threadId of [a, b])
+        yield* provider.ensure(threadId, {
+          threadId,
+          provider: "codex",
+          runtimeMode: "full-access",
+        });
+      const generations = new Map<ThreadId, string | undefined>();
+      for (const threadId of [a, b])
+        generations.set(
+          threadId,
+          Option.getOrThrow(yield* directory.getBinding(threadId)).lifecycleGeneration,
+        );
+      const events = [a, b, a, b].map(
+        (threadId, index) =>
+          ({
+            type: "content.delta",
+            eventId: asEventId(`delta-${index}`),
+            provider: "codex",
+            threadId,
+            lifecycleGeneration: generations.get(threadId),
+            createdAt: "2026-10-25T16:00:00.000Z",
+            payload: { streamKind: "assistant_text", delta: "x" },
+          }) as unknown as ProviderRuntimeEvent,
+      );
+      yield* Deferred.succeed(deltaEventChunk, events);
+      yield* Deferred.await(deltaBatchCommitted);
+      assert.deepEqual(deltaBatches, [["delta-0", "delta-1", "delta-2", "delta-3"]]);
+    }),
+  );
+});
+const retirementEventEntered = Deferred.makeUnsafe<void>();
+const retirementEventRelease = Deferred.makeUnsafe<void>();
+const retirementStopEntered = Deferred.makeUnsafe<void>();
+const replacementEventSeen = Deferred.makeUnsafe<void>();
+const retirementEventIds: string[] = [];
+const retirementRace = makeProviderServiceLayer({
+  consumeRuntimeEvent: (event) =>
+    Effect.gen(function* () {
+      if (event.eventId === "retirement-held-event") {
+        yield* Deferred.succeed(retirementEventEntered, undefined);
+        yield* Deferred.await(retirementEventRelease);
+      }
+      retirementEventIds.push(event.eventId);
+      if (event.eventId === "replacement-event")
+        yield* Deferred.succeed(replacementEventSeen, undefined);
+      return event;
+    }),
+});
+retirementRace.layer("native retirement event ordering", (it) => {
+  it.effect(
+    "joins an admitted old event before retirement and rejects old events after replacement",
+    () =>
+      Effect.gen(function* () {
+        const provider = yield* ProviderService;
+        const directory = yield* ProviderSessionDirectory;
+        const threadId = asThreadId("retirement-event-race");
+        const input = { threadId, provider: "codex" as const, runtimeMode: "full-access" as const };
+        yield* provider.ensure(threadId, input);
+        const old = Option.getOrThrow(yield* directory.getBinding(threadId));
+        const event = (
+          eventId: string,
+          generation: string | undefined,
+        ): LegacyProviderRuntimeEvent => ({
+          eventId: asEventId(eventId),
+          threadId,
+          provider: "codex",
+          type: "turn.started",
+          turnId: asTurnId(eventId),
+          lifecycleGeneration: generation,
+          createdAt: "2026-10-25T16:00:00.000Z",
+          payload: { state: "running" },
+        });
+        yield* retirementRace.codex.waitForRuntimeSubscribers();
+        retirementRace.codex.emit(event("retirement-held-event", old.lifecycleGeneration));
+        yield* Deferred.await(retirementEventEntered);
+        retirementRace.codex.stopSession.mockImplementationOnce(() =>
+          Deferred.succeed(retirementStopEntered, undefined).pipe(
+            Effect.andThen(
+              Effect.fail(
+                new ProviderAdapterProcessError({
+                  provider: "codex",
+                  threadId,
+                  detail: "controlled stop failure",
+                }),
+              ),
+            ),
+          ),
+        );
+        const stopped = yield* Effect.result(provider.stop({ threadId, reason: "user-stop" })).pipe(
+          Effect.forkChild,
+        );
+        yield* Deferred.await(retirementStopEntered);
+        const replacement = yield* provider
+          .ensure(threadId, { ...input, resumePolicy: "fresh" })
+          .pipe(Effect.forkChild);
+        const peerId = asThreadId("retirement-event-peer");
+        yield* provider.ensure(peerId, { ...input, threadId: peerId });
+        assert.equal(replacement.pollUnsafe(), undefined);
+        yield* Deferred.succeed(retirementEventRelease, undefined);
+        assert.equal((yield* Fiber.join(stopped))._tag, "Failure");
+        yield* Fiber.join(replacement);
+        const current = Option.getOrThrow(yield* directory.getBinding(threadId));
+        assert.notEqual(current.lifecycleGeneration, old.lifecycleGeneration);
+        retirementRace.codex.emit(event("retired-late-event", old.lifecycleGeneration));
+        retirementRace.codex.emit(event("replacement-event", current.lifecycleGeneration));
+        yield* Deferred.await(replacementEventSeen);
+        assert.deepEqual(retirementEventIds, ["retirement-held-event", "replacement-event"]);
+      }),
+  );
+});
 const gatewayTurnRouting = makeProviderServiceLayer(undefined, gatewayTurnRegistry);
 gatewayTurnRouting.layer("gateway turn ownership", (it) => {
   it.effect(
@@ -4318,7 +4512,8 @@ validation.layer("ProviderServiceLive validation", (it) => {
         return;
       }
       assert.equal(failure.failure.operation, "ProviderService.ensure");
-      assert.equal(failure.failure.issue.includes("invalid-provider"), true);
+      assert.include(failure.failure.issue, 'at ["provider"]');
+      assert.include(failure.failure.issue, '"codex" | "claudeAgent" | "opencode"');
     }),
   );
 
