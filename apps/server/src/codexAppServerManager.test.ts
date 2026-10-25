@@ -72,6 +72,82 @@ const approvalRequiredTurnOverrides = {
   sandboxPolicy: { type: "readOnly" },
 } as const;
 
+describe("failed Codex thread stop detachment", () => {
+  it.each([false, true])(
+    "detaches only the failed context (replacement attached: %s)",
+    async (replace) => {
+      const manager = new CodexAppServerManager();
+      const internals = manager as unknown as {
+        sessions: Map<ThreadId, unknown>;
+        settlePendingHumanRequests(context: unknown, reason: string): Promise<void>;
+      };
+      const transport = {
+        threads: new Set<unknown>(),
+        pending: new Map(),
+        pendingCloses: new Map(),
+        stopping: false,
+      };
+      const release = vi.fn();
+      const context = {
+        transport,
+        session: {
+          threadId: asThreadId("failed-stop"),
+          provider: "codex",
+          status: "ready",
+          resumeCursor: { threadId: "retired-native" },
+        },
+        pendingUserInputs: new Map([["pending-input", {}]]),
+        gatewaySessionLease: { release },
+        stopping: false,
+      };
+      const peer = {
+        transport,
+        session: { threadId: asThreadId("unaffected-peer"), provider: "codex", status: "ready" },
+        stopping: false,
+      };
+      transport.threads.add(context);
+      transport.threads.add(peer);
+      internals.sessions.set(context.session.threadId, context);
+      internals.sessions.set(peer.session.threadId, peer);
+      const replacement = { ...peer, session: context.session };
+      const rejectReplacementRequest = vi.fn();
+      const failure = new Error("controlled settlement failure");
+      const settle = vi.spyOn(internals, "settlePendingHumanRequests").mockImplementation(() => {
+        if (replace) {
+          internals.sessions.set(context.session.threadId, replacement);
+          transport.threads.add(replacement);
+          transport.pending.set(42, {
+            ownerThreadId: context.session.threadId,
+            timeout: undefined,
+            reject: rejectReplacementRequest,
+          });
+        }
+        return Promise.reject(failure);
+      });
+      const events: ProviderEvent[] = [];
+      manager.on("event", (event) => events.push(event));
+      try {
+        await expect(manager.stopSession(context.session.threadId)).rejects.toBe(failure);
+        expect(internals.sessions.get(context.session.threadId)).toBe(
+          replace ? replacement : undefined,
+        );
+        expect(transport.threads.has(context)).toBe(false);
+        expect(context.pendingUserInputs.size).toBe(0);
+        expect(release).toHaveBeenCalledTimes(1);
+        expect(internals.sessions.get(peer.session.threadId)).toBe(peer);
+        expect(transport.threads.has(peer)).toBe(true);
+        expect(transport.stopping).toBe(false);
+        expect(transport.pendingCloses.size).toBe(0);
+        expect(transport.threads.has(replacement)).toBe(replace);
+        expect(rejectReplacementRequest).not.toHaveBeenCalled();
+        expect(events.filter((event) => event.method === "session/closed")).toEqual([]);
+      } finally {
+        settle.mockRestore();
+      }
+    },
+  );
+});
+
 describe("Codex capability preflight logging", () => {
   it("rejects only an oversized catalog response while another thread continues streaming", async () => {
     class FakeCodexChild extends EventEmitter {

@@ -1955,12 +1955,22 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
     }
   }
 
-  private async finishThreadClose(context: CodexSessionContext): Promise<void> {
-    await this.clearTemporaryResources(context);
+  private detachThreadContext(context: CodexSessionContext): void {
     context.pendingUserInputs.clear();
     context.transport.threads.delete(context);
-    if (this.sessions.get(context.session.threadId) === context)
+    if (this.sessions.get(context.session.threadId) === context) {
+      this.rejectPendingRequests(
+        context.transport,
+        new CodexSessionStoppedRequestError(),
+        context.session.threadId,
+      );
       this.sessions.delete(context.session.threadId);
+    }
+  }
+
+  private async finishThreadClose(context: CodexSessionContext): Promise<void> {
+    await this.clearTemporaryResources(context);
+    this.detachThreadContext(context);
     this.updateSession(context, { status: "closed", activeTurnId: undefined });
     this.emitLifecycleEvent(context, "session/closed", "Session stopped");
   }
@@ -1970,6 +1980,7 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
     if (!context) return;
     if (context.stopPromise) return context.stopPromise;
     context.stopping = true;
+    context.gatewaySessionLease?.release();
     this.rejectPendingRequests(context.transport, new CodexSessionStoppedRequestError(), threadId);
     const nativeId = readResumeCursorThreadId(context.session.resumeCursor);
     const activeTurnId = context.session.activeTurnId;
@@ -1987,7 +1998,6 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
             await withCodexPendingSettleDeadline(
               this.settlePendingHumanRequests(context, "session stopped"),
             );
-            context.gatewaySessionLease?.release();
             if (nativeId !== undefined && !context.transport.stopping) {
               if (activeTurnId !== undefined)
                 await this.sendRequest(context.transport, threadId, "turn/interrupt", {
@@ -2001,6 +2011,12 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
           })(),
         ]);
         await this.finishThreadClose(context);
+      } catch (cause) {
+        // Detachment is local cleanup, not proof of native termination. Keep the
+        // failure and do not emit the successful session/closed lifecycle event.
+        this.detachThreadContext(context);
+        await this.clearTemporaryResources(context);
+        throw cause;
       } finally {
         if (nativeId !== undefined) context.transport.pendingCloses.delete(nativeId);
       }
