@@ -63,6 +63,9 @@ describe("AppCommandPipeServer", () => {
     }
     expect(remoteCredentials).not.toHaveBeenCalled();
     await expect(
+      send(path, { id: "lifecycle-denied", token: "secret", method: "remote.lifecycle.subscribe" }),
+    ).resolves.toMatchObject({ ok: false, error: { code: "APP_COMMAND_FORBIDDEN" } });
+    await expect(
       send(path, {
         id: "trusted",
         token: "secret",

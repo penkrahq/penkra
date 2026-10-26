@@ -58,7 +58,7 @@ export function configurePenkraAccountAuth(input: {
   websiteOrigin: string;
   /** Successful explicit authentication, never an ordinary session read. */
   onAuthenticated?: (accountId: string) => void;
-  onBeforeSignOut?: () => void;
+  onBeforeSignOut?: () => void | Promise<void>;
 }): PenkraAccountAuthRuntime {
   const accountStorage = storage({
     configName: `account-auth-${input.desktopFlavor}-${serviceKey(input.authBaseUrl)}`,
@@ -252,10 +252,11 @@ export function configurePenkraAccountAuth(input: {
   input.ipcMain.removeHandler(DESKTOP_IPC_CHANNELS.accountAuth.signOut);
   input.ipcMain.handle(DESKTOP_IPC_CHANNELS.accountAuth.signOut, async (event) => {
     if (!input.isShellRenderer(event.sender)) return;
-    callbackAttempt++;
+    const attempt = ++callbackAttempt;
     cancelCallbackTimeout();
     pendingIntent = null;
-    input.onBeforeSignOut?.();
+    await input.onBeforeSignOut?.();
+    if (attempt !== callbackAttempt) return;
     await signInClient.signOut();
     input.getWindow()?.webContents.send(DESKTOP_IPC_CHANNELS.accountAuth.userUpdated, null);
   });

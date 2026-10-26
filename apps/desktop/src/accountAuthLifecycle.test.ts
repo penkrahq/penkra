@@ -73,6 +73,52 @@ function fixture() {
 }
 
 describe("explicit account authentication lifecycle", () => {
+  it("waits for remote cleanup before clearing the account session", async () => {
+    const f = fixture();
+    const entered = deferred();
+    const release = deferred();
+    f.onBeforeSignOut.mockImplementation(() => {
+      entered.resolve();
+      return release.promise;
+    });
+    const signingOut = f.handlers.get(DESKTOP_IPC_CHANNELS.accountAuth.signOut)!({
+      sender: f.shell,
+    });
+    await entered.promise;
+    try {
+      expect(mocks.signOut).not.toHaveBeenCalled();
+    } finally {
+      release.resolve();
+      await signingOut;
+    }
+    expect(mocks.signOut).toHaveBeenCalledTimes(1);
+  });
+  it("does not claim sign-out completed when remote cleanup fails", async () => {
+    const f = fixture();
+    f.onBeforeSignOut.mockImplementation(() => Promise.reject(new Error("remote cleanup failed")));
+    await expect(
+      f.handlers.get(DESKTOP_IPC_CHANNELS.accountAuth.signOut)!({ sender: f.shell }),
+    ).rejects.toThrow("remote cleanup failed");
+    expect(mocks.signOut).not.toHaveBeenCalled();
+  });
+  it("does not clear a newer explicit sign-in while older sign-out cleanup was waiting", async () => {
+    const f = fixture();
+    const entered = deferred();
+    const release = deferred();
+    f.onBeforeSignOut.mockImplementation(() => {
+      entered.resolve();
+      return release.promise;
+    });
+    const signingOut = f.handlers.get(DESKTOP_IPC_CHANNELS.accountAuth.signOut)!({
+      sender: f.shell,
+    });
+    await entered.promise;
+    f.callback();
+    await f.authenticated.promise;
+    release.resolve();
+    await signingOut;
+    expect(mocks.signOut).not.toHaveBeenCalled();
+  });
   it("emits successful explicit authentication, never ordinary reads; sign-out is shell-only", async () => {
     const f = fixture();
     await f.handlers.get(DESKTOP_IPC_CHANNELS.accountAuth.getState)!({ sender: f.shell });

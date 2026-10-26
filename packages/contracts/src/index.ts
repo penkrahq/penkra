@@ -22,3 +22,4 @@ export * from "./environment";
 export * from "./project";
 export * from "./filesystem";
 export * from "./rpc";
+export * from "./remoteLifecycle";

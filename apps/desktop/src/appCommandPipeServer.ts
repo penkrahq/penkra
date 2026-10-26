@@ -21,6 +21,7 @@ import type { AppOperationCatalog } from "./appOperationCatalog";
 import type { AppRegistryClient } from "./appRegistryClient";
 import { resolveDesktopPlatformAdapter } from "./desktopPlatform";
 import type { ProviderCredentialVault } from "./providerCredentialVault";
+import type { RemoteLifecycleHost } from "./remoteLifecycleHost";
 import {
   AppRuntimeFailureError,
   appRuntimeFailure,
@@ -31,7 +32,7 @@ export const PENKRA_APP_COMMAND_PIPE_ENV = "PENKRA_APP_COMMAND_PIPE";
 export const PENKRA_APP_COMMAND_TOKEN_ENV = "PENKRA_APP_COMMAND_TOKEN";
 export const PENKRA_APP_COMMAND_ADMIN_TOKEN_ENV = "PENKRA_APP_COMMAND_ADMIN_TOKEN";
 const MAX_REQUEST_BYTES = 1024 * 1024;
-const SKILLS_SUBSCRIBED = Symbol("skills subscribed");
+const PIPE_SUBSCRIBED = Symbol("pipe subscribed");
 
 export function assertAppTabAgentAddressable(
   tab: Pick<DesktopAppTabDescriptor, "agentAddressable" | "name">,
@@ -52,6 +53,7 @@ type Request = {
     | "catalog.help"
     | "skills.list"
     | "skills.subscribe"
+    | "remote.lifecycle.subscribe"
     | "core.open"
     | "thread.home.inherit"
     | "operations.invoke"
@@ -217,6 +219,7 @@ export class AppCommandPipeServer {
     | null;
   readonly #providerCredentialVault: ProviderCredentialVault;
   readonly #remoteCredentials: RemoteCredentialHandler | undefined;
+  readonly #remoteLifecycle: RemoteLifecycleHost | undefined;
   readonly #thread: (input: {
     spaceId: string;
     folderId: string;
@@ -280,6 +283,7 @@ export class AppCommandPipeServer {
     }) => Promise<unknown>;
     providerCredentialVault: ProviderCredentialVault;
     remoteCredentials?: RemoteCredentialHandler;
+    remoteLifecycle?: RemoteLifecycleHost;
     thread?: (input: {
       spaceId: string;
       folderId: string;
@@ -315,6 +319,7 @@ export class AppCommandPipeServer {
     this.#presentation = input.presentation;
     this.#providerCredentialVault = input.providerCredentialVault;
     this.#remoteCredentials = input.remoteCredentials;
+    this.#remoteLifecycle = input.remoteLifecycle;
     this.#thread =
       input.thread ??
       (async () => {
@@ -383,7 +388,7 @@ export class AppCommandPipeServer {
       socket.pause();
       void this.#handle(raw, controller.signal, socket)
         .then((response) => {
-          if (response === SKILLS_SUBSCRIBED) return;
+          if (response === PIPE_SUBSCRIBED) return;
           completed = true;
           socket.end(`${JSON.stringify(response)}\n`);
         })
@@ -432,6 +437,13 @@ export class AppCommandPipeServer {
     }
     const params = asRecord(request.params);
     switch (request.method) {
+      case "remote.lifecycle.subscribe": {
+        this.#requireBackend(request);
+        if (!this.#remoteLifecycle) throw new Error("RemoteLink lifecycle is unavailable.");
+        socket.removeAllListeners("data");
+        this.#remoteLifecycle.subscribe(socket, request.id);
+        return PIPE_SUBSCRIBED;
+      }
       case "remote.credentials.read":
       case "remote.credentials.create":
       case "remote.credentials.register":
@@ -461,7 +473,7 @@ export class AppCommandPipeServer {
             state.blocked = !socket.write(`${JSON.stringify({ type: "skills.changed" })}\n`);
           }
         });
-        return SKILLS_SUBSCRIBED;
+        return PIPE_SUBSCRIBED;
       }
       case "providers.credentials.store":
         return {
