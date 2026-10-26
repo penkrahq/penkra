@@ -9,9 +9,24 @@ const mocks = vi.hoisted(() => ({
   requestAuth: vi.fn(async () => {}),
   signOut: vi.fn(async () => {}),
 }));
-vi.mock("electron", () => ({ app: { on: vi.fn(), whenReady: async () => {} } }));
-vi.mock("@better-auth/electron/client", () => ({ electronClient: () => ({}) }));
-vi.mock("@better-auth/electron/storage", () => ({ storage: () => ({}) }));
+vi.mock("electron", () => ({
+  app: { on: vi.fn(), whenReady: async () => {} },
+  safeStorage: {
+    isEncryptionAvailable: () => true,
+    encryptString: (value: string) => Buffer.from(value),
+    decryptString: (value: Buffer) => value.toString(),
+  },
+}));
+vi.mock("@better-auth/electron/client", () => ({ electronClient: () => ({ fetchPlugins: [] }) }));
+vi.mock("@better-auth/electron/storage", () => ({
+  storage: () => ({
+    getItem: () =>
+      Buffer.from(
+        JSON.stringify({ user: { id: "account", name: "Test", email: "test@example.com" } }),
+      ).toString("base64"),
+    setItem: vi.fn(),
+  }),
+}));
 vi.mock("better-auth/client", () => ({
   createAuthClient: () => ({ ...mocks, setupMain: vi.fn() }),
 }));

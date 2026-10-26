@@ -1150,6 +1150,7 @@ let automaticAppUpdateTimer: ReturnType<typeof setTimeout> | null = null;
 let automaticAppUpdateReport: AutomaticRegistryAppUpdateReport | null = null;
 let getPenkraAccountId: () => Promise<string | null> = async () => null;
 let getPenkraAccountCookie: () => string = () => "";
+let fetchPenkraAccount: typeof fetch = (...args) => fetch(...args);
 let remoteRegistrationOwner: RemoteLinkRegistrationOwner | null = null;
 let pendingRemoteSignInAccountId: string | null = null;
 const remoteRegistrationLifetime = new AbortController();
@@ -5973,6 +5974,7 @@ function registerIpcHandlers(): void {
     const { runtime, identity } = requireAppRenderer(event.sender.id);
     const audience = requireGrantedIdentityAudience(runtime, identity, input);
     return requestAppIdentityToken({
+      fetch: fetchPenkraAccount,
       apiUrl: penkraAccountServices.apiUrl,
       appId: identity.appId,
       spaceId: identity.spaceId,
@@ -5995,6 +5997,7 @@ function registerIpcHandlers(): void {
       );
     }
     return requestAppAccountProfile({
+      fetch: fetchPenkraAccount,
       apiUrl: penkraAccountServices.apiUrl,
       cookie: getPenkraAccountCookie(),
     });
@@ -6019,6 +6022,7 @@ function registerIpcHandlers(): void {
     const startedAt = performance.now();
     try {
       return await requestAppAccountData({
+        fetch: fetchPenkraAccount,
         apiUrl: penkraAccountServices.apiUrl,
         appId: identity.appId,
         cookie: getPenkraAccountCookie(),
@@ -7902,6 +7906,7 @@ if (hasSingleInstanceLock) {
     desktopFlavor,
     developmentInstance,
     getWindow: () => resolveShellWindow(),
+    broadcast: (channel, ...args) => shellWindowRegistry.broadcast(channel, ...args),
     isShellRenderer: (sender) => shellWindowRegistry.hasWebContents(sender),
     ipcMain,
     registerAsDefaultProtocolClient: !desktopSmokeUserDataPath,
@@ -7919,9 +7924,11 @@ if (hasSingleInstanceLock) {
   });
   getPenkraAccountId = accountAuthRuntime.getAccountId;
   getPenkraAccountCookie = accountAuthRuntime.getCookie;
+  fetchPenkraAccount = accountAuthRuntime.fetch;
   appRegistryClient = new AppRegistryClient({
     apiUrl: penkraAccountServices.apiUrl,
     getCookie: accountAuthRuntime.getCookie,
+    fetch: accountAuthRuntime.fetch,
     getAccountId: accountAuthRuntime.getAccountId,
     trustedRegistryKeys: parseRegistryTrustKeys(
       process.env.PENKRA_REGISTRY_TRUSTED_KEYS ?? __PENKRA_REGISTRY_TRUSTED_KEYS__,
@@ -8036,6 +8043,7 @@ async function bootstrap(): Promise<void> {
           throw new Error("Account-data request must be an object.");
         }
         return requestAppAccountData({
+          fetch: fetchPenkraAccount,
           apiUrl: penkraAccountServices.apiUrl,
           appId,
           cookie: getPenkraAccountCookie(),
@@ -8054,6 +8062,7 @@ async function bootstrap(): Promise<void> {
           });
         }
         return requestAppAccountProfile({
+          fetch: fetchPenkraAccount,
           apiUrl: penkraAccountServices.apiUrl,
           cookie: getPenkraAccountCookie(),
         });
@@ -8061,6 +8070,7 @@ async function bootstrap(): Promise<void> {
       if (method === "identity.getToken") {
         const audience = requireGrantedIdentityAudience(runtime, identity, input);
         return requestAppIdentityToken({
+          fetch: fetchPenkraAccount,
           apiUrl: penkraAccountServices.apiUrl,
           appId,
           spaceId,
@@ -8441,6 +8451,7 @@ async function bootstrap(): Promise<void> {
   appHostedBrowserObserver = appTabObserver;
   remoteRegistrationOwner = new RemoteLinkRegistrationOwner({
     apiUrl: penkraAccountServices.apiUrl,
+    fetch: fetchPenkraAccount,
     vault: desktopAppRuntime.remoteLinkCredentialVault,
     account: async () => {
       const cookie = getPenkraAccountCookie();

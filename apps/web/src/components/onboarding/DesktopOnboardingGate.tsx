@@ -7,11 +7,8 @@ import { SplashScreen } from "~/components/SplashScreen";
 import { OnboardingConnectAgent } from "./connect-agent/OnboardingConnectAgent";
 import { OnboardingWelcome } from "./welcome/OnboardingWelcome";
 
-type GateState = "checking" | "auth-error" | "welcome" | "connect-agent" | "complete";
+type GateState = "checking" | "welcome" | "connect-agent" | "complete";
 type AuthIntent = "sign-in" | "sign-up";
-
-const ACCOUNT_CHECK_ERROR_MESSAGE =
-  "Penkra couldn't verify your account. Check your connection and try again.";
 
 export interface DesktopOnboardingGateProps {
   bridge?: DesktopBridge;
@@ -24,7 +21,6 @@ export function DesktopOnboardingGate({
 }: DesktopOnboardingGateProps) {
   const accountAuth = bridge?.accountAuth;
   const [state, setState] = useState<GateState>(accountAuth ? "checking" : "complete");
-  const [authCheckAttempt, setAuthCheckAttempt] = useState(0);
   const [authProcessingIntent, setAuthProcessingIntent] = useState<AuthIntent | null>(null);
   const isCreatingAccount = useRef(false);
 
@@ -50,6 +46,7 @@ export function DesktopOnboardingGate({
     }
 
     let active = true;
+    let receivedAccountEvent = false;
     const unsubscribeCallbackStarted = accountAuth.onCallbackStarted((callback) => {
       if (!active) return;
       const callbackIntent = callback.intent ?? (isCreatingAccount.current ? "sign-up" : "sign-in");
@@ -58,11 +55,13 @@ export function DesktopOnboardingGate({
     });
     const unsubscribeAuthenticated = accountAuth.onAuthenticated(() => {
       if (!active) return;
+      receivedAccountEvent = true;
       setAuthProcessingIntent(null);
       setState(isCreatingAccount.current ? "connect-agent" : "complete");
     });
     const unsubscribeUserUpdated = accountAuth.onUserUpdated((user) => {
       if (!active) return;
+      receivedAccountEvent = true;
       setAuthProcessingIntent(null);
       if (!user) {
         isCreatingAccount.current = false;
@@ -80,15 +79,20 @@ export function DesktopOnboardingGate({
     void accountAuth
       .getState()
       .then((result) => {
-        if (!active) return;
+        if (!active || receivedAccountEvent) return;
         isCreatingAccount.current = false;
         if (result.status === "authenticated") setState("complete");
-        else if (result.status === "unauthenticated") setState("welcome");
-        else setState("auth-error");
+        else {
+          if (result.status === "error")
+            console.error("[account-auth] Local session read failed.", result.message);
+          setState("welcome");
+        }
       })
-      .catch(() => {
+      .catch((error: unknown) => {
+        if (!active || receivedAccountEvent) return;
+        console.error("[account-auth] Local session read failed.", error);
         isCreatingAccount.current = false;
-        if (active) setState("auth-error");
+        setState("welcome");
       });
     return () => {
       active = false;
@@ -97,7 +101,7 @@ export function DesktopOnboardingGate({
       unsubscribeUserUpdated();
       unsubscribeError();
     };
-  }, [accountAuth, authCheckAttempt]);
+  }, [accountAuth]);
 
   if (state === "checking") {
     return (
@@ -109,18 +113,6 @@ export function DesktopOnboardingGate({
       >
         <SplashScreen />
       </div>
-    );
-  }
-
-  if (state === "auth-error") {
-    return (
-      <SplashScreen
-        errorMessage={ACCOUNT_CHECK_ERROR_MESSAGE}
-        onRetry={() => {
-          setState("checking");
-          setAuthCheckAttempt((attempt) => attempt + 1);
-        }}
-      />
     );
   }
 

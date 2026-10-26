@@ -29,6 +29,7 @@ export class RemoteLinkRegistrationOwner {
   constructor(
     private readonly input: {
       readonly apiUrl: string;
+      readonly fetch?: typeof fetch;
       readonly vault: Pick<RemoteLinkCredentialVault, "read" | "getOrCreate" | "register">;
       readonly account: () => Promise<AccountSession | null>;
       readonly metadata: {
@@ -123,7 +124,7 @@ export class RemoteLinkRegistrationOwner {
         }
         let response: Response;
         try {
-          response = await fetch(this.#url, {
+          response = await (this.input.fetch ?? fetch)(this.#url, {
             method: "POST",
             signal,
             redirect: "manual",

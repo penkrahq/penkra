@@ -1,6 +1,6 @@
 import { createServer, type RequestListener } from "node:http";
 import { once } from "node:events";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { RemoteLinkRegistrationOwner } from "./remoteLinkRegistration";
 import type { RemoteLinkCredentials } from "./remoteLinkCredentialVault";
 import { deferred } from "./deferred.test-support";
@@ -31,7 +31,7 @@ async function fixture(handler: RequestListener, run: (apiUrl: string) => Promis
     await closed;
   }
 }
-function owner(apiUrl: string) {
+function owner(apiUrl: string, request?: typeof fetch) {
   const records = new Map<string, RemoteLinkCredentials>();
   let account: { accountId: string; cookie: string } | null = {
     accountId: "a",
@@ -39,6 +39,7 @@ function owner(apiUrl: string) {
   };
   const instance = new RemoteLinkRegistrationOwner({
     apiUrl,
+    ...(request ? { fetch: request } : {}),
     metadata: { name: "Test Mac", model: "Test model", appVersion: "0.14.6" },
     account: async () => account,
     vault: {
@@ -65,6 +66,16 @@ function owner(apiUrl: string) {
 const signal = () => new AbortController().signal;
 
 describe("desktop-owned RemoteLink registration", () => {
+  it("uses the account-session-observing request transport", async () => {
+    const request = vi.fn<typeof fetch>(async () =>
+      Response.json(registration(1), { status: 201 }),
+    );
+    const { instance } = owner("https://account.example.test", request);
+    expect((await instance.ensure("a", signal())).registration).toEqual(registration(1));
+    expect(request).toHaveBeenCalledOnce();
+    expect(request.mock.calls[0]?.[0].toString()).toBe("https://account.example.test/v1/devices");
+    expect(new Headers(request.mock.calls[0]?.[1]?.headers).get("cookie")).toBe("session=private");
+  });
   it("registers once, sends only the public identity, and renews the token only on explicit sign-in", async () => {
     let requests = 0;
     const bodies: unknown[] = [];

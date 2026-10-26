@@ -133,7 +133,7 @@ describe("Pencil onboarding", () => {
   it("starts the real inline Connection sign-in during onboarding", async () => {
     await render(<OnboardingConnectAgent />);
 
-    await page.getByRole("button", { name: "Sign in" }).click();
+    await page.getByRole("button", { name: "Sign in for Claude" }).click();
     await vi.waitFor(() => expect(connectionApi.beginConnectionLogin).toHaveBeenCalledOnce());
   });
 
@@ -399,19 +399,14 @@ describe("Pencil onboarding", () => {
     await expect.element(page.getByText("Application shell")).toBeVisible();
   });
 
-  it("keeps account verification errors distinct from signed-out state and retries", async () => {
-    const getState = vi
-      .fn()
-      .mockResolvedValueOnce({ status: "error", message: "Account service unavailable." })
-      .mockResolvedValueOnce({
-        status: "authenticated",
-        user: {
-          id: "user-1",
-          email: "person@example.com",
-          name: "Person",
-          image: null,
-        },
-      });
+  it("does not reopen from an older local read after the session is invalidated", async () => {
+    const user = { id: "user-1", email: "person@example.com", name: "Person", image: null };
+    let resolveRead!: (value: { status: "authenticated"; user: typeof user }) => void;
+    let notifyUserUpdated!: (value: typeof user | null) => void;
+    const initialRead = new Promise<{ status: "authenticated"; user: typeof user }>((resolve) => {
+      resolveRead = resolve;
+    });
+    const getState = vi.fn(() => initialRead);
     const bridge = {
       accountAuth: {
         getState,
@@ -420,7 +415,10 @@ describe("Pencil onboarding", () => {
         signOut: vi.fn(),
         onCallbackStarted: vi.fn(() => () => undefined),
         onAuthenticated: vi.fn(() => () => undefined),
-        onUserUpdated: vi.fn(() => () => undefined),
+        onUserUpdated: vi.fn((listener) => {
+          notifyUserUpdated = listener;
+          return () => undefined;
+        }),
         onError: vi.fn(() => () => undefined),
       },
     } as unknown as DesktopBridge;
@@ -431,11 +429,13 @@ describe("Pencil onboarding", () => {
       </DesktopOnboardingGate>,
     );
 
-    await expect.element(page.getByText("Penkra couldn't verify your account.")).toBeVisible();
-    await expect.element(page.getByText("Welcome to Penkra")).not.toBeInTheDocument();
-
-    await page.getByRole("button", { name: "Retry" }).click();
-    await expect.element(page.getByText("Application shell")).toBeVisible();
-    expect(getState).toHaveBeenCalledTimes(2);
+    notifyUserUpdated(null);
+    await expect.element(page.getByText("Welcome to Penkra")).toBeVisible();
+    resolveRead({ status: "authenticated", user });
+    await initialRead;
+    await expect.element(page.getByText("Welcome to Penkra")).toBeVisible();
+    await expect.element(page.getByText("Application shell")).not.toBeInTheDocument();
+    await expect.element(page.getByRole("button", { name: "Retry" })).not.toBeInTheDocument();
+    expect(getState).toHaveBeenCalledOnce();
   });
 });

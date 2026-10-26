@@ -13,14 +13,21 @@ const mocks = vi.hoisted(() => ({
   signOut: vi.fn(() => Promise.resolve()),
 }));
 vi.mock("electron", () => ({
+  safeStorage: {
+    isEncryptionAvailable: () => true,
+    encryptString: (value: string) => Buffer.from(value),
+    decryptString: (value: Buffer) => value.toString(),
+  },
   app: {
     on: (event: string, listener: (...args: unknown[]) => void) =>
       mocks.events.set(event, listener),
     whenReady: () => Promise.resolve(),
   },
 }));
-vi.mock("@better-auth/electron/client", () => ({ electronClient: () => ({}) }));
-vi.mock("@better-auth/electron/storage", () => ({ storage: () => ({}) }));
+vi.mock("@better-auth/electron/client", () => ({ electronClient: () => ({ fetchPlugins: [] }) }));
+vi.mock("@better-auth/electron/storage", () => ({
+  storage: () => ({ getItem: () => null, setItem: vi.fn() }),
+}));
 vi.mock("better-auth/client", () => ({
   createAuthClient: () => ({ ...mocks, setupMain: vi.fn() }),
 }));
