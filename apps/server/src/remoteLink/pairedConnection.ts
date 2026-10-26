@@ -24,6 +24,10 @@ export function runPairedConnection(input: {
   return Effect.scoped(
     Effect.gen(function* () {
       const trust = yield* RemoteTrustStore;
+      if (trust.scope.macDeviceId !== input.macDeviceId)
+        return yield* new RemoteLinkSessionError({
+          message: "Mac registration does not own this phone trust.",
+        });
       const sessions = yield* SessionCredentialService;
       const phone = yield* trust.get(input.phoneDeviceId);
       if (!phone) return yield* new RemoteLinkSessionError({ message: "Phone is not paired." });

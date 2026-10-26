@@ -7,11 +7,18 @@ import { ServerSecretStoreLive } from "../auth/Layers/ServerSecretStore";
 import { SessionCredentialService } from "../auth/Services/SessionCredentialService";
 import { ServerConfig } from "../config";
 import { SqlitePersistenceMemory } from "../persistence/Layers/Sqlite";
-import { makeRemoteTrustStore, RemoteTrustStore, RemoteTrustStoreLive } from "./trustStore";
+import {
+  makeRemoteTrustStore,
+  RemoteTrustScope,
+  RemoteTrustStore,
+  RemoteTrustStoreLive,
+} from "./trustStore";
+import { remoteTrustOwner, remoteTrustScopeLayer } from "./trustScope.test-support";
 import { createNoiseIdentity, NoiseHandshake, noisePublicKey } from "./noise";
 import { openPairedSession, remoteNoisePrologue } from "./pairedSession";
 
 const testLayer = RemoteTrustStoreLive.pipe(
+  Layer.provideMerge(remoteTrustScopeLayer),
   Layer.provideMerge(SessionCredentialServiceLive),
   Layer.provideMerge(SqlitePersistenceMemory),
   Layer.provide(ServerSecretStoreLive),
@@ -24,6 +31,33 @@ const phone = () => ({
   identityKey: noisePublicKey(createNoiseIdentity()),
 });
 describe("RemoteTrustStore", () => {
+  it.each([
+    { ...remoteTrustOwner, accountId: "account-b" },
+    { ...remoteTrustOwner, accountServiceUrl: "https://another.example.test" },
+    { ...remoteTrustOwner, macDeviceId: "10000000-0000-4000-8000-000000000003" },
+  ])("isolates saved trust from a different owner: %j", async (otherOwner) => {
+    await Effect.gen(function* () {
+      const firstOwner = yield* makeRemoteTrustStore;
+      const secondOwner = yield* makeRemoteTrustStore.pipe(
+        Effect.provideService(RemoteTrustScope, otherOwner),
+      );
+      const sessions = yield* SessionCredentialService;
+      const input = phone();
+      const first = yield* firstOwner.allow(input);
+      expect(yield* secondOwner.list()).toEqual([]);
+      expect(yield* secondOwner.get(input.deviceId)).toBeNull();
+      expect(yield* secondOwner.remove(input.deviceId)).toBe(false);
+      const second = yield* secondOwner.allow(input);
+      yield* secondOwner.markPaired(input.deviceId, first.sessionId);
+      expect((yield* secondOwner.get(input.deviceId))?.pendingBackend).toBe(1);
+      yield* secondOwner.remove(input.deviceId);
+      expect((yield* sessions.verify(first.token)).sessionId).toBe(first.sessionId);
+      expect((yield* Effect.flip(sessions.verify(second.token))).message).toContain("revoked");
+      const returnedOwner = yield* makeRemoteTrustStore;
+      expect((yield* returnedOwner.get(input.deviceId))?.sessionId).toBe(first.sessionId);
+      expect(yield* firstOwner.list()).toHaveLength(1);
+    }).pipe(Effect.provide(testLayer), Effect.scoped, Effect.runPromise);
+  });
   it("persists Allow, survives store recreation, and replaces/revokes a previous pairing atomically", async () => {
     await Effect.gen(function* () {
       const store = yield* RemoteTrustStore;

@@ -30,6 +30,8 @@ export function runPairingConnection(input: {
 }) {
   return Effect.scoped(
     Effect.gen(function* () {
+      if (input.registry.scope.macDeviceId !== input.macDeviceId)
+        return yield* new RemotePairingError({ code: "protocol" });
       const handshake = yield* Effect.acquireRelease(
         Effect.try({
           try: () =>

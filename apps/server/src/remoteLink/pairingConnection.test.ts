@@ -14,8 +14,10 @@ import { decodePairingResult } from "./pairingProtocol";
 import { makeRemotePhoneRegistry } from "./phoneRegistry";
 import { RemoteRegistryClient } from "./registry";
 import { RemoteTrustStore, RemoteTrustStoreLive } from "./trustStore";
+import { remoteTrustScopeLayer } from "./trustScope.test-support";
 
 const layer = RemoteTrustStoreLive.pipe(
+  Layer.provideMerge(remoteTrustScopeLayer),
   Layer.provideMerge(SessionCredentialServiceLive),
   Layer.provideMerge(SqlitePersistenceMemory),
   Layer.provide(ServerSecretStoreLive),

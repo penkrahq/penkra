@@ -24,6 +24,7 @@ export const makeRemotePhoneRegistry = (registry: RemoteRegistryClient) =>
       );
     const record = (deviceId: string, operation: "pair" | "unpair", error: RemoteRegistryError) =>
       Effect.logWarning("RemoteLink pairing registry request failed", {
+        macDeviceId: trust.scope.macDeviceId,
         phoneDeviceId: deviceId,
         operation,
         code: error.code,
@@ -111,5 +112,5 @@ export const makeRemotePhoneRegistry = (registry: RemoteRegistryClient) =>
         { concurrency: "unbounded", discard: true },
       );
     });
-    return { allow, remove, reconcile };
+    return { scope: trust.scope, allow, remove, reconcile };
   });

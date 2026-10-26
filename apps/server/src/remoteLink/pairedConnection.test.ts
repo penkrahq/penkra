@@ -7,6 +7,7 @@ import { SessionCredentialService } from "../auth/Services/SessionCredentialServ
 import { ServerConfig } from "../config";
 import { SqlitePersistenceMemory } from "../persistence/Layers/Sqlite";
 import { RemoteTrustStore, RemoteTrustStoreLive } from "./trustStore";
+import { remoteTrustScopeLayer } from "./trustScope.test-support";
 import { createNoiseIdentity, noisePublicKey, NoiseHandshake } from "./noise";
 import { remoteNoisePrologue } from "./pairedSession";
 import { runPairedConnection } from "./pairedConnection";
@@ -14,6 +15,7 @@ import { encodeTunnelEnvelope } from "./tunnelCodec";
 import type { RemoteSessionBridge } from "./sessionBridge";
 
 const layer = RemoteTrustStoreLive.pipe(
+  Layer.provideMerge(remoteTrustScopeLayer),
   Layer.provideMerge(SessionCredentialServiceLive),
   Layer.provideMerge(SqlitePersistenceMemory),
   Layer.provide(ServerSecretStoreLive),

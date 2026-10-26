@@ -16,9 +16,26 @@ export interface PairedPhone {
   readonly pendingBackend: number;
 }
 
+export interface RemoteTrustOwner {
+  readonly accountServiceUrl: string;
+  readonly accountId: string;
+  readonly macDeviceId: string;
+}
+
+export class RemoteTrustScope extends Context.Service<RemoteTrustScope, RemoteTrustOwner>()(
+  "penkra/remoteLink/RemoteTrustScope",
+) {}
+
 export const makeRemoteTrustStore = Effect.gen(function* () {
   const sql = yield* SqlClient.SqlClient;
   const sessions = yield* SessionCredentialService;
+  const owner = yield* RemoteTrustScope;
+  if (!owner.accountServiceUrl || !owner.accountId || !owner.macDeviceId)
+    return yield* new SessionCredentialError({
+      message: "RemoteLink requires an account and Mac registration.",
+    });
+  const scope = Object.freeze({ ...owner });
+  const scopeKey = JSON.stringify([scope.accountServiceUrl, scope.accountId, scope.macDeviceId]);
   const mutations = yield* Semaphore.make(1);
   const queryError = () =>
     new SessionCredentialError({ message: "Could not persist paired phone trust." });
@@ -26,13 +43,13 @@ export const makeRemoteTrustStore = Effect.gen(function* () {
     sql<PairedPhone>`
     SELECT device_id AS "deviceId", name, identity_key AS "identityKey", session_id AS "sessionId",
       paired_at AS "pairedAt", last_connected_at AS "lastConnectedAt", pending_backend AS "pendingBackend"
-    FROM remote_devices ORDER BY paired_at, device_id
+    FROM remote_devices WHERE scope_key = ${scopeKey} ORDER BY paired_at, device_id
   `.pipe(Effect.mapError(queryError));
   const get = (deviceId: string) =>
     sql<PairedPhone>`
     SELECT device_id AS "deviceId", name, identity_key AS "identityKey", session_id AS "sessionId",
       paired_at AS "pairedAt", last_connected_at AS "lastConnectedAt", pending_backend AS "pendingBackend"
-    FROM remote_devices WHERE device_id = ${deviceId}
+    FROM remote_devices WHERE scope_key = ${scopeKey} AND device_id = ${deviceId}
   `.pipe(
       Effect.map((rows) => rows[0] ?? null),
       Effect.mapError(queryError),
@@ -50,9 +67,9 @@ export const makeRemoteTrustStore = Effect.gen(function* () {
               const previous = yield* get(input.deviceId);
               const pairedAt = DateTime.formatIso(yield* DateTime.now);
               yield* sql`
-            INSERT INTO remote_devices (device_id, name, identity_key, session_id, paired_at, last_connected_at, pending_backend)
-            VALUES (${input.deviceId}, ${input.name}, ${input.identityKey}, ${sessionId}, ${pairedAt}, NULL, 1)
-            ON CONFLICT (device_id) DO UPDATE SET name = excluded.name, identity_key = excluded.identity_key,
+            INSERT INTO remote_devices (scope_key, device_id, name, identity_key, session_id, paired_at, last_connected_at, pending_backend)
+            VALUES (${scopeKey}, ${input.deviceId}, ${input.name}, ${input.identityKey}, ${sessionId}, ${pairedAt}, NULL, 1)
+            ON CONFLICT (scope_key, device_id) DO UPDATE SET name = excluded.name, identity_key = excluded.identity_key,
               session_id = excluded.session_id, paired_at = excluded.paired_at,
               last_connected_at = NULL, pending_backend = 1
           `.pipe(Effect.mapError(queryError));
@@ -60,6 +77,7 @@ export const makeRemoteTrustStore = Effect.gen(function* () {
             }),
         );
         yield* Effect.logInfo("Committed paired phone trust", {
+          macDeviceId: scope.macDeviceId,
           phoneDeviceId: input.deviceId,
           sessionId: issued.sessionId,
         });
@@ -77,7 +95,7 @@ export const makeRemoteTrustStore = Effect.gen(function* () {
           phone.sessionId,
           Effect.gen(function* () {
             const deleted = yield* sql`
-        DELETE FROM remote_devices WHERE device_id = ${deviceId} AND session_id = ${phone.sessionId}
+        DELETE FROM remote_devices WHERE scope_key = ${scopeKey} AND device_id = ${deviceId} AND session_id = ${phone.sessionId}
         RETURNING device_id
       `.pipe(Effect.mapError(queryError));
             if (deleted.length !== 1)
@@ -87,6 +105,7 @@ export const makeRemoteTrustStore = Effect.gen(function* () {
           }),
         );
         yield* Effect.logInfo("Removed paired phone trust and revoked its session", {
+          macDeviceId: scope.macDeviceId,
           phoneDeviceId: deviceId,
           sessionId: phone.sessionId,
         });
@@ -97,7 +116,7 @@ export const makeRemoteTrustStore = Effect.gen(function* () {
     mutations.withPermit(
       sql`
       UPDATE remote_devices SET pending_backend = 0
-      WHERE device_id = ${deviceId} AND session_id = ${sessionId}
+      WHERE scope_key = ${scopeKey} AND device_id = ${deviceId} AND session_id = ${sessionId}
     `.pipe(Effect.asVoid, Effect.mapError(queryError)),
     );
   const connected = (deviceId: string, sessionId: AuthSessionId) =>
@@ -105,11 +124,11 @@ export const makeRemoteTrustStore = Effect.gen(function* () {
       Effect.gen(function* () {
         const at = DateTime.formatIso(yield* DateTime.now);
         yield* sql`UPDATE remote_devices SET last_connected_at = ${at}
-        WHERE device_id = ${deviceId} AND session_id = ${sessionId} AND pending_backend = 0
+        WHERE scope_key = ${scopeKey} AND device_id = ${deviceId} AND session_id = ${sessionId} AND pending_backend = 0
       `.pipe(Effect.mapError(queryError));
       }),
     );
-  return { list, get, allow, remove, markPaired, connected };
+  return { scope, list, get, allow, remove, markPaired, connected };
 });
 
 export class RemoteTrustStore extends Context.Service<

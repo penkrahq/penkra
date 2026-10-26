@@ -10,9 +10,16 @@ import { httpFixture } from "./httpFixture.test-support";
 import { createNoiseIdentity, noisePublicKey } from "./noise";
 import { makeRemotePhoneRegistry } from "./phoneRegistry";
 import { RemoteRegistryClient } from "./registry";
-import { RemoteTrustStore, RemoteTrustStoreLive } from "./trustStore";
+import {
+  makeRemoteTrustStore,
+  RemoteTrustScope,
+  RemoteTrustStore,
+  RemoteTrustStoreLive,
+} from "./trustStore";
+import { remoteTrustOwner, remoteTrustScopeLayer } from "./trustScope.test-support";
 
 const layer = RemoteTrustStoreLive.pipe(
+  Layer.provideMerge(remoteTrustScopeLayer),
   Layer.provideMerge(SessionCredentialServiceLive),
   Layer.provideMerge(SqlitePersistenceMemory),
   Layer.provide(ServerSecretStoreLive),
@@ -28,6 +35,36 @@ const client = (apiUrl: string) =>
   new RemoteRegistryClient({ apiUrl, deviceToken: "fixture-token" });
 
 describe("phone registry ownership with real HTTP and isolated SQLite", () => {
+  it("reconciling another account does not remove a saved phone from the original account", async () => {
+    const requests: string[] = [];
+    await httpFixture(
+      (request, response) => {
+        requests.push(request.method!);
+        response.setHeader("content-type", "application/json");
+        response.end("[]");
+      },
+      (origin) =>
+        Effect.gen(function* () {
+          const original = yield* RemoteTrustStore;
+          const input = phone();
+          const issued = yield* original.allow(input);
+          yield* original.markPaired(input.deviceId, issued.sessionId);
+          const other = yield* makeRemoteTrustStore.pipe(
+            Effect.provideService(RemoteTrustScope, {
+              ...remoteTrustOwner,
+              accountId: "account-b",
+            }),
+          );
+          const registry = yield* makeRemotePhoneRegistry(client(origin)).pipe(
+            Effect.provideService(RemoteTrustStore, other),
+          );
+          yield* registry.reconcile;
+          expect(requests).toEqual(["GET"]);
+          expect(yield* other.list()).toEqual([]);
+          expect((yield* original.get(input.deviceId))?.sessionId).toBe(issued.sessionId);
+        }).pipe(Effect.provide(layer), Effect.scoped, Effect.runPromise),
+    );
+  });
   it("Remove revokes a live local session without waiting for an earlier blocked POST", async () => {
     const blocked = Promise.withResolvers<void>();
     const release = Promise.withResolvers<void>();
