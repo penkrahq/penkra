@@ -20,12 +20,9 @@ function snapshot(input: Partial<ServerProviderUsageSnapshot> = {}): ServerProvi
 
 describe("connectionUsageDisplay", () => {
   it("explains distinct empty states without collapsing them into a transient error", () => {
-    expect(connectionUsageEmptyMessage(undefined)).toBe("No account usage has been reported yet.");
-    expect(
-      connectionUsageEmptyMessage(
-        snapshot({ limits: [{ window: "5h", resetsAt: "2026-06-09T17:00:00.000Z" }] }),
-      ),
-    ).toBe("A reset window was reported, but no usage percentage is available.");
+    expect(connectionUsageEmptyMessage(undefined)).toBe(
+      "No usage reported yet. It appears after this account’s next turn.",
+    );
     expect(connectionUsageEmptyMessage(snapshot({ status: "needs-auth" }))).toBe(
       "Reconnect this account to see usage.",
     );
@@ -33,7 +30,7 @@ describe("connectionUsageDisplay", () => {
       "Usage isn’t available for this account.",
     );
     expect(connectionUsageEmptyMessage(snapshot({ status: "error" }))).toBe(
-      "Usage is temporarily unavailable.",
+      "Couldn’t read usage right now. It updates the next time this account runs.",
     );
   });
 });

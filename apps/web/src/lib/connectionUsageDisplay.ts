@@ -15,11 +15,9 @@ export function connectionUsageEmptyMessage(
     case "unsupported":
       return "Usage isn’t available for this account.";
     case "error":
-      return "Usage is temporarily unavailable.";
+      return "Couldn’t read usage right now. It updates the next time this account runs.";
     default:
-      return snapshot && snapshot.limits.length > 0
-        ? "A reset window was reported, but no usage percentage is available."
-        : "No account usage has been reported yet.";
+      return "No usage reported yet. It appears after this account’s next turn.";
   }
 }
 

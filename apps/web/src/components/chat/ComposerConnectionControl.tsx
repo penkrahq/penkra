@@ -32,6 +32,7 @@ import {
   connectionUsageEmptyMessage,
   normalizeServerProviderUsageRateLimit,
 } from "~/lib/connectionUsageDisplay";
+import { formatRateLimitResetCountdown, normalizeRateLimitLabel } from "~/lib/rateLimits";
 import { useProviderUsage } from "~/providerUsageStore";
 import { cn } from "~/lib/utils";
 
@@ -68,9 +69,47 @@ function usageRows(snapshot: ServerProviderUsageSnapshot | undefined): ProviderU
   return normalized ? deriveProviderUsageDisplayRows([normalized]) : [];
 }
 
-function ConnectionUsageRows({ rows }: { rows: ReadonlyArray<ProviderUsageDisplayRow> }) {
+/** Windows the provider reported with a reset time but no percentage: shown without a bar. */
+function resetOnlyRows(
+  snapshot: ServerProviderUsageSnapshot | undefined,
+): Array<{ id: string; label: string; resetText: string }> {
+  return (snapshot?.limits ?? []).flatMap((limit) =>
+    limit.usedPercent === undefined && limit.resetsAt
+      ? [
+          {
+            id: `reset-only:${limit.window}`,
+            label: normalizeRateLimitLabel(limit.window, limit.windowDurationMins),
+            resetText: formatRateLimitResetCountdown(limit.resetsAt),
+          },
+        ]
+      : [],
+  );
+}
+
+function formatUsageUpdatedAt(updatedAt: string): string {
+  return new Date(updatedAt).toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" });
+}
+
+function ConnectionUsageRows({
+  rows,
+  resetOnly,
+}: {
+  rows: ReadonlyArray<ProviderUsageDisplayRow>;
+  resetOnly: ReadonlyArray<{ id: string; label: string; resetText: string }>;
+}) {
   return (
     <div className="space-y-2.5 px-2 pb-2 pt-1">
+      {resetOnly.map((row) => (
+        <div
+          className="flex items-baseline gap-1 text-[length:var(--app-font-size-ui-sm,11px)]"
+          key={row.id}
+        >
+          <span className="text-muted-foreground">{row.label === "5h" ? "Session" : row.label}</span>
+          {row.resetText ? (
+            <span className="text-muted-foreground/60">· {row.resetText.toLowerCase()}</span>
+          ) : null}
+        </div>
+      ))}
       {rows.map((row) => (
         <div className="space-y-1" key={row.id}>
           <div className="flex items-baseline gap-1 text-[length:var(--app-font-size-ui-sm,11px)]">
@@ -214,6 +253,7 @@ export function ComposerConnectionControl(props: {
   const apiKey = selectedConnection ? isApiKeyConnection(selectedConnection) : false;
   const snapshot = selectedConnection ? snapshots.get(selectedConnection.id) : undefined;
   const rows = usageRows(snapshot);
+  const resetOnly = resetOnlyRows(snapshot);
   const title = apiKey ? `${selected.label} API key` : selected.label;
 
   return (
@@ -291,16 +331,16 @@ export function ComposerConnectionControl(props: {
               <ExternalLinkIcon className="ml-auto size-3" />
             </MenuItem>
           </div>
-        ) : selectedConnection === undefined ? null : rows.length > 0 ? (
-          <ConnectionUsageRows rows={rows} />
+        ) : selectedConnection === undefined ? null : rows.length + resetOnly.length > 0 ? (
+          <ConnectionUsageRows rows={rows} resetOnly={resetOnly} />
         ) : (
           <p className="px-2 pb-2 pt-1 text-[length:var(--app-font-size-ui-sm,11px)] text-muted-foreground">
             {snapshot === undefined ? "Loading usage…" : connectionUsageEmptyMessage(snapshot)}
           </p>
         )}
-        {snapshot?.detail && rows.length > 0 ? (
+        {snapshot && rows.length + resetOnly.length > 0 ? (
           <p className="px-2 pb-2 text-[length:var(--app-font-size-ui-xs,10px)] text-muted-foreground/70">
-            {snapshot.detail}
+            As of {formatUsageUpdatedAt(snapshot.updatedAt)}
           </p>
         ) : null}
       </ComposerPickerMenuPopup>
