@@ -44,6 +44,9 @@ import { Server } from "./effectServer";
 import { ServerLoggerLive } from "./serverLogger";
 import { runStartupStage } from "./startupTiming";
 import { ServerSettingsService } from "./serverSettings";
+import { DesktopRemoteCredentials } from "./remoteLink/desktopCredentials";
+import { startDesktopRemoteRuntime } from "./remoteLink/desktopRuntime";
+import { RemotePairingControl } from "./remoteLink/pairingControl";
 import { formatHostForUrl, isLoopbackHost, isWildcardHost } from "./startupAccess";
 import { AnalyticsServiceLayerLive } from "./telemetry/Layers/AnalyticsService";
 import { AnalyticsService } from "./telemetry/Services/AnalyticsService";
@@ -414,6 +417,30 @@ const makeServerProgram = (input: CliInput) => {
     );
     yield* runStartupStage("default-spaces.ensure", ensureDefaultSpaces);
     const startedServer = yield* runStartupStage("http-runtime.start", start);
+    let stopRemote: Effect.Effect<void> = Effect.void;
+    if (desktopParentPid !== null) {
+      const address = startedServer.nodeServer.address();
+      if (address && typeof address !== "string") {
+        const loopback = address.address.includes(":") ? "[::1]" : "127.0.0.1";
+        const pairing = yield* RemotePairingControl;
+        stopRemote = yield* startDesktopRemoteRuntime({
+          relayUrl: process.env.PENKRA_REMOTE_RELAY_URL ?? "wss://relay.penkra.com/v1",
+          origin: `http://${loopback}:${address.port}`,
+          credentials: new DesktopRemoteCredentials(),
+          approvals: pairing.approvals,
+          onViewing: () => undefined,
+          observeSocket: (event) => console.info("[remote-link] relay", event),
+          observeReconnect: (state) => console.info("[remote-link] reconnect", state),
+          observeSession: (event) => console.info("[remote-link] session", event),
+          observeFailure: (error) =>
+            console.error("[remote-link] runtime failure", {
+              kind: error instanceof Error ? error.name : "unknown",
+            }),
+        });
+      } else {
+        yield* Effect.logError("RemoteLink unavailable: the HTTP listener has no TCP address.");
+      }
+    }
     yield* startThreadRetentionJob();
 
     const localUrl = `http://localhost:${config.port}`;
@@ -475,7 +502,9 @@ const makeServerProgram = (input: CliInput) => {
     // Drain the runtime while the provided application layer (especially
     // SQLite) is still alive. `ensuring` also covers parent-disconnect races
     // that interrupt this fiber before the HTTP stop signal arrives.
-    return yield* stopSignal.pipe(Effect.ensuring(startedServer.shutdown));
+    return yield* stopSignal.pipe(
+      Effect.ensuring(stopRemote.pipe(Effect.ensuring(startedServer.shutdown))),
+    );
   });
 
   return Effect.raceFirst(serverProgram, parentDisconnect).pipe(

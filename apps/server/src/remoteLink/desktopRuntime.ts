@@ -27,11 +27,13 @@ export function startDesktopRemoteRuntime(
         }
       }
     });
-    yield* Effect.addFinalizer(() =>
-      Effect.promise(async () => {
+    let closing: Promise<void> | undefined;
+    const stop = () =>
+      (closing ??= (async () => {
         abort.abort();
         await finished;
-      }),
-    );
+      })());
+    yield* Effect.addFinalizer(() => Effect.promise(stop));
+    return Effect.promise(stop);
   });
 }
