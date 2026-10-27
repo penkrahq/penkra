@@ -1,0 +1,175 @@
+import * as NodeServices from "@effect/platform-node/NodeServices";
+import { Effect, Layer } from "effect";
+import { expect, it } from "vitest";
+import { SessionCredentialServiceLive } from "../auth/Layers/SessionCredentialService";
+import { ServerSecretStoreLive } from "../auth/Layers/ServerSecretStore";
+import { ServerConfig } from "../config";
+import { SqlitePersistenceMemory } from "../persistence/Layers/Sqlite";
+import { createNoiseIdentity, noisePublicKey, NoiseHandshake } from "./noise";
+import { remoteNoisePrologue } from "./pairedSession";
+import { RemotePairingApprovals } from "./pairingApprovals";
+import { decodePairingResult } from "./pairingProtocol";
+import { makeRemotePhoneRegistry } from "./phoneRegistry";
+import { RemoteRegistryClient } from "./registry";
+import { RelayFrameType, RelayOpenMode } from "./relayProtocol";
+import { makeRelaySessionStart } from "./relaySessionStart";
+import { RelaySessions } from "./relaySessions";
+import type { RemoteRelaySocket } from "./relaySocket";
+import { RemoteTrustStore, RemoteTrustStoreLive } from "./trustStore";
+import { remoteTrustScopeLayer } from "./trustScope.test-support";
+import { encodeTunnelEnvelope } from "./tunnelCodec";
+
+const macId = "10000000-0000-4000-8000-000000000001";
+const phoneId = "10000000-0000-4000-8000-000000000002";
+const sessionId = "10000000-0000-4000-8000-000000000003";
+const layer = RemoteTrustStoreLive.pipe(
+  Layer.provideMerge(remoteTrustScopeLayer),
+  Layer.provideMerge(SessionCredentialServiceLive),
+  Layer.provideMerge(SqlitePersistenceMemory),
+  Layer.provide(ServerSecretStoreLive),
+  Layer.provide(ServerConfig.layerTest(process.cwd(), { prefix: "penkra-relay-start-" })),
+  Layer.provide(NodeServices.layer),
+);
+
+it("routes a real KK handshake and encrypted data through the session owner", async () => {
+  const macKey = createNoiseIdentity(),
+    phoneKey = createNoiseIdentity();
+  const phone = new NoiseHandshake({
+    pattern: "KK",
+    initiator: true,
+    staticPrivateKey: phoneKey,
+    remoteStaticKey: noisePublicKey(macKey),
+    prologue: remoteNoisePrologue(macId, phoneId),
+  });
+  const viewed = Promise.withResolvers<string | null>();
+  let router: RelaySessions;
+  const socket = {
+    send: async (frame: { payload: Uint8Array }) => {
+      phone.readMessage(frame.payload);
+      router.receive({
+        type: RelayFrameType.DATA,
+        sessionId,
+        peerId: phoneId,
+        payload: phone
+          .finish()
+          .send.encrypt(encodeTunnelEnvelope({ t: "viewing", threadId: "fixture-thread" })),
+      });
+    },
+  } as unknown as RemoteRelaySocket;
+  try {
+    await Effect.gen(function* () {
+      const trust = yield* RemoteTrustStore;
+      const issued = yield* trust.allow({
+        deviceId: phoneId,
+        name: "Phone",
+        identityKey: noisePublicKey(phoneKey),
+      });
+      yield* trust.markPaired(phoneId, issued.sessionId);
+      const registry = yield* makeRemotePhoneRegistry(
+        new RemoteRegistryClient({ apiUrl: "http://localhost:1", deviceToken: "fixture" }),
+      );
+      const start = yield* makeRelaySessionStart({
+        macDeviceId: macId,
+        macPrivateKey: macKey,
+        origin: "http://127.0.0.1:1",
+        approvals: new RemotePairingApprovals(() => undefined),
+        registry,
+        socket,
+        onViewing: (_phone, thread) => viewed.resolve(thread),
+        observe: () => undefined,
+      });
+      router = new RelaySessions({
+        start,
+        closePeer: async () => undefined,
+        observeFailure: (error) => {
+          throw error;
+        },
+      });
+      router.receive({
+        type: RelayFrameType.OPEN,
+        mode: RelayOpenMode.SESSION,
+        sessionId,
+        peerId: phoneId,
+        payload: phone.writeMessage(new Uint8Array()),
+      });
+      expect(yield* Effect.promise(() => viewed.promise)).toBe("fixture-thread");
+      yield* Effect.promise(() => router.close());
+    }).pipe(Effect.provide(layer), Effect.scoped, Effect.runPromise);
+  } finally {
+    phone.destroy();
+    macKey.fill(0);
+    phoneKey.fill(0);
+  }
+});
+
+it("routes a real XX pairing and an explicit denial through the session owner", async () => {
+  const macKey = createNoiseIdentity(),
+    phoneKey = createNoiseIdentity();
+  const phone = new NoiseHandshake({
+    pattern: "XX",
+    initiator: true,
+    staticPrivateKey: phoneKey,
+    prologue: remoteNoisePrologue(macId, phoneId),
+  });
+  const result = Promise.withResolvers<string>();
+  let router: RelaySessions;
+  let replies = 0;
+  const socket = {
+    send: async (frame: { payload: Uint8Array }) => {
+      if (++replies === 1) {
+        phone.readMessage(frame.payload);
+        router.receive({
+          type: RelayFrameType.DATA,
+          sessionId,
+          peerId: phoneId,
+          payload: phone.writeMessage(new Uint8Array()),
+        });
+      } else
+        result.resolve(decodePairingResult(phone.finish().receive.decrypt(frame.payload)).type);
+    },
+  } as unknown as RemoteRelaySocket;
+  const approvals = new RemotePairingApprovals((request) => {
+    if (request) approvals.answer(request.requestId, false);
+  });
+  try {
+    await Effect.gen(function* () {
+      const registry = yield* makeRemotePhoneRegistry(
+        new RemoteRegistryClient({ apiUrl: "http://localhost:1", deviceToken: "fixture" }),
+      );
+      const start = yield* makeRelaySessionStart({
+        macDeviceId: macId,
+        macPrivateKey: macKey,
+        origin: "http://127.0.0.1:1",
+        approvals,
+        registry,
+        socket,
+        onViewing: () => undefined,
+        observe: () => undefined,
+      });
+      router = new RelaySessions({
+        start,
+        closePeer: async () => undefined,
+        observeFailure: (error) => {
+          throw error;
+        },
+      });
+      router.receive({
+        type: RelayFrameType.OPEN,
+        mode: RelayOpenMode.PAIRING,
+        sessionId,
+        peerId: phoneId,
+        payload: phone.writeMessage(
+          Buffer.from(JSON.stringify({ type: "pair", name: "Phone", model: "Fixture" })),
+        ),
+      });
+      expect(yield* Effect.promise(() => result.promise)).toBe("denied");
+      yield* Effect.promise(() => router.close());
+      expect(yield* (yield* RemoteTrustStore).list()).toEqual([]);
+    }).pipe(Effect.provide(layer), Effect.scoped, Effect.runPromise);
+  } finally {
+    approvals.close();
+    phone.destroy();
+    macKey.fill(0);
+    phoneKey.fill(0);
+  }
+});
