@@ -8539,6 +8539,8 @@ async function bootstrap(): Promise<void> {
   remoteAccountCoordinator = new RemoteAccountCoordinator({
     accountServiceUrl: penkraAccountServices.apiUrl,
     readAccess: (accountId) => desktopAppRuntime!.remoteLinkCredentialVault.getAccess(accountId),
+    writeAccess: (accountId, accessOn) =>
+      desktopAppRuntime!.remoteLinkCredentialVault.setAccess(accountId, accessOn),
     transition: (event, snapshot) => remoteLifecycleHost!.transition(event, snapshot),
   });
   powerMonitor.on("suspend", () => {

@@ -3,12 +3,14 @@ import type { RemoteLifecycleEvent, RemoteLifecycleSnapshot } from "@penkra/cont
 /** The account is published only after old work is joined; stale reads cannot reopen it. */
 export class RemoteAccountCoordinator {
   #generation = 0;
+  #accessGeneration = 0;
   #snapshot: RemoteLifecycleSnapshot;
 
   constructor(
     private readonly input: {
       accountServiceUrl: string;
       readAccess: (accountId: string) => Promise<boolean>;
+      writeAccess: (accountId: string, accessOn: boolean) => Promise<void>;
       transition: (
         event: Exclude<RemoteLifecycleEvent["event"], "snapshot">,
         snapshot: RemoteLifecycleSnapshot,
@@ -44,6 +46,17 @@ export class RemoteAccountCoordinator {
   async setSuspended(suspended: boolean): Promise<void> {
     this.#snapshot = { ...this.#snapshot, suspended };
     await this.input.transition(suspended ? "suspend" : "wake", this.#snapshot);
+  }
+
+  async setAccess(accountId: string, accessOn: boolean): Promise<void> {
+    if (this.#snapshot.accountId !== accountId) throw new Error("The signed-in account changed.");
+    const accountGeneration = this.#generation;
+    const accessGeneration = ++this.#accessGeneration;
+    await this.input.writeAccess(accountId, accessOn);
+    if (accountGeneration !== this.#generation || accessGeneration !== this.#accessGeneration)
+      return;
+    this.#snapshot = { ...this.#snapshot, accessOn };
+    await this.input.transition("access", this.#snapshot);
   }
 
   async #publish(accountId: string, generation: number): Promise<void> {

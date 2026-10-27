@@ -8,6 +8,7 @@ describe("RemoteAccountCoordinator", () => {
     const coordinator = new RemoteAccountCoordinator({
       accountServiceUrl: "https://example.test",
       readAccess: async () => true,
+      writeAccess: async () => undefined,
       transition,
     });
     await coordinator.afterSignIn("account-a");
@@ -40,6 +41,7 @@ describe("RemoteAccountCoordinator", () => {
     const coordinator = new RemoteAccountCoordinator({
       accountServiceUrl: "https://example.test",
       readAccess: async () => true,
+      writeAccess: async () => undefined,
       transition,
     });
     const startup = coordinator.initialize(() => account.promise);
@@ -59,6 +61,7 @@ describe("RemoteAccountCoordinator", () => {
         entered.resolve();
         return reading.promise;
       },
+      writeAccess: async () => undefined,
       transition,
     });
     const signIn = coordinator.afterSignIn("account-a");
@@ -81,6 +84,7 @@ describe("RemoteAccountCoordinator", () => {
     const coordinator = new RemoteAccountCoordinator({
       accountServiceUrl: "https://example.test",
       readAccess: async () => true,
+      writeAccess: async () => undefined,
       transition: async (event) => {
         if (event === "sign-out") {
           entered.resolve();
@@ -97,5 +101,33 @@ describe("RemoteAccountCoordinator", () => {
     release.resolve();
     await close;
     expect(finished).toBe(true);
+  });
+
+  it("does not publish a stale access change after the account switches", async () => {
+    const entered = deferred(),
+      release = deferred();
+    const transition = vi.fn(async (_event: string, _snapshot: unknown) => undefined);
+    const coordinator = new RemoteAccountCoordinator({
+      accountServiceUrl: "https://example.test",
+      readAccess: async () => false,
+      writeAccess: async () => {
+        entered.resolve();
+        await release.promise;
+      },
+      transition,
+    });
+    await coordinator.afterSignIn("account-a");
+    const change = coordinator.setAccess("account-a", true);
+    await entered.promise;
+    await coordinator.beforeAccountChange();
+    await coordinator.afterSignIn("account-b");
+    release.resolve();
+    await change;
+    expect(transition.mock.calls.map(([event]) => event)).toEqual([
+      "sign-in",
+      "sign-out",
+      "sign-in",
+    ]);
+    await expect(coordinator.setAccess("account-a", true)).rejects.toThrow("account changed");
   });
 });
