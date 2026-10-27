@@ -80,7 +80,7 @@ describe("Connection-owned native usage", () => {
     expect(result[0]).toMatchObject({
       connectionId: "a",
       status: "error",
-      detail: "Usage is temporarily unavailable.",
+      detail: "provider-error",
     });
     expect(result[1]).toMatchObject({
       connectionId: "b",

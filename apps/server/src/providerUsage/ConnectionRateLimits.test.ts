@@ -19,7 +19,7 @@ layer("ConnectionRateLimits", (it) => {
       );
       yield* repository.refreshUsage(connectionId);
       const request = yield* Fiber.join(requested);
-      assert.strictEqual(Option.getOrThrow(request), connectionId);
+      assert.deepStrictEqual(Option.getOrThrow(request), { connectionId });
       assert.isTrue(Option.isNone(yield* repository.get(connectionId)));
       const changed = yield* Stream.runHead(repository.changes).pipe(
         Effect.forkChild({ startImmediately: true }),

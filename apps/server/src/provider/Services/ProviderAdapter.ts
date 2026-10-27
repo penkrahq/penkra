@@ -277,6 +277,7 @@ export interface ProviderAdapterShape<TError> {
   readonly readUsage?: (input: {
     readonly cwd: string;
     readonly managedLaunch: ProviderManagedLaunchContext;
+    readonly threadId?: ThreadId;
   }) => Effect.Effect<ServerProviderUsageSnapshot, TError>;
 
   /** Verify the provider's turn endpoint with an isolated, minimal request. */

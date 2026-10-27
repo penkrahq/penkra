@@ -88,12 +88,20 @@ export const writeProviderConnectionFacts = (event: ProviderRuntimeEvent) =>
         sourceEventId: event.eventId,
         updatedAt: event.createdAt,
       });
+      if (event.provider === "claudeAgent")
+        yield* connectionRateLimits.refreshUsage(
+          ProviderConnectionId.make(connectionId),
+          event.threadId,
+        );
       return;
     }
 
     const tokenUsage = completedTurnTokenUsage(event);
     const connectionRateLimits = yield* ConnectionRateLimits;
-    yield* connectionRateLimits.refreshUsage(ProviderConnectionId.make(connectionId));
+    yield* connectionRateLimits.refreshUsage(
+      ProviderConnectionId.make(connectionId),
+      event.provider === "claudeAgent" ? event.threadId : undefined,
+    );
     yield* Effect.gen(function* () {
       const inserted = yield* sql<{ readonly sourceEventId: string }>`
             INSERT INTO connection_usage_turn_events (source_event_id, connection_id, utc_day)

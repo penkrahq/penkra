@@ -65,7 +65,7 @@ describe("provider runtime usage facts", () => {
     });
   });
 
-  it("normalizes Claude utilization facts without depending on credential files", () => {
+  it("does not infer units for an undocumented Claude event utilization", () => {
     const snapshot = snapshotFromConnectionRateLimitFact({
       ...fact({
         limits: [
@@ -82,7 +82,6 @@ describe("provider runtime usage facts", () => {
     expect(snapshot?.limits).toEqual([
       {
         window: "5h",
-        usedPercent: 23,
         resetsAt: "2026-08-21T16:20:00.000Z",
       },
     ]);

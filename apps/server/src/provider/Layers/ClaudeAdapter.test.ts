@@ -99,56 +99,98 @@ it.effect("loads a Claude folder catalog in one selected managed query and close
   }).pipe(Effect.provide(layer));
 });
 
-it.effect(
-  "reads Claude usage with the selected managed binary and environment, without a turn",
-  () => {
-    const query = new FakeClaudeQuery();
-    let captured: ClaudeQueryOptions | undefined;
-    let received: unknown;
-    const original = query.usage_EXPERIMENTAL_MAY_CHANGE_DO_NOT_RELY_ON_THIS_API_YET;
-    Object.defineProperty(query, "usage_EXPERIMENTAL_MAY_CHANGE_DO_NOT_RELY_ON_THIS_API_YET", {
-      value: async (input: unknown) => {
-        received = input;
-        return original();
+it.effect("does not launch Claude solely to read usage when no thread is running", () => {
+  let launches = 0;
+  const layer = makeClaudeAdapterLive({
+    createQuery: () => {
+      launches++;
+      return new FakeClaudeQuery();
+    },
+  }).pipe(
+    Layer.provideMerge(ServerConfig.layerTest("/tmp/claude-no-usage-launch", "/tmp")),
+    Layer.provideMerge(NodeServices.layer),
+  );
+  return Effect.gen(function* () {
+    const adapter = yield* ClaudeAdapter;
+    assert.ok(adapter.readUsage);
+    const result = yield* adapter.readUsage({
+      cwd: "/tmp",
+      managedLaunch: {
+        binaryPath: "/managed/claude",
+        assertCurrentCredentials: Effect.void,
+        isolationKey: "selected",
+        connectionId: ProviderConnectionId.make("selected"),
+        profileRoot: "/profile",
+        nativeStateRoot: "/native",
+        childEnvironment: () => ({}),
       },
     });
-    const layer = makeClaudeAdapterLive({
-      createQuery: (input) => {
-        captured = input.options;
-        return query;
-      },
-    }).pipe(
-      Layer.provideMerge(ServerConfig.layerTest("/tmp/claude-usage-test", "/tmp")),
-      Layer.provideMerge(NodeServices.layer),
-    );
-    return Effect.gen(function* () {
-      const adapter = yield* ClaudeAdapter;
-      assert.ok(adapter.readUsage);
-      const result = yield* adapter.readUsage({
-        cwd: "/tmp",
-        managedLaunch: {
-          binaryPath: "/managed/claude",
-          assertCurrentCredentials: Effect.void,
-          isolationKey: "selected",
-          profileRoot: "/profile",
-          nativeStateRoot: "/native",
-          childEnvironment: () => ({ CLAUDE_CODE_OAUTH_TOKEN: "selected-only" }),
-        },
-      });
-      assert.equal(result.status, "unsupported");
-      assert.equal(captured?.pathToClaudeCodeExecutable, "/managed/claude");
-      assert.deepEqual(captured?.env, { CLAUDE_CODE_OAUTH_TOKEN: "selected-only" });
-      assert.equal(captured?.persistSession, false);
-      assert.deepEqual(received, { skipBehaviors: true });
-      assert.equal(query.closeCalls, 1);
-      assert.deepEqual(yield* adapter.listSessions(), []);
-    }).pipe(Effect.provide(layer));
-  },
-);
+    assert.equal(launches, 0);
+    assert.equal(result.source, "provider-runtime-awaiting-rate-limits");
+  }).pipe(Effect.provide(layer));
+});
 
-it.effect("a timed-out Claude usage read closes its query and does not poison a later read", () => {
-  const blocked = new FakeClaudeQuery(),
-    later = new FakeClaudeQuery();
+it.effect("reads Claude usage from the exact running thread and does not close its query", () => {
+  const query = new FakeClaudeQuery();
+  let captured: ClaudeQueryOptions | undefined;
+  let received: unknown;
+  const original = query.usage_EXPERIMENTAL_MAY_CHANGE_DO_NOT_RELY_ON_THIS_API_YET;
+  Object.defineProperty(query, "usage_EXPERIMENTAL_MAY_CHANGE_DO_NOT_RELY_ON_THIS_API_YET", {
+    value: async (input: unknown) => {
+      received = input;
+      return original();
+    },
+  });
+  const layer = makeClaudeAdapterLive({
+    createQuery: (input) => {
+      captured = input.options;
+      return query;
+    },
+  }).pipe(
+    Layer.provideMerge(ServerConfig.layerTest("/tmp/claude-usage-test", "/tmp")),
+    Layer.provideMerge(NodeServices.layer),
+  );
+  return Effect.gen(function* () {
+    const adapter = yield* ClaudeAdapter;
+    assert.ok(adapter.readUsage);
+    const managedLaunch = {
+      binaryPath: "/managed/claude",
+      assertCurrentCredentials: Effect.void,
+      isolationKey: "selected",
+      connectionId: ProviderConnectionId.make("selected"),
+      profileRoot: "/profile",
+      nativeStateRoot: "/native",
+      childEnvironment: () => ({
+        CLAUDE_CONFIG_DIR: "/tmp/claude-usage-test/config",
+        CLAUDE_CODE_OAUTH_TOKEN: "selected-only",
+      }),
+    };
+    yield* adapter.startSession({
+      threadId: THREAD_ID,
+      provider: "claudeAgent",
+      runtimeMode: "full-access",
+      managedLaunch,
+    });
+    const result = yield* adapter.readUsage({ cwd: "/tmp", threadId: THREAD_ID, managedLaunch });
+    assert.equal(result.status, "unsupported");
+    assert.equal(captured?.pathToClaudeCodeExecutable, "/managed/claude");
+    assert.equal(captured?.env?.CLAUDE_CODE_OAUTH_TOKEN, "selected-only");
+    assert.equal(captured?.env?.CLAUDE_CONFIG_DIR, "/tmp/claude-usage-test/config");
+    assert.deepEqual(received, { skipBehaviors: true });
+    assert.equal(query.closeCalls, 0);
+    assert.equal((yield* adapter.listSessions()).length, 1);
+    const wrongAccount = yield* adapter.readUsage({
+      cwd: "/tmp",
+      threadId: THREAD_ID,
+      managedLaunch: { ...managedLaunch, connectionId: ProviderConnectionId.make("different") },
+    });
+    assert.equal(wrongAccount.source, "provider-runtime-awaiting-rate-limits");
+  }).pipe(Effect.provide(layer));
+});
+
+it.effect("a timed-out Claude usage read leaves the running query available", () => {
+  const blocked = new FakeClaudeQuery();
+  let shouldBlock = true;
   let began!: () => void;
   const started = new Promise<void>((resolve) => {
     began = resolve;
@@ -156,11 +198,24 @@ it.effect("a timed-out Claude usage read closes its query and does not poison a 
   Object.defineProperty(blocked, "usage_EXPERIMENTAL_MAY_CHANGE_DO_NOT_RELY_ON_THIS_API_YET", {
     value: async () => {
       began();
-      return new Promise(() => {});
+      if (shouldBlock) return new Promise(() => {});
+      return {
+        subscription_type: null,
+        rate_limits_available: false,
+        rate_limits: null,
+        behaviors: null,
+        session: {
+          total_cost_usd: 0,
+          total_api_duration_ms: 0,
+          total_duration_ms: 0,
+          total_lines_added: 0,
+          total_lines_removed: 0,
+          model_usage: {},
+        },
+      };
     },
   });
-  const queries = [blocked, later];
-  const layer = makeClaudeAdapterLive({ createQuery: () => queries.shift()! }).pipe(
+  const layer = makeClaudeAdapterLive({ createQuery: () => blocked }).pipe(
     Layer.provideMerge(ServerConfig.layerTest("/tmp/claude-usage-timeout", "/tmp")),
     Layer.provideMerge(NodeServices.layer),
   );
@@ -173,18 +228,31 @@ it.effect("a timed-out Claude usage read closes its query and does not poison a 
         binaryPath: "/managed/claude",
         assertCurrentCredentials: Effect.void,
         isolationKey: "selected",
+        connectionId: ProviderConnectionId.make("selected"),
         profileRoot: "/profile",
         nativeStateRoot: "/native",
-        childEnvironment: () => ({}),
+        childEnvironment: () => ({ CLAUDE_CONFIG_DIR: "/tmp/claude-usage-timeout/config" }),
       },
     };
-    const first = yield* adapter.readUsage(input).pipe(Effect.exit, Effect.forkChild);
+    yield* adapter.startSession({
+      threadId: THREAD_ID,
+      provider: "claudeAgent",
+      runtimeMode: "full-access",
+      managedLaunch: input.managedLaunch,
+    });
+    const first = yield* adapter
+      .readUsage({ ...input, threadId: THREAD_ID })
+      .pipe(Effect.forkChild);
     yield* Effect.promise(() => started);
     yield* TestClock.adjust(Duration.seconds(20));
-    assert.isTrue(Exit.isFailure(yield* Fiber.join(first)));
-    assert.equal(blocked.closeCalls, 1);
-    assert.equal((yield* adapter.readUsage(input)).status, "unsupported");
-    assert.equal(later.closeCalls, 1);
+    assert.equal((yield* Fiber.join(first)).detail, "provider-error");
+    assert.equal(blocked.closeCalls, 0);
+    shouldBlock = false;
+    assert.equal(
+      (yield* adapter.readUsage({ ...input, threadId: THREAD_ID })).status,
+      "unsupported",
+    );
+    assert.equal(blocked.closeCalls, 0);
   }).pipe(Effect.provide(layer));
 });
 

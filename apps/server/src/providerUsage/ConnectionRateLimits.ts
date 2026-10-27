@@ -1,7 +1,7 @@
 // FILE: ConnectionRateLimits.ts
 // Purpose: Process-local provider quota observations; never restored from SQLite.
 
-import type { ProviderConnectionId, ProviderKind } from "@penkra/contracts";
+import type { ProviderConnectionId, ProviderKind, ThreadId } from "@penkra/contracts";
 import { Effect, Layer, Option, Context, type Stream } from "effect";
 import { makeInvalidationHub } from "../cleanCore/invalidationHub.ts";
 
@@ -16,6 +16,11 @@ export interface ConnectionRateLimitObservation {
   readonly updatedAt: string;
 }
 
+export interface ConnectionUsageRefreshRequest {
+  readonly connectionId: ProviderConnectionId;
+  readonly threadId?: ThreadId;
+}
+
 export class ConnectionRateLimits extends Context.Service<
   ConnectionRateLimits,
   {
@@ -23,22 +28,29 @@ export class ConnectionRateLimits extends Context.Service<
       connectionId: ProviderConnectionId,
     ) => Effect.Effect<Option.Option<ConnectionRateLimitObservation>>;
     readonly update: (observation: ConnectionRateLimitObservation) => Effect.Effect<void, Error>;
-    readonly refreshUsage: (connectionId: ProviderConnectionId) => Effect.Effect<void>;
+    readonly refreshUsage: (
+      connectionId: ProviderConnectionId,
+      threadId?: ThreadId,
+    ) => Effect.Effect<void>;
     readonly changes: Stream.Stream<ProviderConnectionId>;
-    readonly refreshRequests: Stream.Stream<ProviderConnectionId>;
+    readonly refreshRequests: Stream.Stream<ConnectionUsageRefreshRequest>;
   }
 >()("penkra/providerUsage/ConnectionRateLimits") {}
 
 export const makeConnectionRateLimits = Effect.sync(() => {
   const observations = new Map<ProviderConnectionId, ConnectionRateLimitObservation>();
   const changes = makeInvalidationHub<ProviderConnectionId>((id) => id);
-  const refreshRequests = makeInvalidationHub<ProviderConnectionId>((id) => id);
+  const refreshRequests = makeInvalidationHub<ConnectionUsageRefreshRequest>(
+    (request) => request.connectionId,
+  );
   return {
     changes: changes.stream(),
     refreshRequests: refreshRequests.stream(),
     close: Effect.all([changes.close, refreshRequests.close], { discard: true }),
-    refreshUsage: (connectionId: ProviderConnectionId) =>
-      Effect.sync(() => refreshRequests.publish(connectionId)),
+    refreshUsage: (connectionId: ProviderConnectionId, threadId?: ThreadId) =>
+      Effect.sync(() =>
+        refreshRequests.publish({ connectionId, ...(threadId ? { threadId } : {}) }),
+      ),
     get: (connectionId: ProviderConnectionId) =>
       Effect.sync(() => Option.fromUndefinedOr(observations.get(connectionId))),
     update: (observation: ConnectionRateLimitObservation) =>

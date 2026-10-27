@@ -10,9 +10,7 @@ import { codexQuotaObservations } from "./codexQuotaBuckets";
 function usedPercent(value: Record<string, unknown>): number | undefined {
   const direct = asFiniteNumber(value.usedPercent);
   if (direct !== undefined) return clampPercent(direct);
-  const utilization = asFiniteNumber(value.utilization);
-  if (utilization === undefined) return undefined;
-  return clampPercent(utilization <= 1 ? utilization * 100 : utilization);
+  return undefined;
 }
 
 function resetAt(value: unknown): string | undefined {

@@ -39,6 +39,7 @@ import {
   type ClaudeApiEffort,
   EventId,
   ProviderItemId,
+  type ProviderConnectionId,
   type ProviderRuntimeEvent,
   type ProviderRuntimeTurnStatus,
   type ProviderSendTurnInput,
@@ -88,6 +89,7 @@ import {
 
 import { renderPenkraHostPolicy } from "../../agentGateway/harnessPolicy.ts";
 import { claudeNativeUsage } from "../../providerUsage/nativeUsage.ts";
+import { buildSnapshot, errorSnapshot } from "../../providerUsage/parse.ts";
 import {
   CLAUDE_BENIGN_TERMINATION_MESSAGE,
   interruptionMessageFromClaudeCause,
@@ -319,6 +321,7 @@ interface ClaudeSessionContext {
   readonly lifecycleGeneration?: string;
   readonly promptQueue: Queue.Queue<PromptQueueItem>;
   readonly query: ClaudeQueryRuntime;
+  readonly connectionId?: ProviderConnectionId | null;
   computerUseHealth?: ComputerUseCapabilityHealth;
   readonly processOwner: ClaudeProcessOwner;
   stopDeferred?: Deferred.Deferred<void, ProviderAdapterProcessError>;
@@ -4583,6 +4586,7 @@ function makeClaudeAdapter(options?: ClaudeAdapterLiveOptions) {
               : {}),
             promptQueue,
             query: queryRuntime,
+            connectionId: input.managedLaunch?.connectionId ?? null,
             processOwner,
             streamFiber: undefined,
             startedAt,
@@ -5219,45 +5223,53 @@ function makeClaudeAdapter(options?: ClaudeAdapterLiveOptions) {
 
     const readUsage: NonNullable<ClaudeAdapterShape["readUsage"]> = (input) =>
       Effect.suspend(() => {
-        let pending: Promise<ReturnType<typeof claudeNativeUsage>> | undefined;
-        return Effect.tryPromise({
-          try: (signal) =>
-            (pending = withReadonlyConnectionQuery(
-              input,
-              async (query) =>
-                claudeNativeUsage(
-                  await query.usage_EXPERIMENTAL_MAY_CHANGE_DO_NOT_RELY_ON_THIS_API_YET({
-                    skipBehaviors: true,
-                  }),
-                  Date.now(),
-                ),
-              signal,
-            )),
-          catch: (cause) =>
-            new ProviderAdapterRequestError({
+        const context = input.threadId ? sessions.get(input.threadId) : undefined;
+        if (
+          !context ||
+          context.stopped ||
+          !input.managedLaunch.connectionId ||
+          context.connectionId !== input.managedLaunch.connectionId
+        ) {
+          return Effect.succeed(
+            buildSnapshot({
               provider: PROVIDER,
-              method: "usage/read",
-              detail: toMessage(cause, "Claude usage read failed"),
-              cause,
+              nowMs: Date.now(),
+              status: "ok",
+              source: "provider-runtime-awaiting-rate-limits",
             }),
+          );
+        }
+        return Effect.tryPromise({
+          try: async () => {
+            const report =
+              await context.query.usage_EXPERIMENTAL_MAY_CHANGE_DO_NOT_RELY_ON_THIS_API_YET({
+                skipBehaviors: true,
+              });
+            if (context.stopped || sessions.get(input.threadId!) !== context)
+              throw new Error("Claude runtime ended during its usage read.");
+            return claudeNativeUsage(report, Date.now());
+          },
+          catch: (cause) => cause,
         }).pipe(
-          Effect.onInterrupt(() =>
-            Effect.promise(async () => {
-              await pending?.catch(() => undefined);
-            }),
-          ),
           Effect.timeoutOrElse({
             duration: CLAUDE_CONNECTION_USAGE_REQUEST_TIMEOUT_MS,
-            orElse: () =>
-              Effect.fail(
-                new ProviderAdapterRequestError({
-                  provider: PROVIDER,
-                  method: "usage/read",
-                  cause: new Cause.TimeoutError(),
-                  detail: "Claude usage read timed out.",
-                }),
-              ),
+            orElse: () => Effect.fail(new Cause.TimeoutError()),
           }),
+          Effect.catch((cause) =>
+            Effect.gen(function* () {
+              const kind =
+                context.stopped || sessions.get(input.threadId!) !== context
+                  ? "runtime-ended"
+                  : "provider-error";
+              yield* Effect.logWarning("Claude usage read failed", {
+                threadId: input.threadId,
+                connectionId: input.managedLaunch.connectionId,
+                kind,
+                cause,
+              });
+              return errorSnapshot(PROVIDER, Date.now(), "provider-runtime", kind);
+            }),
+          ),
         );
       });
 

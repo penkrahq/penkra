@@ -3,6 +3,7 @@ import type {
   ProviderConnectionId,
   ServerListProviderUsageInput,
   ServerProviderUsageSnapshot,
+  ThreadId,
 } from "@penkra/contracts";
 import { Effect, Option } from "effect";
 import { ServerConfig } from "../config.ts";
@@ -19,7 +20,7 @@ import {
 } from "../provider/providerConnectionManifests.ts";
 import { providerModelDiscoveryStateIdentity } from "../provider/providerDiscoveryStateIdentity.ts";
 import { ConnectionRateLimits } from "./ConnectionRateLimits.ts";
-import { errorSnapshot, unsupportedSnapshot } from "./parse.ts";
+import { buildSnapshot, errorSnapshot, unsupportedSnapshot } from "./parse.ts";
 import {
   mergeConnectionUsageSnapshots,
   snapshotFromConnectionRateLimitFact,
@@ -57,7 +58,9 @@ export async function collectProviderConnectionUsageSnapshots(input: {
             connection.harness,
             input.nowMs,
             "provider-runtime",
-            "Usage is temporarily unavailable.",
+            connection.harness === "claudeAgent"
+              ? "provider-error"
+              : "Usage is temporarily unavailable.",
           );
         }
       }
@@ -66,7 +69,10 @@ export async function collectProviderConnectionUsageSnapshots(input: {
   );
 }
 
-export const listProviderUsage = Effect.fn(function* (input: ServerListProviderUsageInput) {
+export const listProviderUsage = Effect.fn(function* (
+  input: ServerListProviderUsageInput,
+  threadId?: ThreadId,
+) {
   const config = yield* ServerConfig;
   const connections = yield* ProviderConnectionRepository;
   const installations = yield* ProviderInstallationRepository;
@@ -90,6 +96,14 @@ export const listProviderUsage = Effect.fn(function* (input: ServerListProviderU
       readUsage: (connection) =>
         Effect.runPromiseWith(runtime)(
           Effect.gen(function* () {
+            if (connection.harness === "claudeAgent" && !threadId) {
+              return buildSnapshot({
+                provider: "claudeAgent",
+                nowMs: Date.now(),
+                status: "ok",
+                source: "provider-runtime-awaiting-rate-limits",
+              });
+            }
             const installation = yield* installations.getActiveRecord(connection.harness);
             const method = findManagedLoginMethod(connection);
             if (Option.isNone(installation) || method?.internalProviderIds.length !== 1)
@@ -107,7 +121,11 @@ export const listProviderUsage = Effect.fn(function* (input: ServerListProviderU
             const adapter = yield* registry.getByProvider(connection.harness);
             if (!adapter.readUsage)
               return yield* Effect.fail(new Error("The provider has no native usage report."));
-            return yield* adapter.readUsage({ cwd: config.cwd, managedLaunch });
+            return yield* adapter.readUsage({
+              cwd: config.cwd,
+              managedLaunch,
+              ...(threadId ? { threadId } : {}),
+            });
           }).pipe(
             Effect.tapError((cause) =>
               Effect.logWarning("provider usage native read failed", {

@@ -1,6 +1,10 @@
 import { assert, it } from "@effect/vitest";
 import * as NodeServices from "@effect/platform-node/NodeServices";
-import { ProviderConnectionId, type ServerProviderUsageSnapshot } from "@penkra/contracts";
+import {
+  ProviderConnectionId,
+  ThreadId,
+  type ServerProviderUsageSnapshot,
+} from "@penkra/contracts";
 import { Deferred, Effect, Layer, Option, Stream } from "effect";
 import { makeProviderUsage, ProviderUsage, ProviderUsageLive } from "./ProviderUsage.ts";
 import { ProviderConnectionRepository } from "../persistence/Services/ProviderConnections.ts";
@@ -160,5 +164,69 @@ it.effect("coalesces requests and observes a change arriving during a fetch", ()
     assert.isTrue(Option.isSome(latest));
     assert.strictEqual(loads, 2);
     assert.strictEqual(maxActive, 1);
+  }).pipe(Effect.scoped),
+);
+
+it.effect("keeps Claude's last good reading when a refresh fails", () =>
+  Effect.gen(function* () {
+    let loads = 0;
+    const usage = yield* makeProviderUsage(() =>
+      Effect.sync(() => {
+        loads++;
+        return loads === 1
+          ? { ...snapshot(35), provider: "claudeAgent" as const }
+          : {
+              ...snapshot(0),
+              provider: "claudeAgent" as const,
+              limits: [],
+              status: "error" as const,
+              detail: "runtime-ended",
+            };
+      }),
+    );
+    yield* usage.refresh(id);
+    yield* usage.changes.pipe(
+      Stream.filter((change) => change.snapshot.limits.length > 0),
+      Stream.runHead,
+    );
+    yield* usage.refresh(id);
+    const failed = Option.getOrThrow(
+      yield* usage.changes.pipe(
+        Stream.filter((change) => change.snapshot.status === "error"),
+        Stream.runHead,
+      ),
+    );
+    assert.strictEqual(failed.snapshot.limits[0]?.usedPercent, 35);
+    assert.strictEqual(failed.snapshot.updatedAt, snapshot(35).updatedAt);
+    assert.strictEqual(failed.snapshot.detail, "runtime-ended");
+  }).pipe(Effect.scoped),
+);
+
+it.effect("retains the thread for a queued refresh when an unrelated refresh arrives", () =>
+  Effect.gen(function* () {
+    const started = yield* Deferred.make<void>();
+    const release = yield* Deferred.make<void>();
+    const seen: Array<ThreadId | undefined> = [];
+    const threadId = ThreadId.make("usage-thread");
+    const usage = yield* makeProviderUsage((_id, thread) =>
+      Effect.gen(function* () {
+        seen.push(thread);
+        if (seen.length === 1) {
+          yield* Deferred.succeed(started, undefined);
+          yield* Deferred.await(release);
+        }
+        return snapshot(seen.length);
+      }),
+    );
+    yield* usage.refresh(id);
+    yield* Deferred.await(started);
+    yield* usage.refresh(id, threadId);
+    yield* usage.refresh(id);
+    yield* Deferred.succeed(release, undefined);
+    yield* usage.changes.pipe(
+      Stream.filter((change) => change.snapshot.limits[0]?.usedPercent === 2),
+      Stream.runHead,
+    );
+    assert.deepStrictEqual(seen, [undefined, threadId]);
   }).pipe(Effect.scoped),
 );

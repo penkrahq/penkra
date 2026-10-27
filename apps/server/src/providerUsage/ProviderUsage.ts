@@ -1,5 +1,9 @@
 // One server-owned usage snapshot per Connection. Reads and subscribers never fetch.
-import type { ProviderConnectionId, ServerProviderUsageSnapshot } from "@penkra/contracts";
+import type {
+  ProviderConnectionId,
+  ServerProviderUsageSnapshot,
+  ThreadId,
+} from "@penkra/contracts";
 import { Effect, Layer, Context, Stream } from "effect";
 import { makeInvalidationHub } from "../cleanCore/invalidationHub.ts";
 import { ProviderConnectionRepository } from "../persistence/Services/ProviderConnections.ts";
@@ -21,7 +25,10 @@ export type ProviderUsageChange = {
 };
 
 export const makeProviderUsage = (
-  load: (id: ProviderConnectionId) => Effect.Effect<ServerProviderUsageSnapshot | null, unknown>,
+  load: (
+    id: ProviderConnectionId,
+    threadId?: ThreadId,
+  ) => Effect.Effect<ServerProviderUsageSnapshot | null, unknown>,
 ) =>
   Effect.gen(function* () {
     const scope = yield* Effect.scope;
@@ -31,20 +38,28 @@ export const makeProviderUsage = (
     );
     const snapshots = new Map<ProviderConnectionId, ServerProviderUsageSnapshot>();
     const inFlight = new Set<ProviderConnectionId>();
-    const dirty = new Set<ProviderConnectionId>();
-    const refresh = (id: ProviderConnectionId): Effect.Effect<void> =>
+    const dirty = new Map<ProviderConnectionId, ThreadId | undefined>();
+    const refresh = (id: ProviderConnectionId, threadId?: ThreadId): Effect.Effect<void> =>
       Effect.gen(function* () {
-        dirty.add(id);
+        if (threadId !== undefined || !dirty.has(id)) dirty.set(id, threadId);
         if (inFlight.has(id)) return;
         inFlight.add(id);
         yield* Effect.gen(function* () {
-          while (dirty.delete(id)) {
-            yield* load(id).pipe(
+          while (dirty.has(id)) {
+            const requestedThreadId = dirty.get(id);
+            dirty.delete(id);
+            yield* load(id, requestedThreadId).pipe(
               Effect.tap((snapshot) =>
                 Effect.sync(() => {
                   if (snapshot === null) snapshots.delete(id);
                   else {
-                    snapshots.set(id, snapshot);
+                    const previous = snapshots.get(id);
+                    snapshots.set(
+                      id,
+                      previous && snapshot.provider === "claudeAgent"
+                        ? mergeConnectionUsageSnapshots({ runtime: previous, fetched: snapshot })
+                        : snapshot,
+                    );
                     changes.publish(id);
                   }
                 }),
@@ -58,7 +73,9 @@ export const makeProviderUsage = (
           Effect.ensuring(
             Effect.suspend(() => {
               inFlight.delete(id);
-              return scope.state._tag !== "Closed" && dirty.has(id) ? refresh(id) : Effect.void;
+              return scope.state._tag !== "Closed" && dirty.has(id)
+                ? refresh(id, dirty.get(id))
+                : Effect.void;
             }),
           ),
           Effect.forkIn(scope),
@@ -112,9 +129,9 @@ export const ProviderUsageLive = Layer.effect(
     const config = yield* ServerConfig;
     const registry = yield* ProviderAdapterRegistry;
     const resolver = yield* ProviderLaunchResolver;
-    const usage = yield* makeProviderUsage((id) =>
+    const usage = yield* makeProviderUsage((id, threadId) =>
       Effect.gen(function* () {
-        const [snapshot] = yield* listProviderUsage({ connectionIds: [id] });
+        const [snapshot] = yield* listProviderUsage({ connectionIds: [id] }, threadId);
         return snapshot ?? null;
       }).pipe(
         Effect.provideService(ServerConfig, config),
@@ -129,7 +146,10 @@ export const ProviderUsageLive = Layer.effect(
       for (const connection of yield* connections.list()) yield* usage.refresh(connection.id);
     });
     yield* connections.changes.pipe(Stream.runForEach(usage.refresh), Effect.forkIn(scope));
-    yield* facts.refreshRequests.pipe(Stream.runForEach(usage.refresh), Effect.forkIn(scope));
+    yield* facts.refreshRequests.pipe(
+      Stream.runForEach((request) => usage.refresh(request.connectionId, request.threadId)),
+      Effect.forkIn(scope),
+    );
     yield* facts.changes.pipe(
       Stream.runForEach((id) =>
         Effect.gen(function* () {
