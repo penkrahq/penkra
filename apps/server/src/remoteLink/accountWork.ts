@@ -12,6 +12,7 @@ import type { RelaySocketEvent } from "./relaySocket";
 import type { RelayReconnectState } from "./reconnect";
 import type { RemoteSessionEvent } from "./sessionBridge";
 import { makeSessionRelay } from "./sessionRelay";
+import { RemotePhoneSessions } from "./phoneSessions";
 import { makeRemoteTrustStore, RemoteTrustScope, RemoteTrustStore } from "./trustStore";
 
 /** Capture the backend's scoped persistence services; each account mounts its own trust. */
@@ -21,6 +22,7 @@ export function makeRemoteAccountWork(input: {
   credentials: DesktopRemoteCredentials;
   approvals: RemotePairingApprovals;
   onViewing: (phoneDeviceId: string, threadId: string | null) => void;
+  onSessions: (sessions: RemotePhoneSessions | null) => void;
   observeSocket: (event: RelaySocketEvent) => void;
   observeReconnect: (state: RelayReconnectState) => void;
   observeSession: (event: RemoteSessionEvent) => void;
@@ -39,6 +41,8 @@ export function makeRemoteAccountWork(input: {
       ownerSignal.addEventListener("abort", abort, { once: true });
       if (ownerSignal.aborted) abort();
       let relay: RemoteRelayConnection | undefined;
+      const sessions = new RemotePhoneSessions();
+      let sessionsPublished = false;
       let closing = false;
       const ready = (async () => {
         const result = await input.credentials.read(preparation.signal);
@@ -64,6 +68,8 @@ export function makeRemoteAccountWork(input: {
               Effect.provideService(RemoteTrustStore, trust),
             );
             if (closing || ownerSignal.aborted) return undefined;
+            input.onSessions(sessions);
+            sessionsPublished = true;
             relay = yield* makeSessionRelay({
               macDeviceId: registration.deviceId,
               macPrivateKey: key,
@@ -74,6 +80,10 @@ export function makeRemoteAccountWork(input: {
               deviceToken: registration.deviceToken,
               signal: ownerSignal,
               onViewing: input.onViewing,
+              onSession: (phoneId, sessionId, connected) => {
+                if (connected) sessions.open(phoneId, sessionId);
+                else sessions.close(phoneId, sessionId);
+              },
               observe: input.observeSession,
               observeSocket: input.observeSocket,
               observeReconnect: input.observeReconnect,
@@ -83,7 +93,11 @@ export function makeRemoteAccountWork(input: {
           await run(setup, { signal: preparation.signal });
           if (relay) await relay.finished;
         } finally {
-          key.fill(0);
+          try {
+            if (sessionsPublished) input.onSessions(null);
+          } finally {
+            key.fill(0);
+          }
         }
       })()
         .catch((error) => {

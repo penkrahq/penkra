@@ -38,6 +38,7 @@ it("does not open a relay with another account's registration", async () => {
       credentials,
       approvals,
       onViewing: () => undefined,
+      onSessions: () => undefined,
       observeSocket: () => undefined,
       observeReconnect: () => undefined,
       observeSession: () => undefined,
@@ -75,6 +76,7 @@ it("cancels and joins credential preparation before an account can be replaced",
       credentials,
       approvals,
       onViewing: () => undefined,
+      onSessions: () => undefined,
       observeSocket: () => undefined,
       observeReconnect: () => undefined,
       observeSession: () => undefined,
@@ -124,6 +126,7 @@ it("sends sleep on the account's real relay before joining it", async () => {
             credentials,
             approvals,
             onViewing: () => undefined,
+            onSessions: () => undefined,
             observeSocket: (event) => {
               if (event.event === "opened") opened.resolve();
             },

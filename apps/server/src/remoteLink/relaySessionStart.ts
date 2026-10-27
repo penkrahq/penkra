@@ -18,6 +18,7 @@ export function makeRelaySessionStart(input: {
   approvals: RemotePairingApprovals;
   registry: Effect.Success<ReturnType<typeof makeRemotePhoneRegistry>>;
   onViewing: (phoneDeviceId: string, threadId: string | null) => void;
+  onSession: (phoneDeviceId: string, sessionId: string, connected: boolean) => void;
   observe: (event: RemoteSessionEvent) => void;
 }) {
   return Effect.gen(function* () {
@@ -31,6 +32,7 @@ export function makeRelaySessionStart(input: {
         )
           throw new Error("Expected relay OPEN.");
         let receiver: ((bytes: Uint8Array) => void) | null = null;
+        let connected = false;
         const send = (payload: Uint8Array) =>
           socket.send({
             type: RelayFrameType.DATA,
@@ -63,6 +65,8 @@ export function makeRelaySessionStart(input: {
                 sendHandshakeReply: send,
                 onBridge: (bridge) => {
                   receiver = (bytes) => bridge.receive(bytes);
+                  connected = true;
+                  input.onSession(open.peerId, open.sessionId, true);
                 },
                 onViewing: (threadId) => input.onViewing(open.peerId, threadId),
                 observe: input.observe,
@@ -74,6 +78,9 @@ export function makeRelaySessionStart(input: {
           .then(() => undefined)
           .catch((error) => {
             if (!signal.aborted) throw error;
+          })
+          .finally(() => {
+            if (connected) input.onSession(open.peerId, open.sessionId, false);
           });
         return {
           receive: (bytes) => {

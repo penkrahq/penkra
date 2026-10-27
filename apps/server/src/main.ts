@@ -429,6 +429,7 @@ const makeServerProgram = (input: CliInput) => {
           credentials: new DesktopRemoteCredentials(),
           approvals: pairing.approvals,
           onViewing: () => undefined,
+          onSessions: () => undefined,
           observeSocket: (event) => console.info("[remote-link] relay", event),
           observeReconnect: (state) => console.info("[remote-link] reconnect", state),
           observeSession: (event) => console.info("[remote-link] session", event),

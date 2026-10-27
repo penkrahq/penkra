@@ -45,6 +45,7 @@ it("routes a real KK handshake and encrypted data through the session owner", as
     prologue: remoteNoisePrologue(macId, phoneId),
   });
   const viewed = Promise.withResolvers<string | null>();
+  const connectionStates: boolean[] = [];
   let router: RelaySessions;
   const socket = {
     send: async (frame: { payload: Uint8Array }) => {
@@ -78,6 +79,7 @@ it("routes a real KK handshake and encrypted data through the session owner", as
         approvals: new RemotePairingApprovals(() => undefined),
         registry,
         onViewing: (_phone, thread) => viewed.resolve(thread),
+        onSession: (_phone, _session, connected) => connectionStates.push(connected),
         observe: () => undefined,
       });
       router = new RelaySessions({
@@ -96,6 +98,7 @@ it("routes a real KK handshake and encrypted data through the session owner", as
       });
       expect(yield* Effect.promise(() => viewed.promise)).toBe("fixture-thread");
       yield* Effect.promise(() => router.close());
+      expect(connectionStates).toEqual([true, false]);
     }).pipe(Effect.provide(layer), Effect.scoped, Effect.runPromise);
   } finally {
     phone.destroy();
@@ -145,6 +148,7 @@ it("routes a real XX pairing and an explicit denial through the session owner", 
         approvals,
         registry,
         onViewing: () => undefined,
+        onSession: () => undefined,
         observe: () => undefined,
       });
       router = new RelaySessions({
@@ -241,6 +245,7 @@ it("routes an immediate relay OPEN through real WebSocket and XX pairing", async
             deviceToken: "fixture",
             signal: new AbortController().signal,
             onViewing: () => undefined,
+            onSession: () => undefined,
             observe: () => undefined,
             observeSocket: () => undefined,
             observeReconnect: () => undefined,
@@ -300,6 +305,7 @@ it("reconciles phone permissions again on each relay connection", async () => {
             deviceToken: "fixture",
             signal: new AbortController().signal,
             onViewing: () => undefined,
+            onSession: () => undefined,
             observe: () => undefined,
             observeSocket: () => undefined,
             observeReconnect: () => undefined,
