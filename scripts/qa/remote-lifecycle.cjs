@@ -103,7 +103,11 @@ async function main() {
     controllers.push(restarted);
     const restored = Promise.withResolvers();
     const resumeSnapshot = Promise.withResolvers();
-    gates.push(resumeSnapshot);
+    const heldTransition = Promise.withResolvers();
+    const releaseTransition = Promise.withResolvers();
+    const sleepStarted = Promise.withResolvers();
+    const finishSleep = Promise.withResolvers();
+    gates.push(resumeSnapshot, releaseTransition, finishSleep);
     const seen = [];
     const watchingAgain = watchDesktopRemoteLifecycle({
       env,
@@ -114,6 +118,14 @@ async function main() {
           assert.equal(event.snapshot.accountId, "b");
           restored.resolve();
           await resumeSnapshot.promise;
+        }
+        if (event.event === "access" && event.snapshot.accountId === "c") {
+          heldTransition.resolve();
+          await releaseTransition.promise;
+        }
+        if (event.event === "suspend") {
+          sleepStarted.resolve();
+          await finishSleep.promise;
         }
       },
       closeOwner: async () => {},
@@ -132,6 +144,24 @@ async function main() {
     assert.deepEqual(seen, [
       ["snapshot", "b"],
       ["sign-in", "c"],
+    ]);
+    const held = host.transition("access", { ...snapshot, accountId: "c" });
+    await heldTransition.promise;
+    const sleeping = host.transition("suspend", {
+      ...snapshot,
+      accountId: "c",
+      suspended: true,
+    });
+    const waking = host.transition("wake", { ...snapshot, accountId: "c" });
+    releaseTransition.resolve();
+    await sleepStarted.promise;
+    assert.equal(seen.at(-1)[0], "suspend");
+    finishSleep.resolve();
+    await Promise.all([held, sleeping, waking]);
+    assert.deepEqual(seen.slice(-3), [
+      ["access", "c"],
+      ["suspend", "c"],
+      ["wake", "c"],
     ]);
     restarted.abort();
     await watchingAgain;

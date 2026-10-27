@@ -11,14 +11,15 @@ const decodeControl = Schema.decodeUnknownSync(RemoteLifecycleControl, {
   onExcessProperty: "error",
 });
 
-/** One backend subscriber; at most one in-flight frame and one latest snapshot.
- * A transition resolves only when that latest snapshot has been acknowledged.
+/** One backend subscriber; coalesce ordinary changes, but retain sleep barriers.
+ * A transition resolves only when the latest snapshot has been acknowledged.
  * Disconnect is failure, never proof that the backend released its sessions.
  */
 export class RemoteLifecycleHost {
   #current: RemoteLifecycleEvent;
   #socket: Socket | undefined;
   #inFlight: number | undefined;
+  #pending: RemoteLifecycleEvent[] = [];
   #unconfirmedDisconnect = false;
   #waiting:
     | { promise: Promise<void>; resolve: () => void; reject: (error: Error) => void }
@@ -40,6 +41,7 @@ export class RemoteLifecycleHost {
     const socket = this.#socket;
     this.#socket = undefined;
     this.#inFlight = undefined;
+    this.#pending = [];
     this.#unconfirmedDisconnect = false;
     this.#waiting?.resolve();
     this.#waiting = undefined;
@@ -60,6 +62,12 @@ export class RemoteLifecycleHost {
       return this.#unconfirmedDisconnect
         ? Promise.reject(new Error("RemoteLink lifecycle cleanup has not been acknowledged."))
         : Promise.resolve();
+    const last = this.#pending.at(-1);
+    if (event !== "suspend" && last && last.event !== "suspend") {
+      this.#pending[this.#pending.length - 1] = this.#current;
+    } else {
+      this.#pending.push(this.#current);
+    }
     if (!this.#waiting) {
       let resolve!: () => void;
       let reject!: (error: Error) => void;
@@ -77,12 +85,14 @@ export class RemoteLifecycleHost {
     if (this.#socket) throw new Error("RemoteLink already has a lifecycle owner.");
     this.#socket = socket;
     this.#current = { ...this.#current, event: "snapshot" };
+    this.#pending = [this.#current];
     let bytes = Buffer.alloc(0);
     const failed = () => {
       if (this.#socket !== socket) return;
       this.#socket = undefined;
       this.#unconfirmedDisconnect = true;
       this.#inFlight = undefined;
+      this.#pending = [];
       this.#waiting?.reject(
         new Error("RemoteLink lifecycle owner disconnected before acknowledgement."),
       );
@@ -104,6 +114,7 @@ export class RemoteLifecycleHost {
           if (ack.type === "released") {
             this.#socket = undefined;
             this.#inFlight = undefined;
+            this.#pending = [];
             this.#unconfirmedDisconnect = false;
             this.#waiting?.resolve();
             this.#waiting = undefined;
@@ -135,7 +146,9 @@ export class RemoteLifecycleHost {
 
   #send(): void {
     if (!this.#socket || this.#inFlight !== undefined) return;
-    this.#inFlight = this.#current.revision;
-    this.#socket.write(`${JSON.stringify(this.#current)}\n`);
+    const next = this.#pending.shift();
+    if (!next) return;
+    this.#inFlight = next.revision;
+    this.#socket.write(`${JSON.stringify(next)}\n`);
   }
 }
