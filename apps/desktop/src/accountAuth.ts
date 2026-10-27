@@ -62,6 +62,7 @@ export function configurePenkraAccountAuth(input: {
   websiteOrigin: string;
   /** Successful explicit authentication, never an ordinary session read. */
   onAuthenticated?: (accountId: string) => void;
+  onAuthenticationStarted?: () => void;
   onBeforeAccountChange?: (accountId: string) => void | Promise<void>;
   onBeforeSignOut?: () => void | Promise<void>;
 }): PenkraAccountAuthRuntime {
@@ -184,6 +185,7 @@ export function configurePenkraAccountAuth(input: {
     }, AUTH_CALLBACK_TIMEOUT_MS);
     callbackTimeout = timeout;
     try {
+      input.onAuthenticationStarted?.();
       const result = await signInClient.authenticate({ token });
       cancelCallbackTimeout(timeout);
       if (attempt !== callbackAttempt) return;

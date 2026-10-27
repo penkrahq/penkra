@@ -48,6 +48,7 @@ function fixture() {
   const failed = deferred();
   const onAuthenticated = vi.fn((id: string) => authenticated.resolve(id));
   const onBeforeSignOut = vi.fn();
+  const onAuthenticationStarted = vi.fn();
   const onBeforeAccountChange = vi.fn(async (_id: string) => undefined);
   const handlers = new Map<string, (event: { sender: WebContents }) => Promise<unknown>>();
   const shell = { id: 1 } as WebContents;
@@ -74,6 +75,7 @@ function fixture() {
     websiteOrigin: "https://example.test",
     onAuthenticated,
     onBeforeSignOut,
+    onAuthenticationStarted,
     onBeforeAccountChange,
   });
   const callback = () =>
@@ -83,6 +85,7 @@ function fixture() {
     failed,
     onAuthenticated,
     onBeforeSignOut,
+    onAuthenticationStarted,
     onBeforeAccountChange,
     handlers,
     shell,
@@ -91,6 +94,15 @@ function fixture() {
 }
 
 describe("explicit account authentication lifecycle", () => {
+  it("invalidates old registration work before exchanging the account token", async () => {
+    const f = fixture();
+    f.callback();
+    await f.authenticated.promise;
+    expect(f.onAuthenticationStarted).toHaveBeenCalledTimes(1);
+    expect(f.onAuthenticationStarted.mock.invocationCallOrder[0]!).toBeLessThan(
+      mocks.authenticate.mock.invocationCallOrder[0]!,
+    );
+  });
   it("finishes account transition before publishing authentication", async () => {
     const f = fixture();
     const order: string[] = [];

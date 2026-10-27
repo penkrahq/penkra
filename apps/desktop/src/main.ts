@@ -254,6 +254,8 @@ import { createContextMenuSelection } from "./contextMenuSelection";
 import { normalizeAppContextMenuItems, type NormalizedAppContextMenuItem } from "./appContextMenu";
 import { AppCommandPipeServer, resolveAppCommandPipePath } from "./appCommandPipeServer";
 import { RemoteLinkRegistrationOwner, RemoteRegistrationError } from "./remoteLinkRegistration";
+import { RemoteLifecycleHost } from "./remoteLifecycleHost";
+import { RemoteAccountCoordinator } from "./remoteAccountCoordinator";
 import { AppTabObserver } from "./appTabObserver";
 import { BROWSER_APP_ID, isRequiredApp } from "./appDistributionPolicy";
 import { normalizeDesktopWsUrl, resolveDesktopWsUrlFromEnv } from "./desktopWsBridge";
@@ -1152,6 +1154,9 @@ let getPenkraAccountId: () => Promise<string | null> = async () => null;
 let getPenkraAccountCookie: () => string = () => "";
 let fetchPenkraAccount: typeof fetch = (...args) => fetch(...args);
 let remoteRegistrationOwner: RemoteLinkRegistrationOwner | null = null;
+let remoteLifecycleHost: RemoteLifecycleHost | null = null;
+let remoteAccountCoordinator: RemoteAccountCoordinator | null = null;
+let remoteLifecycleBackend: ChildProcess.ChildProcess | null = null;
 let pendingRemoteSignInAccountId: string | null = null;
 const remoteRegistrationLifetime = new AbortController();
 function renewRemoteRegistrationAfterSignIn(): void {
@@ -4867,6 +4872,7 @@ function startBackend(trigger: BackendStartTrigger = "lifecycle"): void {
   const outputTailDetector = new BackendOutputTailDetector();
   backendListeningDetector = listeningDetector;
   backendProcess = child;
+  remoteLifecycleBackend = child;
   let backendSessionClosed = false;
   const closeBackendSession = (details: string) => {
     if (backendSessionClosed) return;
@@ -4919,6 +4925,10 @@ function startBackend(trigger: BackendStartTrigger = "lifecycle"): void {
   });
 
   child.on("exit", (code, signal) => {
+    if (remoteLifecycleBackend === child) {
+      remoteLifecycleBackend = null;
+      remoteLifecycleHost?.backendExited();
+    }
     if (backendListeningDetector === listeningDetector) {
       listeningDetector.fail(
         new Error(
@@ -7951,14 +7961,27 @@ if (hasSingleInstanceLock) {
     registerAsDefaultProtocolClient: !desktopSmokeUserDataPath,
     inspectInitialProtocolUrlFromArgv: desktopPlatform.deepLinks.inspectInitialArgv,
     websiteOrigin: penkraAccountServices.websiteOrigin,
+    onAuthenticationStarted: () => {
+      pendingRemoteSignInAccountId = null;
+      remoteRegistrationOwner?.invalidate();
+    },
     onAuthenticated: (accountId) => {
       remoteRegistrationOwner?.invalidate();
       pendingRemoteSignInAccountId = accountId;
       renewRemoteRegistrationAfterSignIn();
+      void remoteAccountCoordinator?.afterSignIn(accountId).catch((error) => {
+        console.error("[remote-link] Account lifecycle transition failed", error);
+      });
     },
-    onBeforeSignOut: () => {
+    onBeforeAccountChange: async () => {
       pendingRemoteSignInAccountId = null;
       remoteRegistrationOwner?.invalidate();
+      await remoteAccountCoordinator?.beforeAccountChange();
+    },
+    onBeforeSignOut: async () => {
+      pendingRemoteSignInAccountId = null;
+      remoteRegistrationOwner?.invalidate();
+      await remoteAccountCoordinator?.beforeAccountChange();
     },
   });
   getPenkraAccountId = accountAuthRuntime.getAccountId;
@@ -8506,10 +8529,23 @@ async function bootstrap(): Promise<void> {
     },
   });
   renewRemoteRegistrationAfterSignIn();
+  remoteLifecycleHost = new RemoteLifecycleHost({
+    accountServiceUrl: penkraAccountServices.apiUrl,
+    accountId: null,
+    accessOn: false,
+    suspended: false,
+  });
+  remoteAccountCoordinator = new RemoteAccountCoordinator({
+    accountServiceUrl: penkraAccountServices.apiUrl,
+    readAccess: (accountId) => desktopAppRuntime!.remoteLinkCredentialVault.getAccess(accountId),
+    transition: (event, snapshot) => remoteLifecycleHost!.transition(event, snapshot),
+  });
+  await remoteAccountCoordinator.initialize(getPenkraAccountId);
   appCommandPipeServer = new AppCommandPipeServer({
     path: resolveAppCommandPipePath(app.getPath("userData")),
     token: Crypto.randomBytes(32).toString("hex"),
     adminToken: Crypto.randomBytes(32).toString("hex"),
+    remoteLifecycle: remoteLifecycleHost,
     catalog: desktopAppRuntime.operationCatalog,
     readFolderTabs: async (folderId) => {
       if (!backendHttpUrl) throw new Error("The backend is not ready.");
