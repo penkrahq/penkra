@@ -6,7 +6,7 @@ import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
-function configuredTrustKeys(value: string | undefined): string {
+export function configuredTrustKeys(value: string | undefined): string {
   const configured = value?.trim();
   if (!configured) throw new Error("The production Desktop build requires registry trust anchors.");
   let parsed: unknown;

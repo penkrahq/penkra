@@ -40,6 +40,10 @@ import {
   RELEASE_WORKSPACE_MANIFEST_PATHS,
 } from "./lib/release-workspace-manifests.ts";
 import { resolveCatalogDependencies } from "./lib/resolve-catalog.ts";
+import {
+  configuredTrustKeys,
+  verifyEmbeddedRegistryTrustAnchors,
+} from "./verify-desktop-registry-trust-anchors.ts";
 
 import * as NodeRuntime from "@effect/platform-node/NodeRuntime";
 import * as NodeServices from "@effect/platform-node/NodeServices";
@@ -518,6 +522,7 @@ const verifyStagedPatchedDependencies = Effect.fn("verifyStagedPatchedDependenci
 ) {
   const path = yield* Path.Path;
   const fs = yield* FileSystem.FileSystem;
+
   yield* Effect.log("[desktop-artifact] Verifying staged patched dependencies...");
   for (const [dependency, patchRelativePath] of Object.entries(
     rootPackageJson.patchedDependencies ?? {},
@@ -726,6 +731,15 @@ const buildDesktopArtifact = Effect.fn("buildDesktopArtifact")(function* (
   const path = yield* Path.Path;
   const fs = yield* FileSystem.FileSystem;
 
+  yield* Effect.try({
+    try: () => configuredTrustKeys(process.env.PENKRA_REGISTRY_TRUSTED_KEYS),
+    catch: (cause) =>
+      new BuildScriptError({
+        message: "Desktop packaging requires valid registry trust anchors.",
+        cause,
+      }),
+  });
+
   const platformConfig = PLATFORM_CONFIG[options.platform];
   if (!platformConfig) {
     return yield* new BuildScriptError({
@@ -903,6 +917,19 @@ const buildDesktopArtifact = Effect.fn("buildDesktopArtifact")(function* (
       })`bun run build:desktop`,
     );
   }
+
+  yield* Effect.try({
+    try: () =>
+      verifyEmbeddedRegistryTrustAnchors({
+        bundleSource: readFileSync(path.join(distDirs.desktopDist, "main.js"), "utf8"),
+        trustedKeysJson: process.env.PENKRA_REGISTRY_TRUSTED_KEYS,
+      }),
+    catch: (cause) =>
+      new BuildScriptError({
+        message: "Desktop bundle registry trust verification failed.",
+        cause,
+      }),
+  });
 
   for (const [label, dir] of Object.entries(distDirs)) {
     if (!(yield* fs.exists(dir))) {
