@@ -3,7 +3,12 @@ import { WebSocketServer } from "ws";
 import { httpFixture } from "./httpFixture.test-support";
 import { RemoteRelayConnection } from "./relayConnection";
 import type { RelayReconnectState } from "./reconnect";
-import { RELAY_MAX_FRAME_BYTES } from "./relayProtocol";
+import {
+  encodeRelayFrame,
+  RELAY_MAX_FRAME_BYTES,
+  RelayFrameType,
+  RelayOpenMode,
+} from "./relayProtocol";
 
 afterEach(() => {
   vi.useRealTimers();
@@ -11,6 +16,51 @@ afterEach(() => {
 });
 
 describe("real relay reconnection", () => {
+  it("installs the session owner before dispatching an immediately arriving OPEN", async () => {
+    await httpFixture(
+      (_request, response) => response.end(),
+      async (origin, server) => {
+        const wss = new WebSocketServer({ noServer: true });
+        server.on("upgrade", (request, socket, head) =>
+          wss.handleUpgrade(request, socket, head, (ws) =>
+            ws.send(
+              encodeRelayFrame({
+                type: RelayFrameType.OPEN,
+                mode: RelayOpenMode.PAIRING,
+                sessionId: "10000000-0000-4000-8000-000000000001",
+                peerId: "10000000-0000-4000-8000-000000000002",
+                payload: new Uint8Array([1]),
+              }),
+            ),
+          ),
+        );
+        let ownerInstalled = false;
+        const delivered = Promise.withResolvers<boolean>();
+        const connection = new RemoteRelayConnection({
+          url: origin.replace("http:", "ws:") + "/v1",
+          deviceToken: "fixture",
+          signal: new AbortController().signal,
+          onFrame: () => {
+            delivered.resolve(ownerInstalled);
+            return undefined;
+          },
+          onOpen: () => {
+            ownerInstalled = true;
+            return async () => undefined;
+          },
+          observe: () => undefined,
+          observeReconnect: () => undefined,
+        });
+        try {
+          expect(await delivered.promise).toBe(true);
+        } finally {
+          await connection.close();
+          for (const socket of wss.clients) socket.terminate();
+          await new Promise<void>((resolve) => wss.close(() => resolve()));
+        }
+      },
+    );
+  });
   it.each([
     [401, "authentication-rejected"],
     [403, "authentication-rejected"],
