@@ -5,7 +5,9 @@ import { RemoteRelayConnection } from "./relayConnection";
 import type { RelayReconnectState } from "./reconnect";
 import {
   encodeRelayFrame,
+  decodeRelayFrame,
   RELAY_MAX_FRAME_BYTES,
+  RELAY_ZERO_ID,
   RelayFrameType,
   RelayOpenMode,
 } from "./relayProtocol";
@@ -16,6 +18,49 @@ afterEach(() => {
 });
 
 describe("real relay reconnection", () => {
+  it("sends sleep before closing the relay and joining session cleanup", async () => {
+    await httpFixture(
+      (_request, response) => response.end(),
+      async (origin, server) => {
+        const wss = new WebSocketServer({ noServer: true });
+        const received = Promise.withResolvers<ReturnType<typeof decodeRelayFrame>>();
+        server.on("upgrade", (request, socket, head) =>
+          wss.handleUpgrade(request, socket, head, (ws) => {
+            ws.on("message", (data) => received.resolve(decodeRelayFrame(data as Buffer)));
+          }),
+        );
+        const opened = Promise.withResolvers<void>();
+        const cleanup = vi.fn(async () => undefined);
+        const connection = new RemoteRelayConnection({
+          url: origin.replace("http:", "ws:") + "/v1",
+          deviceToken: "fixture",
+          signal: new AbortController().signal,
+          onFrame: () => undefined,
+          onOpen: () => {
+            opened.resolve();
+            return cleanup;
+          },
+          observe: () => undefined,
+          observeReconnect: () => undefined,
+        });
+        try {
+          await opened.promise;
+          await connection.sleep();
+          expect(await received.promise).toEqual({
+            type: RelayFrameType.SLEEP,
+            sessionId: RELAY_ZERO_ID,
+            peerId: RELAY_ZERO_ID,
+            payload: Buffer.alloc(0),
+          });
+          expect(cleanup).toHaveBeenCalledOnce();
+        } finally {
+          await connection.close();
+          for (const socket of wss.clients) socket.terminate();
+          await new Promise<void>((resolve) => wss.close(() => resolve()));
+        }
+      },
+    );
+  });
   it("installs the session owner before dispatching an immediately arriving OPEN", async () => {
     await httpFixture(
       (_request, response) => response.end(),

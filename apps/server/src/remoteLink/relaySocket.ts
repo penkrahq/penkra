@@ -193,6 +193,14 @@ export class RemoteRelaySocket {
       throw new RemoteRelayError("write-failed");
     }
   }
+
+  /** Flush a final frame before the WebSocket close handshake. A completed
+   * write is not an application-level acknowledgement from the relay. */
+  async finish(frame: RelayFrame): Promise<void> {
+    await this.send(frame);
+    if (!this.#stopped) this.#socket.close();
+    await this.finished;
+  }
   close() {
     this.#stop("aborted");
   }

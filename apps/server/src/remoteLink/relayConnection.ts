@@ -5,6 +5,7 @@ import {
   type RelayReconnectState,
 } from "./reconnect";
 import { RemoteRelayError, RemoteRelaySocket, type RelaySocketInput } from "./relaySocket";
+import { RelayFrameType, RELAY_ZERO_ID } from "./relayProtocol";
 
 /** Mounts the approved retry policy on the real relay transport. Session routing
  * is installed synchronously on open; its cleanup completes before replacement.
@@ -12,6 +13,7 @@ import { RemoteRelayError, RemoteRelaySocket, type RelaySocketInput } from "./re
 export class RemoteRelayConnection {
   readonly finished: Promise<void>;
   readonly #loop: RelayReconnectLoop;
+  #active: RemoteRelaySocket | undefined;
 
   constructor(
     input: Omit<RelaySocketInput, "signal"> & {
@@ -28,6 +30,7 @@ export class RemoteRelayConnection {
         let cleanup: (() => Promise<void>) | undefined;
         try {
           socket = await RemoteRelaySocket.open({ ...input, signal });
+          this.#active = socket;
           cleanup = input.onOpen(socket);
           const end = await socket.finished;
           if (
@@ -50,6 +53,7 @@ export class RemoteRelayConnection {
             return { reason: "protocol-rejected" };
           return { reason: "transport-failed" };
         } finally {
+          if (this.#active === socket) this.#active = undefined;
           socket?.close();
           if (socket) await socket.finished;
           await cleanup?.();
@@ -73,5 +77,18 @@ export class RemoteRelayConnection {
 
   close(): Promise<void> {
     return this.#loop.close();
+  }
+
+  async sleep(): Promise<void> {
+    try {
+      await this.#active?.finish({
+        type: RelayFrameType.SLEEP,
+        sessionId: RELAY_ZERO_ID,
+        peerId: RELAY_ZERO_ID,
+        payload: new Uint8Array(),
+      });
+    } finally {
+      await this.#loop.close();
+    }
   }
 }
