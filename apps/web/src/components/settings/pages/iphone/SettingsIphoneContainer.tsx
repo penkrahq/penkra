@@ -47,7 +47,7 @@ export function SettingsIphoneContainer() {
           setAccessError(true);
           toastManager.add({
             type: "error",
-            title: "Could not load iPhone access",
+            title: "Could not load phone access",
             description: error instanceof Error ? error.message : undefined,
           });
         }
@@ -77,7 +77,7 @@ export function SettingsIphoneContainer() {
           () => {
             if (active && current === revision) {
               setDevices(null);
-              setDeviceError("Could not load iPhones.");
+              setDeviceError("Could not load phones.");
             }
           },
         );
@@ -85,7 +85,7 @@ export function SettingsIphoneContainer() {
       () => {
         if (active) {
           setDevices(null);
-          setDeviceError("Could not load iPhones.");
+          setDeviceError("Could not load phones.");
         }
       },
     );
@@ -96,11 +96,11 @@ export function SettingsIphoneContainer() {
     };
   }, [access?.signedIn, access?.enabled, accountId]);
 
-  if (!bridge) return <div role="status">iPhone access is unavailable in this window.</div>;
+  if (!bridge) return <div role="status">Phone access is unavailable in this window.</div>;
   if (authState?.status === "error")
     return <div role="status">Could not verify your Penkra account.</div>;
-  if (accessError) return <div role="status">Could not load iPhone access.</div>;
-  if (!access) return <div role="status">Loading iPhone access…</div>;
+  if (accessError) return <div role="status">Could not load phone access.</div>;
+  if (!access) return <div role="status">Loading phone access…</div>;
   const change = async (enabled: boolean) => {
     if (!bridge || busy) return;
     setBusy(true);
@@ -110,7 +110,7 @@ export function SettingsIphoneContainer() {
     } catch (error) {
       toastManager.add({
         type: "error",
-        title: "Could not change iPhone access",
+        title: "Could not change phone access",
         description: error instanceof Error ? error.message : undefined,
       });
     } finally {
@@ -122,7 +122,7 @@ export function SettingsIphoneContainer() {
     if (!phone || !window.desktopBridge) return;
     const confirmed = await window.desktopBridge.confirm({
       type: "warning",
-      title: "Remove iPhone?",
+      title: "Remove phone?",
       message: `Remove “${phone.name}”?`,
       detail: "It will need to be approved again.",
       confirmLabel: "Remove",
@@ -134,7 +134,7 @@ export function SettingsIphoneContainer() {
     } catch (error) {
       toastManager.add({
         type: "error",
-        title: "Could not remove iPhone",
+        title: "Could not remove phone",
         description: error instanceof Error ? error.message : undefined,
       });
     }

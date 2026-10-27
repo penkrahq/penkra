@@ -82,8 +82,8 @@ const pages = [
   {
     icon: IconDeviceMobile,
     id: "iphone",
-    label: "iPhone",
-    subtitle: "Use this Mac's threads from your iPhone.",
+    label: "Phone",
+    subtitle: "Use this Mac's threads from your phone.",
   },
 ] as const;
 

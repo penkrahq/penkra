@@ -1,5 +1,5 @@
 // FILE: SettingsIphonePage.tsx
-// Purpose: Settings → iPhone. Turn phone access on, see paired iPhones, remove one (TODO §7.2.10).
+// Purpose: Settings → Phone. Turn phone access on, see paired iPhones, remove one (TODO §7.2.10).
 // Layer: Settings presentation (planner-owned design; callers supply data and callbacks).
 
 import { SwitchShared } from "~/components/foundations/switch-shared/SwitchShared";
@@ -50,11 +50,11 @@ export function SettingsIphonePage(props: {
     <div className="flex flex-col gap-6" data-pencil-page="iphone">
       <SettingsSectionShared title="Phone access">
         <SettingRowShared
-          label="Allow access from iPhone"
+          label="Allow access from your phone"
           description={
             props.signedIn
-              ? "Use this Mac's threads from Penkra on your iPhone, at home or away. Everything between them is end-to-end encrypted."
-              : "Sign in to your Penkra account in Settings → Account to use Penkra on iPhone."
+              ? "Use this Mac's threads from Penkra on your phone, at home or away. Everything between them is end-to-end encrypted."
+              : "Sign in to your Penkra account in Settings → Account to use Penkra on your phone."
           }
           status={
             on ? (
@@ -67,7 +67,7 @@ export function SettingsIphonePage(props: {
           }
           control={
             <SwitchShared
-              aria-label="Allow access from iPhone"
+              aria-label="Allow access from your phone"
               checked={props.signedIn && props.accessOn}
               disabled={!props.signedIn || props.busy}
               onCheckedChange={(checked) => props.onAccessChange(checked)}
@@ -77,13 +77,13 @@ export function SettingsIphonePage(props: {
       </SettingsSectionShared>
 
       {props.signedIn && props.accessOn ? (
-        <SettingsSectionShared title="iPhones">
+        <SettingsSectionShared title="Phones">
           {props.phones === null ? (
-            <SettingRowShared label={props.deviceError ?? "Loading iPhones…"} />
+            <SettingRowShared label={props.deviceError ?? "Loading phones…"} />
           ) : props.phones.length === 0 ? (
             <SettingRowShared
-              label="No iPhones yet"
-              description="Open Penkra on your iPhone, sign in with the same account and choose this Mac. You'll approve it here."
+              label="No phones yet"
+              description="Open Penkra on your phone, sign in with the same account and choose this Mac. You'll approve it here."
             />
           ) : (
             props.phones.map((phone) => (
@@ -131,7 +131,7 @@ function RelayStatusLine(props: {
     case "connected":
       return (
         <span className="inline-flex items-center gap-1.5">
-          {dot("bg-emerald-500")}Ready for your iPhone
+          {dot("bg-emerald-500")}Ready for your phone
         </span>
       );
     case "connecting":
@@ -156,7 +156,7 @@ function RelayStatusLine(props: {
     case "rejected-protocol":
       return (
         <span className="inline-flex flex-wrap items-center gap-1.5">
-          {dot("bg-amber-500")}Penkra couldn't establish the iPhone connection.
+          {dot("bg-amber-500")}Penkra couldn't connect to your phone.
           <button
             type="button"
             className="text-[var(--color-text-foreground)] underline-offset-2 hover:underline"

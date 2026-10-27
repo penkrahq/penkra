@@ -6,7 +6,7 @@ const ago = (minutes: number) => new Date(Date.now() - minutes * 60_000).toISOSt
 
 const meta = {
   component: SettingsIphonePage,
-  title: "Settings/Pages/iPhone",
+  title: "Settings/Pages/Phone",
   args: {
     onAccessChange: () => {},
     onRemove: () => {},
