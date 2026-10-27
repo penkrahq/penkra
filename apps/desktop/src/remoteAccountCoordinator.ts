@@ -41,6 +41,11 @@ export class RemoteAccountCoordinator {
     await this.input.transition("sign-out", this.#snapshot);
   }
 
+  async setSuspended(suspended: boolean): Promise<void> {
+    this.#snapshot = { ...this.#snapshot, suspended };
+    await this.input.transition(suspended ? "suspend" : "wake", this.#snapshot);
+  }
+
   async #publish(accountId: string, generation: number): Promise<void> {
     const accessOn = await this.input.readAccess(accountId);
     if (generation !== this.#generation) return;

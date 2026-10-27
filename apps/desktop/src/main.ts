@@ -25,6 +25,7 @@ import {
   Notification,
   nativeImage,
   nativeTheme,
+  powerMonitor,
   powerSaveBlocker,
   protocol,
   screen,
@@ -8539,6 +8540,16 @@ async function bootstrap(): Promise<void> {
     accountServiceUrl: penkraAccountServices.apiUrl,
     readAccess: (accountId) => desktopAppRuntime!.remoteLinkCredentialVault.getAccess(accountId),
     transition: (event, snapshot) => remoteLifecycleHost!.transition(event, snapshot),
+  });
+  powerMonitor.on("suspend", () => {
+    void remoteAccountCoordinator?.setSuspended(true).catch((error) => {
+      console.error("[remote-link] Failed to apply sleep transition.", error);
+    });
+  });
+  powerMonitor.on("resume", () => {
+    void remoteAccountCoordinator?.setSuspended(false).catch((error) => {
+      console.error("[remote-link] Failed to apply wake transition.", error);
+    });
   });
   await remoteAccountCoordinator.initialize(getPenkraAccountId);
   appCommandPipeServer = new AppCommandPipeServer({
