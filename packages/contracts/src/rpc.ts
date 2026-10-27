@@ -223,6 +223,28 @@ export const WsServerGetSettingsRpc = Rpc.make(WS_METHODS.serverGetSettings, {
   error: WsRpcError,
 });
 
+export const RemotePairingRequest = Schema.Struct({
+  requestId: Schema.String.check(Schema.isUUID()),
+  phoneDeviceId: Schema.String,
+  phoneName: Schema.String,
+  phoneModel: Schema.String,
+  code: Schema.String,
+});
+export const WsRemoteSubscribePairingRpc = Rpc.make(WS_METHODS.remoteSubscribePairing, {
+  payload: Schema.Struct({}),
+  success: Schema.Struct({ request: Schema.NullOr(RemotePairingRequest) }),
+  error: WsRpcError,
+  stream: true,
+});
+export const WsRemoteAnswerPairingRpc = Rpc.make(WS_METHODS.remoteAnswerPairing, {
+  payload: Schema.Struct({
+    requestId: Schema.String.check(Schema.isUUID()),
+    allow: Schema.Boolean,
+  }),
+  success: Schema.Struct({ accepted: Schema.Boolean }),
+  error: WsRpcError,
+});
+
 export const WsServerUpdateSettingsRpc = Rpc.make(WS_METHODS.serverUpdateSettings, {
   payload: ServerUpdateSettingsInput,
   success: ServerUpdateSettingsResult,
@@ -603,6 +625,8 @@ export const WsFeatureRpcGroup = RpcGroup.make(
   WsServerGetConfigRpc,
   WsServerGetEnvironmentRpc,
   WsServerGetSettingsRpc,
+  WsRemoteSubscribePairingRpc,
+  WsRemoteAnswerPairingRpc,
   WsServerUpdateSettingsRpc,
   WsServerGetSpaceNavigationStateRpc,
   WsServerUpdateSpaceNavigationStateRpc,

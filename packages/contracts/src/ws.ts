@@ -128,6 +128,8 @@ export const WS_METHODS = {
   serverGetConfig: "server.getConfig",
   serverGetEnvironment: "server.getEnvironment",
   serverGetSettings: "server.getSettings",
+  remoteSubscribePairing: "remote.subscribePairing",
+  remoteAnswerPairing: "remote.answerPairing",
   serverUpdateSettings: "server.updateSettings",
   serverGetSpaceNavigationState: "server.getSpaceNavigationState",
   serverUpdateSpaceNavigationState: "server.updateSpaceNavigationState",
@@ -236,6 +238,11 @@ const WebSocketRequestBody = Schema.Union([
   tagRequestBody(WS_METHODS.cleanCoreAnswerThreadQuestion, CleanCoreAnswerThreadQuestionInput),
   tagRequestBody(WS_METHODS.serverGetEnvironment, Schema.Struct({})),
   tagRequestBody(WS_METHODS.serverGetSettings, Schema.Struct({})),
+  tagRequestBody(WS_METHODS.remoteSubscribePairing, Schema.Struct({})),
+  tagRequestBody(
+    WS_METHODS.remoteAnswerPairing,
+    Schema.Struct({ requestId: Schema.String.check(Schema.isUUID()), allow: Schema.Boolean }),
+  ),
   tagRequestBody(WS_METHODS.serverUpdateSettings, ServerUpdateSettingsInput),
   tagRequestBody(WS_METHODS.serverGetSpaceNavigationState, Schema.Struct({})),
   tagRequestBody(

@@ -19,6 +19,7 @@ import { SessionCredentialServiceLive } from "./auth/Layers/SessionCredentialSer
 import { ServerLifecycleEventsLive } from "./serverLifecycleEvents";
 import { ServerRuntimeStartupLive } from "./serverRuntimeStartup";
 import { ServerSettingsLive } from "./serverSettings";
+import { RemotePairingControlLive } from "./remoteLink/pairingControl";
 import { WorkspaceLayerLive } from "./workspace/runtimeLayer";
 import { ProjectFaviconResolverLive } from "./project/Layers/ProjectFaviconResolver";
 import { ServerEnvironmentLive } from "./environment/Layers/ServerEnvironment";
@@ -165,6 +166,7 @@ export function makeServerRuntimeServicesLayer(
     providerHealthLayer,
     TextGenerationLayerLive,
     ServerSettingsLive,
+    RemotePairingControlLive,
     ServerEnvironmentLive,
     authServicesLayer,
     ServerLifecycleEventsLive,

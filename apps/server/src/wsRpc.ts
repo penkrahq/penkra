@@ -84,6 +84,7 @@ import { ThreadPublisher } from "./cleanCore/ThreadPublisher.ts";
 import { sidebarChangeStream, threadChangeStream } from "./cleanCore/threadChangeStream.ts";
 import { recoverMissingFile } from "./missingFileRecovery";
 import { WorkspaceWatcher } from "./workspaceWatcher";
+import { RemotePairingControl, answerPairing, pairingChanges } from "./remoteLink/pairingControl";
 import {
   provideWsConnectionSession,
   WsConnectionSessionMiddleware,
@@ -152,6 +153,7 @@ const makeWsRpcHandlersLayer = () =>
       const runtimeStartup = yield* ServerRuntimeStartup;
       const serverEnvironment = yield* ServerEnvironment;
       const serverSettings = yield* ServerSettingsService;
+      const pairing = yield* RemotePairingControl;
       const sql = yield* SqlClient.SqlClient;
       const threadPublisher = yield* ThreadPublisher;
       const providerUsage = yield* ProviderUsage;
@@ -526,6 +528,10 @@ const makeWsRpcHandlersLayer = () =>
           rpcEffect(serverEnvironment.getDescriptor, "Failed to load server environment"),
         [WS_METHODS.serverGetSettings]: () =>
           rpcEffect(serverSettings.getSettingsView, "Failed to load server settings"),
+        [WS_METHODS.remoteAnswerPairing]: (input) =>
+          answerPairing(pairing, input.requestId, input.allow),
+        [WS_METHODS.remoteSubscribePairing]: (_, { client: { id: clientId } }) =>
+          streamAdmission.guard(clientId, { key: "remote.pairing" }, pairingChanges(pairing)),
         [WS_METHODS.serverUpdateSettings]: (input) =>
           rpcEffect(serverSettings.updateSettingsView(input), "Failed to update server settings"),
         [WS_METHODS.serverGetSpaceNavigationState]: () =>
