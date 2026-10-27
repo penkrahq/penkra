@@ -812,6 +812,10 @@ export interface DesktopBridge {
     onSelect(listener: (input: { threadId: string }) => void): () => void;
   };
   composerDrafts?: DesktopComposerDraftsBridge;
+  remoteAccess?: {
+    getState: () => Promise<{ signedIn: boolean; enabled: boolean }>;
+    setEnabled: (enabled: boolean) => Promise<void>;
+  };
   accountAuth?: {
     getState: () => Promise<DesktopAccountAuthState>;
     requestSignIn: () => Promise<void>;

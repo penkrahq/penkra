@@ -257,6 +257,8 @@ import { AppCommandPipeServer, resolveAppCommandPipePath } from "./appCommandPip
 import { RemoteLinkRegistrationOwner, RemoteRegistrationError } from "./remoteLinkRegistration";
 import { RemoteLifecycleHost } from "./remoteLifecycleHost";
 import { RemoteAccountCoordinator } from "./remoteAccountCoordinator";
+import { RemoteAccessController } from "./remoteAccessController";
+import { registerRemoteAccessIpc } from "./remoteAccessIpc";
 import { AppTabObserver } from "./appTabObserver";
 import { BROWSER_APP_ID, isRequiredApp } from "./appDistributionPolicy";
 import { normalizeDesktopWsUrl, resolveDesktopWsUrlFromEnv } from "./desktopWsBridge";
@@ -8554,6 +8556,19 @@ async function bootstrap(): Promise<void> {
     });
   });
   await remoteAccountCoordinator.initialize(getPenkraAccountId);
+  const remoteAccess = new RemoteAccessController({
+    account: getPenkraAccountId,
+    register: (accountId, signal) => remoteRegistrationOwner!.ensure(accountId, signal),
+    setAccess: (accountId, enabled) => remoteAccountCoordinator!.setAccess(accountId, enabled),
+    signal: remoteRegistrationLifetime.signal,
+  });
+  registerRemoteAccessIpc({
+    ipc: ipcMain,
+    isShell: (sender) => isShellRendererId(sender.id),
+    account: getPenkraAccountId,
+    readAccess: (accountId) => desktopAppRuntime!.remoteLinkCredentialVault.getAccess(accountId),
+    controller: remoteAccess,
+  });
   appCommandPipeServer = new AppCommandPipeServer({
     path: resolveAppCommandPipePath(app.getPath("userData")),
     token: Crypto.randomBytes(32).toString("hex"),

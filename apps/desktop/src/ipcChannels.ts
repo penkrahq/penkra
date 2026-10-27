@@ -65,6 +65,10 @@ export const DESKTOP_IPC_CHANNELS = {
     userUpdated: "penkra-account:user-updated",
     error: "penkra-account:error",
   },
+  remoteAccess: {
+    getState: "desktop:remote-access-get-state",
+    setEnabled: "desktop:remote-access-set-enabled",
+  },
   zoomFactor: "desktop:zoom-factor",
   zoomFactorChanged: "desktop:zoom-factor-changed",
   wsUrl: "desktop:get-ws-url",

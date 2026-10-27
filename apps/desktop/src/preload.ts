@@ -217,6 +217,10 @@ contextBridge.exposeInMainWorld("desktopBridge", {
     readVoice: (id) => ipcRenderer.invoke(IPC.composerDrafts.readVoice, id),
     deleteVoice: (id) => ipcRenderer.invoke(IPC.composerDrafts.deleteVoice, id),
   },
+  remoteAccess: {
+    getState: () => ipcRenderer.invoke(IPC.remoteAccess.getState),
+    setEnabled: (enabled) => ipcRenderer.invoke(IPC.remoteAccess.setEnabled, enabled),
+  },
   accountAuth: {
     getState: () => ipcRenderer.invoke(IPC.accountAuth.getState),
     requestSignIn: () => ipcRenderer.invoke(IPC.accountAuth.requestSignIn),
