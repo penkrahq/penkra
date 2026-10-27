@@ -165,6 +165,20 @@ function fixture() {
 }
 
 describe("AppPreloadRuntime", () => {
+  it("forwards download reveal intent separately from ordinary progress", () => {
+    const test = fixture();
+    const listener = vi.fn();
+    const stop = test.runtime.api.browser.downloads.onChange(listener);
+    const downloads = [{ id: "download-1" }];
+    test.event("browser.downloads.changed", { downloads });
+    expect(listener).toHaveBeenLastCalledWith(downloads, undefined);
+    test.event("browser.downloads.changed", { downloads, revealId: "download-1" });
+    expect(listener).toHaveBeenLastCalledWith(downloads, { revealId: "download-1" });
+    stop();
+    test.event("browser.downloads.changed", { downloads });
+    expect(listener).toHaveBeenCalledTimes(2);
+    test.runtime.dispose();
+  });
   it("installs stream listeners before registration and stops without awaiting admission", () => {
     const test = fixture();
     const message = vi.fn();

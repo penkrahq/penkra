@@ -169,6 +169,23 @@ export interface AppBrowserDownloadEvent {
   error?: string;
 }
 
+export interface AppBrowserDownload {
+  id: string;
+  fileName: string;
+  url: string;
+  path: string;
+  state: "progressing" | "paused" | "completed" | "failed" | "cancelled";
+  receivedBytes: number;
+  totalBytes: number | null;
+  secondsLeft: number | null;
+  startedAt: string;
+}
+
+export interface AppBrowserDownloadsChange {
+  downloads: AppBrowserDownload[];
+  revealId?: string;
+}
+
 export type AppOperationHandler<Input = unknown, Result = unknown> = (
   input: Input,
   context: OperationContext,
@@ -496,6 +513,19 @@ export interface PenkraTabRuntimeApi {
     getState(): Promise<AppBrowserSessionState>;
     onState(listener: (state: AppBrowserSessionState) => void): () => void;
     onDownload(listener: (event: AppBrowserDownloadEvent) => void): () => void;
+    downloads: {
+      list(): Promise<AppBrowserDownload[]>;
+      onChange(
+        listener: (downloads: AppBrowserDownload[], change?: { revealId: string }) => void,
+      ): () => void;
+      pause(id: string): Promise<void>;
+      resume(id: string): Promise<void>;
+      cancel(id: string): Promise<void>;
+      retry(id: string): Promise<void>;
+      open(id: string): Promise<void>;
+      showInFinder(id: string): Promise<void>;
+      clearFinished(): Promise<void>;
+    };
     setToolbarHeight(height: number): Promise<void>;
     navigate(input: { pageId?: string; url: string }): Promise<AppBrowserSessionState>;
     reload(pageId: string): Promise<AppBrowserSessionState>;
@@ -786,6 +816,17 @@ export const browser: PenkraTabRuntimeApi["browser"] = {
   getState: () => runtime().browser.getState(),
   onState: (listener) => runtime().browser.onState(listener),
   onDownload: (listener) => runtime().browser.onDownload(listener),
+  downloads: {
+    list: () => runtime().browser.downloads.list(),
+    onChange: (listener) => runtime().browser.downloads.onChange(listener),
+    pause: (id) => runtime().browser.downloads.pause(id),
+    resume: (id) => runtime().browser.downloads.resume(id),
+    cancel: (id) => runtime().browser.downloads.cancel(id),
+    retry: (id) => runtime().browser.downloads.retry(id),
+    open: (id) => runtime().browser.downloads.open(id),
+    showInFinder: (id) => runtime().browser.downloads.showInFinder(id),
+    clearFinished: () => runtime().browser.downloads.clearFinished(),
+  },
   setToolbarHeight: (height) => runtime().browser.setToolbarHeight(height),
   navigate: (input) => runtime().browser.navigate(input),
   reload: (pageId) => runtime().browser.reload(pageId),

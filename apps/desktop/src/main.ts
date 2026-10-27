@@ -79,7 +79,6 @@ import { ProcessLogFile } from "@penkra/shared/logging";
 import { ensureStaticSnapshot, findAsarArchivePath } from "@penkra/shared/staticSnapshot";
 import { BackendReadinessAbortedError, isBackendReadinessAborted } from "./backendReadiness";
 import { queryAppPermission } from "./appPermissionQuery";
-import { prepareAppBrowserDownload } from "./appBrowserDownload";
 import { requestAppIdentityToken } from "./appIdentityToken";
 import { requestAppAccountProfile } from "./appAccountProfile";
 import { openLocalAppResource } from "./appLocalResourceOpener";
@@ -307,6 +306,7 @@ import {
 } from "./appTheme";
 import { mediatedAppFetch } from "./appNetworkFetch";
 import { AppStorageService } from "./appStorage";
+import { AppBrowserDownloadManager } from "./appBrowserDownloadManager";
 import { AppTabActivation } from "./appTabActivation";
 import { resolveBrowserUploadFile } from "./browserUploadFile";
 import { requestAppAccountData, subscribeAppAccountData } from "./appAccountData";
@@ -1699,6 +1699,7 @@ const handleHostedBeforeInput = (event: Electron.Event, input: Electron.Input): 
 let appCommandPipeServer: AppCommandPipeServer | null = null;
 const appBrowserOwnerByTabId = new Map<string, { appId: string; spaceId: string }>();
 const configuredAppBrowserDownloadPartitions = new Set<string>();
+const appBrowserDownloadManagers = new Map<string, AppBrowserDownloadManager>();
 let configuredUpdaterCacheDirName: string | null = null;
 let appTabDiagnosticSequence = 0;
 
@@ -1765,9 +1766,37 @@ function configureAppBrowserDownloads(appTabId: string, appId: string, spaceId: 
   appBrowserOwnerByTabId.set(appTabId, { appId, spaceId });
   const partition = createScopedBrowserSessionPartition(appId, spaceId);
   if (configuredAppBrowserDownloadPartitions.has(partition)) return;
+  if (!appStorage) throw new Error("App storage is unavailable.");
+  const manager = new AppBrowserDownloadManager(
+    userDataPath,
+    { appId, spaceId },
+    appStorage,
+    session.fromPartition(partition),
+    (change, legacy) => {
+      const tabs = desktopAppRuntime?.appTabs;
+      if (!tabs) return;
+      for (const [tabId, owner] of appBrowserOwnerByTabId) {
+        if (owner.appId !== appId || owner.spaceId !== spaceId || !tabs.has(tabId)) continue;
+        tabs.sendEvent(tabId, "browser.downloads.changed", change);
+        if (legacy) tabs.sendEvent(tabId, "browser.download", legacy);
+      }
+    },
+  );
+  appBrowserDownloadManagers.set(partition, manager);
   configuredAppBrowserDownloadPartitions.add(partition);
   session.fromPartition(partition).on("will-download", (_event, item, source) => {
-    const page = desktopAppRuntime?.appTabs.hostedPageForWebContentsId(source.id) ?? null;
+    if (!source) {
+      try {
+        if (manager.admitRetry(item)) return;
+      } catch (error) {
+        console.error("[app-browser-download] Could not resume download.", error);
+        item.cancel();
+        return;
+      }
+    }
+    const page = source
+      ? (desktopAppRuntime?.appTabs.hostedPageForWebContentsId(source.id) ?? null)
+      : null;
     if (!page) return;
     const ownerTabId = page.tabId;
     const owner = appBrowserOwnerByTabId.get(ownerTabId);
@@ -1777,35 +1806,12 @@ function configureAppBrowserDownloads(appTabId: string, appId: string, spaceId: 
       item.cancel();
       return;
     }
-    let destination: ReturnType<typeof prepareAppBrowserDownload>;
     try {
-      destination = prepareAppBrowserDownload(storage, owner, item.getFilename());
-      item.setSavePath(destination.path);
-    } catch {
+      manager.admit(item, page.pageId);
+    } catch (error) {
+      console.error("[app-browser-download] Could not start download.", error);
       item.cancel();
-      return;
     }
-    const base = {
-      pageId: page.pageId,
-      url: item.getURL(),
-      suggestedName: item.getFilename(),
-      mimeType: item.getMimeType(),
-      path: destination.path,
-      storagePath: destination.storagePath,
-    };
-    runtime.appTabs.sendEvent(ownerTabId, "browser.download", {
-      ...base,
-      state: "pending",
-      bytes: 0,
-    });
-    item.once("done", (_doneEvent, state) => {
-      runtime.appTabs.sendEvent(ownerTabId, "browser.download", {
-        ...base,
-        state: state === "completed" ? "completed" : "failed",
-        bytes: item.getReceivedBytes(),
-        ...(state === "completed" ? {} : { error: `Download ${state}.` }),
-      });
-    });
   });
 }
 
@@ -5109,6 +5115,7 @@ async function shutdownDesktopRuntime(
   }
 
   isQuitting = true;
+  for (const manager of appBrowserDownloadManagers.values()) manager.prepareForQuit();
   writeDesktopLogHeader(`${reason} shutdown start`);
   const shutdown = runAfterDesktopShutdown(
     stopAppRuntimeAndBackend(backendShutdownOptions),
@@ -6277,6 +6284,9 @@ function registerIpcHandlers(): void {
     if (typeof method !== "string") throw new Error("Browser call method is required.");
     if (!identity.tabId) throw new Error("This App renderer is not attached to a tab.");
     configureAppBrowserDownloads(identity.tabId, identity.appId, identity.spaceId);
+    const downloads = appBrowserDownloadManagers.get(
+      createScopedBrowserSessionPartition(identity.appId, identity.spaceId),
+    )!;
     const tabs = runtime.appTabs;
     const state = () => tabs.hostedPageState(identity.tabId!);
     const pageId = () => {
@@ -6284,6 +6294,35 @@ function registerIpcHandlers(): void {
       return value;
     };
     switch (method) {
+      case "downloads.list":
+        return downloads.list();
+      case "downloads.clearFinished":
+        downloads.clearFinished();
+        return;
+      case "downloads.pause":
+      case "downloads.resume":
+      case "downloads.cancel":
+      case "downloads.retry":
+      case "downloads.open":
+      case "downloads.showInFinder": {
+        if (typeof value !== "string" || !value) throw new Error("Download ID is required.");
+        if (method === "downloads.pause") downloads.pause(value);
+        else if (method === "downloads.resume") downloads.resume(value);
+        else if (method === "downloads.cancel") downloads.cancel(value);
+        else if (method === "downloads.retry") downloads.retry(value);
+        else {
+          const path = await appStorage!.resolveFile(
+            { appId: identity.appId, spaceId: identity.spaceId },
+            downloads.pathForCompleted(value),
+          );
+          if (method === "downloads.showInFinder") shell.showItemInFolder(path);
+          else {
+            const error = await shell.openPath(path);
+            if (error) throw new Error(error);
+          }
+        }
+        return;
+      }
       case "open":
         return tabs.openHostedPage(
           identity.tabId,
@@ -8630,6 +8669,7 @@ app.on("before-quit", (event) => {
       return;
     }
     writeDesktopLogHeader("before-quit allowing updater quit-and-install");
+    for (const manager of appBrowserDownloadManagers.values()) manager.prepareForQuit();
     return;
   }
 

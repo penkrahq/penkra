@@ -17,10 +17,12 @@ export function prepareAppBrowserDownload(
   storage: Pick<AppStorageService, "prepareDownloadSync">,
   owner: AppStorageOwner,
   suggestedName: string,
+  reservedPaths?: ReadonlySet<string>,
 ): AppBrowserDownloadDestination {
   const path = storage.prepareDownloadSync(owner, {
     directory: "downloads",
     suggestedName,
+    ...(reservedPaths ? { reservedPaths } : {}),
   });
   return {
     path,

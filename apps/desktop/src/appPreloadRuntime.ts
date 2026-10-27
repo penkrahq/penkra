@@ -294,6 +294,31 @@ export class AppPreloadRuntime {
           >,
         onState: (listener) => this.#transport.onBrowserState(listener),
         onDownload: (listener) => this.#transport.onBrowserDownload(listener),
+        downloads: {
+          list: () =>
+            this.#transport.browserCall("downloads.list") as Promise<
+              import("@penkra/sdk").AppBrowserDownload[]
+            >,
+          onChange: (listener) => {
+            if (!this.#transport.onEvent) throw new Error("Download events are unavailable.");
+            return this.#transport.onEvent("browser.downloads.changed", (payload) => {
+              const change = payload as import("@penkra/sdk").AppBrowserDownloadsChange;
+              listener(
+                change.downloads,
+                change.revealId ? { revealId: change.revealId } : undefined,
+              );
+            });
+          },
+          pause: (id) => this.#transport.browserCall("downloads.pause", id) as Promise<void>,
+          resume: (id) => this.#transport.browserCall("downloads.resume", id) as Promise<void>,
+          cancel: (id) => this.#transport.browserCall("downloads.cancel", id) as Promise<void>,
+          retry: (id) => this.#transport.browserCall("downloads.retry", id) as Promise<void>,
+          open: (id) => this.#transport.browserCall("downloads.open", id) as Promise<void>,
+          showInFinder: (id) =>
+            this.#transport.browserCall("downloads.showInFinder", id) as Promise<void>,
+          clearFinished: () =>
+            this.#transport.browserCall("downloads.clearFinished") as Promise<void>,
+        },
         setToolbarHeight: (height) =>
           this.#transport.browserCall("setToolbarHeight", height) as Promise<void>,
         navigate: (input) =>

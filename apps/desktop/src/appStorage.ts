@@ -126,7 +126,7 @@ export class AppStorageService {
 
   prepareDownloadSync(
     owner: AppStorageOwner,
-    input: { directory: string; suggestedName: string },
+    input: { directory: string; suggestedName: string; reservedPaths?: ReadonlySet<string> },
   ): string {
     const root = this.root(owner);
     const directory = confinedPath(root, input.directory, false);
@@ -136,7 +136,7 @@ export class AppStorageService {
     for (let index = 0; index < 10_000; index += 1) {
       const name = index === 0 ? safeName : `${parsed.name}-${index}${parsed.ext}`;
       const candidate = Path.join(directory, name);
-      if (!FS.existsSync(candidate)) return candidate;
+      if (!input.reservedPaths?.has(candidate) && !FS.existsSync(candidate)) return candidate;
     }
     throw new Error("Unable to allocate a collision-free App download path.");
   }

@@ -70,6 +70,8 @@ export {
   type AppContextMenuSeparatorItem,
   type AppContextMenuSubmenuItem,
   type AppBrowserDownloadEvent,
+  type AppBrowserDownload,
+  type AppBrowserDownloadsChange,
   type AppBrowserExtensionAction,
   type AppBrowserPage,
   type AppBrowserSessionState,
