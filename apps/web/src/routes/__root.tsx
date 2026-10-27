@@ -71,6 +71,7 @@ import { invalidateProviderData } from "../lib/providerDataRefresh";
 import { providerModelDiscoveryInvalidationFingerprint } from "../lib/providerDiscoveryInvalidation";
 import { SplashScreen } from "../components/SplashScreen";
 import { ConnectionDefaultsMigration } from "../components/ConnectionDefaultsMigration";
+import { MobilePairingDialog } from "../components/remote-access/MobilePairingDialog";
 
 interface ThreadStartedState {
   readonly latestTurn: unknown | null;
@@ -182,6 +183,7 @@ function RootRouteView() {
               <GlobalWhatsNewSurface />
               <TaskCompletionNotifications />
               <ConnectionDefaultsMigration />
+              <MobilePairingDialog />
               {startupHydrated ? (
                 <Outlet />
               ) : (

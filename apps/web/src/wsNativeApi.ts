@@ -452,6 +452,10 @@ export function createWsNativeApi(): NativeApi {
       listProviderUsage: (input) => transport.request(WS_METHODS.serverListProviderUsage, input),
       transcribeVoice: requestVoiceTranscriptionUpload,
     },
+    remote: {
+      subscribePairing: (onRequest, onError) => transport.subscribePairing(onRequest, onError),
+      answerPairing: (input) => transport.request(WS_METHODS.remoteAnswerPairing, input),
+    },
     provider: {
       getCatalog: (input) => transport.request(WS_METHODS.providerGetCatalog, input),
       reloadCatalog: (input) => transport.request(WS_METHODS.providerReloadCatalog, input),

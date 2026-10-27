@@ -919,6 +919,13 @@ export type DesktopThreadApiRequest =
     });
 
 export interface NativeApi {
+  remote: {
+    subscribePairing: (
+      onRequest: (request: import("./rpc").RemotePairingRequest | null) => void,
+      onError: (error: Error) => void,
+    ) => () => void;
+    answerPairing: (input: { requestId: string; allow: boolean }) => Promise<{ accepted: boolean }>;
+  };
   dialogs: {
     pickFolder: () => Promise<string | null>;
     pickImage?: () => Promise<{

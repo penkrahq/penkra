@@ -1046,6 +1046,74 @@ describe("WsTransport", () => {
   });
 });
 
+describe("mobile pairing subscriptions", () => {
+  it("clears an old prompt on disconnect and resubscribes on the next open", async () => {
+    const { transport } = makeBareTransport();
+    const queue = await Effect.runPromise(
+      Queue.unbounded<{
+        request: null | {
+          requestId: string;
+          phoneDeviceId: string;
+          phoneName: string;
+          phoneModel: string;
+          code: string;
+        };
+      }>(),
+    );
+    const subscribe = vi.fn(() => Stream.fromQueue(queue));
+    let change!: (state: "open" | "closed") => void;
+    Object.assign(transport, {
+      onStateChange: (listener: typeof change) => {
+        change = listener;
+        listener("open");
+        return () => undefined;
+      },
+      getClient: async () => ({ [WS_METHODS.remoteSubscribePairing]: subscribe }),
+      getClientRuntime: () => ({
+        runCallback: (
+          effect: Effect.Effect<void>,
+          options: { onExit: (exit: Exit.Exit<void>) => void },
+        ) => Effect.runCallback(effect, options),
+      }),
+    });
+    let resolveFirst!: () => void, resolveSecond!: () => void;
+    const first = new Promise<void>((resolve) => {
+      resolveFirst = resolve;
+    });
+    const second = new Promise<void>((resolve) => {
+      resolveSecond = resolve;
+    });
+    const seen: (string | null)[] = [];
+    const stop = transport.subscribePairing(
+      (request) => {
+        seen.push(request?.requestId ?? null);
+        if (request && seen.length === 1) resolveFirst();
+        if (request && seen.length === 3) resolveSecond();
+      },
+      (error) => {
+        throw error;
+      },
+    );
+    const request = {
+      requestId: "one",
+      phoneDeviceId: "p",
+      phoneName: "Phone",
+      phoneModel: "Fixture",
+      code: "123456",
+    };
+    await Effect.runPromise(Queue.offer(queue, { request }));
+    await first;
+    change("closed");
+    change("open");
+    await Effect.runPromise(Queue.offer(queue, { request: { ...request, requestId: "two" } }));
+    await second;
+    expect(seen).toEqual(["one", null, "two"]);
+    expect(subscribe).toHaveBeenCalledTimes(2);
+    stop();
+    await Effect.runPromise(Queue.shutdown(queue));
+  });
+});
+
 describe("provider sign-in subscriptions", () => {
   it("delivers pushed snapshots and cancels the stream on cleanup", async () => {
     const { transport } = makeBareTransport();

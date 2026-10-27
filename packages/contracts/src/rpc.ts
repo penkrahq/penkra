@@ -230,6 +230,7 @@ export const RemotePairingRequest = Schema.Struct({
   phoneModel: Schema.String,
   code: Schema.String,
 });
+export type RemotePairingRequest = typeof RemotePairingRequest.Type;
 export const WsRemoteSubscribePairingRpc = Rpc.make(WS_METHODS.remoteSubscribePairing, {
   payload: Schema.Struct({}),
   success: Schema.Struct({ request: Schema.NullOr(RemotePairingRequest) }),
