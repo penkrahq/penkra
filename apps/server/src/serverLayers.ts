@@ -20,6 +20,7 @@ import { ServerLifecycleEventsLive } from "./serverLifecycleEvents";
 import { ServerRuntimeStartupLive } from "./serverRuntimeStartup";
 import { ServerSettingsLive } from "./serverSettings";
 import { RemotePairingControlLive } from "./remoteLink/pairingControl";
+import { RemoteDevicesControlLive } from "./remoteLink/devicesControl";
 import { WorkspaceLayerLive } from "./workspace/runtimeLayer";
 import { ProjectFaviconResolverLive } from "./project/Layers/ProjectFaviconResolver";
 import { ServerEnvironmentLive } from "./environment/Layers/ServerEnvironment";
@@ -167,6 +168,7 @@ export function makeServerRuntimeServicesLayer(
     TextGenerationLayerLive,
     ServerSettingsLive,
     RemotePairingControlLive,
+    RemoteDevicesControlLive,
     ServerEnvironmentLive,
     authServicesLayer,
     ServerLifecycleEventsLive,

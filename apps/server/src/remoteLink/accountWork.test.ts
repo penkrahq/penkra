@@ -7,6 +7,7 @@ import { ServerSecretStoreLive } from "../auth/Layers/ServerSecretStore";
 import { ServerConfig } from "../config";
 import { SqlitePersistenceMemory } from "../persistence/Layers/Sqlite";
 import { makeRemoteAccountWork } from "./accountWork";
+import { RemoteDevicesControlState } from "./devicesControl";
 import type { DesktopRemoteCredentials } from "./desktopCredentials";
 import { RemotePairingApprovals } from "./pairingApprovals";
 import { httpFixture } from "./httpFixture.test-support";
@@ -38,7 +39,7 @@ it("does not open a relay with another account's registration", async () => {
       credentials,
       approvals,
       onViewing: () => undefined,
-      onSessions: () => undefined,
+      devices: new RemoteDevicesControlState(),
       observeSocket: () => undefined,
       observeReconnect: () => undefined,
       observeSession: () => undefined,
@@ -76,7 +77,7 @@ it("cancels and joins credential preparation before an account can be replaced",
       credentials,
       approvals,
       onViewing: () => undefined,
-      onSessions: () => undefined,
+      devices: new RemoteDevicesControlState(),
       observeSocket: () => undefined,
       observeReconnect: () => undefined,
       observeSession: () => undefined,
@@ -118,6 +119,7 @@ it("sends sleep on the account's real relay before joining it", async () => {
         }),
       } as unknown as DesktopRemoteCredentials;
       const approvals = new RemotePairingApprovals(() => undefined);
+      const devices = new RemoteDevicesControlState();
       try {
         await Effect.gen(function* () {
           const mount = yield* makeRemoteAccountWork({
@@ -126,7 +128,7 @@ it("sends sleep on the account's real relay before joining it", async () => {
             credentials,
             approvals,
             onViewing: () => undefined,
-            onSessions: () => undefined,
+            devices,
             observeSocket: (event) => {
               if (event.event === "opened") opened.resolve();
             },
@@ -143,8 +145,12 @@ it("sends sleep on the account's real relay before joining it", async () => {
               }),
             ]),
           );
+          expect(yield* Effect.promise(() => devices.list())).toEqual([]);
           yield* Effect.promise(() => work.close("suspend"));
           expect(yield* Effect.promise(() => slept.promise)).toBe(RelayFrameType.SLEEP);
+          yield* Effect.promise(async () => {
+            await expect(devices.list()).rejects.toThrow("unavailable");
+          });
         }).pipe(Effect.provide(layer), Effect.scoped, Effect.runPromise);
       } finally {
         approvals.close();

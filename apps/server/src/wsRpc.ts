@@ -86,6 +86,12 @@ import { recoverMissingFile } from "./missingFileRecovery";
 import { WorkspaceWatcher } from "./workspaceWatcher";
 import { RemotePairingControl, answerPairing, pairingChanges } from "./remoteLink/pairingControl";
 import {
+  RemoteDevicesControl,
+  ownerDevices,
+  ownerRemoveDevice,
+  ownerDeviceChanges,
+} from "./remoteLink/devicesControl";
+import {
   provideWsConnectionSession,
   WsConnectionSessionMiddleware,
   WsConnectionSessionMiddlewareLive,
@@ -154,6 +160,7 @@ const makeWsRpcHandlersLayer = () =>
       const serverEnvironment = yield* ServerEnvironment;
       const serverSettings = yield* ServerSettingsService;
       const pairing = yield* RemotePairingControl;
+      const remoteDevices = yield* RemoteDevicesControl;
       const sql = yield* SqlClient.SqlClient;
       const threadPublisher = yield* ThreadPublisher;
       const providerUsage = yield* ProviderUsage;
@@ -530,6 +537,15 @@ const makeWsRpcHandlersLayer = () =>
           rpcEffect(serverSettings.getSettingsView, "Failed to load server settings"),
         [WS_METHODS.remoteAnswerPairing]: (input) =>
           answerPairing(pairing, input.requestId, input.allow),
+        [WS_METHODS.remoteListDevices]: () => ownerDevices(remoteDevices),
+        [WS_METHODS.remoteRemoveDevice]: (input) =>
+          ownerRemoveDevice(remoteDevices, input.deviceId),
+        [WS_METHODS.remoteSubscribeDevices]: (_, { client: { id: clientId } }) =>
+          streamAdmission.guard(
+            clientId,
+            { key: "remote.devices" },
+            ownerDeviceChanges(remoteDevices).pipe(Stream.map(() => ({}))),
+          ),
         [WS_METHODS.remoteSubscribePairing]: (_, { client: { id: clientId } }) =>
           streamAdmission.guard(clientId, { key: "remote.pairing" }, pairingChanges(pairing)),
         [WS_METHODS.serverUpdateSettings]: (input) =>

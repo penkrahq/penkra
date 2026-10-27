@@ -10,6 +10,7 @@ import { ServerSecretStoreLive } from "../auth/Layers/ServerSecretStore";
 import { ServerConfig } from "../config";
 import { SqlitePersistenceMemory } from "../persistence/Layers/Sqlite";
 import { startDesktopRemoteRuntime } from "./desktopRuntime";
+import { RemoteDevicesControlState } from "./devicesControl";
 import { DesktopRemoteCredentials } from "./desktopCredentials";
 import { RemotePairingApprovals } from "./pairingApprovals";
 
@@ -64,7 +65,7 @@ it("releases the private lifecycle subscription when its backend scope closes", 
         credentials: new DesktopRemoteCredentials(),
         approvals,
         onViewing: () => undefined,
-        onSessions: () => undefined,
+        devices: new RemoteDevicesControlState(),
         observeSocket: () => undefined,
         observeReconnect: () => undefined,
         observeSession: () => undefined,

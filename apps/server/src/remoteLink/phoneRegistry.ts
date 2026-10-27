@@ -62,10 +62,11 @@ export const makeRemotePhoneRegistry = (registry: RemoteRegistryClient) =>
         );
         return { credential, backendPaired };
       });
-    const remove = (deviceId: string) =>
+    const remove = (deviceId: string, onLocalRemoval?: () => void) =>
       Effect.gen(function* () {
         // This transaction revokes and joins live local sessions before I/O.
         yield* trust.remove(deviceId);
+        yield* Effect.sync(() => onLocalRemoval?.());
         return yield* withPhone(
           deviceId,
           Effect.gen(function* () {

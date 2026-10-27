@@ -74,6 +74,7 @@ describe("phone registry ownership with real HTTP and isolated SQLite", () => {
       cancellation.abort();
     });
     const operations: string[] = [];
+    const localRemoval = Promise.withResolvers<void>();
     await httpFixture(
       (request, response) => {
         if (request.method === "POST") {
@@ -109,8 +110,11 @@ describe("phone registry ownership with real HTTP and isolated SQLite", () => {
             ),
           );
           yield* Deferred.await(started);
-          const removing = yield* Effect.forkChild(owner.remove(input.deviceId));
+          const removing = yield* Effect.forkChild(
+            owner.remove(input.deviceId, () => localRemoval.resolve()),
+          );
           yield* Deferred.await(closed);
+          yield* Effect.promise(() => localRemoval.promise);
           expect(yield* trust.get(input.deviceId)).toBeNull();
           expect(operations).toEqual([]);
           release.resolve();

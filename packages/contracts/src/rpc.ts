@@ -245,6 +245,29 @@ export const WsRemoteAnswerPairingRpc = Rpc.make(WS_METHODS.remoteAnswerPairing,
   success: Schema.Struct({ accepted: Schema.Boolean }),
   error: WsRpcError,
 });
+export const RemotePhone = Schema.Struct({
+  deviceId: Schema.String.check(Schema.isUUID()),
+  name: Schema.String,
+  connected: Schema.Boolean,
+  lastConnectedAt: Schema.NullOr(Schema.String),
+});
+export type RemotePhone = typeof RemotePhone.Type;
+export const WsRemoteListDevicesRpc = Rpc.make(WS_METHODS.remoteListDevices, {
+  payload: Schema.Struct({}),
+  success: Schema.Array(RemotePhone),
+  error: WsRpcError,
+});
+export const WsRemoteRemoveDeviceRpc = Rpc.make(WS_METHODS.remoteRemoveDevice, {
+  payload: Schema.Struct({ deviceId: Schema.String.check(Schema.isUUID()) }),
+  success: Schema.Void,
+  error: WsRpcError,
+});
+export const WsRemoteSubscribeDevicesRpc = Rpc.make(WS_METHODS.remoteSubscribeDevices, {
+  payload: Schema.Struct({}),
+  success: Schema.Struct({}),
+  error: WsRpcError,
+  stream: true,
+});
 
 export const WsServerUpdateSettingsRpc = Rpc.make(WS_METHODS.serverUpdateSettings, {
   payload: ServerUpdateSettingsInput,
@@ -628,6 +651,9 @@ export const WsFeatureRpcGroup = RpcGroup.make(
   WsServerGetSettingsRpc,
   WsRemoteSubscribePairingRpc,
   WsRemoteAnswerPairingRpc,
+  WsRemoteListDevicesRpc,
+  WsRemoteRemoveDeviceRpc,
+  WsRemoteSubscribeDevicesRpc,
   WsServerUpdateSettingsRpc,
   WsServerGetSpaceNavigationStateRpc,
   WsServerUpdateSpaceNavigationStateRpc,

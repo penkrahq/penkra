@@ -13,6 +13,7 @@ import type { RelayReconnectState } from "./reconnect";
 import type { RemoteSessionEvent } from "./sessionBridge";
 import { makeSessionRelay } from "./sessionRelay";
 import { RemotePhoneSessions } from "./phoneSessions";
+import { RemoteDevicesControlState } from "./devicesControl";
 import { makeRemoteTrustStore, RemoteTrustScope, RemoteTrustStore } from "./trustStore";
 
 /** Capture the backend's scoped persistence services; each account mounts its own trust. */
@@ -22,7 +23,7 @@ export function makeRemoteAccountWork(input: {
   credentials: DesktopRemoteCredentials;
   approvals: RemotePairingApprovals;
   onViewing: (phoneDeviceId: string, threadId: string | null) => void;
-  onSessions: (sessions: RemotePhoneSessions | null) => void;
+  devices: RemoteDevicesControlState;
   observeSocket: (event: RelaySocketEvent) => void;
   observeReconnect: (state: RelayReconnectState) => void;
   observeSession: (event: RemoteSessionEvent) => void;
@@ -42,7 +43,8 @@ export function makeRemoteAccountWork(input: {
       if (ownerSignal.aborted) abort();
       let relay: RemoteRelayConnection | undefined;
       const sessions = new RemotePhoneSessions();
-      let sessionsPublished = false;
+      let detachDevices: (() => void) | undefined;
+      let unsubscribeSessions: (() => void) | undefined;
       let closing = false;
       const ready = (async () => {
         const result = await input.credentials.read(preparation.signal);
@@ -68,14 +70,38 @@ export function makeRemoteAccountWork(input: {
               Effect.provideService(RemoteTrustStore, trust),
             );
             if (closing || ownerSignal.aborted) return undefined;
-            input.onSessions(sessions);
-            sessionsPublished = true;
+            const trackedRegistry = {
+              ...phoneRegistry,
+              allow: (value: Parameters<typeof phoneRegistry.allow>[0]) =>
+                phoneRegistry
+                  .allow(value)
+                  .pipe(Effect.tap(() => Effect.sync(() => input.devices.changed()))),
+              reconcile: phoneRegistry.reconcile.pipe(
+                Effect.ensuring(Effect.sync(() => input.devices.changed())),
+              ),
+            };
+            detachDevices = input.devices.attach({
+              list: async () =>
+                (await run(trust.list(), { signal: ownerSignal })).map((phone) => ({
+                  deviceId: phone.deviceId,
+                  name: phone.name,
+                  connected: sessions.connected(phone.deviceId),
+                  lastConnectedAt: phone.lastConnectedAt,
+                })),
+              remove: async (deviceId) => {
+                await run(
+                  phoneRegistry.remove(deviceId, () => input.devices.changed()),
+                  { signal: ownerSignal },
+                );
+              },
+            });
+            unsubscribeSessions = sessions.subscribe(() => input.devices.changed());
             relay = yield* makeSessionRelay({
               macDeviceId: registration.deviceId,
               macPrivateKey: key,
               origin: input.origin,
               approvals: input.approvals,
-              registry: phoneRegistry,
+              registry: trackedRegistry,
               url: input.relayUrl,
               deviceToken: registration.deviceToken,
               signal: ownerSignal,
@@ -94,7 +120,8 @@ export function makeRemoteAccountWork(input: {
           if (relay) await relay.finished;
         } finally {
           try {
-            if (sessionsPublished) input.onSessions(null);
+            unsubscribeSessions?.();
+            detachDevices?.();
           } finally {
             key.fill(0);
           }
