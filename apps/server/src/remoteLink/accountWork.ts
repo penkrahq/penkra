@@ -22,7 +22,7 @@ export function makeRemoteAccountWork(input: {
   origin: string;
   credentials: DesktopRemoteCredentials;
   approvals: RemotePairingApprovals;
-  onViewing: (phoneDeviceId: string, threadId: string | null) => void;
+  onViewing: (phoneDeviceId: string, sessionId: string, threadId: string | null) => void;
   devices: RemoteDevicesControlState;
   observeSocket: (event: RelaySocketEvent) => void;
   observeReconnect: (state: RelayReconnectState) => void;
@@ -109,7 +109,10 @@ export function makeRemoteAccountWork(input: {
               onViewing: input.onViewing,
               onSession: (phoneId, sessionId, connected) => {
                 if (connected) sessions.open(phoneId, sessionId);
-                else sessions.close(phoneId, sessionId);
+                else {
+                  sessions.close(phoneId, sessionId);
+                  input.onViewing(phoneId, sessionId, null);
+                }
               },
               observe: input.observeSession,
               observeSocket: (event) => {

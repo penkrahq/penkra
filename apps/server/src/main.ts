@@ -48,6 +48,7 @@ import { DesktopRemoteCredentials } from "./remoteLink/desktopCredentials";
 import { startDesktopRemoteRuntime } from "./remoteLink/desktopRuntime";
 import { RemotePairingControl } from "./remoteLink/pairingControl";
 import { RemoteDevicesControl } from "./remoteLink/devicesControl";
+import { RemoteViewingState } from "./remoteLink/viewingState";
 import { formatHostForUrl, isLoopbackHost, isWildcardHost } from "./startupAccess";
 import { AnalyticsServiceLayerLive } from "./telemetry/Layers/AnalyticsService";
 import { AnalyticsService } from "./telemetry/Services/AnalyticsService";
@@ -425,12 +426,13 @@ const makeServerProgram = (input: CliInput) => {
         const loopback = address.address.includes(":") ? "[::1]" : "127.0.0.1";
         const pairing = yield* RemotePairingControl;
         const devices = yield* RemoteDevicesControl;
+        const viewing = new RemoteViewingState();
         stopRemote = yield* startDesktopRemoteRuntime({
           relayUrl: process.env.PENKRA_REMOTE_RELAY_URL ?? "wss://relay.penkra.com/v1",
           origin: `http://${loopback}:${address.port}`,
           credentials: new DesktopRemoteCredentials(),
           approvals: pairing.approvals,
-          onViewing: () => undefined,
+          onViewing: (phoneId, sessionId, threadId) => viewing.set(phoneId, sessionId, threadId),
           devices,
           observeSocket: (event) => console.info("[remote-link] relay", event),
           observeReconnect: (state) => console.info("[remote-link] reconnect", state),

@@ -17,7 +17,7 @@ export function makeRelaySessionStart(input: {
   origin: string;
   approvals: RemotePairingApprovals;
   registry: Effect.Success<ReturnType<typeof makeRemotePhoneRegistry>>;
-  onViewing: (phoneDeviceId: string, threadId: string | null) => void;
+  onViewing: (phoneDeviceId: string, sessionId: string, threadId: string | null) => void;
   onSession: (phoneDeviceId: string, sessionId: string, connected: boolean) => void;
   observe: (event: RemoteSessionEvent) => void;
 }) {
@@ -68,7 +68,7 @@ export function makeRelaySessionStart(input: {
                   connected = true;
                   input.onSession(open.peerId, open.sessionId, true);
                 },
-                onViewing: (threadId) => input.onViewing(open.peerId, threadId),
+                onViewing: (threadId) => input.onViewing(open.peerId, open.sessionId, threadId),
                 observe: input.observe,
               });
         // The router installs the entry before any handshake response can make

@@ -78,7 +78,7 @@ it("routes a real KK handshake and encrypted data through the session owner", as
         origin: "http://127.0.0.1:1",
         approvals: new RemotePairingApprovals(() => undefined),
         registry,
-        onViewing: (_phone, thread) => viewed.resolve(thread),
+        onViewing: (_phone, _session, thread) => viewed.resolve(thread),
         onSession: (_phone, _session, connected) => connectionStates.push(connected),
         observe: () => undefined,
       });
