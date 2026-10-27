@@ -15,6 +15,29 @@ const request = (phoneDeviceId = "phone-a") => ({
 });
 
 describe("pairing consent ownership", () => {
+  it("does not publish a stale prompt after a synchronous answer", async () => {
+    const observed: Array<RemotePairingRequest | null> = [];
+    const approvals = new RemotePairingApprovals((value) => {
+      if (value) approvals.answer(value.requestId, false);
+    });
+    approvals.subscribe((value) => observed.push(value));
+    const decision = approvals.request(request(), new AbortController().signal);
+    expect(await decision).toBe("deny");
+    expect(observed).toEqual([null, null]);
+    approvals.close();
+  });
+  it("delivers the current request to a new observer and stops after unsubscribe", async () => {
+    const approvals = new RemotePairingApprovals(() => undefined);
+    const decision = approvals.request(request(), new AbortController().signal);
+    const observed: Array<RemotePairingRequest | null> = [];
+    const stop = approvals.subscribe((value) => observed.push(value));
+    expect(observed).toEqual([approvals.current]);
+    stop();
+    approvals.answer(approvals.current!.requestId, false);
+    expect(await decision).toBe("deny");
+    expect(observed).toHaveLength(1);
+    approvals.close();
+  });
   it.each([true, false])("only the current request can receive answer %s, once", async (allow) => {
     vi.useFakeTimers();
     const changes: Array<RemotePairingRequest | null> = [];

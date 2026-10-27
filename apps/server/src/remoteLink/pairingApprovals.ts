@@ -31,10 +31,23 @@ export class RemotePairingApprovals {
   readonly #pending = new Map<string, Pending>();
   #closed = false;
   #published: RemotePairingRequest | null = null;
+  readonly #listeners = new Set<(request: RemotePairingRequest | null) => void>();
   constructor(private readonly observe: (request: RemotePairingRequest | null) => void) {}
 
   get current(): RemotePairingRequest | null {
     return this.#published;
+  }
+
+  subscribe(listener: (request: RemotePairingRequest | null) => void): () => void {
+    if (!this.#closed) this.#listeners.add(listener);
+    try {
+      listener(this.#published);
+    } catch {
+      /* Observers do not own consent. */
+    }
+    return () => {
+      this.#listeners.delete(listener);
+    };
   }
 
   request(
@@ -74,6 +87,7 @@ export class RemotePairingApprovals {
     this.#closed = true;
     for (const pending of this.#pending.values()) this.#finish(pending, undefined, false);
     this.#publish();
+    this.#listeners.clear();
   }
 
   #finish(pending: Pending, decision?: PairingDecision, publish = true): void {
@@ -94,6 +108,14 @@ export class RemotePairingApprovals {
       this.observe(next);
     } catch {
       /* Diagnostics/renderers do not own consent. */
+    }
+    for (const listener of this.#listeners) {
+      if (this.#published !== next) break;
+      try {
+        listener(next);
+      } catch {
+        /* Observers do not own consent. */
+      }
     }
   }
 }
