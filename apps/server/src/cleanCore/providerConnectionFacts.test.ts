@@ -7,7 +7,7 @@ import {
   TurnId,
   type ProviderRuntimeEvent,
 } from "@penkra/contracts";
-import { Cause, Effect, Exit, Option } from "effect";
+import { Cause, Effect, Exit, Fiber, Option, Stream } from "effect";
 import * as SqlClient from "effect/sql/SqlClient";
 import { runMigrations } from "../persistence/Migrations.ts";
 import * as NodeSqliteClient from "../persistence/NodeSqliteClient.ts";
@@ -64,6 +64,38 @@ const completed = (
   createdAt: at,
   payload: { state: "completed", usage },
 });
+
+it.effect("refreshes Claude usage for the originating thread at quota and turn completion", () =>
+  withDb(
+    Effect.gen(function* () {
+      const limits = yield* ConnectionRateLimits;
+      const publisher = makeThreadPublisher();
+      const quotaRequest = yield* Stream.runHead(limits.refreshRequests).pipe(
+        Effect.forkChild({ startImmediately: true }),
+      );
+      yield* applyProviderRuntimeEvent(publisher, {
+        type: "account.rate-limits.updated",
+        eventId: EventId.make("quota-refresh"),
+        threadId,
+        provider: "claudeAgent",
+        createdAt: at,
+        payload: { rateLimits: { status: "allowed" } },
+      });
+      assert.deepStrictEqual(Option.getOrThrow(yield* Fiber.join(quotaRequest)), {
+        connectionId: owner,
+        threadId,
+      });
+      const turnRequest = yield* Stream.runHead(limits.refreshRequests).pipe(
+        Effect.forkChild({ startImmediately: true }),
+      );
+      yield* applyProviderRuntimeEvent(publisher, completed("claudeAgent", {}));
+      assert.deepStrictEqual(Option.getOrThrow(yield* Fiber.join(turnRequest)), {
+        connectionId: owner,
+        threadId,
+      });
+    }),
+  ),
+);
 
 it.effect("attributes Claude usage to the binding and commits it once with the turn end", () =>
   withDb(
