@@ -55,6 +55,8 @@ export interface RelaySocketInput {
   readonly signal: AbortSignal;
   /** Dispatch only; per-session work owns its own asynchronous lifetime. */
   readonly onFrame: (frame: RelayFrame) => undefined;
+  /** Install the connection's receiver before the relay can deliver frames. */
+  readonly onConnected?: (socket: RemoteRelaySocket) => void;
   readonly observe: (event: RelaySocketEvent) => void;
 }
 
@@ -106,6 +108,13 @@ export class RemoteRelaySocket {
     this.#stream.on("error", () => undefined);
     const closed = Promise.withResolvers<number>();
     this.#socket.once("open", () => {
+      try {
+        input.onConnected?.(this);
+      } catch (error) {
+        this.#opening.reject(error);
+        this.#stop("connection-failed");
+        return;
+      }
       this.#opening.resolve();
       this.#observe({ event: "opened" });
     });

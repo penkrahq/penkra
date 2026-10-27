@@ -1,23 +1,26 @@
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { Effect, Layer } from "effect";
 import { expect, it } from "vitest";
+import { WebSocketServer } from "ws";
 import { SessionCredentialServiceLive } from "../auth/Layers/SessionCredentialService";
 import { ServerSecretStoreLive } from "../auth/Layers/ServerSecretStore";
 import { ServerConfig } from "../config";
 import { SqlitePersistenceMemory } from "../persistence/Layers/Sqlite";
 import { createNoiseIdentity, noisePublicKey, NoiseHandshake } from "./noise";
+import { httpFixture } from "./httpFixture.test-support";
 import { remoteNoisePrologue } from "./pairedSession";
 import { RemotePairingApprovals } from "./pairingApprovals";
 import { decodePairingResult } from "./pairingProtocol";
 import { makeRemotePhoneRegistry } from "./phoneRegistry";
 import { RemoteRegistryClient } from "./registry";
-import { RelayFrameType, RelayOpenMode } from "./relayProtocol";
+import { decodeRelayFrame, encodeRelayFrame, RelayFrameType, RelayOpenMode } from "./relayProtocol";
 import { makeRelaySessionStart } from "./relaySessionStart";
 import { RelaySessions } from "./relaySessions";
 import type { RemoteRelaySocket } from "./relaySocket";
 import { RemoteTrustStore, RemoteTrustStoreLive } from "./trustStore";
 import { remoteTrustScopeLayer } from "./trustScope.test-support";
 import { encodeTunnelEnvelope } from "./tunnelCodec";
+import { makeSessionRelay } from "./sessionRelay";
 
 const macId = "10000000-0000-4000-8000-000000000001";
 const phoneId = "10000000-0000-4000-8000-000000000002";
@@ -68,18 +71,17 @@ it("routes a real KK handshake and encrypted data through the session owner", as
       const registry = yield* makeRemotePhoneRegistry(
         new RemoteRegistryClient({ apiUrl: "http://localhost:1", deviceToken: "fixture" }),
       );
-      const start = yield* makeRelaySessionStart({
+      const makeStart = yield* makeRelaySessionStart({
         macDeviceId: macId,
         macPrivateKey: macKey,
         origin: "http://127.0.0.1:1",
         approvals: new RemotePairingApprovals(() => undefined),
         registry,
-        socket,
         onViewing: (_phone, thread) => viewed.resolve(thread),
         observe: () => undefined,
       });
       router = new RelaySessions({
-        start,
+        start: makeStart(socket),
         closePeer: async () => undefined,
         observeFailure: (error) => {
           throw error;
@@ -136,18 +138,17 @@ it("routes a real XX pairing and an explicit denial through the session owner", 
       const registry = yield* makeRemotePhoneRegistry(
         new RemoteRegistryClient({ apiUrl: "http://localhost:1", deviceToken: "fixture" }),
       );
-      const start = yield* makeRelaySessionStart({
+      const makeStart = yield* makeRelaySessionStart({
         macDeviceId: macId,
         macPrivateKey: macKey,
         origin: "http://127.0.0.1:1",
         approvals,
         registry,
-        socket,
         onViewing: () => undefined,
         observe: () => undefined,
       });
       router = new RelaySessions({
-        start,
+        start: makeStart(socket),
         closePeer: async () => undefined,
         observeFailure: (error) => {
           throw error;
@@ -172,4 +173,95 @@ it("routes a real XX pairing and an explicit denial through the session owner", 
     macKey.fill(0);
     phoneKey.fill(0);
   }
+});
+
+it("routes an immediate relay OPEN through real WebSocket and XX pairing", async () => {
+  await httpFixture(
+    (_request, response) => response.end(),
+    async (origin, server) => {
+      const macKey = createNoiseIdentity(),
+        phoneKey = createNoiseIdentity();
+      const phone = new NoiseHandshake({
+        pattern: "XX",
+        initiator: true,
+        staticPrivateKey: phoneKey,
+        prologue: remoteNoisePrologue(macId, phoneId),
+      });
+      const result = Promise.withResolvers<string>();
+      const wss = new WebSocketServer({ noServer: true });
+      server.on("upgrade", (request, socket, head) =>
+        wss.handleUpgrade(request, socket, head, (ws) => {
+          ws.send(
+            encodeRelayFrame({
+              type: RelayFrameType.OPEN,
+              mode: RelayOpenMode.PAIRING,
+              sessionId,
+              peerId: phoneId,
+              payload: phone.writeMessage(
+                Buffer.from(JSON.stringify({ type: "pair", name: "Phone", model: "Fixture" })),
+              ),
+            }),
+          );
+          let replies = 0;
+          ws.on("message", (data) => {
+            const frame = decodeRelayFrame(data as Buffer);
+            if (frame.type !== RelayFrameType.DATA) return;
+            if (++replies === 1) {
+              phone.readMessage(frame.payload);
+              ws.send(
+                encodeRelayFrame({
+                  type: RelayFrameType.DATA,
+                  sessionId,
+                  peerId: phoneId,
+                  payload: phone.writeMessage(new Uint8Array()),
+                }),
+              );
+            } else
+              result.resolve(
+                decodePairingResult(phone.finish().receive.decrypt(frame.payload)).type,
+              );
+          });
+        }),
+      );
+      const approvals = new RemotePairingApprovals((request) => {
+        if (request) approvals.answer(request.requestId, false);
+      });
+      try {
+        await Effect.gen(function* () {
+          const registry = yield* makeRemotePhoneRegistry(
+            new RemoteRegistryClient({ apiUrl: "http://localhost:1", deviceToken: "fixture" }),
+          );
+          const relay = yield* makeSessionRelay({
+            macDeviceId: macId,
+            macPrivateKey: macKey,
+            origin: "http://127.0.0.1:1",
+            approvals,
+            registry,
+            url: origin.replace("http:", "ws:") + "/v1",
+            deviceToken: "fixture",
+            signal: new AbortController().signal,
+            onViewing: () => undefined,
+            observe: () => undefined,
+            observeSocket: () => undefined,
+            observeReconnect: () => undefined,
+            observeFailure: (error) => {
+              throw error;
+            },
+          });
+          try {
+            expect(yield* Effect.promise(() => result.promise)).toBe("denied");
+          } finally {
+            yield* Effect.promise(() => relay.close());
+          }
+        }).pipe(Effect.provide(layer), Effect.scoped, Effect.runPromise);
+      } finally {
+        approvals.close();
+        phone.destroy();
+        macKey.fill(0);
+        phoneKey.fill(0);
+        for (const socket of wss.clients) socket.terminate();
+        await new Promise<void>((resolve) => wss.close(() => resolve()));
+      }
+    },
+  );
 });

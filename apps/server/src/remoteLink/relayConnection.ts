@@ -16,7 +16,7 @@ export class RemoteRelayConnection {
   #active: RemoteRelaySocket | undefined;
 
   constructor(
-    input: Omit<RelaySocketInput, "signal"> & {
+    input: Omit<RelaySocketInput, "signal" | "onConnected"> & {
       readonly signal: AbortSignal;
       readonly onOpen: (socket: RemoteRelaySocket) => () => Promise<void>;
       readonly observeReconnect: (state: RelayReconnectState) => void;
@@ -29,9 +29,14 @@ export class RemoteRelayConnection {
         let socket: RemoteRelaySocket | undefined;
         let cleanup: (() => Promise<void>) | undefined;
         try {
-          socket = await RemoteRelaySocket.open({ ...input, signal });
-          this.#active = socket;
-          cleanup = input.onOpen(socket);
+          socket = await RemoteRelaySocket.open({
+            ...input,
+            signal,
+            onConnected: (connected) => {
+              cleanup = input.onOpen(connected);
+              this.#active = connected;
+            },
+          });
           const end = await socket.finished;
           if (
             end.reason === "protocol-failed" ||
