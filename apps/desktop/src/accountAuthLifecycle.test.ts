@@ -48,6 +48,7 @@ function fixture() {
   const failed = deferred();
   const onAuthenticated = vi.fn((id: string) => authenticated.resolve(id));
   const onBeforeSignOut = vi.fn();
+  const onBeforeAccountChange = vi.fn(async (_id: string) => undefined);
   const handlers = new Map<string, (event: { sender: WebContents }) => Promise<unknown>>();
   const shell = { id: 1 } as WebContents;
   configurePenkraAccountAuth({
@@ -73,13 +74,60 @@ function fixture() {
     websiteOrigin: "https://example.test",
     onAuthenticated,
     onBeforeSignOut,
+    onBeforeAccountChange,
   });
   const callback = () =>
     mocks.events.get("open-url")!({}, "com.penkra.app.dev://auth/callback#token=fixture");
-  return { authenticated, failed, onAuthenticated, onBeforeSignOut, handlers, shell, callback };
+  return {
+    authenticated,
+    failed,
+    onAuthenticated,
+    onBeforeSignOut,
+    onBeforeAccountChange,
+    handlers,
+    shell,
+    callback,
+  };
 }
 
 describe("explicit account authentication lifecycle", () => {
+  it("finishes account transition before publishing authentication", async () => {
+    const f = fixture();
+    const order: string[] = [];
+    f.onBeforeAccountChange.mockImplementation(async () => {
+      order.push("transition");
+    });
+    f.onAuthenticated.mockImplementation((id) => {
+      order.push("published");
+      f.authenticated.resolve(id);
+    });
+    f.callback();
+    await f.authenticated.promise;
+    expect(order).toEqual(["transition", "published"]);
+  });
+  it("does not publish a sign-in that was superseded while its transition was waiting", async () => {
+    const f = fixture();
+    const entered = deferred();
+    const release = deferred();
+    f.onBeforeAccountChange.mockImplementation(async () => {
+      entered.resolve();
+      await release.promise;
+    });
+    f.callback();
+    await entered.promise;
+    await f.handlers.get(DESKTOP_IPC_CHANNELS.accountAuth.signOut)!({ sender: f.shell });
+    release.resolve();
+    await release.promise;
+    await Promise.resolve();
+    expect(f.onAuthenticated).not.toHaveBeenCalled();
+  });
+  it("does not publish authentication when the account transition fails", async () => {
+    const f = fixture();
+    f.onBeforeAccountChange.mockRejectedValue(new Error("cleanup failed"));
+    f.callback();
+    await f.failed.promise;
+    expect(f.onAuthenticated).not.toHaveBeenCalled();
+  });
   it("waits for remote cleanup before clearing the account session", async () => {
     const f = fixture();
     const entered = deferred();

@@ -62,6 +62,7 @@ export function configurePenkraAccountAuth(input: {
   websiteOrigin: string;
   /** Successful explicit authentication, never an ordinary session read. */
   onAuthenticated?: (accountId: string) => void;
+  onBeforeAccountChange?: (accountId: string) => void | Promise<void>;
   onBeforeSignOut?: () => void | Promise<void>;
 }): PenkraAccountAuthRuntime {
   const accountStorage = storage({
@@ -194,6 +195,8 @@ export function configurePenkraAccountAuth(input: {
         return;
       }
       const user = toDesktopAccountUser(result.data.user);
+      await input.onBeforeAccountChange?.(user.id);
+      if (attempt !== callbackAttempt) return;
       sessionCache.write(user);
       callbackAttempt += 1;
       notify(DESKTOP_IPC_CHANNELS.accountAuth.authenticated, user);
