@@ -19,6 +19,7 @@ export function makeSessionRelay(
 ) {
   return Effect.gen(function* () {
     const start = yield* makeRelaySessionStart(input);
+    const run = Effect.runPromiseWith(yield* Effect.context<never>());
     let owner: RelaySessions | undefined;
     return new RemoteRelayConnection({
       url: input.url,
@@ -31,6 +32,18 @@ export function makeSessionRelay(
         return undefined;
       },
       onOpen: (socket) => {
+        const reconciliation = new AbortController();
+        const reconciled = run(input.registry.reconcile, { signal: reconciliation.signal }).catch(
+          (error) => {
+            if (!reconciliation.signal.aborted) {
+              try {
+                input.observeFailure(error);
+              } catch {
+                /* Diagnostics do not own work. */
+              }
+            }
+          },
+        );
         const sessions = new RelaySessions({
           start: start(socket),
           closePeer: (sessionId, peerId) =>
@@ -45,7 +58,8 @@ export function makeSessionRelay(
         owner = sessions;
         return async () => {
           if (owner === sessions) owner = undefined;
-          await sessions.close();
+          reconciliation.abort();
+          await Promise.all([sessions.close(), reconciled]);
         };
       },
     });

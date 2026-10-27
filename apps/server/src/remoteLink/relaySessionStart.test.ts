@@ -265,3 +265,61 @@ it("routes an immediate relay OPEN through real WebSocket and XX pairing", async
     },
   );
 });
+
+it("reconciles phone permissions again on each relay connection", async () => {
+  await httpFixture(
+    (_request, response) => response.end(),
+    async (origin, server) => {
+      const wss = new WebSocketServer({ noServer: true });
+      server.on("upgrade", (request, socket, head) =>
+        wss.handleUpgrade(request, socket, head, () => undefined),
+      );
+      const first = Promise.withResolvers<void>(),
+        second = Promise.withResolvers<void>();
+      let count = 0;
+      const approvals = new RemotePairingApprovals(() => undefined);
+      const macKey = createNoiseIdentity();
+      try {
+        await Effect.gen(function* () {
+          const registry = yield* makeRemotePhoneRegistry(
+            new RemoteRegistryClient({ apiUrl: "http://localhost:1", deviceToken: "fixture" }),
+          );
+          const relay = yield* makeSessionRelay({
+            macDeviceId: macId,
+            macPrivateKey: macKey,
+            origin: "http://127.0.0.1:1",
+            approvals,
+            registry: {
+              ...registry,
+              reconcile: Effect.sync(() => {
+                if (++count === 1) first.resolve();
+                else second.resolve();
+              }),
+            },
+            url: origin.replace("http:", "ws:") + "/v1",
+            deviceToken: "fixture",
+            signal: new AbortController().signal,
+            onViewing: () => undefined,
+            observe: () => undefined,
+            observeSocket: () => undefined,
+            observeReconnect: () => undefined,
+            observeFailure: () => undefined,
+          });
+          try {
+            yield* Effect.promise(() => first.promise);
+            relay.reconnect("wake");
+            yield* Effect.promise(() => second.promise);
+            expect(count).toBe(2);
+          } finally {
+            yield* Effect.promise(() => relay.close());
+          }
+        }).pipe(Effect.provide(layer), Effect.scoped, Effect.runPromise);
+      } finally {
+        approvals.close();
+        macKey.fill(0);
+        for (const socket of wss.clients) socket.terminate();
+        await new Promise<void>((resolve) => wss.close(() => resolve()));
+      }
+    },
+  );
+});
