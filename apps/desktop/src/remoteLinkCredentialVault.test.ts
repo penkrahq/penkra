@@ -36,6 +36,24 @@ afterEach(async () => {
   await Promise.all(roots.splice(0).map((path) => rm(path, { recursive: true, force: true })));
 });
 describe("RemoteLinkCredentialVault", () => {
+  it("remembers iPhone access independently per account and account service across restart", async () => {
+    const { vault, input } = await fixture();
+    expect(await vault.getAccess("a")).toBe(false);
+    expect(await vault.getAccess("b")).toBe(false);
+    await vault.setAccess("a", true);
+    expect(await vault.getAccess("a")).toBe(true);
+    expect(await vault.getAccess("b")).toBe(false);
+    expect(await new RemoteLinkCredentialVault(input).getAccess("a")).toBe(true);
+    expect(
+      await new RemoteLinkCredentialVault({
+        ...input,
+        accountServiceUrl: "https://other.example.test",
+      }).getAccess("a"),
+    ).toBe(false);
+    await vault.setAccess("a", false);
+    expect(await vault.getAccess("a")).toBe(false);
+    expect(await vault.read("a")).not.toBeNull();
+  });
   it("keeps one encrypted identity across concurrent creation and restart, without implying access is enabled", async () => {
     const { vault, root, input } = await fixture();
     expect(await vault.read("a")).toBeNull();
@@ -64,6 +82,11 @@ describe("RemoteLinkCredentialVault", () => {
       deviceToken: randomBytes(32).toString("base64url"),
     };
     await vault.register("a", a.identityPrivateKey, registration);
+    expect((await vault.read("a"))?.registration).toEqual(registration);
+    await vault.setAccess("a", true);
+    await vault.register("a", a.identityPrivateKey, registration);
+    expect((await vault.read("a"))?.accessOn).toBe(true);
+    await vault.setAccess("a", false);
     expect((await vault.read("a"))?.registration).toEqual(registration);
     await expect(vault.remove("b", a.identityPrivateKey)).rejects.toThrow("identity changed");
     await vault.remove("a", a.identityPrivateKey);

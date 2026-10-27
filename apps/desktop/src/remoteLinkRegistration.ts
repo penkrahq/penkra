@@ -149,7 +149,11 @@ export class RemoteLinkRegistrationOwner {
         await account();
         await this.input.vault.register(accountId, credentials.identityPrivateKey, registration);
         check();
-        return { identityPrivateKey: credentials.identityPrivateKey, registration };
+        const updated = await this.input.vault.read(accountId);
+        check();
+        if (!updated || updated.identityPrivateKey !== credentials.identityPrivateKey)
+          throw new RemoteRegistrationError("account-changed");
+        return updated;
       } finally {
         if (this.#active === controller) this.#active = undefined;
       }

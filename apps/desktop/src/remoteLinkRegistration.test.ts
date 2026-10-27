@@ -46,12 +46,16 @@ function owner(apiUrl: string, request?: typeof fetch) {
       read: async (id) => records.get(id) ?? null,
       getOrCreate: async (id) => {
         if (!records.has(id))
-          records.set(id, { identityPrivateKey: privateKey, registration: null });
+          records.set(id, { identityPrivateKey: privateKey, registration: null, accessOn: false });
         return records.get(id)!;
       },
       register: async (id, key, next) => {
         if (records.get(id)?.identityPrivateKey !== key) throw new Error("Identity changed");
-        records.set(id, { identityPrivateKey: key, registration: next });
+        records.set(id, {
+          identityPrivateKey: key,
+          registration: next,
+          accessOn: records.get(id)!.accessOn,
+        });
       },
     },
   });
@@ -123,7 +127,7 @@ describe("desktop-owned RemoteLink registration", () => {
       async (url) => {
         const { instance, records } = owner(url);
         expect(await instance.renewAfterSignIn("a", signal())).toBeNull();
-        records.set("a", { identityPrivateKey: privateKey, registration: null });
+        records.set("a", { identityPrivateKey: privateKey, registration: null, accessOn: false });
         expect((await instance.renewAfterSignIn("a", signal()))?.registration).toBeNull();
       },
     );
@@ -140,7 +144,11 @@ describe("desktop-owned RemoteLink registration", () => {
         },
         async (url) => {
           const { instance, records } = owner(url);
-          const old = { identityPrivateKey: privateKey, registration: registration(1) };
+          const old = {
+            identityPrivateKey: privateKey,
+            registration: registration(1),
+            accessOn: false,
+          };
           records.set("a", old);
           await expect(instance.renewAfterSignIn("a", signal())).rejects.toMatchObject({
             code: "http",
@@ -165,7 +173,11 @@ describe("desktop-owned RemoteLink registration", () => {
       },
       async (url) => {
         const { instance, records, setAccount } = owner(url);
-        const old = { identityPrivateKey: privateKey, registration: registration(1) };
+        const old = {
+          identityPrivateKey: privateKey,
+          registration: registration(1),
+          accessOn: false,
+        };
         records.set("a", old);
         const renewing = instance.renewAfterSignIn("a", signal());
         try {
@@ -188,7 +200,11 @@ describe("desktop-owned RemoteLink registration", () => {
       () => pending.resolve(),
       async (url) => {
         const { instance, records } = owner(url);
-        const old = { identityPrivateKey: privateKey, registration: registration(1) };
+        const old = {
+          identityPrivateKey: privateKey,
+          registration: registration(1),
+          accessOn: false,
+        };
         records.set("a", old);
         const first = instance.renewAfterSignIn("a", signal());
         const second = instance.renewAfterSignIn("a", signal());

@@ -8,6 +8,7 @@ import { fsyncDirectory } from "@penkra/shared/fsyncDirectory";
 export interface RemoteLinkCredentials {
   readonly identityPrivateKey: string;
   readonly registration: { readonly deviceId: string; readonly deviceToken: string } | null;
+  readonly accessOn: boolean;
 }
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -33,7 +34,8 @@ function decode(value: unknown): RemoteLinkCredentials {
   if (!value || typeof value !== "object") throw new Error("Invalid RemoteLink credentials.");
   const row = value as Record<string, unknown>;
   if (
-    row.version !== 1 ||
+    row.version !== 2 ||
+    typeof row.accessOn !== "boolean" ||
     typeof row.identityPrivateKey !== "string" ||
     Buffer.from(row.identityPrivateKey, "base64").length !== 32 ||
     Buffer.from(row.identityPrivateKey, "base64").toString("base64") !== row.identityPrivateKey
@@ -44,9 +46,10 @@ function decode(value: unknown): RemoteLinkCredentials {
     return {
       identityPrivateKey: row.identityPrivateKey,
       registration: decodeRemoteLinkRegistration(registration),
+      accessOn: row.accessOn,
     };
   }
-  return { identityPrivateKey: row.identityPrivateKey, registration: null };
+  return { identityPrivateKey: row.identityPrivateKey, registration: null, accessOn: row.accessOn };
 }
 
 export class RemoteLinkCredentialVault {
@@ -90,7 +93,7 @@ export class RemoteLinkCredentialVault {
   }
 
   async #write(path: string, credentials: RemoteLinkCredentials) {
-    const bytes = this.input.encrypt(JSON.stringify({ version: 1, ...credentials }));
+    const bytes = this.input.encrypt(JSON.stringify({ version: 2, ...credentials }));
     if (bytes.length > DESKTOP_CREDENTIAL_MAX_RESPONSE_BYTES)
       throw new Error("RemoteLink credentials exceed their size limit.");
     await mkdir(dirname(path), { recursive: true, mode: 0o700 });
@@ -125,9 +128,30 @@ export class RemoteLinkCredentialVault {
       const credentials = {
         identityPrivateKey: randomBytes(32).toString("base64"),
         registration: null,
+        accessOn: false,
       };
       await this.#write(path, credentials);
       return credentials;
+    });
+  }
+
+  getAccess(accountId: string): Promise<boolean> {
+    return this.#serialize(
+      async () => (await this.#read(this.#path(accountId)))?.accessOn ?? false,
+    );
+  }
+
+  setAccess(accountId: string, accessOn: boolean): Promise<void> {
+    return this.#serialize(async () => {
+      const path = this.#path(accountId);
+      const existing = await this.#read(path);
+      if (!existing && !accessOn) return;
+      const credentials = existing ?? {
+        identityPrivateKey: randomBytes(32).toString("base64"),
+        registration: null,
+        accessOn: false,
+      };
+      if (credentials.accessOn !== accessOn) await this.#write(path, { ...credentials, accessOn });
     });
   }
 
@@ -141,7 +165,12 @@ export class RemoteLinkCredentialVault {
       const current = await this.#read(path);
       if (!current || current.identityPrivateKey !== identityPrivateKey)
         throw new Error("RemoteLink identity changed during registration.");
-      const next = decode({ version: 1, identityPrivateKey, registration });
+      const next = decode({
+        version: 2,
+        identityPrivateKey,
+        registration,
+        accessOn: current.accessOn,
+      });
       await this.#write(path, next);
     });
   }
