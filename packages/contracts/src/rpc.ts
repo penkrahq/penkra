@@ -254,7 +254,10 @@ export const RemotePhone = Schema.Struct({
 export type RemotePhone = typeof RemotePhone.Type;
 export const WsRemoteListDevicesRpc = Rpc.make(WS_METHODS.remoteListDevices, {
   payload: Schema.Struct({}),
-  success: Schema.Array(RemotePhone),
+  success: Schema.Struct({
+    phones: Schema.Array(RemotePhone),
+    relay: Schema.Literals(["connecting", "connected", "rejected-sign-in", "rejected-protocol"]),
+  }),
   error: WsRpcError,
 });
 export const WsRemoteRemoveDeviceRpc = Rpc.make(WS_METHODS.remoteRemoveDevice, {

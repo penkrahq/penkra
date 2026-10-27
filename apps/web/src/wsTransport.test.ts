@@ -1047,6 +1047,52 @@ describe("WsTransport", () => {
 });
 
 describe("mobile pairing subscriptions", () => {
+  it("resubscribes to phone changes after reconnect", async () => {
+    const { transport } = makeBareTransport();
+    const queue = await Effect.runPromise(Queue.unbounded<{}>());
+    const subscribe = vi.fn(() => Stream.fromQueue(queue));
+    let change!: (state: "open" | "closed") => void;
+    Object.assign(transport, {
+      onStateChange: (listener: typeof change) => {
+        change = listener;
+        listener("open");
+        return () => undefined;
+      },
+      getClient: async () => ({ [WS_METHODS.remoteSubscribeDevices]: subscribe }),
+      getClientRuntime: () => ({
+        runCallback: (
+          effect: Effect.Effect<void>,
+          options: { onExit: (exit: Exit.Exit<void>) => void },
+        ) => Effect.runCallback(effect, options),
+      }),
+    });
+    let resolveFirst!: () => void, resolveSecond!: () => void;
+    const first = new Promise<void>((resolve) => {
+      resolveFirst = resolve;
+    });
+    const second = new Promise<void>((resolve) => {
+      resolveSecond = resolve;
+    });
+    let count = 0;
+    const stop = transport.subscribeRemoteDevices(
+      () => {
+        if (++count === 1) resolveFirst();
+        else resolveSecond();
+      },
+      (error) => {
+        throw error;
+      },
+    );
+    await Effect.runPromise(Queue.offer(queue, {}));
+    await first;
+    change("closed");
+    change("open");
+    await Effect.runPromise(Queue.offer(queue, {}));
+    await second;
+    expect(subscribe).toHaveBeenCalledTimes(2);
+    stop();
+    await Effect.runPromise(Queue.shutdown(queue));
+  });
   it("clears an old prompt on disconnect and resubscribes on the next open", async () => {
     const { transport } = makeBareTransport();
     const queue = await Effect.runPromise(

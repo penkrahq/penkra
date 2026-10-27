@@ -925,6 +925,12 @@ export interface NativeApi {
       onError: (error: Error) => void,
     ) => () => void;
     answerPairing: (input: { requestId: string; allow: boolean }) => Promise<{ accepted: boolean }>;
+    listDevices: () => Promise<{
+      phones: ReadonlyArray<import("./rpc").RemotePhone>;
+      relay: "connecting" | "connected" | "rejected-sign-in" | "rejected-protocol";
+    }>;
+    removeDevice: (deviceId: string) => Promise<void>;
+    subscribeDevices: (onChange: () => void, onError: (error: Error) => void) => () => void;
   };
   dialogs: {
     pickFolder: () => Promise<string | null>;

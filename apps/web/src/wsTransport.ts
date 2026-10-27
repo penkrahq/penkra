@@ -431,6 +431,53 @@ export function shouldKeepServerConfigStream(activeChannels: ReadonlySet<string>
 }
 
 export class WsTransport {
+  subscribeRemoteDevices(onChange: () => void, onError: (error: Error) => void): () => void {
+    let stopped = false,
+      generation = 0;
+    let cancel: (() => void) | undefined;
+    const unsubscribe = this.onStateChange(
+      (state) => {
+        const current = ++generation;
+        cancel?.();
+        cancel = undefined;
+        if (state !== "open") return;
+        void this.getClient()
+          .then((client) => {
+            if (stopped || current !== generation || this.disposed) return;
+            cancel = this.getClientRuntime(client).runCallback(
+              Stream.runForEach(client[WS_METHODS.remoteSubscribeDevices]({}), () =>
+                Effect.sync(() => {
+                  if (!stopped && current === generation) onChange();
+                }),
+              ),
+              {
+                onExit: (exit) => {
+                  if (
+                    !stopped &&
+                    current === generation &&
+                    Exit.isFailure(exit) &&
+                    !Cause.hasInterruptsOnly(exit.cause)
+                  )
+                    onError(causeToError(exit.cause));
+                },
+              },
+            );
+          })
+          .catch((error) => {
+            if (!stopped && current === generation)
+              onError(error instanceof Error ? error : new Error(String(error)));
+          });
+      },
+      { replayCurrent: true },
+    );
+    return () => {
+      stopped = true;
+      generation++;
+      unsubscribe();
+      cancel?.();
+    };
+  }
+
   subscribePairing(
     onRequest: (request: import("@penkra/contracts").RemotePairingRequest | null) => void,
     onError: (error: Error) => void,

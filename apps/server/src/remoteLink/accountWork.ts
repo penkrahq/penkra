@@ -80,7 +80,7 @@ export function makeRemoteAccountWork(input: {
                 Effect.ensuring(Effect.sync(() => input.devices.changed())),
               ),
             };
-            detachDevices = input.devices.attach({
+            const deviceOwner = input.devices.attach({
               list: async () =>
                 (await run(trust.list(), { signal: ownerSignal })).map((phone) => ({
                   deviceId: phone.deviceId,
@@ -95,6 +95,7 @@ export function makeRemoteAccountWork(input: {
                 );
               },
             });
+            detachDevices = deviceOwner.detach;
             unsubscribeSessions = sessions.subscribe(() => input.devices.changed());
             relay = yield* makeSessionRelay({
               macDeviceId: registration.deviceId,
@@ -111,8 +112,21 @@ export function makeRemoteAccountWork(input: {
                 else sessions.close(phoneId, sessionId);
               },
               observe: input.observeSession,
-              observeSocket: input.observeSocket,
-              observeReconnect: input.observeReconnect,
+              observeSocket: (event) => {
+                if (event.event === "opened") deviceOwner.setStatus("connected");
+                input.observeSocket(event);
+              },
+              observeReconnect: (state) => {
+                if (state.state === "rejected")
+                  deviceOwner.setStatus(
+                    state.reason === "authentication-rejected"
+                      ? "rejected-sign-in"
+                      : "rejected-protocol",
+                  );
+                else if (state.state === "connecting" || state.state === "waiting")
+                  deviceOwner.setStatus("connecting");
+                input.observeReconnect(state);
+              },
               observeFailure: input.observeFailure,
             }).pipe(Effect.provideService(RemoteTrustStore, trust));
           });

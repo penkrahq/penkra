@@ -145,7 +145,10 @@ it("sends sleep on the account's real relay before joining it", async () => {
               }),
             ]),
           );
-          expect(yield* Effect.promise(() => devices.list())).toEqual([]);
+          expect(yield* Effect.promise(() => devices.list())).toEqual({
+            phones: [],
+            relay: "connected",
+          });
           yield* Effect.promise(() => work.close("suspend"));
           expect(yield* Effect.promise(() => slept.promise)).toBe(RelayFrameType.SLEEP);
           yield* Effect.promise(async () => {

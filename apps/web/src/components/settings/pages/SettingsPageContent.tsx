@@ -6,6 +6,7 @@ import { SettingsAppsPage } from "./apps/SettingsAppsPage";
 import { SettingsGeneralPage } from "./general/SettingsGeneralPage";
 import { SettingsPermissionsPage } from "./permissions/SettingsPermissionsPage";
 import { SettingsArchivePage } from "./archive/SettingsArchivePage";
+import { SettingsIphoneContainer } from "./iphone/SettingsIphoneContainer";
 
 export function SettingsPageContent({ page }: { page: SettingsPageId }) {
   switch (page) {
@@ -23,5 +24,7 @@ export function SettingsPageContent({ page }: { page: SettingsPageId }) {
       return <SettingsAppearancePage />;
     case "account":
       return <SettingsAccountPage />;
+    case "iphone":
+      return <SettingsIphoneContainer />;
   }
 }

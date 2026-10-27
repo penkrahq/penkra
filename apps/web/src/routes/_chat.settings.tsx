@@ -23,9 +23,11 @@ const SETTINGS_SECTION_BY_PAGE: Readonly<Record<SettingsPageId, SettingsSectionI
   apps: "apps",
   appearance: "appearance",
   account: "profile",
+  iphone: "iphone",
 };
 
 function settingsPageFromSection(section: SettingsSectionId): SettingsPageId {
+  if (section === "iphone") return "iphone";
   if (section === "archive") return "archive";
   if (section === "appearance") return "appearance";
   if (section === "profile") return "account";

@@ -6,6 +6,7 @@
 export const SETTINGS_SECTION_IDS = [
   "general",
   "profile",
+  "iphone",
   "appearance",
   "notifications",
   "behavior",

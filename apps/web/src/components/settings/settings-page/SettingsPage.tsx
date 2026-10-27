@@ -6,6 +6,7 @@ import {
   IconRobot,
   IconSettings,
   IconUser,
+  IconDeviceMobile,
 } from "@tabler/icons-react";
 import type { ReactNode } from "react";
 
@@ -25,7 +26,8 @@ export type SettingsPageId =
   | "agents"
   | "apps"
   | "appearance"
-  | "account";
+  | "account"
+  | "iphone";
 
 export interface SettingsPageProps {
   children?: ReactNode;
@@ -76,6 +78,12 @@ const pages = [
     id: "account",
     label: "Account",
     subtitle: "Manage your profile and preferences.",
+  },
+  {
+    icon: IconDeviceMobile,
+    id: "iphone",
+    label: "iPhone",
+    subtitle: "Use this Mac's threads from your iPhone.",
   },
 ] as const;
 

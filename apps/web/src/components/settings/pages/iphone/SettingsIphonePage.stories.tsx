@@ -51,5 +51,5 @@ export const SignInRejected: Story = {
   args: { signedIn: true, accessOn: true, phones: [], relay: { kind: "rejected-sign-in" } },
 };
 export const VersionRejected: Story = {
-  args: { signedIn: true, accessOn: true, phones: [], relay: { kind: "rejected-version" } },
+  args: { signedIn: true, accessOn: true, phones: [], relay: { kind: "rejected-protocol" } },
 };

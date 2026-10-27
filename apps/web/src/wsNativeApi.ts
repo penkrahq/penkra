@@ -455,6 +455,9 @@ export function createWsNativeApi(): NativeApi {
     remote: {
       subscribePairing: (onRequest, onError) => transport.subscribePairing(onRequest, onError),
       answerPairing: (input) => transport.request(WS_METHODS.remoteAnswerPairing, input),
+      listDevices: () => transport.request(WS_METHODS.remoteListDevices, {}),
+      removeDevice: (deviceId) => transport.request(WS_METHODS.remoteRemoveDevice, { deviceId }),
+      subscribeDevices: (onChange, onError) => transport.subscribeRemoteDevices(onChange, onError),
     },
     provider: {
       getCatalog: (input) => transport.request(WS_METHODS.providerGetCatalog, input),

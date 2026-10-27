@@ -25,22 +25,24 @@ export type RelayStatus =
   | { readonly kind: "connected" }
   | { readonly kind: "connecting" }
   | { readonly kind: "rejected-sign-in" }
-  | { readonly kind: "rejected-version" };
+  | { readonly kind: "rejected-protocol" };
 
 export function SettingsIphonePage(props: {
   /** Penkra account sign-in on this Mac; phone access needs it. */
   readonly signedIn: boolean;
   readonly accessOn: boolean;
+  readonly busy?: boolean;
   /** Turning access on registers this Mac; off stops RemoteLink (paired iPhones stay paired). */
   readonly onAccessChange: (on: boolean) => void;
-  readonly phones: ReadonlyArray<PairedIphone>;
+  readonly phones: ReadonlyArray<PairedIphone> | null;
+  readonly deviceError?: string | undefined;
   /** Removes the iPhone's trust and session on this Mac; the caller confirms first. */
   readonly onRemove: (deviceId: string) => void;
   /** Shown under the switch while access is on. */
   readonly relay: RelayStatus;
   /** "Sign in again" for `rejected-sign-in` (opens the existing account sign-in). */
   readonly onSignInAgain: () => void;
-  /** "Check for updates" for `rejected-version` (the existing desktop updater). */
+  /** "Check for updates" for a protocol rejection (the existing desktop updater). */
   readonly onCheckForUpdates: () => void;
 }) {
   const on = props.signedIn && props.accessOn;
@@ -67,7 +69,7 @@ export function SettingsIphonePage(props: {
             <SwitchShared
               aria-label="Allow access from iPhone"
               checked={props.signedIn && props.accessOn}
-              disabled={!props.signedIn}
+              disabled={!props.signedIn || props.busy}
               onCheckedChange={(checked) => props.onAccessChange(checked)}
             />
           }
@@ -76,7 +78,9 @@ export function SettingsIphonePage(props: {
 
       {props.signedIn && props.accessOn ? (
         <SettingsSectionShared title="iPhones">
-          {props.phones.length === 0 ? (
+          {props.phones === null ? (
+            <SettingRowShared label={props.deviceError ?? "Loading iPhones…"} />
+          ) : props.phones.length === 0 ? (
             <SettingRowShared
               label="No iPhones yet"
               description="Open Penkra on your iPhone, sign in with the same account and choose this Mac. You'll approve it here."
@@ -149,10 +153,10 @@ function RelayStatusLine(props: {
           </button>
         </span>
       );
-    case "rejected-version":
+    case "rejected-protocol":
       return (
         <span className="inline-flex flex-wrap items-center gap-1.5">
-          {dot("bg-amber-500")}This version of Penkra can't connect to your iPhone.
+          {dot("bg-amber-500")}Penkra couldn't establish the iPhone connection.
           <button
             type="button"
             className="text-[var(--color-text-foreground)] underline-offset-2 hover:underline"

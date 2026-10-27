@@ -12,30 +12,46 @@ export interface RemoteDevicesOwner {
   list(): Promise<ReadonlyArray<RemotePhoneView>>;
   remove(deviceId: string): Promise<void>;
 }
+export type RemoteRelayStatus =
+  | "connecting"
+  | "connected"
+  | "rejected-sign-in"
+  | "rejected-protocol";
 
 /** Exposes only the current account's owner, never its keys or session tokens. */
 export class RemoteDevicesControlState {
   #owner: RemoteDevicesOwner | undefined;
+  #status: RemoteRelayStatus = "connecting";
   readonly #listeners = new Set<() => void>();
 
-  attach(owner: RemoteDevicesOwner): () => void {
+  attach(owner: RemoteDevicesOwner): {
+    detach: () => void;
+    setStatus: (status: RemoteRelayStatus) => void;
+  } {
     if (this.#owner) throw new Error("Remote devices already have an owner.");
     this.#owner = owner;
+    this.#status = "connecting";
     this.changed();
-    return () => {
+    const detach = () => {
       if (this.#owner === owner) {
         this.#owner = undefined;
         this.changed();
       }
     };
+    const setStatus = (status: RemoteRelayStatus) => {
+      if (this.#owner !== owner || this.#status === status) return;
+      this.#status = status;
+      this.changed();
+    };
+    return { detach, setStatus };
   }
 
-  async list(): Promise<ReadonlyArray<RemotePhoneView>> {
+  async list(): Promise<{ phones: ReadonlyArray<RemotePhoneView>; relay: RemoteRelayStatus }> {
     const owner = this.#owner;
     if (!owner) throw new Error("iPhone access is unavailable.");
     const result = await owner.list();
     if (this.#owner !== owner) throw new Error("The signed-in account changed.");
-    return result;
+    return { phones: result, relay: this.#status };
   }
 
   async remove(deviceId: string): Promise<void> {
