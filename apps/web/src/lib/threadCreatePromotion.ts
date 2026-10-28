@@ -4,7 +4,7 @@ import type {
   CleanCoreCreateThreadResponse,
   NativeApi,
 } from "@penkra/contracts";
-import { markPromotedDraftThreads } from "../composerDraftStore";
+import { confirmServerThreads } from "../composerDraftStore";
 import { readNativeApi } from "../nativeApi";
 import { applyThreadRow } from "../threadListStore";
 import { useStore } from "../store";
@@ -22,5 +22,5 @@ export async function promoteThreadCreate(
 export function applyThreadCreationResponse(result: CleanCoreCreateThreadResponse): void {
   applyThreadRow(result.thread);
   useStore.getState().syncServerThreadShell(result.thread.id, result.shell);
-  markPromotedDraftThreads(new Set([result.thread.id]));
+  confirmServerThreads(new Set([result.thread.id]));
 }

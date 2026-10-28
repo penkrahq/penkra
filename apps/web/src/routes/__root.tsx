@@ -41,7 +41,7 @@ import {
 } from "../lib/serverReactQuery";
 import { ensureNativeApi, readNativeApi } from "../nativeApi";
 import { invalidateProviderCatalog, providerCatalogQueryKeys } from "../hooks/useProviderCatalog";
-import { finalizePromotedDraftThreads, markPromotedDraftThreads } from "../composerDraftStore";
+import { confirmServerThreads } from "../composerDraftStore";
 import {} from "../chatLifecycleDiagnostics";
 import {} from "../chatScrollDiagnostics";
 import { useStore } from "../store";
@@ -72,31 +72,6 @@ import { providerModelDiscoveryInvalidationFingerprint } from "../lib/providerDi
 import { SplashScreen } from "../components/SplashScreen";
 import { ConnectionDefaultsMigration } from "../components/ConnectionDefaultsMigration";
 import { MobilePairingDialog } from "../components/remote-access/MobilePairingDialog";
-
-interface ThreadStartedState {
-  readonly latestTurn: unknown | null;
-  readonly session: unknown | null;
-}
-
-function shellThreadHasStarted(thread: ThreadStartedState): boolean {
-  return thread.latestTurn !== null || thread.session !== null;
-}
-
-interface PromotedDraftThreadDetail extends ThreadStartedState {
-  readonly id: ThreadId;
-  readonly messages: ReadonlyArray<unknown>;
-}
-
-function detailThreadHasStarted(thread: PromotedDraftThreadDetail): boolean {
-  return shellThreadHasStarted(thread) || thread.messages.length > 0;
-}
-
-function reconcilePromotedDraftFromThreadDetail(thread: PromotedDraftThreadDetail): void {
-  markPromotedDraftThreads(new Set([thread.id]));
-  if (detailThreadHasStarted(thread)) {
-    finalizePromotedDraftThreads(new Set([thread.id]));
-  }
-}
 
 export const Route = createRootRouteWithContext<{
   queryClient: QueryClient;
@@ -453,8 +428,7 @@ function EventRouter() {
     () =>
       subscribeThreadRowChanges(
         (change, row) => {
-          if (change.kind === "thread.created")
-            markPromotedDraftThreads(new Set([change.threadId]));
+          if (change.kind === "thread.created") confirmServerThreads(new Set([change.threadId]));
           useStore
             .getState()
             .syncServerThreadShell(

@@ -7,7 +7,7 @@ import {
   type CleanCoreThreadSummary,
   type NativeApi,
 } from "@penkra/contracts";
-import { useComposerDraftStore } from "../composerDraftStore";
+import { confirmServerThreads, useComposerDraftStore } from "../composerDraftStore";
 import { useStore } from "../store";
 import { getThreadFromState } from "../threadDerivation";
 import { getThreadListById, resetThreadListForTests } from "../threadListStore";
@@ -108,6 +108,39 @@ function makeShellSnapshot(threadId: ThreadId, snapshotSequence = 1) {
 }
 
 describe("clean-core draft promotion", () => {
+  it.each(["event-first", "response-first"])(
+    "keeps composer and unrelated drafts when confirmation is %s and duplicated",
+    (order) => {
+      const request = input();
+      const otherFolder = FolderId.make("other-folder");
+      const otherThread = ThreadId.make("other-thread");
+      const store = useComposerDraftStore.getState();
+      store.setProjectDraftThreadId(request.folderId, request.threadId);
+      store.setPrompt(request.threadId, "follow-up in progress");
+      store.setProjectDraftThreadId(otherFolder, otherThread);
+      store.setPrompt(otherThread, "other draft");
+      const event = () => confirmServerThreads(new Set([request.threadId]));
+      const response = () =>
+        applyThreadCreationResponse({
+          thread: makeCanonicalThread(request),
+          shell: makeShellSnapshot(request.threadId).threads[0]!,
+          created: false,
+        });
+      if (order === "event-first") {
+        event();
+        response();
+      } else {
+        response();
+        event();
+      }
+      event();
+      const current = useComposerDraftStore.getState();
+      expect(current.getDraftThread(request.threadId)).toBeNull();
+      expect(current.draftsByThreadId[request.threadId]?.prompt).toBe("follow-up in progress");
+      expect(current.getDraftThreadByFolderId(otherFolder)?.threadId).toBe(otherThread);
+      expect(current.draftsByThreadId[otherThread]?.prompt).toBe("other draft");
+    },
+  );
   it("installs a first-send response without marking its transcript empty", () => {
     const request = input();
     useComposerDraftStore.getState().setProjectDraftThreadId(request.folderId, request.threadId);
@@ -119,9 +152,7 @@ describe("clean-core draft promotion", () => {
     expect(getThreadListById().get(request.threadId)).toEqual(makeCanonicalThread(request));
     expect(getThreadFromState(useStore.getState(), request.threadId)?.id).toBe(request.threadId);
     expect(useStore.getState().threadDetailSyncById?.[request.threadId]).toBeUndefined();
-    expect(useComposerDraftStore.getState().getDraftThread(request.threadId)?.promotedTo).toBe(
-      request.threadId,
-    );
+    expect(useComposerDraftStore.getState().getDraftThread(request.threadId)).toBeNull();
   });
   it("creates through the clean-core API and installs the stored shell before admission", async () => {
     const request = input();
@@ -161,13 +192,16 @@ describe("clean-core draft promotion", () => {
     expect(createThread).toHaveBeenCalledTimes(1);
   });
   it("propagates a failed creation without receipt or snapshot recovery", async () => {
+    const request = input();
+    useComposerDraftStore.getState().setProjectDraftThreadId(request.folderId, request.threadId);
     const failure = new Error("Connection closed");
     const getThreadShell = vi.fn();
     const api = {
       cleanCore: { createThread: vi.fn().mockRejectedValue(failure), getThreadShell },
     } as unknown as NativeApi;
-    await expect(promoteThreadCreate(input(), api)).rejects.toBe(failure);
+    await expect(promoteThreadCreate(request, api)).rejects.toBe(failure);
     expect(getThreadShell).not.toHaveBeenCalled();
+    expect(useComposerDraftStore.getState().getDraftThread(request.threadId)).not.toBeNull();
   });
   it("preserves opened detail when an already-created draft is promoted again", async () => {
     const request = input();
@@ -191,9 +225,7 @@ describe("clean-core draft promotion", () => {
     } as unknown as NativeApi;
     expect(await promoteThreadCreate(request, api)).toBe("exists");
     expect(useStore.getState().threadDetailSyncById?.[request.threadId]).toBe("synced");
-    expect(useComposerDraftStore.getState().getDraftThread(request.threadId)?.promotedTo).toBe(
-      request.threadId,
-    );
+    expect(useComposerDraftStore.getState().getDraftThread(request.threadId)).toBeNull();
   });
   it("accepts concurrent idempotent server results without losing draft promotion", async () => {
     const request = input();
@@ -218,8 +250,6 @@ describe("clean-core draft promotion", () => {
       await Promise.all([promoteThreadCreate(request, api), promoteThreadCreate(request, api)]),
     ).toEqual(["created", "exists"]);
     expect(getThreadFromState(useStore.getState(), request.threadId)?.id).toBe(request.threadId);
-    expect(useComposerDraftStore.getState().getDraftThread(request.threadId)?.promotedTo).toBe(
-      request.threadId,
-    );
+    expect(useComposerDraftStore.getState().getDraftThread(request.threadId)).toBeNull();
   });
 });

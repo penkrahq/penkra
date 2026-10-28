@@ -25,7 +25,7 @@ export interface EffectRpcWebSocketClient {
 }
 
 export interface EffectRpcRequest {
-  readonly id: string;
+  readonly id: string | number;
   readonly tag: string;
   readonly payload: unknown;
 }
@@ -56,7 +56,11 @@ export function readEffectRpcClientMessage(
     return { kind: "handled" };
   }
 
-  if (frame._tag === "Request" && typeof frame.id === "string" && typeof frame.tag === "string") {
+  if (
+    frame._tag === "Request" &&
+    (typeof frame.id === "string" || typeof frame.id === "number") &&
+    typeof frame.tag === "string"
+  ) {
     if (frame.tag === WS_BOOTSTRAP_METHOD) {
       sendEffectRpcExit(client, frame.id, {
         protocolEpoch: WS_PROTOCOL_EPOCH,
@@ -92,7 +96,7 @@ export function readEffectRpcClientMessage(
 
 export function sendEffectRpcExit(
   client: EffectRpcWebSocketClient,
-  requestId: string,
+  requestId: string | number,
   value: unknown,
 ): void {
   client.send(
@@ -109,7 +113,7 @@ export function sendEffectRpcExit(
 
 export function sendEffectRpcChunk(
   client: EffectRpcWebSocketClient,
-  requestId: string,
+  requestId: string | number,
   value: unknown,
 ): void {
   client.send(

@@ -146,6 +146,9 @@ export function shouldReuseActiveDraftThread(input: {
   routeThreadId: ThreadId;
 } {
   return Boolean(
-    input.draftThread && input.routeThreadId && input.draftThread.folderId === input.folderId,
+    input.draftThread &&
+    input.draftThread.promotedTo === undefined &&
+    input.routeThreadId &&
+    input.draftThread.folderId === input.folderId,
   );
 }

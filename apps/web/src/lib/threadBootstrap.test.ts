@@ -93,6 +93,13 @@ describe("threadBootstrap", () => {
         routeThreadId: THREAD_ID,
       }),
     ).toBe(false);
+    expect(
+      shouldReuseActiveDraftThread({
+        draftThread: makeDraftThread({ promotedTo: THREAD_ID }),
+        folderId: PROJECT_ID,
+        routeThreadId: THREAD_ID,
+      }),
+    ).toBe(false);
   });
 
   it("resolves bootstrap precedence as route draft, then stored draft, then fresh", () => {

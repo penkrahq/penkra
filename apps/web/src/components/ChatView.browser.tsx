@@ -5726,6 +5726,91 @@ describe("ChatView timeline estimator parity (full app)", () => {
             request._tag === WS_METHODS.cleanCoreSendMessage,
         ),
       ).toHaveLength(0);
+      await vi.waitFor(() =>
+        expect(useComposerDraftStore.getState().getDraftThread(THREAD_ID)).toBeNull(),
+      );
+      const nextPath = await triggerChatNewShortcutUntilPath(
+        mounted.router,
+        (path) => UUID_ROUTE_RE.test(path) && path !== `/${THREAD_ID}`,
+        "New thread should open a fresh draft after the first send.",
+      );
+      expect(nextPath).not.toBe(`/${THREAD_ID}`);
+    } finally {
+      await mounted.cleanup();
+    }
+  });
+
+  it("opens a fresh draft after stopping a newly created thread", async () => {
+    useComposerDraftStore.setState({
+      draftThreadsByThreadId: {
+        [THREAD_ID]: { folderId: PROJECT_ID, createdAt: NOW_ISO, runtimeMode: "full-access" },
+      },
+      projectDraftThreadIdByFolderId: { [PROJECT_ID]: THREAD_ID },
+    });
+    const first = await mountChatView({
+      viewport: DEFAULT_VIEWPORT,
+      snapshot: createDraftOnlySnapshot(),
+    });
+    let runningSnapshot: OrchestrationReadModel;
+    try {
+      useComposerDraftStore.getState().setPrompt(THREAD_ID, "First message before stop");
+      (await waitForSendButton()).click();
+      await vi.waitFor(() => {
+        expect(fixture.snapshot.threads.some((thread) => thread.id === THREAD_ID)).toBe(true);
+        expect(useComposerDraftStore.getState().getDraftThread(THREAD_ID)).toBeNull();
+      });
+      const turnId = TurnId.make("p35-running-turn");
+      runningSnapshot = {
+        ...fixture.snapshot,
+        threads: fixture.snapshot.threads.map((thread) =>
+          thread.id !== THREAD_ID
+            ? thread
+            : {
+                ...thread,
+                latestTurn: {
+                  turnId,
+                  state: "running",
+                  requestedAt: NOW_ISO,
+                  startedAt: NOW_ISO,
+                  completedAt: null,
+                  assistantMessageId: null,
+                },
+                session: {
+                  threadId: THREAD_ID,
+                  providerName: "codex",
+                  status: "running",
+                  activeTurnId: turnId,
+                  lastError: null,
+                  updatedAt: NOW_ISO,
+                },
+              },
+        ),
+      };
+    } finally {
+      await first.cleanup();
+    }
+    const mounted = await mountChatView({ viewport: DEFAULT_VIEWPORT, snapshot: runningSnapshot! });
+    try {
+      const stop = await waitForElement(
+        () => document.querySelector<HTMLButtonElement>('button[aria-label="Stop generation"]'),
+        "Stop did not appear for the newly created thread.",
+      );
+      stop.click();
+      await vi.waitFor(() =>
+        expect(
+          wsRequests.some(
+            (request) =>
+              request._tag === WS_METHODS.cleanCoreInterruptThread &&
+              request.threadId === THREAD_ID,
+          ),
+        ).toBe(true),
+      );
+      const nextPath = await triggerChatNewShortcutUntilPath(
+        mounted.router,
+        (path) => UUID_ROUTE_RE.test(path) && path !== `/${THREAD_ID}`,
+        "New thread should open a fresh draft after Stop.",
+      );
+      expect(nextPath).not.toBe(`/${THREAD_ID}`);
     } finally {
       await mounted.cleanup();
     }
@@ -8192,7 +8277,6 @@ describe("ChatView timeline estimator parity (full app)", () => {
         );
 
       await promoteDraftThreadForTest(promotedThreadId, THREAD_TITLE);
-      useComposerDraftStore.getState().clearDraftThread(promotedThreadId);
 
       const freshThreadPath = await triggerChatNewShortcutUntilPath(
         mounted.router,

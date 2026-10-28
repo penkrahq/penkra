@@ -94,3 +94,9 @@ export function finalizePromotedDraftThreads(serverThreadIds: ReadonlySet<Thread
     store.finalizePromotedDraftThread(threadId);
   }
 }
+
+/** End local draft identities once server creation is confirmed. */
+export function confirmServerThreads(serverThreadIds: ReadonlySet<ThreadId>): void {
+  markPromotedDraftThreads(serverThreadIds);
+  finalizePromotedDraftThreads(serverThreadIds);
+}

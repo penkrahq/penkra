@@ -98,7 +98,7 @@ let subscribeSyncRequestCount = 0;
 let syncStreamRequestId: string | null = null;
 let navigationStreamClient: Parameters<typeof sendEffectRpcChunk>[0] | undefined;
 let navigationReadCount = 0;
-let navigationStreamRequestId: string | undefined;
+let navigationStreamRequestId: string | number | undefined;
 let syncStreamClient: EffectRpcWebSocketClient | null = null;
 let domainStreamRequestCount = 0;
 let getThreadTurnsPageRequests: ThreadId[] = [];
