@@ -206,7 +206,7 @@ Using gpt-5.5 inside workflows and subagents (the model parameter only takes Cla
 - Spawn a thin Claude wrapper agent with `model: 'sonnet', effort: 'low'` whose prompt instructs it to write a self-contained codex prompt, run `codex exec` via Bash, and return the report (use `schema` on the wrapper to get structured output back).
 - Always label these agents with a `gpt-5.6-sol:` prefix, e.g. `{label: 'gpt-5.6-sol:review-auth'}` — the workflow UI shows the wrapper's Claude model, so the label is the only indication the real worker is gpt-5.6-sol.
 - Codex runs can exceed Bash's 10-minute timeout: pass an explicit timeout, or run in the background and poll for the report file.
-- Parallel gpt-5.6-sol implementation agents must use `isolation: 'worktree'` so codex edits don't collide in the shared checkout.
+- No worktrees or branches (operator, 2026-10-28). Everyone works in the one checkout on `main` and commits there; parallel agents get separate files, not separate worktrees.
 - Workflow token budgets only count Claude tokens; codex work is free and invisible to `budget.spent()`.
 
 ## Long-running Codex Work
@@ -216,7 +216,7 @@ gpt-5.6-sol is exceptionally capable on long-running tasks. Give it substantial,
 - The quality of the result depends on the prompt. Provide a detailed, self-contained brief: goal, relevant context, constraints, files or systems in scope, expected deliverables, and how to verify completion.
 - State important decisions and non-negotiable requirements explicitly. Do not assume the model will infer project-specific conventions or the desired tradeoffs from a short prompt.
 - For long tasks, ask it to inspect the current state first, execute the work end to end, and report the changes, verification, and any remaining risks.
-- If the work can safely run in parallel, keep each task's ownership and worktree boundaries explicit so agents do not overlap.
+- If the work can safely run in parallel, give each task explicit file ownership so agents do not overlap. Never create a worktree or branch.
 
 ## Transcript Performance Guardrails
 
