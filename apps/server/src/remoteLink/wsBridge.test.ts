@@ -8,6 +8,29 @@ import { RPC_MESSAGE_OBSERVATION_BYTES } from "../rpcMessageSizes";
 import type { TunnelEnvelope } from "./tunnelCodec";
 
 describe("RemoteLink real loopback WebSocket bridge", () => {
+  it("acknowledges discarded chunks for a closed stream before reporting the error", async () => {
+    const sent: TunnelEnvelope[] = [];
+    const bridge = new RemoteWsBridge({
+      origin: "http://127.0.0.1:1",
+      credential: "fixture",
+      channel: {
+        signal: new AbortController().signal,
+        send: async (value) => {
+          sent.push(value);
+        },
+      },
+      observe: () => undefined,
+    });
+    try {
+      await bridge.accept({ t: "ws.msg", id: 1, seq: 0, data: "late" });
+      expect(sent).toEqual([
+        { t: "ack", id: 1, seq: 0 },
+        { t: "error", id: 1, reason: "unknown-ws-stream" },
+      ]);
+    } finally {
+      await bridge.close();
+    }
+  });
   it("preserves text frames, Unicode, scoped auth and multi-packet replies", async () => {
     await httpFixture(
       (_request, response) => response.end(),

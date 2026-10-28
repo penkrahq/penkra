@@ -31,6 +31,168 @@ const baseThread = {
   createdAt: "2026-10-09T00:00:00.000Z",
 };
 
+it.effect("notifies committed question opens and finished turns only once", () =>
+  withDb(
+    Effect.gen(function* () {
+      yield* runMigrations();
+      yield* seedThreadFolderFixture("core-test-folder", "space-1");
+      yield* createThread(baseThread);
+      const publisher = makeThreadPublisher();
+      const notices: Array<{ kind: string; body: string }> = [];
+      const unsubscribe = publisher.subscribeNotifications((event) => notices.push(event));
+      const at = baseThread.createdAt;
+      yield* applyProviderEvent(publisher, {
+        type: "turn.started",
+        threadId: baseThread.id,
+        turnId: "turn-1",
+        at,
+      });
+      const question = {
+        type: "item" as const,
+        threadId: baseThread.id,
+        item: {
+          threadId: baseThread.id,
+          sourceId: "q",
+          turnId: "turn-1",
+          kind: "question" as const,
+          status: "open",
+          text: "Which one?\nMore",
+          data: "{}",
+          createdAt: at,
+          updatedAt: at,
+        },
+      };
+      yield* applyProviderEvent(publisher, question);
+      yield* applyProviderEvent(publisher, question);
+      yield* applyProviderEvent(publisher, {
+        type: "turn.ended",
+        threadId: baseThread.id,
+        turnId: "turn-1",
+        state: "completed",
+        at,
+      });
+      assert.deepStrictEqual(
+        notices.map(({ kind, body }) => ({ kind, body })),
+        [{ kind: "question", body: "Which one?" }],
+      );
+      yield* applyProviderEvent(publisher, {
+        type: "turn.started",
+        threadId: baseThread.id,
+        turnId: "turn-2",
+        at,
+      });
+      yield* applyProviderEvent(publisher, {
+        type: "question.answered",
+        threadId: baseThread.id,
+        sourceId: "q",
+        answerData: "{}",
+        at,
+      });
+      yield* applyProviderEvent(publisher, {
+        type: "item",
+        threadId: baseThread.id,
+        item: {
+          threadId: baseThread.id,
+          sourceId: "answer",
+          turnId: "turn-2",
+          kind: "text",
+          status: "done",
+          text: "Finished\nDetails",
+          createdAt: at,
+          updatedAt: at,
+        },
+      });
+      const ended = {
+        type: "turn.ended" as const,
+        threadId: baseThread.id,
+        turnId: "turn-2",
+        state: "completed" as const,
+        at,
+      };
+      yield* applyProviderEvent(publisher, ended);
+      yield* applyProviderEvent(publisher, ended);
+      assert.deepStrictEqual(
+        notices.map(({ kind, body }) => ({ kind, body })),
+        [
+          { kind: "question", body: "Which one?" },
+          { kind: "finished", body: "Finished" },
+        ],
+      );
+      unsubscribe();
+    }),
+  ),
+);
+
+it.effect("does not notify when a question conflicts with an existing item kind", () =>
+  withDb(
+    Effect.gen(function* () {
+      yield* runMigrations();
+      yield* seedThreadFolderFixture("core-test-folder", "space-1");
+      yield* createThread(baseThread);
+      const at = baseThread.createdAt;
+      yield* upsertThreadItem({
+        threadId: baseThread.id,
+        sourceId: "same",
+        kind: "text",
+        status: "done",
+        text: "Existing",
+        createdAt: at,
+        updatedAt: at,
+      });
+      const publisher = makeThreadPublisher();
+      const notices: unknown[] = [];
+      publisher.subscribeNotifications((event) => notices.push(event));
+      yield* applyProviderEvent(publisher, {
+        type: "item",
+        threadId: baseThread.id,
+        item: {
+          threadId: baseThread.id,
+          sourceId: "same",
+          kind: "question",
+          status: "open",
+          text: "Not saved",
+          createdAt: at,
+          updatedAt: at,
+        },
+      });
+      assert.deepStrictEqual(notices, []);
+    }),
+  ),
+);
+
+it.effect("does not notify when a question write rolls back", () =>
+  withDb(
+    Effect.gen(function* () {
+      yield* runMigrations();
+      yield* seedThreadFolderFixture("core-test-folder", "space-1");
+      yield* createThread(baseThread);
+      const sql = yield* SqlClient.SqlClient;
+      yield* sql`CREATE TRIGGER reject_test_question BEFORE INSERT ON thread_items WHEN NEW.kind = 'question' BEGIN SELECT RAISE(ABORT, 'test failure'); END`;
+      const publisher = makeThreadPublisher();
+      const notices: unknown[] = [];
+      publisher.subscribeNotifications((event) => notices.push(event));
+      const at = baseThread.createdAt;
+      const exit = yield* Effect.exit(
+        applyProviderEvent(publisher, {
+          type: "item",
+          threadId: baseThread.id,
+          item: {
+            threadId: baseThread.id,
+            sourceId: "q",
+            kind: "question",
+            status: "open",
+            text: "Question",
+            createdAt: at,
+            updatedAt: at,
+          },
+        }),
+      );
+      assert.isTrue(Exit.isFailure(exit));
+      assert.deepStrictEqual(notices, []);
+    }),
+  ),
+);
+
 it.effect(
   "a matched Claude steer echo moves only the existing steered row without changing its sequence",
   () =>

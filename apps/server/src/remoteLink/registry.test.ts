@@ -6,6 +6,24 @@ const phoneId = "10000000-0000-4000-8000-000000000002";
 const signal = () => new AbortController().signal;
 
 describe("Mac device registry client", () => {
+  it("posts sealed notifications with only the device credential", async () => {
+    await httpFixture(
+      (request, response) => {
+        expect(request.method).toBe("POST");
+        expect(request.url).toBe("/v1/push");
+        expect(request.headers.authorization).toBe("Bearer fixture-device-token");
+        expect(request.headers.cookie).toBeUndefined();
+        response.writeHead(202).end();
+      },
+      async (apiUrl) => {
+        const client = new RemoteRegistryClient({ apiUrl, deviceToken: "fixture-device-token" });
+        await client.push(
+          { threadId: "thread", kind: "finished", sealed: { [phoneId]: "ciphertext" } },
+          signal(),
+        );
+      },
+    );
+  });
   it.each(["http://example.com", "https://token@example.com", "https://example.com/?secret=value"])(
     "rejects an unsafe account endpoint before sending credentials: %s",
     (apiUrl) => {

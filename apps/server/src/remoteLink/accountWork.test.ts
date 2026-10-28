@@ -1,5 +1,6 @@
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { Effect, Layer } from "effect";
+import { makeThreadPublisher } from "../cleanCore/threadStore";
 import { expect, it } from "vitest";
 import { WebSocketServer } from "ws";
 import { SessionCredentialServiceLive } from "../auth/Layers/SessionCredentialService";
@@ -39,6 +40,8 @@ it("does not open a relay with another account's registration", async () => {
       credentials,
       approvals,
       onViewing: () => undefined,
+      isViewing: () => false,
+      publisher: makeThreadPublisher(),
       devices: new RemoteDevicesControlState(),
       observeSocket: () => undefined,
       observeReconnect: () => undefined,
@@ -77,6 +80,8 @@ it("cancels and joins credential preparation before an account can be replaced",
       credentials,
       approvals,
       onViewing: () => undefined,
+      isViewing: () => false,
+      publisher: makeThreadPublisher(),
       devices: new RemoteDevicesControlState(),
       observeSocket: () => undefined,
       observeReconnect: () => undefined,
@@ -128,6 +133,8 @@ it("sends sleep on the account's real relay before joining it", async () => {
             credentials,
             approvals,
             onViewing: () => undefined,
+            isViewing: () => false,
+            publisher: makeThreadPublisher(),
             devices,
             observeSocket: (event) => {
               if (event.event === "opened") opened.resolve();

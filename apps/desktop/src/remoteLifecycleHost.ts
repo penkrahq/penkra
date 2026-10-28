@@ -83,6 +83,8 @@ export class RemoteLifecycleHost {
 
   subscribe(socket: Socket, requestId: string): void {
     if (this.#socket) throw new Error("RemoteLink already has a lifecycle owner.");
+    if (this.#unconfirmedDisconnect)
+      throw new Error("RemoteLink lifecycle cleanup has not been acknowledged.");
     this.#socket = socket;
     this.#current = { ...this.#current, event: "snapshot" };
     this.#pending = [this.#current];

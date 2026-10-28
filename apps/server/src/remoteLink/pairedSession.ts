@@ -5,6 +5,7 @@ import { NoiseHandshake } from "./noise";
 
 export class RemoteLinkSessionError extends Data.TaggedError("RemoteLinkSessionError")<{
   readonly message: string;
+  readonly code?: "key-rejected";
 }> {}
 
 function uuidBytes(id: string) {
@@ -60,7 +61,10 @@ export function openPairedSession(input: {
         return { reply, transport: handshake.finish() };
       },
       catch: () =>
-        new RemoteLinkSessionError({ message: "The phone could not prove its paired key." }),
+        new RemoteLinkSessionError({
+          message: "The phone could not prove its paired key.",
+          code: "key-rejected",
+        }),
     });
     // Only a completed, authenticated KK handshake can reach credential restoration/renewal.
     const credential = yield* sessions.resumeClient({

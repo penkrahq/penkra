@@ -1,5 +1,10 @@
 import { assert, it } from "@effect/vitest";
-import { MessageId, ThreadId, SavedRestoreDraftNotEmptyError } from "@penkra/contracts";
+import {
+  MessageId,
+  ThreadId,
+  SavedRestoreDraftNotEmptyError,
+  SavedPromptDraftChangedError,
+} from "@penkra/contracts";
 import { Effect, Exit } from "effect";
 import * as SqlClient from "effect/sql/SqlClient";
 import * as NodeSqliteClient from "../persistence/NodeSqliteClient.ts";
@@ -140,11 +145,10 @@ it.effect("rejects stale saves and failed attachment claims without clearing the
   withDb(
     Effect.gen(function* () {
       const sql = yield* seed;
-      assert.isTrue(
-        Exit.isFailure(
-          yield* Effect.exit(savePrompt({ ...input, draftUpdatedAt: null }, () => Effect.void)),
-        ),
+      const stale = yield* Effect.flip(
+        savePrompt({ ...input, draftUpdatedAt: null }, () => Effect.void),
       );
+      assert.instanceOf(stale, SavedPromptDraftChangedError);
       assert.isTrue(
         Exit.isFailure(
           yield* Effect.exit(savePrompt(input, () => Effect.fail(new Error("claim rejected")))),

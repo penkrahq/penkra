@@ -26,6 +26,54 @@ const macId = "10000000-0000-4000-8000-000000000001";
 const phoneId = "10000000-0000-4000-8000-000000000002";
 
 describe("paired connection ownership", () => {
+  it("reports missing trust and failed key proof as explicit distinct rejections", async () => {
+    const macKey = createNoiseIdentity(),
+      phoneKey = createNoiseIdentity(),
+      wrongKey = createNoiseIdentity();
+    const phone = new NoiseHandshake({
+      pattern: "KK",
+      initiator: true,
+      staticPrivateKey: wrongKey,
+      remoteStaticKey: noisePublicKey(macKey),
+      prologue: remoteNoisePrologue(macId, phoneId),
+    });
+    const reasons: string[] = [];
+    try {
+      await Effect.gen(function* () {
+        const trust = yield* RemoteTrustStore;
+        const input = {
+          macDeviceId: macId,
+          macPrivateKey: macKey,
+          phoneDeviceId: phoneId,
+          sessionId: "reject",
+          origin: "http://127.0.0.1:1",
+          openingMessage: phone.writeMessage(new Uint8Array()),
+          sendRejection: async (reason: "not-paired" | "key-rejected") => {
+            reasons.push(reason);
+          },
+          sendHandshakeReply: async () => {},
+          sendWire: async () => {},
+          onBridge: () => {},
+          onViewing: () => {},
+          observe: () => {},
+        };
+        expect(Exit.isFailure(yield* Effect.exit(runPairedConnection(input)))).toBe(true);
+        const issued = yield* trust.allow({
+          deviceId: phoneId,
+          name: "Phone",
+          identityKey: noisePublicKey(phoneKey),
+        });
+        yield* trust.markPaired(phoneId, issued.sessionId);
+        expect(Exit.isFailure(yield* Effect.exit(runPairedConnection(input)))).toBe(true);
+        expect(reasons).toEqual(["not-paired", "key-rejected"]);
+      }).pipe(Effect.provide(layer), Effect.scoped, Effect.runPromise);
+    } finally {
+      phone.destroy();
+      macKey.fill(0);
+      phoneKey.fill(0);
+      wrongKey.fill(0);
+    }
+  });
   it("accepts authenticated DATA arriving as soon as the handshake reply is delivered", async () => {
     const macKey = createNoiseIdentity(),
       phoneKey = createNoiseIdentity();
@@ -55,6 +103,7 @@ describe("paired connection ownership", () => {
             sessionId: "immediate-data",
             origin: "http://127.0.0.1:1",
             openingMessage: phone.writeMessage(new Uint8Array()),
+            sendRejection: async () => {},
             sendHandshakeReply: async (reply) => {
               phone.readMessage(reply);
               // Delivery can make the peer's next frame arrive before this write callback returns.
@@ -113,6 +162,7 @@ describe("paired connection ownership", () => {
             sessionId: "failed-reply-session",
             origin: "http://127.0.0.1:1",
             openingMessage: phone.writeMessage(new Uint8Array()),
+            sendRejection: async () => {},
             sendHandshakeReply: async () => {
               throw new Error("fixture write failed");
             },
@@ -206,6 +256,7 @@ describe("paired connection ownership", () => {
             sessionId: "fixture-relay-session",
             origin: "http://127.0.0.1:1",
             openingMessage: phone.writeMessage(new Uint8Array()),
+            sendRejection: async () => {},
             sendHandshakeReply: async (bytes) => {
               phone.readMessage(bytes);
               ready.resolve(closed!);

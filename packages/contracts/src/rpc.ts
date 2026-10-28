@@ -80,6 +80,8 @@ import {
   CleanCoreInterruptResult,
   CleanCoreAnswerThreadQuestionInput,
   CleanCoreGetThreadDraftInput,
+  CleanCoreGetMessageAdmissionInput,
+  CleanCoreMessageAdmission,
   CleanCoreListThreadItemsPageInput,
   CleanCoreListThreadItemsPageResult,
   CleanCoreListTurnItemsInput,
@@ -97,6 +99,7 @@ import {
   CleanCoreQueuedMessageResult,
   CleanCoreEditQueuedMessageInput,
   CleanCoreSavePromptInput,
+  SavedPromptDraftChangedError,
   SavedRestoreDraftNotEmptyError,
   QueuedEditDraftNotEmptyError,
   CleanCoreGetThreadShellInput,
@@ -460,7 +463,7 @@ export const WsCleanCoreEditQueuedMessageRpc = Rpc.make(WS_METHODS.cleanCoreEdit
 export const WsCleanCoreSavePromptRpc = Rpc.make(WS_METHODS.cleanCoreSavePrompt, {
   payload: CleanCoreSavePromptInput,
   success: CleanCoreQueuedMessageResult,
-  error: WsRpcError,
+  error: Schema.Union([WsRpcError, SavedPromptDraftChangedError]),
 });
 export const WsCleanCoreRestoreSavedPromptRpc = Rpc.make(WS_METHODS.cleanCoreRestoreSavedPrompt, {
   payload: CleanCoreEditQueuedMessageInput,
@@ -581,6 +584,11 @@ export const WsCleanCoreGetThreadDraftRpc = Rpc.make(WS_METHODS.cleanCoreGetThre
   success: CleanCoreThreadDraft,
   error: WsRpcError,
 });
+export const WsCleanCoreGetMessageAdmissionRpc = Rpc.make(WS_METHODS.cleanCoreGetMessageAdmission, {
+  payload: CleanCoreGetMessageAdmissionInput,
+  success: CleanCoreMessageAdmission,
+  error: WsRpcError,
+});
 
 export const WsCleanCoreSetThreadDraftRpc = Rpc.make(WS_METHODS.cleanCoreSetThreadDraft, {
   payload: CleanCoreSetThreadDraftInput,
@@ -636,6 +644,7 @@ export const WsFeatureRpcGroup = RpcGroup.make(
   WsCleanCoreListThreadItemsPageRpc,
   WsCleanCoreListTurnItemsRpc,
   WsCleanCoreGetThreadDraftRpc,
+  WsCleanCoreGetMessageAdmissionRpc,
   WsCleanCoreSetThreadDraftRpc,
   WsCleanCoreSubscribeThreadRpc,
   WsCleanCoreAnswerThreadQuestionRpc,

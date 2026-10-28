@@ -51,7 +51,9 @@ export class RemoteHttpBridge {
       return Promise.resolve();
     }
     if (!state || state.uploadEnded || state.next !== envelope.seq)
-      return this.#error(envelope.id, "invalid-http-sequence");
+      return this.input.channel
+        .send({ t: "ack", id: envelope.id, seq: envelope.seq })
+        .then(() => this.#error(envelope.id, "invalid-http-sequence"));
     state.next++;
     if (envelope.more === undefined) state.uploadEnded = true;
     const writing = state.writes

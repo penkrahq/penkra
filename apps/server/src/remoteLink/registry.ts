@@ -74,6 +74,17 @@ export class RemoteRegistryClient {
     await this.#empty("PATCH", "/v1/devices/self", signal, input);
   }
 
+  async push(
+    input: { threadId: string; kind: "question" | "finished"; sealed: Record<string, string> },
+    signal: AbortSignal,
+  ): Promise<void> {
+    const response = await this.#request("POST", "/v1/push", signal, input);
+    if (response.status !== 202) {
+      await this.#discard(response);
+      throw new RemoteRegistryError("invalid-response", response.status);
+    }
+  }
+
   async #empty(method: string, path: string, signal: AbortSignal, body?: unknown) {
     const response = await this.#request(method, path, signal, body);
     if (response.status !== 204) {

@@ -29,6 +29,7 @@ import {
   settleRunningItems,
   upsertThreadItem,
   type ThreadItemInput,
+  type ThreadNotification,
   type ThreadPublisher,
 } from "./threadStore.ts";
 
@@ -226,11 +227,75 @@ const publishProviderEvent = (
   }
 };
 
+/** Read the transition while holding the write transaction, before applying it.
+ * Replayed opens and ends therefore do not create another notification. */
+const notificationBeforeWrite = (event: CleanCoreProviderEvent) =>
+  Effect.gen(function* () {
+    const sql = yield* SqlClient.SqlClient;
+    const result: ThreadNotification[] = [];
+    if (event.type === "item" && event.item.kind === "question" && event.item.status === "open") {
+      const [row] = yield* sql<{
+        title: string;
+        previous: string | null;
+        previousKind: string | null;
+      }>`SELECT t.title,
+      (SELECT status FROM thread_items WHERE thread_id=t.id AND source_id=${event.item.sourceId}) AS previous
+      , (SELECT kind FROM thread_items WHERE thread_id=t.id AND source_id=${event.item.sourceId}) AS "previousKind"
+      FROM threads t WHERE t.id=${event.threadId} AND t.deleted_at IS NULL`;
+      if (
+        row &&
+        (row.previousKind === null || row.previousKind === "question") &&
+        row.previous !== "open"
+      )
+        result.push({
+          threadId: event.threadId,
+          kind: "question",
+          title: row.title,
+          body: (event.item.text || "Question").split(/\r?\n/, 1)[0]!,
+        });
+    }
+    const ids =
+      event.type === "turn.ended"
+        ? [event.threadId]
+        : event.type === "provider.exited" || event.type === "provider.failed"
+          ? event.threadIds
+          : [];
+    for (const id of ids) {
+      const [row] = yield* sql<{
+        title: string;
+        state: string;
+        activeTurnId: string | null;
+        question: number;
+        answer: string | null;
+      }>`SELECT t.title,t.state,t.active_turn_id AS "activeTurnId",
+      EXISTS(SELECT 1 FROM thread_items q WHERE q.thread_id=t.id AND q.kind='question' AND q.status='open') AS question,
+      (SELECT text FROM thread_items i WHERE i.thread_id=t.id AND i.turn_id=t.active_turn_id AND i.kind='text' AND i.status='done' ORDER BY i.seq DESC LIMIT 1) AS answer
+      FROM threads t WHERE t.id=${id} AND t.deleted_at IS NULL`;
+      if (
+        row?.state !== "running" ||
+        row.question ||
+        (event.type === "turn.ended" && row.activeTurnId !== event.turnId)
+      )
+        continue;
+      const body = (row.answer || "Stopped before finishing").split(/\r?\n/, 1)[0]!;
+      result.push({ threadId: id, kind: "finished", title: row.title, body });
+    }
+    return result;
+  });
+
+const applyOne = (event: CleanCoreProviderEvent) =>
+  Effect.gen(function* () {
+    const notifications = yield* notificationBeforeWrite(event);
+    const changed = yield* writeProviderEvent(event);
+    return { changed, notifications };
+  });
+
 export const applyProviderEvent = (publisher: ThreadPublisher, event: CleanCoreProviderEvent) =>
   Effect.gen(function* () {
     const sql = yield* SqlClient.SqlClient;
-    const changedThreadIds = yield* sql.withTransaction(writeProviderEvent(event));
-    publishProviderEvent(publisher, event, changedThreadIds);
+    const result = yield* sql.withTransaction(applyOne(event));
+    publishProviderEvent(publisher, event, result.changed);
+    for (const notification of result.notifications) publisher.publishNotification(notification);
   });
 
 /** A runtime event's usage, items and turn state commit before its broadcasts. */
@@ -262,11 +327,13 @@ export const applyProviderRuntimeEvent = (
     const changes = yield* sql.withTransaction(
       Effect.gen(function* () {
         yield* writeProviderConnectionFacts(event);
-        return yield* Effect.forEach(events, writeProviderEvent);
+        return yield* Effect.forEach(events, applyOne);
       }),
     );
     for (let index = 0; index < events.length; index++) {
-      publishProviderEvent(publisher, events[index]!, changes[index]!);
+      publishProviderEvent(publisher, events[index]!, changes[index]!.changed);
+      for (const notification of changes[index]!.notifications)
+        publisher.publishNotification(notification);
     }
   });
 

@@ -43,7 +43,10 @@ export class RemoteWsBridge {
       if (state) this.#stop(envelope.id, state, true);
       return Promise.resolve();
     }
-    if (!state) return this.#error(envelope.id, "unknown-ws-stream");
+    if (!state)
+      return this.input.channel
+        .send({ t: "ack", id: envelope.id, seq: envelope.seq })
+        .then(() => this.#error(envelope.id, "unknown-ws-stream"));
     if (state.stopped.signal.aborted)
       return this.input.channel.send({ t: "ack", id: envelope.id, seq: envelope.seq });
     let message: string | undefined;

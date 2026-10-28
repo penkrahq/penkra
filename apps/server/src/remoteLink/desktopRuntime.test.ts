@@ -1,5 +1,6 @@
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { Effect, Layer } from "effect";
+import { makeThreadPublisher } from "../cleanCore/threadStore";
 import { mkdtemp, rm } from "node:fs/promises";
 import { createServer } from "node:net";
 import { tmpdir } from "node:os";
@@ -65,6 +66,8 @@ it("releases the private lifecycle subscription when its backend scope closes", 
         credentials: new DesktopRemoteCredentials(),
         approvals,
         onViewing: () => undefined,
+        isViewing: () => false,
+        publisher: makeThreadPublisher(),
         devices: new RemoteDevicesControlState(),
         observeSocket: () => undefined,
         observeReconnect: () => undefined,

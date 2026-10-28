@@ -7,6 +7,30 @@ import { encodeHttpBody, type TunnelEnvelope } from "./tunnelCodec";
 import { RemoteHttpBridge } from "./httpBridge";
 import { httpFixture } from "./httpFixture.test-support";
 
+it("acknowledges discarded upload chunks before reporting an invalid transfer", async () => {
+  const sent: TunnelEnvelope[] = [];
+  const bridge = new RemoteHttpBridge({
+    origin: "http://127.0.0.1:1",
+    credential: "fixture",
+    channel: {
+      signal: new AbortController().signal,
+      send: async (value) => {
+        sent.push(value);
+      },
+    },
+    observe: () => undefined,
+  });
+  try {
+    await bridge.accept({ t: "http.body", id: 1, seq: 0, body: "" });
+    expect(sent).toEqual([
+      { t: "ack", id: 1, seq: 0 },
+      { t: "error", id: 1, reason: "invalid-http-sequence" },
+    ]);
+  } finally {
+    await bridge.close();
+  }
+});
+
 function harness(origin: string) {
   const events = new EventEmitter();
   const outcomes = new Map<

@@ -63,6 +63,13 @@ export function makeRelaySessionStart(input: {
                 openingMessage: open.payload,
                 sendWire: send,
                 sendHandshakeReply: send,
+                sendRejection: (reason) =>
+                  socket.send({
+                    type: RelayFrameType.ERROR,
+                    sessionId: open.sessionId,
+                    peerId: open.peerId,
+                    payload: Buffer.from(reason),
+                  }),
                 onBridge: (bridge) => {
                   receiver = (bytes) => bridge.receive(bytes);
                   connected = true;

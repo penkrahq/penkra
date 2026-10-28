@@ -110,6 +110,14 @@ export type CleanCoreThreadDraft = typeof CleanCoreThreadDraft.Type;
 export const CleanCoreGetThreadDraftInput = Schema.Struct({
   threadId: ThreadId,
 });
+export const CleanCoreGetMessageAdmissionInput = Schema.Struct({
+  threadId: ThreadId,
+  messageId: MessageId,
+});
+export const CleanCoreMessageAdmission = Schema.Struct({
+  threadExists: Schema.Boolean,
+  present: Schema.Boolean,
+});
 export type CleanCoreGetThreadDraftInput = typeof CleanCoreGetThreadDraftInput.Type;
 
 export const CleanCoreSetThreadDraftInput = Schema.Struct({
@@ -591,6 +599,10 @@ export const QUEUED_MESSAGE_EDIT_NONEMPTY_DRAFT_ERROR =
   "Clear or send your message before editing a queued one.";
 export const SAVED_PROMPT_RESTORE_NONEMPTY_DRAFT_ERROR =
   "Clear or send your message before restoring a saved one.";
+export class SavedPromptDraftChangedError extends Schema.TaggedError<SavedPromptDraftChangedError>()(
+  "SavedPromptDraftChangedError",
+  { message: Schema.String },
+) {}
 export class SavedRestoreDraftNotEmptyError extends Schema.TaggedError<SavedRestoreDraftNotEmptyError>()(
   "SavedRestoreDraftNotEmptyError",
   { message: Schema.String },

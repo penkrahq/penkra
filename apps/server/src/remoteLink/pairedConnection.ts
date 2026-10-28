@@ -17,6 +17,7 @@ export function runPairedConnection(input: {
   origin: string;
   sendWire: (ciphertext: Uint8Array) => Promise<void>;
   sendHandshakeReply: (reply: Uint8Array) => Promise<void>;
+  sendRejection: (reason: "not-paired" | "key-rejected") => Promise<void>;
   onBridge: (session: RemoteSessionBridge) => void;
   onViewing: (threadId: string | null) => void;
   observe: (event: RemoteSessionEvent) => void;
@@ -30,13 +31,30 @@ export function runPairedConnection(input: {
         });
       const sessions = yield* SessionCredentialService;
       const phone = yield* trust.get(input.phoneDeviceId);
-      if (!phone) return yield* new RemoteLinkSessionError({ message: "Phone is not paired." });
+      if (!phone) {
+        yield* Effect.tryPromise({
+          try: () => input.sendRejection("not-paired"),
+          catch: () =>
+            new RemoteLinkSessionError({ message: "Could not report pairing rejection." }),
+        });
+        return yield* new RemoteLinkSessionError({ message: "Phone is not paired." });
+      }
       const connected = yield* openPairedSession({
         macDeviceId: input.macDeviceId,
         macPrivateKey: input.macPrivateKey,
         phone,
         openingMessage: input.openingMessage,
-      });
+      }).pipe(
+        Effect.catch((error) => {
+          if (!(error instanceof RemoteLinkSessionError) || error.code !== "key-rejected")
+            return Effect.fail(error);
+          return Effect.tryPromise({
+            try: () => input.sendRejection("key-rejected"),
+            catch: () =>
+              new RemoteLinkSessionError({ message: "Could not report pairing rejection." }),
+          }).pipe(Effect.andThen(Effect.fail(error)));
+        }),
+      );
       return yield* sessions.runAuthenticatedConnection(
         phone.sessionId,
         Effect.acquireUseRelease(

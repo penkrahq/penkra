@@ -37,12 +37,21 @@ export interface ThreadChange {
   readonly threadId: string;
 }
 
+export interface ThreadNotification {
+  readonly threadId: string;
+  readonly kind: "question" | "finished";
+  readonly title: string;
+  readonly body: string;
+}
+
 export interface ThreadPublisher {
   readonly threadChanges: InvalidationHub<ThreadChange>;
   readonly sidebarChanges: InvalidationHub<CleanCoreSidebarChange>;
   readonly providerEvents: PubSub.PubSub<CleanCoreProviderEvent>;
   readonly deliveryReady: PubSub.PubSub<ThreadChange>;
   readonly publishProvider: (event: CleanCoreProviderEvent) => void;
+  readonly publishNotification: (event: ThreadNotification) => void;
+  readonly subscribeNotifications: (listener: (event: ThreadNotification) => void) => () => void;
   readonly publish: (change: ThreadChange) => void;
   readonly publishCreated: (change: ThreadChange) => void;
   readonly publishSidebar: (change: CleanCoreSidebarChange) => void;
@@ -51,6 +60,7 @@ export interface ThreadPublisher {
 }
 
 export const makeThreadPublisher = (): ThreadPublisher => {
+  const notifications = new Set<(event: ThreadNotification) => void>();
   const threadChanges = makeInvalidationHub<ThreadChange>((change) => change.threadId);
   const sidebarChanges = makeInvalidationHub<CleanCoreSidebarChange>(
     (change) =>
@@ -87,6 +97,21 @@ export const makeThreadPublisher = (): ThreadPublisher => {
     publishProvider: (event) => {
       PubSub.publishUnsafe(providerEvents, event);
     },
+    publishNotification: (event) => {
+      for (const listener of notifications) {
+        try {
+          listener(event);
+        } catch {
+          console.error("Thread notification listener failed.");
+        }
+      }
+    },
+    subscribeNotifications: (listener) => {
+      notifications.add(listener);
+      return () => {
+        notifications.delete(listener);
+      };
+    },
     publishSidebar: (change) => {
       sidebarChanges.publish(change);
     },
@@ -94,6 +119,7 @@ export const makeThreadPublisher = (): ThreadPublisher => {
       PubSub.publishUnsafe(deliveryReady, change);
     },
     close: Effect.all([
+      Effect.sync(() => notifications.clear()),
       threadChanges.close,
       sidebarChanges.close,
       PubSub.shutdown(providerEvents),

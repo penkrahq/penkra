@@ -4,6 +4,7 @@ import {
   CleanCoreQueuedMessage,
   QueuedEditDraftNotEmptyError,
   SavedRestoreDraftNotEmptyError,
+  SavedPromptDraftChangedError,
   QUEUED_MESSAGE_EDIT_NONEMPTY_DRAFT_ERROR,
   SAVED_PROMPT_RESTORE_NONEMPTY_DRAFT_ERROR,
   type CleanCoreSavePromptInput,
@@ -48,7 +49,9 @@ export const savePrompt = (
         if (saved.some((entry) => entry.messageId === input.message.messageId))
           return { threadId: input.threadId, messageId: input.message.messageId, removed: false };
         if (row.draftUpdatedAt !== input.draftUpdatedAt)
-          return yield* Effect.fail(new Error("The draft changed. Try again."));
+          return yield* Effect.fail(
+            new SavedPromptDraftChangedError({ message: "The draft changed. Try again." }),
+          );
         if (!input.message.text.trim() && !input.message.attachments.length)
           return yield* Effect.fail(new Error("Nothing to save."));
         const now = new Date().toISOString();

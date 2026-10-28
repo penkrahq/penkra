@@ -10,7 +10,7 @@ import { createAndSendThread } from "./cleanCore/createAndSendThread.ts";
 import { createThreadFromClient, ThreadLifecycle } from "./cleanCore/threadLifecycle.ts";
 import { ThreadSender } from "./cleanCore/ThreadSender.ts";
 
-import { SavedRestoreDraftNotEmptyError } from "@penkra/contracts";
+import { SavedRestoreDraftNotEmptyError, SavedPromptDraftChangedError } from "@penkra/contracts";
 import {
   ORCHESTRATION_WS_METHODS,
   WS_BOOTSTRAP_METHOD,
@@ -73,6 +73,7 @@ import { WorkspaceEntries } from "./workspace/Services/WorkspaceEntries";
 import { WorkspaceFileSystem } from "./workspace/Services/WorkspaceFileSystem";
 import { makeWsStreamAdmission } from "./wsStreamAdmission";
 import { listThreadItemsPage, listTurnItems } from "./cleanCore/threadItemsPage.ts";
+import { getMessageAdmission } from "./cleanCore/messageAdmission.ts";
 import { findThread, listThreads, searchThreads } from "./cleanCore/threadList.ts";
 import { getThreadDraft, setThreadDraft } from "./cleanCore/threadDraft.ts";
 import {
@@ -354,11 +355,13 @@ const makeWsRpcHandlersLayer = () =>
         [WS_METHODS.cleanCoreGetBootstrap]: () =>
           rpcEffect(getBootstrap, "Failed to load startup state"),
         [WS_METHODS.cleanCoreSavePrompt]: (input) =>
-          rpcEffect(
-            Effect.flatMap(Effect.service(ThreadSender), (sender) => sender.savePrompt(input)).pipe(
-              Effect.map((result) => ({ ...result, messageId: input.message.messageId })),
+          Effect.flatMap(Effect.service(ThreadSender), (sender) => sender.savePrompt(input)).pipe(
+            Effect.map((result) => ({ ...result, messageId: input.message.messageId })),
+            Effect.mapError((error) =>
+              Schema.is(SavedPromptDraftChangedError)(error)
+                ? error
+                : toWsRpcError(error, "Failed to save prompt"),
             ),
-            "Failed to save prompt",
           ),
         [WS_METHODS.cleanCoreDeleteSavedPrompt]: (input) =>
           rpcEffect(
@@ -511,6 +514,8 @@ const makeWsRpcHandlersLayer = () =>
           rpcEffect(listTurnItems(input), "Failed to load turn details"),
         [WS_METHODS.cleanCoreGetThreadDraft]: (input) =>
           rpcEffect(getThreadDraft(input.threadId), "Failed to load the thread draft"),
+        [WS_METHODS.cleanCoreGetMessageAdmission]: (input) =>
+          rpcEffect(getMessageAdmission(input), "Failed to check message admission"),
         [WS_METHODS.cleanCoreSetThreadDraft]: (input) =>
           rpcEffect(
             setThreadDraft(threadPublisher, input.threadId, input.draft, input.updatedAt),

@@ -35,7 +35,7 @@ import * as SqlitePersistence from "./persistence/Layers/Sqlite";
 import { makeServerApplicationLayers } from "./serverLayers";
 import { startThreadRetentionJob } from "./threadRetention.ts";
 import { ThreadReads } from "./cleanCore/ThreadReads";
-import { ThreadPublisherLive } from "./cleanCore/ThreadPublisher.ts";
+import { ThreadPublisher, ThreadPublisherLive } from "./cleanCore/ThreadPublisher.ts";
 import { ensurePinnedProviderRuntimes } from "./provider/ensurePinnedProviderRuntimes";
 import { ProviderAdapterRegistry } from "./provider/Services/ProviderAdapterRegistry";
 import { ProviderInstallationRepository } from "./persistence/Services/ProviderInstallations";
@@ -433,6 +433,8 @@ const makeServerProgram = (input: CliInput) => {
           credentials: new DesktopRemoteCredentials(),
           approvals: pairing.approvals,
           onViewing: (phoneId, sessionId, threadId) => viewing.set(phoneId, sessionId, threadId),
+          isViewing: (phoneId, threadId) => viewing.viewing(phoneId, threadId),
+          publisher: yield* ThreadPublisher,
           devices,
           observeSocket: (event) => console.info("[remote-link] relay", event),
           observeReconnect: (state) => console.info("[remote-link] reconnect", state),

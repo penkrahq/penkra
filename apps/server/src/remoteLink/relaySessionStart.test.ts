@@ -34,6 +34,26 @@ const layer = RemoteTrustStoreLive.pipe(
   Layer.provide(NodeServices.layer),
 );
 
+it("writes an explicit rejection frame when the Mac has no phone trust", async () => {
+  const macKey = createNoiseIdentity();
+  const rejected = Promise.withResolvers<{ type: RelayFrameType; payload: Uint8Array }>();
+  const socket = { send: async (frame: { type: RelayFrameType; payload: Uint8Array }) => { rejected.resolve(frame); } } as unknown as RemoteRelaySocket;
+  const approvals = new RemotePairingApprovals(() => undefined);
+  try {
+    await Effect.gen(function* () {
+      const registry = yield* makeRemotePhoneRegistry(new RemoteRegistryClient({ apiUrl: "http://localhost:1", deviceToken: "fixture" }));
+      const start = yield* makeRelaySessionStart({ macDeviceId: macId, macPrivateKey: macKey, origin: "http://127.0.0.1:1", approvals, registry,
+        onViewing: () => {}, onSession: () => {}, observe: () => {} });
+      const work = start(socket)({ type: RelayFrameType.OPEN, mode: RelayOpenMode.SESSION, sessionId, peerId: phoneId, payload: new Uint8Array() }, new AbortController().signal);
+      const finished = work.finished.catch(() => undefined);
+      const frame = yield* Effect.promise(() => rejected.promise);
+      expect(frame.type).toBe(RelayFrameType.ERROR);
+      expect(Buffer.from(frame.payload).toString()).toBe("not-paired");
+      yield* Effect.promise(() => finished);
+    }).pipe(Effect.provide(layer), Effect.scoped, Effect.runPromise);
+  } finally { approvals.close(); macKey.fill(0); }
+});
+
 it("routes a real KK handshake and encrypted data through the session owner", async () => {
   const macKey = createNoiseIdentity(),
     phoneKey = createNoiseIdentity();

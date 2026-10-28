@@ -15,6 +15,8 @@ import { makeSessionRelay } from "./sessionRelay";
 import { RemotePhoneSessions } from "./phoneSessions";
 import { RemoteDevicesControlState } from "./devicesControl";
 import { makeRemoteTrustStore, RemoteTrustScope, RemoteTrustStore } from "./trustStore";
+import type { ThreadPublisher } from "../cleanCore/threadStore";
+import { sendThreadPush } from "./pushSender";
 
 /** Capture the backend's scoped persistence services; each account mounts its own trust. */
 export function makeRemoteAccountWork(input: {
@@ -23,6 +25,8 @@ export function makeRemoteAccountWork(input: {
   credentials: DesktopRemoteCredentials;
   approvals: RemotePairingApprovals;
   onViewing: (phoneDeviceId: string, sessionId: string, threadId: string | null) => void;
+  isViewing: (phoneDeviceId: string, threadId: string) => boolean;
+  publisher: ThreadPublisher;
   devices: RemoteDevicesControlState;
   observeSocket: (event: RelaySocketEvent) => void;
   observeReconnect: (state: RelayReconnectState) => void;
@@ -45,6 +49,8 @@ export function makeRemoteAccountWork(input: {
       const sessions = new RemotePhoneSessions();
       let detachDevices: (() => void) | undefined;
       let unsubscribeSessions: (() => void) | undefined;
+      let unsubscribePush: (() => void) | undefined;
+      const pushAbort = new AbortController();
       let closing = false;
       const ready = (async () => {
         const result = await input.credentials.read(preparation.signal);
@@ -97,6 +103,22 @@ export function makeRemoteAccountWork(input: {
             });
             detachDevices = deviceOwner.detach;
             unsubscribeSessions = sessions.subscribe(() => input.devices.changed());
+            unsubscribePush = input.publisher.subscribeNotifications((event) => {
+              void (async () => {
+                const phones = await run(trust.list(), { signal: pushAbort.signal });
+                await sendThreadPush({
+                  event,
+                  macDeviceId: registration.deviceId,
+                  phones,
+                  viewing: input.isViewing,
+                  post: (body) => registry.push(body, pushAbort.signal),
+                });
+              })().catch((error) => {
+                if (!pushAbort.signal.aborted) {
+                  try { input.observeFailure(error); } catch { /* Diagnostics do not own delivery. */ }
+                }
+              });
+            });
             relay = yield* makeSessionRelay({
               macDeviceId: registration.deviceId,
               macPrivateKey: key,
@@ -137,6 +159,8 @@ export function makeRemoteAccountWork(input: {
           if (relay) await relay.finished;
         } finally {
           try {
+            pushAbort.abort();
+            unsubscribePush?.();
             unsubscribeSessions?.();
             detachDevices?.();
           } finally {
@@ -158,6 +182,8 @@ export function makeRemoteAccountWork(input: {
         reconnect: (event) => relay?.reconnect(event),
         close: async (reason) => {
           closing = true;
+          pushAbort.abort();
+          unsubscribePush?.();
           try {
             if (relay) {
               if (reason === "suspend") await relay.sleep();
