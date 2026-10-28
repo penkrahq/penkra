@@ -22,6 +22,44 @@ function deterministicClock() {
 }
 
 describe("teardownProviderProcessTree", () => {
+  it.each([
+    { phase: "TERM", emptyAt: 2, escalated: false },
+    { phase: "KILL", emptyAt: 4, escalated: true },
+  ])("accepts verified exit at the final $phase inspection", async ({ emptyAt, escalated }) => {
+    const tree: CapturedProcessTree = {
+      descendants: [{ pid: 902, command: "provider-worker" }],
+      captureComplete: true,
+    };
+    const clock = deterministicClock();
+    const signals: TerminalKillSignal[] = [];
+    let inspections = 0;
+    const result = await teardownProviderProcessTree(
+      {
+        rootPid: 901,
+        rootExited: Promise.resolve(),
+        termGraceMs: 1,
+        forceExitMs: 1,
+        pollMs: 1,
+        inspectIntervalMs: 10,
+      },
+      {
+        processTreeKiller: {
+          capture: () => tree,
+          signal: ({ signal }) => signals.push(signal),
+          inspect: () => ({
+            verified: true,
+            survivors: ++inspections >= emptyAt ? [] : tree.descendants,
+          }),
+        },
+        ...clock,
+      },
+    );
+
+    expect(result).toEqual({ escalated, signalErrors: [] });
+    expect(inspections).toBe(emptyAt);
+    expect(signals).toEqual(escalated ? ["SIGTERM", "SIGKILL"] : ["SIGTERM"]);
+  });
+
   it("escalates ignored TERM and returns only after root and descendants prove exit", async () => {
     const tree: CapturedProcessTree = {
       descendants: [{ pid: 102, command: "provider-worker" }],

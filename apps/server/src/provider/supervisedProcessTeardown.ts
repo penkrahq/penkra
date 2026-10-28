@@ -234,10 +234,14 @@ export async function teardownProviderProcessTree(
       if (remainingMs <= 0) break;
       await deps.sleep(Math.min(positiveDuration(input.pollMs, DEFAULT_POLL_MS), remainingMs));
     } while (deps.now() <= deadline);
-    // Giving up reports which descendants are still alive, so refresh the survivor
-    // list once here rather than leaving it unknown when the gate above skipped
-    // every poll's inspection.
-    return { proven: false as const, remainingDescendants: inspectDescendants() };
+    // The final inspection can itself prove exit if the last descendant ended
+    // after the last throttled scan. It still requires the root's exit and a
+    // verified, complete descendant capture.
+    remainingDescendants = inspectDescendants();
+    if (rootExited && remainingDescendants !== null && remainingDescendants.length === 0) {
+      return { proven: true as const, remainingDescendants };
+    }
+    return { proven: false as const, remainingDescendants };
   };
 
   signal("SIGTERM", true);
