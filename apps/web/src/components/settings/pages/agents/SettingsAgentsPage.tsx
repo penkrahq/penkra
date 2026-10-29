@@ -269,10 +269,13 @@ export function SettingsAgentsPage(_props: { embedded?: boolean } = {}) {
         {managedAgents.map((provider) => {
           const open = openProvider === provider;
           const adding = addingProvider === provider;
+          const installations = connectionsQuery.data?.installations.filter(
+            (installation) => installation.harness === provider,
+          );
           const installationLifecycle =
-            connectionsQuery.data?.installations.find(
-              (installation) => installation.harness === provider,
-            )?.lifecycle ?? null;
+            installations?.find((installation) => installation.lifecycle === "active")?.lifecycle ??
+            installations?.[0]?.lifecycle ??
+            null;
           const providerConnections = connections.filter(
             (connection) => connection.harness === provider && connection.lifecycle === "active",
           );
