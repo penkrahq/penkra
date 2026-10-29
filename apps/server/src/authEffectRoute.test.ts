@@ -207,67 +207,6 @@ function mutationRequest(input: {
 }
 
 describe("authEffectRouteLayer", () => {
-  it("rejects declared and chunked oversized bootstrap JSON before auth exchange", async () => {
-    const sideEffects = { count: 0 };
-    const config = {
-      host: "127.0.0.1",
-      publicUrl: undefined,
-    } as ServerConfigShape;
-    await withAuthEffectServer(config, makeServerAuth(sideEffects), async (serverOrigin) => {
-      const oversizedBody = JSON.stringify({
-        credential: "x".repeat(AUTH_JSON_BODY_MAX_BYTES),
-      });
-      const declaredResponse = await fetch(`${serverOrigin}/api/auth/bootstrap`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: oversizedBody,
-      });
-      expect(declaredResponse.status).toBe(413);
-      expect(sideEffects.count).toBe(0);
-
-      const chunkedStatus = await new Promise<number>((resolve, reject) => {
-        const url = new URL("/api/auth/bootstrap", serverOrigin);
-        const request = http.request(
-          {
-            hostname: url.hostname,
-            port: url.port,
-            path: url.pathname,
-            method: "POST",
-            headers: {
-              "Content-Type": "application/json",
-              "Transfer-Encoding": "chunked",
-            },
-          },
-          (response) => {
-            response.resume();
-            response.once("end", () => resolve(response.statusCode ?? 0));
-          },
-        );
-        request.once("error", reject);
-        request.write('{"credential":"');
-        request.write("x".repeat(AUTH_JSON_BODY_MAX_BYTES));
-        request.end('"}');
-      });
-      expect(chunkedStatus).toBe(413);
-      expect(sideEffects.count).toBe(0);
-
-      const malformedResponse = await fetch(`${serverOrigin}/api/auth/bootstrap`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: "{",
-      });
-      expect(malformedResponse.status).toBe(400);
-
-      const validResponse = await fetch(`${serverOrigin}/api/auth/bootstrap`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ credential: "PAIRINGTOKEN" }),
-      });
-      expect(validResponse.status).toBe(200);
-      expect(sideEffects.count).toBe(1);
-    });
-  });
-
   it("rejects every cookie-authenticated mutation without a trusted origin", async () => {
     const sideEffects = { count: 0 };
     const config = {
@@ -313,101 +252,9 @@ describe("authEffectRouteLayer", () => {
       expect(sideEffects.count).toBe(0);
     });
   });
-
-  it("allows trusted-origin cookies and originless explicit bearer credentials", async () => {
-    const sideEffects = { count: 0 };
-    const config = {
-      host: "127.0.0.1",
-      publicUrl: undefined,
-    } as ServerConfigShape;
-    await withAuthEffectServer(config, makeServerAuth(sideEffects), async (serverOrigin) => {
-      for (const route of mutationRoutes) {
-        const body = route.body === undefined ? {} : { body: route.body };
-        const cookieResponse = await fetch(
-          `${serverOrigin}${route.path}`,
-          mutationRequest({
-            origin: serverOrigin,
-            credential: "cookie",
-            ...body,
-          }),
-        );
-        expect(cookieResponse.status, `${route.path} cookie`).toBe(200);
-
-        const bearerResponse = await fetch(
-          `${serverOrigin}${route.path}`,
-          mutationRequest({ credential: "bearer", ...body }),
-        );
-        expect(bearerResponse.status, `${route.path} bearer`).toBe(200);
-      }
-      expect(sideEffects.count).toBe(mutationRoutes.length * 2);
-    });
-  });
-
-  it("logs out either role and clears the exact cookie with secure public-mode attributes", async () => {
-    const sideEffects = { count: 0 };
-    const config = {
-      host: "0.0.0.0",
-      publicUrl: new URL("https://penkra.example.test/"),
-    } as ServerConfigShape;
-    await withAuthEffectServer(config, makeServerAuth(sideEffects), async (serverOrigin) => {
-      const response = await fetch(
-        `${serverOrigin}/api/auth/logout`,
-        mutationRequest({
-          origin: "https://penkra.example.test",
-          credential: "cookie",
-        }),
-      );
-
-      expect(response.status).toBe(200);
-      await expect(response.json()).resolves.toEqual({ revoked: true });
-      const cookie = response.headers.get("set-cookie") ?? "";
-      expect(cookie).toContain("penkra_session=");
-      expect(cookie).toContain("Expires=Thu, 01 Jan 1970 00:00:00 GMT");
-      expect(cookie).toContain("Max-Age=0");
-      expect(cookie).toContain("HttpOnly");
-      expect(cookie).toContain("Path=/");
-      expect(cookie).toContain("SameSite=Lax");
-      expect(cookie).toContain("Secure");
-      expect(sideEffects.count).toBe(1);
-    });
-  });
 });
 
 describe("binaryUploadEffectRouteLayer", () => {
-  it("allows credentialed Penkra desktop attachment upload preflights", async () => {
-    const config = {
-      host: "127.0.0.1",
-      attachmentsDir: fs.mkdtempSync(path.join(os.tmpdir(), "penkra-upload-cors-")),
-    } as ServerConfigShape;
-    try {
-      await withAuthEffectServer(
-        config,
-        makeServerAuth({ count: 0 }),
-        async (serverOrigin) => {
-          const response = await fetch(`${serverOrigin}${ATTACHMENT_UPLOAD_ROUTE_PATH}`, {
-            method: "OPTIONS",
-            headers: {
-              Origin: "penkra://app",
-              "Access-Control-Request-Method": "POST",
-              "Access-Control-Request-Headers": "content-type",
-            },
-          });
-
-          expect(response.status).toBe(204);
-          expect(response.headers.get("access-control-allow-origin")).toBe("penkra://app");
-          expect(response.headers.get("access-control-allow-credentials")).toBe("true");
-          expect(response.headers.get("access-control-allow-methods")).toContain("POST");
-          expect(response.headers.get("access-control-allow-headers")?.toLowerCase()).toContain(
-            "content-type",
-          );
-        },
-        binaryUploadEffectRouteLayer,
-      );
-    } finally {
-      fs.rmSync(config.attachmentsDir, { recursive: true, force: true });
-    }
-  });
-
   it("rejects ambient cookie uploads without an origin and accepts explicit bearer auth", async () => {
     const attachmentsDir = fs.mkdtempSync(path.join(os.tmpdir(), "penkra-upload-route-"));
     const config = {

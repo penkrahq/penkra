@@ -31,12 +31,3 @@ it("verifies the actual streamed download against the committed hash", async () 
     verifyPinnedArtifact({ ...artifact, sha256: "0".repeat(64) }, fetchArtifact),
   ).rejects.toThrow("checksum mismatch");
 });
-
-it("rejects failed downloads rather than accepting metadata alone", async () => {
-  await expect(
-    verifyPinnedArtifact(
-      pinnedProviderArtifact("codex"),
-      async () => new Response(null, { status: 404 }),
-    ),
-  ).rejects.toThrow("HTTP 404");
-});

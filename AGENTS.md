@@ -145,7 +145,7 @@ boundary.
 - Treat `bun fmt`, `bun lint`, and `bun typecheck` as heavyweight workspace checks: bundle them into one final verification pass per task whenever possible, and avoid rerunning the full set repeatedly during iteration.
 - If a user asks for a small follow-up right after a recent full verification pass, prefer no rerun or the smallest reasonable re-check unless the user explicitly asks for full validation again.
 - If the user asks to focus on code only, do not run `bun fmt`, `bun lint`, or `bun typecheck` automatically. In that mode, make the code changes first and only run verification if the user explicitly asks for it.
-- NEVER run `bun test`. Always use `bun run test` (runs Vitest).
+- NEVER run `bun test`. Always use `bun run test` (runs the retained Vitest suite). Keep only tests for security, consent, silent data loss or corruption, and silent stalls; do not add test files outside the kept list in `TODO.md` (P36). The suite must pass in under one minute.
 
 ## Penkra Dev Thread Boundary
 
@@ -224,7 +224,7 @@ gpt-5.6-sol is exceptionally capable on long-running tasks. Give it substantial,
 - When wiring scroll-follow logic, count real transcript messages only. Tool/work rows must not retrigger the same "new content arrived" auto-stick path.
 - Prefer the simpler fork-style transcript path for the common case. Small and medium transcripts should avoid virtualization churn unless there is a clear measured need.
 - If virtualization is used, never couple `rowVirtualizer.measure()` directly to another bottom-stick or height-follow cycle. Height-follow for live output should stay one-way to avoid measure/scroll feedback loops.
-- Preserve these behaviors with focused transcript tests when changing chat scrolling, timeline measurement, or sidebar-driven transcript updates.
+- Verify these visible behaviors in the running app when changing chat scrolling, timeline measurement, or sidebar-driven transcript updates.
 
 ## Maintainability
 

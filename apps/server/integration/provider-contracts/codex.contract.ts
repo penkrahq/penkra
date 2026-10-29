@@ -277,10 +277,8 @@ it("reports native completion, rollout path, steer, questions, interrupt and loc
       ).params.turn as NativeTurn;
     const normal = await create();
     assert.equal(typeof normal.path, "string");
-    assert.equal(
-      (await completed(normal, await start(normal, "Reply hello."))).status,
-      "completed",
-    );
+    const firstNormalTurn = await start(normal, "Reply hello.");
+    assert.equal((await completed(normal, firstNormalTurn)).status, "completed");
     assert(
       (await stat(normal.path!)).isFile(),
       "The native rollout must be usable after the terminal turn event.",
@@ -362,15 +360,22 @@ it("reports native completion, rollout path, steer, questions, interrupt and loc
     assert.equal((await completed(normal, lastNormalTurn)).status, "completed");
     await rpc.request("thread/revert", { threadId: normal.id, beforeTurnId: lastNormalTurn.id });
     await rpc.request("thread/unsubscribe", { threadId: normal.id });
-    await rpc.request("thread/resume", {
-      threadId: normal.id,
-      cwd: fixture.root,
-      model: "contract",
-      modelProvider: "contract",
-      approvalPolicy: "never",
-      sandbox: "read-only",
-      excludeTurns: true,
-    });
+    const resumed = await rpc.request<{ thread: NativeThread & { turns: NativeTurn[] } }>(
+      "thread/resume",
+      {
+        threadId: normal.id,
+        cwd: fixture.root,
+        model: "contract",
+        modelProvider: "contract",
+        approvalPolicy: "never",
+        sandbox: "workspace-write",
+        excludeTurns: false,
+      },
+    );
+    assert(
+      resumed.thread.turns.some((turn) => turn.id === firstNormalTurn.id),
+      "Changing runtime mode on resume must preserve prior turns.",
+    );
     const review = await rpc.request<{ turn: NativeTurn }>("review/start", {
       threadId: normal.id,
       delivery: "inline",

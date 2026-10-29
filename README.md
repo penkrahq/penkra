@@ -100,7 +100,7 @@ desktops, such as a large multiplayer or concurrency scenario. Remove that extra
 | Rich text     | Lexical, Markdown (remark/rehype), KaTeX |
 | Terminal      | xterm.js (WebGL)                         |
 | Animation     | Motion                                   |
-| Testing       | Vitest, Playwright, Storybook            |
+| Testing       | Vitest, Storybook                        |
 | Monorepo      | Turborepo, Bun workspaces                |
 | Language      | TypeScript, Effect-TS                    |
 
@@ -153,4 +153,4 @@ default. See [App-platform development internals](docs/app-development-internals
 bun run test
 ```
 
-This runs the test task in each workspace package. It does not cross into `penkra-website` or `penkra-backend`.
+This runs the retained desktop, server, web, and shared tests. The suite protects security, consent, silent data loss or corruption, and silent stalls; it finishes in under one minute. Other Penkra repositories have their own test commands.

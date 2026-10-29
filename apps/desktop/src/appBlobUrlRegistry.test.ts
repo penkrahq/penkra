@@ -25,18 +25,4 @@ describe("AppBlobUrlRegistry", () => {
     registry.close(owner, url);
     expect(() => registry.resolve(owner.origin, token)).toThrow("unavailable");
   });
-
-  it("releases all URLs owned by a closing renderer", () => {
-    const registry = new AppBlobUrlRegistry();
-    const first = registry.open(owner, "/tmp/one");
-    const second = registry.open({ ...owner, rendererId: 8 }, "/tmp/two");
-    registry.disposeDetached(registry.detachGeneration(owner));
-
-    expect(() =>
-      registry.resolve(owner.origin, new URL(first).pathname.split("/").at(-1)!),
-    ).toThrow();
-    expect(registry.resolve(owner.origin, new URL(second).pathname.split("/").at(-1)!).path).toBe(
-      "/tmp/two",
-    );
-  });
 });

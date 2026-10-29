@@ -24,25 +24,6 @@ const baseThread = {
   createdAt: "2026-10-09T00:00:00.000Z",
 };
 
-it("decides deliver/queue/steer from state and steer support", () => {
-  assert.equal(
-    planSend({ state: "idle", dispatchMode: "queue", supportsSteer: true, queueLength: 0 }),
-    "deliver",
-  );
-  assert.equal(
-    planSend({ state: "running", dispatchMode: "queue", supportsSteer: true, queueLength: 0 }),
-    "queue",
-  );
-  assert.equal(
-    planSend({ state: "running", dispatchMode: "steer", supportsSteer: true, queueLength: 0 }),
-    "steer",
-  );
-  assert.equal(
-    planSend({ state: "running", dispatchMode: "steer", supportsSteer: false, queueLength: 0 }),
-    "interrupt-deliver",
-  );
-});
-
 it.effect("queue is a FIFO persisted on threads.queue", () =>
   withDb(
     Effect.gen(function* () {

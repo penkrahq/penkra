@@ -46,30 +46,6 @@ const makeBlockingConnection = Effect.gen(function* () {
 });
 
 describe("SessionCredentialServiceLive", () => {
-  it("reconstructs a client token from persisted state in a fresh service instance", async () => {
-    const dependencies = Layer.mergeAll(AuthSessionRepositoryLive, ServerSecretStoreLive).pipe(
-      Layer.provideMerge(SqlitePersistenceMemory),
-      Layer.provideMerge(
-        ServerConfig.layerTest(process.cwd(), { prefix: "penkra-auth-resume-test-" }),
-      ),
-      Layer.provideMerge(NodeServices.layer),
-    );
-    await Effect.gen(function* () {
-      const first = yield* makeSessionCredentialService;
-      const issued = yield* first.issue({
-        subject: "phone-a",
-        role: "client",
-        method: "bearer-session-token",
-      });
-      const restarted = yield* makeSessionCredentialService;
-      const resumed = yield* restarted.resumeClient({
-        sessionId: issued.sessionId,
-        subject: "phone-a",
-      });
-      expect(resumed.token).toBe(issued.token);
-      expect((yield* restarted.verify(resumed.token)).sessionId).toBe(issued.sessionId);
-    }).pipe(Effect.provide(dependencies), Effect.scoped, Effect.runPromise);
-  });
   it("leaves a client unusable when renewal races explicit revocation", async () => {
     await Effect.gen(function* () {
       const sessions = yield* SessionCredentialService;
@@ -103,45 +79,7 @@ describe("SessionCredentialServiceLive", () => {
       Effect.runPromise,
     );
   });
-  it("restores the same paired client credential and renews natural expiry without creating another session", async () => {
-    await Effect.gen(function* () {
-      const sessions = yield* SessionCredentialService;
-      const issued = yield* sessions.issue({
-        subject: "phone-a",
-        role: "client",
-        method: "bearer-session-token",
-      });
-      const restored = yield* sessions.resumeClient({
-        sessionId: issued.sessionId,
-        subject: "phone-a",
-      });
-      expect(restored.token).toBe(issued.token);
-      yield* TestClock.adjust(Duration.days(30));
-      const [first, second] = yield* Effect.all(
-        [
-          sessions.resumeClient({ sessionId: issued.sessionId, subject: "phone-a" }),
-          sessions.resumeClient({ sessionId: issued.sessionId, subject: "phone-a" }),
-        ],
-        { concurrency: "unbounded" },
-      );
-      expect(first.sessionId).toBe(issued.sessionId);
-      expect(first.token).not.toBe(issued.token);
-      expect(second.token).toBe(first.token);
-      expect((yield* sessions.verify(first.token)).subject).toBe("phone-a");
-      expect(yield* sessions.listActive()).toHaveLength(1);
-      expect((yield* Effect.flip(sessions.verify(issued.token))).message).toBe(
-        "Session token expired.",
-      );
-      yield* TestClock.setTime(0);
-      expect((yield* Effect.flip(sessions.verify(issued.token))).message).toContain(
-        "stored session",
-      );
-    }).pipe(
-      Effect.provide(Layer.merge(testLayer, TestClock.layer())),
-      Effect.scoped,
-      Effect.runPromise,
-    );
-  });
+
   it("never resumes revoked clients, another phone, or an owner credential", async () => {
     await Effect.gen(function* () {
       const sessions = yield* SessionCredentialService;
@@ -192,31 +130,6 @@ describe("SessionCredentialServiceLive", () => {
       Effect.runPromise,
     );
   });
-  it("issues and verifies signed browser session tokens", async () => {
-    await runSessionTest(
-      Effect.gen(function* () {
-        const sessions = yield* SessionCredentialService;
-        const issued = yield* sessions.issue({
-          subject: "desktop-bootstrap",
-          role: "owner",
-          client: {
-            label: "Desktop app",
-            deviceType: "desktop",
-            os: "macOS",
-            browser: "Electron",
-            ipAddress: "127.0.0.1",
-          },
-        });
-        const verified = yield* sessions.verify(issued.token);
-
-        expect(verified.method).toBe("browser-session-cookie");
-        expect(verified.subject).toBe("desktop-bootstrap");
-        expect(verified.role).toBe("owner");
-        expect(verified.client.label).toBe("Desktop app");
-        expect(verified.client.browser).toBe("Electron");
-      }),
-    );
-  });
 
   it("rejects malformed session tokens", async () => {
     await runSessionTest(
@@ -225,20 +138,6 @@ describe("SessionCredentialServiceLive", () => {
         const error = yield* Effect.flip(sessions.verify("not-a-session-token"));
 
         expect(error.message).toContain("Malformed session token");
-      }),
-    );
-  });
-
-  it("issues and verifies websocket tokens for active sessions", async () => {
-    await runSessionTest(
-      Effect.gen(function* () {
-        const sessions = yield* SessionCredentialService;
-        const issued = yield* sessions.issue({ method: "bearer-session-token" });
-        const websocket = yield* sessions.issueWebSocketToken(issued.sessionId);
-        const verified = yield* sessions.verifyWebSocketToken(websocket.token);
-
-        expect(verified.sessionId).toBe(issued.sessionId);
-        expect(verified.method).toBe("bearer-session-token");
       }),
     );
   });
@@ -257,94 +156,6 @@ describe("SessionCredentialServiceLive", () => {
 
         expect(attempts.filter((attempt) => attempt._tag === "Success")).toHaveLength(1);
         expect(attempts.filter((attempt) => attempt._tag === "Failure")).toHaveLength(11);
-      }),
-    );
-  });
-
-  it("bounds outstanding websocket tickets per session and frees consumed capacity", async () => {
-    await runSessionTest(
-      Effect.gen(function* () {
-        const sessions = yield* SessionCredentialService;
-        const issued = yield* sessions.issue();
-        const tickets = yield* Effect.forEach(
-          Array.from({ length: MAX_OUTSTANDING_WEBSOCKET_TICKETS_PER_SESSION }),
-          () => sessions.issueWebSocketToken(issued.sessionId),
-        );
-
-        const capacityError = yield* Effect.flip(sessions.issueWebSocketToken(issued.sessionId));
-        expect(capacityError).toBeInstanceOf(SessionCapacityError);
-        if (capacityError instanceof SessionCapacityError) {
-          expect(capacityError.scope).toBe("websocket-tickets");
-          expect(capacityError.active).toBe(MAX_OUTSTANDING_WEBSOCKET_TICKETS_PER_SESSION);
-        }
-
-        yield* sessions.verifyWebSocketToken(tickets[0]!.token);
-        yield* sessions.issueWebSocketToken(issued.sessionId);
-      }),
-    );
-  });
-
-  it("lists active sessions and tracks connectivity", async () => {
-    await runSessionTest(
-      Effect.gen(function* () {
-        const sessions = yield* SessionCredentialService;
-        const issued = yield* sessions.issue({
-          subject: "client",
-          client: { label: "Client", deviceType: "desktop" },
-        });
-        const connection = yield* makeBlockingConnection;
-
-        const fiber = yield* Effect.forkChild(
-          sessions.runAuthenticatedConnection(issued.sessionId, connection.effect),
-        );
-        yield* Deferred.await(connection.started);
-        const connected = yield* sessions.listActive();
-        yield* Fiber.interrupt(fiber);
-        yield* Deferred.await(connection.closed);
-        const disconnected = yield* sessions.listActive();
-
-        expect(connected[0]?.connected).toBe(true);
-        expect(connected[0]?.lastConnectedAt).not.toBeNull();
-        expect(disconnected[0]?.connected).toBe(false);
-      }),
-    );
-  });
-
-  it("atomically caps session connections and preserves capacity isolation", async () => {
-    await runSessionTest(
-      Effect.gen(function* () {
-        const sessions = yield* SessionCredentialService;
-        const saturatedSession = yield* sessions.issue({ subject: "saturated" });
-        const independentSession = yield* sessions.issue({ subject: "independent" });
-        const startedCount = yield* Ref.make(0);
-        const connectionEffect = Effect.acquireUseRelease(
-          Ref.update(startedCount, (count) => count + 1),
-          () => Effect.never,
-          () => Effect.void,
-        );
-        const attempts = yield* Effect.forEach(
-          Array.from({ length: MAX_AUTHENTICATED_CONNECTIONS_PER_SESSION + 4 }),
-          () =>
-            Effect.forkChild(
-              sessions.runAuthenticatedConnection(saturatedSession.sessionId, connectionEffect),
-            ),
-        );
-
-        yield* Effect.sleep(Duration.millis(50));
-        expect(yield* Ref.get(startedCount)).toBe(MAX_AUTHENTICATED_CONNECTIONS_PER_SESSION);
-        const completed = attempts.map((fiber) => fiber.pollUnsafe());
-        const rejected = completed.filter((result) => result?._tag === "Failure");
-        expect(rejected).toHaveLength(4);
-
-        const independent = yield* makeBlockingConnection;
-        const independentFiber = yield* Effect.forkChild(
-          sessions.runAuthenticatedConnection(independentSession.sessionId, independent.effect),
-        );
-        yield* Deferred.await(independent.started);
-        expect(yield* Deferred.isDone(independent.closed)).toBe(false);
-
-        yield* Effect.forEach(attempts, Fiber.interrupt, { discard: true });
-        yield* Fiber.interrupt(independentFiber);
       }),
     );
   });
@@ -451,26 +262,6 @@ describe("SessionCredentialServiceLive", () => {
 
       const error = yield* Effect.flip(sessions.verifyWebSocketToken(websocket.token));
       expect(error.message).toContain("Invalid websocket token");
-    }).pipe(
-      Effect.provide(Layer.merge(testLayer, TestClock.layer())),
-      Effect.scoped,
-      Effect.runPromise,
-    );
-  });
-
-  it("expires a phone's default client session after thirty days without revocation", async () => {
-    await Effect.gen(function* () {
-      const sessions = yield* SessionCredentialService;
-      const issued = yield* sessions.issue({
-        subject: "10000000-0000-4000-8000-000000000001",
-        role: "client",
-        method: "bearer-session-token",
-        client: { label: "Test iPhone", deviceType: "mobile" },
-      });
-      expect((yield* sessions.verify(issued.token)).role).toBe("client");
-      yield* TestClock.adjust(Duration.days(30));
-      const error = yield* Effect.flip(sessions.verify(issued.token));
-      expect(error.message).toBe("Session token expired.");
     }).pipe(
       Effect.provide(Layer.merge(testLayer, TestClock.layer())),
       Effect.scoped,

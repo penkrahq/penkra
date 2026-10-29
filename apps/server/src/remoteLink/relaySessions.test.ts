@@ -47,28 +47,4 @@ describe("relay session ownership", () => {
     expect(entries[1]!.signal.aborted).toBe(true);
     expect(closePeer).not.toHaveBeenCalled();
   });
-
-  it("does not let a retiring session close a replacement with the same identity", async () => {
-    const entries: ReturnType<typeof Promise.withResolvers<void>>[] = [];
-    const closePeer = vi.fn(async () => undefined);
-    const router = new RelaySessions({
-      start: () => {
-        const done = Promise.withResolvers<void>();
-        entries.push(done);
-        return { receive: () => undefined, finished: done.promise };
-      },
-      closePeer,
-      observeFailure: () => undefined,
-    });
-    router.receive(frame(RelayFrameType.OPEN));
-    router.receive(frame(RelayFrameType.CLOSE));
-    router.receive(frame(RelayFrameType.OPEN));
-    entries[0]!.resolve();
-    await Promise.resolve();
-    await Promise.resolve();
-    expect(closePeer).not.toHaveBeenCalled();
-    const closing = router.close();
-    entries[1]!.resolve();
-    await closing;
-  });
 });

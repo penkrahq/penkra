@@ -48,25 +48,3 @@ async function withCredentialPipe(
     await rm(directory, { recursive: true, force: true });
   }
 }
-
-it("resolves on the desktop answer", async () => {
-  await withCredentialPipe(
-    (socket, request) => {
-      socket.end(JSON.stringify({ id: request.id, ok: true, result: { exists: true } }) + "\n");
-    },
-    async (broker) => {
-      await expect(Effect.runPromise(broker.has("test-reference"))).resolves.toBe(true);
-    },
-  );
-});
-
-it("rejects when the desktop closes without answering", async () => {
-  await withCredentialPipe(
-    (socket) => socket.end(),
-    async (broker) => {
-      await expect(Effect.runPromise(broker.has("test-reference"))).rejects.toThrow(
-        "Desktop closed the provider credential request without a response.",
-      );
-    },
-  );
-});

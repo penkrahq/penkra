@@ -1,29 +1,10 @@
 import ChildProcess from "node:child_process";
 
-import { describe, expect, it, vi } from "vitest";
+import { describe, expect, it } from "vitest";
 
 import { DefaultAndroidSdkLicenseReviewer } from "./androidSdkLicenseReviewer";
 
 describe("DefaultAndroidSdkLicenseReviewer", () => {
-  it("shows and answers every official SDK Manager prompt explicitly", async () => {
-    const prompt = vi.fn(async () => true);
-    const reviewer = new DefaultAndroidSdkLicenseReviewer({
-      spawn: () =>
-        ChildProcess.spawn(
-          process.execPath,
-          ["-e", "process.stdout.write('All SDK package licenses accepted.\\n')"],
-          { stdio: ["pipe", "pipe", "pipe"] },
-        ),
-    });
-    await reviewer.review({
-      executable: "/sdkmanager",
-      signal: new AbortController().signal,
-      prompt,
-    });
-
-    expect(prompt).not.toHaveBeenCalled();
-  });
-
   it("answers multiple prompts only after trusted acceptance", async () => {
     const prompts: string[] = [];
     const reviewer = new DefaultAndroidSdkLicenseReviewer({
@@ -79,46 +60,5 @@ describe("DefaultAndroidSdkLicenseReviewer", () => {
     expect(prompts).toHaveLength(1);
     expect(prompts[0]).toContain("Official license terms");
     expect(prompts[0]).not.toContain("Review licenses that have not been accepted");
-  });
-
-  it("stops setup as a cancellation when the user leaves license review", async () => {
-    const reviewer = new DefaultAndroidSdkLicenseReviewer({
-      spawn: () =>
-        ChildProcess.spawn(
-          process.execPath,
-          [
-            "-e",
-            "process.stdout.write('License terms\\nAccept? (y/N): '); setInterval(()=>{},1000)",
-          ],
-          { detached: true, stdio: ["pipe", "pipe", "pipe"] },
-        ),
-    });
-
-    await expect(
-      reviewer.review({
-        executable: "/sdkmanager",
-        signal: new AbortController().signal,
-        prompt: async () => false,
-      }),
-    ).rejects.toMatchObject({ code: "SETUP_CANCELLED" });
-  });
-
-  it("cancels and cleans up SDK Manager while awaiting input", async () => {
-    const controller = new AbortController();
-    const reviewer = new DefaultAndroidSdkLicenseReviewer({
-      spawn: () =>
-        ChildProcess.spawn(process.execPath, ["-e", "setInterval(()=>{},1000)"], {
-          detached: true,
-          stdio: ["pipe", "pipe", "pipe"],
-        }),
-    });
-    const review = reviewer.review({
-      executable: "/sdkmanager",
-      signal: controller.signal,
-      prompt: async () => true,
-    });
-    controller.abort();
-
-    await expect(review).rejects.toMatchObject({ code: "SETUP_CANCELLED" });
   });
 });

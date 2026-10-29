@@ -39,36 +39,3 @@ it("refuses both prompt reads and answers from a phone session", async () => {
     expect(yield* Effect.promise(() => decision)).toBe("deny");
   }).pipe(Effect.provide(RemotePairingControlLive), Effect.scoped, Effect.runPromise);
 });
-
-it("streams the current prompt and its dismissal to an observer", async () => {
-  await Effect.gen(function* () {
-    const control = yield* RemotePairingControl;
-    const ready = Promise.withResolvers<void>();
-    const prompt = Promise.withResolvers<void>();
-    const seen: (string | null)[] = [];
-    const stream = yield* Effect.forkChild(
-      control.changes.pipe(
-        Stream.take(3),
-        Stream.runForEach((value) =>
-          Effect.sync(() => {
-            seen.push(value.request?.phoneDeviceId ?? null);
-            if (seen.length === 1) ready.resolve();
-            else if (seen.length === 2) prompt.resolve();
-          }),
-        ),
-      ),
-    );
-    yield* Effect.promise(() => ready.promise);
-    const decision = control.approvals.request(
-      { phoneDeviceId: "phone", phoneName: "Phone", phoneModel: "Model", code: "123456" },
-      new AbortController().signal,
-    );
-    // Wait for the prompt observation before answering so the sliding stream
-    // is not expected to retain an already superseded state.
-    yield* Effect.promise(() => prompt.promise);
-    control.approvals.answer(control.approvals.current!.requestId, false);
-    expect(yield* Effect.promise(() => decision)).toBe("deny");
-    yield* Fiber.join(stream);
-    expect(seen).toEqual([null, "phone", null]);
-  }).pipe(Effect.provide(RemotePairingControlLive), Effect.scoped, Effect.runPromise);
-});

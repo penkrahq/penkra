@@ -18,7 +18,6 @@
       "@types/node": "^24.10.13",
       "tsdown": "^0.20.3",
       "typescript": "^5.7.3",
-      "@vitest/browser-playwright": "5.0.5",
       "vitest": "5.0.5"
     }
   },
@@ -43,7 +42,7 @@
     "verify:affected": "bun run brand:check && bun run fmt:check && bun run lint && bun run typecheck && bun run test",
     "lint": "oxlint --quiet --report-unused-disable-directives",
     "lint:advisory": "oxlint --report-unused-disable-directives",
-    "test": "bun run --cwd apps/server test",
+    "test": "bun run --cwd apps/server test && bun run vitest run apps/desktop/src/electronUpdaterSecurity.test.ts apps/desktop/src/appDataVault.test.ts apps/desktop/src/appBlobUrlRegistry.test.ts apps/desktop/src/updateArtifactIdentity.test.ts apps/desktop/src/appIdentityToken.test.ts apps/desktop/src/appScopedFileHandleStore.test.ts apps/desktop/src/desktopStaticProtocol.test.ts apps/desktop/src/appNetworkFetch.test.ts apps/desktop/src/defaultRegistryAppsBootstrap.test.ts apps/server/scripts/providers-verify.test.ts apps/web/src/lib/externalUrl.test.ts apps/web/src/lib/shellQuote.test.ts apps/web/src/lib/pdf/pdfLinks.test.ts packages/shared/src/windowsProcess.test.ts packages/shared/src/windowsCertificate.test.ts packages/sdk/src/permissions.test.ts apps/desktop/src/androidSdkLicenseReviewer.test.ts --maxWorkers=2 && bun run --cwd apps/desktop vitest run --config vitest.auth-contract.config.ts",
     "test:diagnostics-bundles": "bun run --cwd scripts test:diagnostics-bundles",
     "brand:check": "node scripts/check-brand-identity.ts",
     "migrations:check": "node scripts/check-migration-lineage.ts",
@@ -102,11 +101,6 @@
     "node": "^24.15.0"
   },
   "packageManager": "bun@1.4.0",
-  "msw": {
-    "workerDirectory": [
-      "apps/web/public"
-    ]
-  },
   "patchedDependencies": {
     "app-builder-lib@26.15.3": "patches/app-builder-lib@26.15.3.patch",
     "@effect/platform-node-shared@4.0.6": "patches/@effect%2Fplatform-node-shared@4.0.6.patch"

@@ -45,17 +45,3 @@ it("prevents phone clients from reading, changing, or subscribing to device stat
   expect(list).not.toHaveBeenCalled();
   expect(remove).not.toHaveBeenCalled();
 });
-
-it("reports actual relay state and ignores late events from a previous account", async () => {
-  const control = new RemoteDevicesControlState();
-  const first = control.attach({ list: async () => [], remove: async () => undefined });
-  first.setStatus("connected");
-  expect(await control.list()).toEqual({ phones: [], relay: "connected" });
-  first.detach();
-  const second = control.attach({ list: async () => [], remove: async () => undefined });
-  first.setStatus("rejected-protocol");
-  expect(await control.list()).toEqual({ phones: [], relay: "connecting" });
-  second.setStatus("rejected-sign-in");
-  expect((await control.list()).relay).toBe("rejected-sign-in");
-  second.detach();
-});

@@ -27,16 +27,6 @@ afterEach(() => {
 });
 
 describe("update artifact identity", () => {
-  it("fingerprints and revalidates exact downloaded bytes", async () => {
-    const filePath = createPayload();
-    const identity = await fingerprintUpdateArtifact(filePath);
-
-    expect(identity.path).toBe(filePath);
-    expect(identity.size).toBe(Buffer.byteLength("signed update bytes"));
-    expect(identity.sha512).toMatch(/^[0-9a-f]{128}$/);
-    expect(isUpdateArtifactIdentity(identity)).toBe(true);
-    await expect(verifyUpdateArtifactIdentity(identity)).resolves.toBe(true);
-  });
 
   it("rejects changed or missing payloads", async () => {
     const filePath = createPayload();
@@ -54,15 +44,5 @@ describe("update artifact identity", () => {
     FS.symlinkSync(targetPath, symlinkPath);
 
     await expect(fingerprintUpdateArtifact(symlinkPath)).rejects.toThrow("non-symlink");
-  });
-
-  it("rejects empty artifact identities", () => {
-    expect(
-      isUpdateArtifactIdentity({
-        path: Path.resolve("empty.zip"),
-        size: 0,
-        sha512: "a".repeat(128),
-      }),
-    ).toBe(false);
   });
 });

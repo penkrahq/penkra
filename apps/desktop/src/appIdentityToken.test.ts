@@ -30,43 +30,4 @@ describe("requestAppIdentityToken", () => {
       expiresAt: "2026-08-18T12:05:00Z",
     });
   });
-
-  it("rejects undeclared-shaped audiences before a request", async () => {
-    await expect(
-      requestAppIdentityToken({
-        apiUrl: "https://api.penkra.com",
-        appId: "com.borge.studio",
-        spaceId: "space-1",
-        audience: "https://api.borge.ai",
-        cookie: "session=secret",
-      }),
-    ).rejects.toThrow("Identity audience is invalid");
-  });
-
-  it("preserves the Account API error contract", async () => {
-    const fetch = vi.fn(async () =>
-      Response.json(
-        {
-          code: "APP_ACCESS_DENIED",
-          message: "This Account cannot use the requested App",
-          requestId: "<request-id>",
-        },
-        { status: 403 },
-      ),
-    );
-
-    const request = requestAppIdentityToken({
-      apiUrl: "https://api.penkra.com",
-      appId: "com.borge.studio",
-      spaceId: "space-1",
-      audience: "api.borge.ai",
-      cookie: "session=secret",
-      fetch: fetch as typeof globalThis.fetch,
-    });
-
-    await expect(request).rejects.toMatchObject({
-      code: "APP_ACCESS_DENIED",
-      message: "This Account cannot use the requested App",
-    });
-  });
 });

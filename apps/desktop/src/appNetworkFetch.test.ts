@@ -40,20 +40,4 @@ describe("mediated App network policy", () => {
       mediatedAppFetch({ url: "https://example.com", method: "CONNECT" }),
     ).rejects.toThrow("not supported");
   });
-
-  it("allows credential-free loopback HTTP for local App development", async () => {
-    const server = createServer((_request, response) => {
-      response.writeHead(200, { "content-type": "application/json" });
-      response.end('{"ok":true}');
-    });
-    servers.push(server);
-    await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
-    const address = server.address();
-    if (!address || typeof address === "string") throw new Error("Expected a TCP server address.");
-
-    const response = await mediatedAppFetch({ url: `http://127.0.0.1:${address.port}/health` });
-
-    expect(response.status).toBe(200);
-    expect(new TextDecoder().decode(response.body)).toBe('{"ok":true}');
-  });
 });

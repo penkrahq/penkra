@@ -195,6 +195,10 @@ jobs:
           }
           NODE
 
+      - name: Verify Windows process arguments
+        if: matrix.platform == 'win'
+        run: bun run vitest run apps/server/src/windowsProcessEffect.test.ts
+
       - name: Build desktop pipeline
         env:
           NODE_OPTIONS: --max-old-space-size=4096
@@ -211,7 +215,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          for generated_path in bun.lock apps/web/public/mockServiceWorker.js apps/web/src/routeTree.gen.ts; do
+          for generated_path in bun.lock apps/web/src/routeTree.gen.ts; do
             if ! git diff --quiet -- "$generated_path"; then
               git show "HEAD:$generated_path" > "$generated_path"
             fi

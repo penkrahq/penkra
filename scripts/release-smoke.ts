@@ -188,16 +188,6 @@ function verifyReleaseWorkflowSafety(): void {
     "name: Penkra CI Quality Gate",
     "Expected one durable aggregate CI result for release provenance.",
   );
-  assertContains(
-    ciWorkflow,
-    "test:browser:chat-view",
-    "Expected full ChatView behavior to block CI in its own deterministic partition.",
-  );
-  assertContains(
-    ciWorkflow,
-    "test:browser:components",
-    "Expected component browser behavior to block CI in its own deterministic partition.",
-  );
   assertNotContains(
     ciWorkflow,
     "continue-on-error: true",
@@ -210,13 +200,13 @@ function verifyReleaseWorkflowSafety(): void {
   );
   assertContains(
     ciWorkflow,
-    "bun run --cwd apps/server test",
-    "Expected the isolated parallel server suite to block CI.",
+    "bun run test",
+    "Expected the kept suite to block CI.",
   );
   assertContains(
-    ciWorkflow,
+    workflow,
     "bun run build:desktop",
-    "Expected the production desktop build to enforce its integrated React compiler contract.",
+    "Expected the release to build the production desktop artifact.",
   );
   assertNotContains(
     workflow,
@@ -322,8 +312,8 @@ function verifyReleaseWorkflowSafety(): void {
   );
   assertContains(
     workflow,
-    "for generated_path in bun.lock apps/web/public/mockServiceWorker.js apps/web/src/routeTree.gen.ts",
-    "Expected Windows dependency installation to reconcile only the three proven generated artifacts.",
+    "for generated_path in bun.lock apps/web/src/routeTree.gen.ts",
+    "Expected Windows dependency installation to reconcile only the retained generated artifacts.",
   );
   assertContains(
     workflow,

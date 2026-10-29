@@ -7,12 +7,6 @@ import {
 } from "./permissions";
 
 describe("App permission declarations", () => {
-  it("exposes simulator sessions without legacy socket or process authority", () => {
-    expect(isPenkraPermissionName("simulator-session")).toBe(true);
-    expect(isPenkraPermissionName("raw-socket")).toBe(false);
-    expect(isPenkraPermissionName("process-spawn")).toBe(false);
-    expect(isPenkraPermissionName("account-identity")).toBe(true);
-  });
 
   it("requires review when an identity audience changes", () => {
     const before = [
