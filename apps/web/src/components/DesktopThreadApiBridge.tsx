@@ -124,7 +124,12 @@ export function DesktopThreadApiBridge() {
     const publish = () => {
       scheduled = false;
       if (disposed) return;
-      for (const folder of useStore.getState().folders) {
+      const folders = useStore.getState().folders;
+      const currentFolderIds = new Set(folders.map((folder) => folder.id));
+      for (const folderId of published.keys()) {
+        if (!currentFolderIds.has(folderId as FolderId)) published.delete(folderId);
+      }
+      for (const folder of folders) {
         try {
           const threads = folderStates(folder.id);
           const previous = published.get(folder.id);
