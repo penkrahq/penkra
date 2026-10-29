@@ -3,11 +3,20 @@
 // Layer: Desktop build config
 // Depends on: tsdown.
 
+import { readFileSync } from "node:fs";
 import { defineConfig } from "tsdown";
 
 const sourcemapEnv = process.env.PENKRA_DESKTOP_SOURCEMAP?.trim().toLowerCase();
 const buildSourcemap = sourcemapEnv === "1" || sourcemapEnv === "true";
-const registryTrustedKeys = process.env.PENKRA_REGISTRY_TRUSTED_KEYS?.trim() ?? "";
+const registryTrustedKeys =
+  process.env.PENKRA_REGISTRY_TRUSTED_KEYS?.trim() ||
+  readFileSync(new URL("./registry-trust-keys.json", import.meta.url), "utf8").trim();
+if (
+  !registryTrustedKeys ||
+  !Array.isArray(JSON.parse(registryTrustedKeys)) ||
+  JSON.parse(registryTrustedKeys).length === 0
+)
+  throw new Error("Registry trust keys must be a non-empty array.");
 const shared = {
   format: "cjs" as const,
   outDir: "dist-electron",

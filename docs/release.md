@@ -195,3 +195,6 @@ gh workflow run npm-publish.yml --repo penkrahq/penkra --help
 Configure the protected GitHub `npm` environment and trusted publisher before the first release.
 Approve its deployment only after reviewing the package and version. Confirm registry provenance
 and the exact immutable version afterward.
+
+Registry key rotation: add the new public key alongside the old key in `apps/desktop/registry-trust-keys.json`, and ship it.
+Remove the old key one release later; keep the `desktop-release` variable equal to the committed file.

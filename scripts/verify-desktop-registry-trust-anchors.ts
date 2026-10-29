@@ -7,7 +7,12 @@ import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 export function configuredTrustKeys(value: string | undefined): string {
-  const configured = value?.trim();
+  const configured =
+    value?.trim() ||
+    readFileSync(
+      new URL("../apps/desktop/registry-trust-keys.json", import.meta.url),
+      "utf8",
+    ).trim();
   if (!configured) throw new Error("The production Desktop build requires registry trust anchors.");
   let parsed: unknown;
   try {

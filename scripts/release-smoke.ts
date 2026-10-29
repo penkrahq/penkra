@@ -198,11 +198,7 @@ function verifyReleaseWorkflowSafety(): void {
     "Native Desktop Package",
     "Commit CI must leave final native artifact certification to the release workflow.",
   );
-  assertContains(
-    ciWorkflow,
-    "bun run test",
-    "Expected the kept suite to block CI.",
-  );
+  assertContains(ciWorkflow, "bun run test", "Expected the kept suite to block CI.");
   assertContains(
     workflow,
     "bun run build:desktop",
@@ -274,6 +270,11 @@ function verifyReleaseWorkflowSafety(): void {
     workflow,
     "Missing desktop-release variable: PENKRA_REGISTRY_TRUSTED_KEYS",
     "Expected the release to fail closed when registry trust anchors are absent.",
+  );
+  assertContains(
+    workflow,
+    "Release registry keys differ from committed trust anchors",
+    "Expected release trust anchors to match the committed registry key file.",
   );
   assertContains(
     desktopTurbo,

@@ -173,12 +173,16 @@ jobs:
         run: |
           set -euo pipefail
           node --input-type=module <<'NODE'
+          const { readFileSync } = await import("node:fs");
           const raw = process.env.PENKRA_REGISTRY_TRUSTED_KEYS?.trim();
           if (!raw) throw new Error("Missing desktop-release variable: PENKRA_REGISTRY_TRUSTED_KEYS");
           const keys = JSON.parse(raw);
           if (!Array.isArray(keys) || keys.length === 0) {
             throw new Error("PENKRA_REGISTRY_TRUSTED_KEYS must contain at least one key");
           }
+          const committed = JSON.parse(readFileSync("apps/desktop/registry-trust-keys.json", "utf8"));
+          const canonical = (value) => JSON.stringify(value.map((key) => Object.fromEntries(Object.entries(key).sort(([a], [b]) => a.localeCompare(b)))).sort((a, b) => JSON.stringify(a).localeCompare(JSON.stringify(b))));
+          if (canonical(keys) !== canonical(committed)) throw new Error("Release registry keys differ from committed trust anchors");
           for (const key of keys) {
             if (
               key?.kty !== "OKP" ||
