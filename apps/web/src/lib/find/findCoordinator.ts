@@ -11,8 +11,6 @@ export interface FindSurface {
   readonly id: string;
   /** Lower orders are visited first by Enter. Keep this aligned with visual pane order. */
   readonly order: number;
-  /** Override the coordinator deadline for surfaces such as large document indexes. */
-  readonly searchTimeoutMs?: number;
   isVisible(): boolean;
   search(query: string, generation: number): Promise<FindSurfaceResult> | FindSurfaceResult;
   activate(matchIndex: number): Promise<void> | void;
@@ -30,7 +28,6 @@ export interface FindState {
   readonly current: number;
   readonly total: number;
   readonly pending: boolean;
-  readonly error: "timeout" | null;
 }
 
 const EMPTY_STATE: FindState = {
@@ -38,11 +35,7 @@ const EMPTY_STATE: FindState = {
   current: 0,
   total: 0,
   pending: false,
-  error: null,
 };
-
-// A remote/native search surface may never answer; let the remaining surfaces complete (3b).
-const DEFAULT_SEARCH_TIMEOUT_MS = 3_000;
 
 function isSurfaceVisible(surface: FindSurface): boolean {
   try {
@@ -56,24 +49,12 @@ async function searchSurface(
   surface: FindSurface,
   query: string,
   generation: number,
-): Promise<FindSurfaceResult | { readonly error: "timeout" }> {
-  let timeout: ReturnType<typeof setTimeout> | null = null;
+): Promise<FindSurfaceResult> {
   try {
-    const result = await Promise.race([
-      Promise.resolve(surface.search(query, generation)),
-      new Promise<{ readonly error: "timeout" }>((resolve) => {
-        timeout = setTimeout(
-          () => resolve({ error: "timeout" }),
-          surface.searchTimeoutMs ?? DEFAULT_SEARCH_TIMEOUT_MS,
-        );
-      }),
-    ]);
-    if (result && "error" in result) return result;
+    const result = await surface.search(query, generation);
     return result && Number.isInteger(result.count) ? result : { count: 0 };
   } catch {
     return { count: 0 };
-  } finally {
-    if (timeout !== null) clearTimeout(timeout);
   }
 }
 
@@ -166,28 +147,29 @@ export class FindCoordinator {
     this.#setState({
       ...this.#state,
       query,
-      pending: preserveActive ? this.#state.pending : true,
+      pending: true,
     });
 
     try {
       const visible = [...this.#surfaces.values()]
         .filter(isSurfaceVisible)
         .sort((left, right) => left.order - right.order || left.id.localeCompare(right.id));
-      // Do not let a native browser view, PDF worker, or background-throttled
-      // renderer hold the global UI on "Searching…". Fast surfaces replace this
-      // provisional empty state as soon as their promises settle.
       if (!preserveActive) {
         this.#results = [];
         this.#setState({
           query,
           current: 0,
           total: 0,
-          pending: false,
-          error: null,
+          pending: visible.length > 0,
         });
+      } else if (visible.length === 0) {
+        this.#results = [];
+        this.#activeSurfaceId = null;
+        this.#activeLocalIndex = -1;
+        this.#setState({ query, current: 0, total: 0, pending: false });
       }
       const settledBySurfaceId = new Map<string, FindSurfaceResult>();
-      const timedOut = new Set<string>();
+      let remaining = visible.length;
       if (preserveActive) {
         for (const result of this.#results) {
           settledBySurfaceId.set(result.surface.id, { count: result.count });
@@ -197,12 +179,8 @@ export class FindCoordinator {
         visible.map(async (surface) => {
           const result = await searchSurface(surface, query, generation);
           if (this.#disposed || generation !== this.#generation) return;
-          if ("error" in result) {
-            timedOut.add(surface.id);
-            settledBySurfaceId.delete(surface.id);
-          } else {
-            settledBySurfaceId.set(surface.id, result);
-          }
+          remaining -= 1;
+          settledBySurfaceId.set(surface.id, result);
 
           const previousActiveSurfaceId = this.#activeSurfaceId;
           const previousActiveLocalIndex = this.#activeLocalIndex;
@@ -234,8 +212,7 @@ export class FindCoordinator {
             query,
             current: this.#globalOrdinal(),
             total,
-            pending: false,
-            error: timedOut.size ? "timeout" : null,
+            pending: remaining > 0,
           });
           if (!retained && this.#results[0]) {
             try {
@@ -256,7 +233,6 @@ export class FindCoordinator {
           current: 0,
           total: 0,
           pending: false,
-          error: null,
         });
       }
     } finally {
@@ -316,8 +292,7 @@ export class FindCoordinator {
       next.query === this.#state.query &&
       next.current === this.#state.current &&
       next.total === this.#state.total &&
-      next.pending === this.#state.pending &&
-      next.error === this.#state.error
+      next.pending === this.#state.pending
     ) {
       return;
     }
