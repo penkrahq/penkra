@@ -88,11 +88,15 @@ export const ChatSearchBar = memo(function ChatSearchBar(props: ChatSearchBarPro
           aria-atomic="true"
         >
           <span className="mr-auto px-1 text-[length:var(--app-font-size-ui,12px)] tabular-nums text-muted-foreground">
-            {state.pending
-              ? "Searching…"
-              : state.total === 0
-                ? "No results"
-                : `${state.current || "–"} / ${state.total} results`}
+            {state.error === "timeout"
+              ? state.total > 0
+                ? `${state.current || "–"} / ${state.total} results · Some views timed out`
+                : "Search timed out in some views"
+              : state.pending
+                ? "Searching…"
+                : state.total === 0
+                  ? "No results"
+                  : `${state.current || "–"} / ${state.total} results`}
           </span>
           <button
             type="button"

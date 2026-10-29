@@ -30,6 +30,7 @@ export interface FindState {
   readonly current: number;
   readonly total: number;
   readonly pending: boolean;
+  readonly error: "timeout" | null;
 }
 
 const EMPTY_STATE: FindState = {
@@ -37,6 +38,7 @@ const EMPTY_STATE: FindState = {
   current: 0,
   total: 0,
   pending: false,
+  error: null,
 };
 
 // A remote/native search surface may never answer; let the remaining surfaces complete (3b).
@@ -54,18 +56,19 @@ async function searchSurface(
   surface: FindSurface,
   query: string,
   generation: number,
-): Promise<FindSurfaceResult> {
+): Promise<FindSurfaceResult | { readonly error: "timeout" }> {
   let timeout: ReturnType<typeof setTimeout> | null = null;
   try {
     const result = await Promise.race([
       Promise.resolve(surface.search(query, generation)),
-      new Promise<FindSurfaceResult>((resolve) => {
+      new Promise<{ readonly error: "timeout" }>((resolve) => {
         timeout = setTimeout(
-          () => resolve({ count: 0 }),
+          () => resolve({ error: "timeout" }),
           surface.searchTimeoutMs ?? DEFAULT_SEARCH_TIMEOUT_MS,
         );
       }),
     ]);
+    if (result && "error" in result) return result;
     return result && Number.isInteger(result.count) ? result : { count: 0 };
   } catch {
     return { count: 0 };
@@ -180,9 +183,11 @@ export class FindCoordinator {
           current: 0,
           total: 0,
           pending: false,
+          error: null,
         });
       }
       const settledBySurfaceId = new Map<string, FindSurfaceResult>();
+      const timedOut = new Set<string>();
       if (preserveActive) {
         for (const result of this.#results) {
           settledBySurfaceId.set(result.surface.id, { count: result.count });
@@ -192,7 +197,12 @@ export class FindCoordinator {
         visible.map(async (surface) => {
           const result = await searchSurface(surface, query, generation);
           if (this.#disposed || generation !== this.#generation) return;
-          settledBySurfaceId.set(surface.id, result);
+          if ("error" in result) {
+            timedOut.add(surface.id);
+            settledBySurfaceId.delete(surface.id);
+          } else {
+            settledBySurfaceId.set(surface.id, result);
+          }
 
           const previousActiveSurfaceId = this.#activeSurfaceId;
           const previousActiveLocalIndex = this.#activeLocalIndex;
@@ -225,6 +235,7 @@ export class FindCoordinator {
             current: this.#globalOrdinal(),
             total,
             pending: false,
+            error: timedOut.size ? "timeout" : null,
           });
           if (!retained && this.#results[0]) {
             try {
@@ -245,6 +256,7 @@ export class FindCoordinator {
           current: 0,
           total: 0,
           pending: false,
+          error: null,
         });
       }
     } finally {
@@ -304,7 +316,8 @@ export class FindCoordinator {
       next.query === this.#state.query &&
       next.current === this.#state.current &&
       next.total === this.#state.total &&
-      next.pending === this.#state.pending
+      next.pending === this.#state.pending &&
+      next.error === this.#state.error
     ) {
       return;
     }
