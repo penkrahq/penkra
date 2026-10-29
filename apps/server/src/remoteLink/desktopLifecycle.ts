@@ -97,6 +97,7 @@ export async function watchDesktopRemoteLifecycle(input: {
         if (event.revision <= revision || (revision === -1 && event.event !== "snapshot"))
           throw new Error("Invalid RemoteLink lifecycle ordering.");
         revision = event.revision;
+        console.info("[remote-link] lifecycle", { event: event.event, revision: event.revision });
         await input.apply(event, input.signal);
         if (input.signal.aborted) return;
         await new Promise<void>((resolve, reject) =>
