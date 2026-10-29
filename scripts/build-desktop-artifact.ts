@@ -651,7 +651,6 @@ const createBuildConfig = Effect.fn("createBuildConfig")(function* (
   notarize: boolean,
   mockUpdates: boolean,
   mockUpdateServerPort: string | undefined,
-  localSign: boolean,
 ) {
   const buildConfig: Record<string, unknown> = {
     appId: PENKRA_PRODUCTION_BUNDLE_ID,
@@ -672,24 +671,21 @@ const createBuildConfig = Effect.fn("createBuildConfig")(function* (
     },
     forceCodeSigning: signed,
   };
-  buildConfig.publish =
-    localSign && !mockUpdates
-      ? null
-      : mockUpdates
-        ? [
-            {
-              provider: "generic",
-              url: resolveMockUpdateUrl(mockUpdates, mockUpdateServerPort),
-              useMultipleRangeRequest: false,
-            },
-          ]
-        : [
-            {
-              provider: "github",
-              owner: "penkrahq",
-              repo: "penkra",
-            },
-          ];
+  buildConfig.publish = mockUpdates
+    ? [
+        {
+          provider: "generic",
+          url: resolveMockUpdateUrl(mockUpdates, mockUpdateServerPort),
+          useMultipleRangeRequest: false,
+        },
+      ]
+    : [
+        {
+          provider: "github",
+          owner: "penkrahq",
+          repo: "penkra",
+        },
+      ];
 
   const platformBuildConfigInput = {
     platform,
@@ -1009,7 +1005,6 @@ const buildDesktopArtifact = Effect.fn("buildDesktopArtifact")(function* (
     options.signed,
     options.mockUpdates,
     options.mockUpdateServerPort,
-    options.localSign,
   );
 
   const stagePackageJson: StagePackageJson = {

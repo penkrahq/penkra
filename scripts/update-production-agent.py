@@ -32,7 +32,11 @@ def main():
     if info.get("CFBundleIdentifier") != "com.penkra.app":
         raise SystemExit("Candidate has the wrong Production bundle identity.")
     version = info["CFBundleShortVersionString"]
-    codex = os.environ.get("PENKRA_UPDATE_CODEX_BIN") or shutil.which("codex")
+    codex = os.environ.get("PENKRA_UPDATE_CODEX_BIN")
+    if not codex:
+        versions = Path.home() / "Penkra/.penkra/userdata/provider-runtimes/codex/versions"
+        candidates = [(tuple(int(part) for part in item.name.split(".")), item / "bin/codex") for item in versions.iterdir() if item.is_dir() and all(part.isdigit() for part in item.name.split(".")) and (item / "bin/codex").is_file()] if versions.is_dir() else []
+        codex = str(max(candidates, key=lambda item: item[0])[1]) if candidates else shutil.which("codex")
     if not codex or not Path(codex).is_file():
         raise SystemExit("Set PENKRA_UPDATE_CODEX_BIN to an installed standalone Codex executable.")
     stamp = datetime.datetime.now().strftime("%Y%m%d-%H%M%S-%f")
@@ -65,8 +69,10 @@ The system Python does not expose KQ_FILTER_USER or KQ_NOTE_TRIGGER. Use a socke
 6. On failure after the old bundle moved, quit the candidate and wait for every database owner to exit. If migrations committed, use ONLY the exact verified backupPath captured from this launch's database.migration.backup_ready event (not state.pre-0.14.4.sqlite). First validate that source with the packaged lifecycle-aware penkra-database verify command. Move current state.sqlite and any WAL/SHM into this update directory's failed-db/, then copy that exact snapshot to the original database path and verify it before relaunch. Preserve the source snapshot and failed DB; never edit or delete either. If no migration ran, or the migration transaction rolled back leaving the database unchanged, do not restore a database. If the exact required snapshot is unavailable, preserve all files and report that limitation; never guess or substitute an older backup. Move the failed candidate to failed-Penkra.app, restore the saved old app to /Applications/Penkra.app and launch it. Verify the recorded old version's readiness: 0.14.4 uses /status JSON migration.status='ok'; 0.14.3 uses /health JSON startupReady=true (its /status is HTML). Record the exact rollback result. Never alter/delete userdata backups or .corrupt files; only read/copy the exact rollback snapshot.
 7. Record the final installed version, PID, /status and migration outcome or exact rollback limitation in update.log and report.md. Show a macOS notification summarizing the report. Exit after this one attempt. Do not re-run yourself.
 """
+    if os.environ.get("PENKRA_UPDATE_NO_ROLLBACK") == "1":
+        prompt += "\nFor this recovery only: the old public app cannot open the current database. If the candidate fails, stop and report the outcome; do not restore a backup or relaunch the old app. No migration is expected. This overrides step 6 above.\n"
     (folder / "prompt.md").write_text(prompt)
-    command = [codex, "-a", "never", "exec", "-m", os.environ.get("PENKRA_UPDATE_CODEX_MODEL", "gpt-6.1-sol"), "--skip-git-repo-check", "-C", str(folder),
+    command = [codex, "-a", "never", "exec", "--skip-git-repo-check", "-C", str(folder),
                "-s", "danger-full-access", "-c", 'mcp_servers.penkra={url="http://127.0.0.1/unused",enabled=false}',
                "-o", str(folder / "codex-last-message.md"), "-"]
     pid = os.fork()
@@ -88,6 +94,8 @@ The system Python does not expose KQ_FILTER_USER or KQ_NOTE_TRIGGER. Use a socke
     env = {key: value for key, value in os.environ.items() if not key.startswith("PENKRA_")}
     try:
         with (folder / "prompt.md").open("rb") as source, (folder / "run.log").open("ab", buffering=0) as log:
+            version = subprocess.run([codex, "--version"], capture_output=True, text=True)
+            log.write(("Updater Codex: " + str(codex) + "\nVersion: " + (version.stdout or version.stderr).strip() + "\n").encode())
             child = subprocess.Popen(command, stdin=source, stdout=log, stderr=log, env=env)
             status = child.wait()
         (folder / "agent-exit.json").write_text(json.dumps({"exitCode": status}))
