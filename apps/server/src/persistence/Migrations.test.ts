@@ -1,3 +1,7 @@
+import { copyFile, mkdtemp, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { fileURLToPath } from "node:url";
 import foldProviderState from "./Migrations/202_FoldProviderState.ts";
 import { seedThreadFolderFixture } from "../cleanCore/threadFixtures.ts";
 import { seedHistoricalProjectFixture } from "./Migrations/historicalFolderFixture.ts";
@@ -1483,3 +1487,43 @@ it.effect("uses the native owner and preserves identities, with rollback on fail
       );
   }).pipe(Effect.provide(NodeSqliteClient.layerMemory())),
 );
+
+it("migrates a sanitized historical database without losing threads, messages, or folders", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "penkra-migration-fixture-"));
+  const database = join(directory, "state.sqlite");
+  try {
+    await copyFile(
+      fileURLToPath(new URL("./fixtures/pre-migration.sqlite", import.meta.url)),
+      database,
+    );
+    await Effect.runPromise(
+      Effect.gen(function* () {
+        const sql = yield* SqlClient.SqlClient;
+        const counts = () =>
+          Effect.gen(function* () {
+            const [row] = yield* sql<{ threads: number; messages: number; folders: number }>`
+            SELECT (SELECT count(*) FROM threads) AS threads,
+              (SELECT count(*) FROM thread_items WHERE kind = 'user') AS messages,
+              (SELECT count(*) FROM projection_folders) AS folders
+          `;
+            return row!;
+          });
+        const before = yield* counts();
+        assert.deepStrictEqual(before, { threads: 3, messages: 3, folders: 2 });
+        yield* runMigrations();
+        assert.deepStrictEqual(yield* counts(), before);
+        const integrity = yield* sql<{ integrity_check: string }>`PRAGMA integrity_check`;
+        assert.deepStrictEqual(
+          integrity.map((row) => row.integrity_check),
+          ["ok"],
+        );
+        const [latest] = yield* sql<{
+          migration_id: number;
+        }>`SELECT max(migration_id) AS migration_id FROM effect_sql_migrations`;
+        assert.strictEqual(latest!.migration_id, Math.max(...migrationEntries.map(([id]) => id)));
+      }).pipe(Effect.provide(NodeSqliteClient.layer({ filename: database }))),
+    );
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+});
