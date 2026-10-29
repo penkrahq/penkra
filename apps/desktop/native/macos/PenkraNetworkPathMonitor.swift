@@ -6,8 +6,11 @@ import Network
 struct PenkraNetworkPathMonitor {
   static func main() {
     let monitor = NWPathMonitor()
+    var previousPath: NWPath?
     monitor.pathUpdateHandler = { path in
-      if path.status == .satisfied {
+      let changed = previousPath.map { $0 != path } ?? false
+      previousPath = path
+      if changed && path.status == .satisfied {
         FileHandle.standardOutput.write(Data("path-satisfied\n".utf8))
       }
     }
