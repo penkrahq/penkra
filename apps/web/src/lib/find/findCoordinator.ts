@@ -92,14 +92,14 @@ export class FindCoordinator {
         }),
       );
     }
-    this.#requestRefresh();
+    this.#refreshForSurfaceChange();
 
     return () => {
       this.#surfaceInvalidationCleanups.get(surface.id)?.();
       this.#surfaceInvalidationCleanups.delete(surface.id);
       this.#surfaces.delete(surface.id);
       surface.clear();
-      this.#requestRefresh();
+      this.#refreshForSurfaceChange();
     };
   }
 
@@ -251,6 +251,12 @@ export class FindCoordinator {
       this.#refreshQueued = true;
       return;
     }
+    void this.#runSearch(this.#state.query, true);
+  }
+
+  #refreshForSurfaceChange(): void {
+    if (this.#disposed || !this.#state.query) return;
+    this.#refreshQueued = false;
     void this.#runSearch(this.#state.query, true);
   }
 
