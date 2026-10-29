@@ -215,7 +215,8 @@ export const createComposerDraftStoreState =
       if (threadId.length === 0) {
         return null;
       }
-      return get().draftThreadsByThreadId[threadId] ?? null;
+      const draftThread = get().draftThreadsByThreadId[threadId];
+      return draftThread && draftThread.promotedTo === undefined ? draftThread : null;
     },
     setProjectDraftThreadId: (folderId, threadId, options) => {
       if (folderId.length === 0 || threadId.length === 0) {
