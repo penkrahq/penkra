@@ -70,6 +70,35 @@ export function folderStates(folderId: FolderId): ReadonlyArray<AppThreadState> 
   });
 }
 
+function sameThreadStates(
+  left: ReadonlyArray<AppThreadState>,
+  right: ReadonlyArray<AppThreadState>,
+): boolean {
+  return (
+    left.length === right.length &&
+    left.every((item, index) => {
+      const other = right[index];
+      return (
+        other !== undefined &&
+        item.threadId === other.threadId &&
+        item.folderId === other.folderId &&
+        item.title === other.title &&
+        item.order === other.order &&
+        item.archived === other.archived &&
+        item.phase === other.phase &&
+        item.activeTurnId === other.activeTurnId &&
+        item.pendingQuestion === other.pendingQuestion &&
+        item.updatedAt === other.updatedAt &&
+        item.composer.empty === other.composer.empty &&
+        item.composer.owner === other.composer.owner &&
+        item.composer.composeId === other.composer.composeId &&
+        item.queued.count === other.queued.count &&
+        item.queued.hasAppSubmission === other.queued.hasAppSubmission
+      );
+    })
+  );
+}
+
 export function DesktopThreadApiBridge() {
   const navigate = useNavigate();
   useEffect(
@@ -88,16 +117,24 @@ export function DesktopThreadApiBridge() {
     if (!bridge) return;
     let disposed = false;
     let scheduled = false;
-    const fingerprints = new Map<string, string>();
+    const published = new Map<
+      string,
+      { spaceId: string; threads: ReadonlyArray<AppThreadState> }
+    >();
     const publish = () => {
       scheduled = false;
       if (disposed) return;
       for (const folder of useStore.getState().folders) {
-        const threads = folderStates(folder.id);
-        const fingerprint = JSON.stringify(threads);
-        if (fingerprints.get(folder.id) === fingerprint) continue;
-        fingerprints.set(folder.id, fingerprint);
-        bridge.publishState({ spaceId: folder.spaceId, folderId: folder.id, threads });
+        try {
+          const threads = folderStates(folder.id);
+          const previous = published.get(folder.id);
+          if (previous?.spaceId === folder.spaceId && sameThreadStates(previous.threads, threads))
+            continue;
+          bridge.publishState({ spaceId: folder.spaceId, folderId: folder.id, threads });
+          published.set(folder.id, { spaceId: folder.spaceId, threads });
+        } catch (error) {
+          console.error("Failed to publish App thread state for folder", folder.id, error);
+        }
       }
     };
     const schedule = () => {
