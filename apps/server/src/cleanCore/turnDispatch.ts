@@ -54,111 +54,114 @@ export const TurnDispatchLive = Layer.effect(
     const publisher = yield* ThreadPublisher;
     return {
       dispatch: (input: TurnDispatchInput) =>
-        Effect.gen(function* () {
-          const command = input.command;
-          const threadId = command.threadId;
-          const selected = input.selection;
-          if (selected.connectionId !== null) {
-            const blocks = yield* circuits.get(selected.connectionId);
-            if (blocks[0])
-              return yield* Effect.fail(
-                new Error(
-                  `${blocks[0].summary} Sign in again or retry this Connection to clear the block.`,
-                ),
-              );
-          }
-          const configuration = yield* settings.getSettings;
-          if (!configuration.providers[selected.harness].enabled)
-            return yield* Effect.fail(new Error(`Provider '${selected.harness}' is disabled.`));
-          const [row] = yield* sql<{
-            runtimeMode: RuntimeMode;
-          }>`SELECT runtime_mode AS "runtimeMode" FROM threads WHERE id=${threadId}`;
-          const runtimeMode = command.runtimeMode ?? row!.runtimeMode;
-          let session = (yield* provider.listSessions()).find(
-            (session) => session.threadId === threadId,
-          );
-          let reconstruct = false;
-          if (!input.nativeSteer) {
-            if (session && session.runtimeMode !== runtimeMode) {
-              yield* provider.stop({ threadId, reason: "runtime-mode-change" });
-              session = undefined;
+        provider.withIdleStopHeld(
+          input.command.threadId,
+          Effect.gen(function* () {
+            const command = input.command;
+            const threadId = command.threadId;
+            const selected = input.selection;
+            if (selected.connectionId !== null) {
+              const blocks = yield* circuits.get(selected.connectionId);
+              if (blocks[0])
+                return yield* Effect.fail(
+                  new Error(
+                    `${blocks[0].summary} Sign in again or retry this Connection to clear the block.`,
+                  ),
+                );
             }
-            if (!session) {
-              const runtime = yield* resolveSelectedThreadRuntime(
-                { threadId, provider: selected.harness },
-                selected,
-                { stateDir: config.stateDir, sql, providerLaunchResolver: launchResolver },
-              );
-              reconstruct = runtime.requiresReconstruction;
-              yield* provider.ensure(threadId, {
-                threadId,
-                provider: selected.harness,
-                modelSelection: input.modelSelection,
-                runtimeMode,
-                ...(input.cwd === undefined ? {} : { cwd: input.cwd }),
-                managedLaunch: runtime.managedLaunch,
-                ...(runtime.resumeCursor === undefined
-                  ? {}
-                  : { resumeCursor: runtime.resumeCursor }),
-                ...(reconstruct ? { resumePolicy: "fresh" as const } : {}),
-              });
+            const configuration = yield* settings.getSettings;
+            if (!configuration.providers[selected.harness].enabled)
+              return yield* Effect.fail(new Error(`Provider '${selected.harness}' is disabled.`));
+            const [row] = yield* sql<{
+              runtimeMode: RuntimeMode;
+            }>`SELECT runtime_mode AS "runtimeMode" FROM threads WHERE id=${threadId}`;
+            const runtimeMode = command.runtimeMode ?? row!.runtimeMode;
+            let session = (yield* provider.isRoutable(threadId))
+              ? (yield* provider.listSessions()).find((session) => session.threadId === threadId)
+              : undefined;
+            let reconstruct = false;
+            if (!input.nativeSteer) {
+              if (session && session.runtimeMode !== runtimeMode) {
+                yield* provider.stop({ threadId, reason: "runtime-mode-change" });
+                session = undefined;
+              }
+              if (!session) {
+                const runtime = yield* resolveSelectedThreadRuntime(
+                  { threadId, provider: selected.harness },
+                  selected,
+                  { stateDir: config.stateDir, sql, providerLaunchResolver: launchResolver },
+                );
+                reconstruct = runtime.requiresReconstruction;
+                yield* provider.ensure(threadId, {
+                  threadId,
+                  provider: selected.harness,
+                  modelSelection: input.modelSelection,
+                  runtimeMode,
+                  ...(input.cwd === undefined ? {} : { cwd: input.cwd }),
+                  managedLaunch: runtime.managedLaunch,
+                  ...(runtime.resumeCursor === undefined
+                    ? {}
+                    : { resumeCursor: runtime.resumeCursor }),
+                  ...(reconstruct ? { resumePolicy: "fresh" as const } : {}),
+                });
+              }
             }
-          }
-          const reconstructed = reconstruct
-            ? yield* buildReconstructedTurnInput({
-                threadId,
-                provider: selected.harness,
-                currentMessageId: command.message.messageId,
-                currentInput: command.message.text,
-              })
-            : null;
-          const dispatchAttachments = yield* resolveProviderDispatchAttachments({
-            attachments: command.message.attachments,
-            attachmentsDir: config.attachmentsDir,
-            repository: attachments,
-            threadId,
-            messageId: command.message.messageId,
-            provider: selected.harness,
-            operation: "thread.turn.start",
-          });
-          const text = reconstructed ?? command.message.text;
-          yield* Effect.logInfo("provider.delivery.wire_input", {
-            threadId,
-            messageId: command.message.messageId,
-            provider: selected.harness,
-            nativeSteer: input.nativeSteer,
-            rebuiltHistory: reconstructed !== null,
-            inputChars: text.length,
-            attachmentCount: dispatchAttachments.length,
-          });
-          const request = {
-            threadId,
-            clientMessageId: MessageId.make(command.message.messageId),
-            modelSelection: input.modelSelection,
-            ...(text ? { input: text } : {}),
-            ...(dispatchAttachments.length ? { attachments: dispatchAttachments } : {}),
-            ...(command.message.skills === undefined ? {} : { skills: command.message.skills }),
-            ...(command.message.mentions === undefined
-              ? {}
-              : { mentions: command.message.mentions }),
-          };
-          const result = yield* input.nativeSteer
-            ? provider.steerTurn(request)
-            : command.reviewTarget === undefined
-              ? provider.sendTurn(request)
-              : provider.startReview({ threadId, target: command.reviewTarget });
-          yield* settleMessage(
-            publisher,
-            {
-              type: "acknowledged",
+            const reconstructed = reconstruct
+              ? yield* buildReconstructedTurnInput({
+                  threadId,
+                  provider: selected.harness,
+                  currentMessageId: command.message.messageId,
+                  currentInput: command.message.text,
+                })
+              : null;
+            const dispatchAttachments = yield* resolveProviderDispatchAttachments({
+              attachments: command.message.attachments,
+              attachmentsDir: config.attachmentsDir,
+              repository: attachments,
               threadId,
               messageId: command.message.messageId,
-              turnId: result.turnId,
-            },
-            new Date().toISOString(),
-          );
-          return result;
-        }).pipe(Effect.provideService(SqlClient.SqlClient, sql)),
+              provider: selected.harness,
+              operation: "thread.turn.start",
+            });
+            const text = reconstructed ?? command.message.text;
+            yield* Effect.logInfo("provider.delivery.wire_input", {
+              threadId,
+              messageId: command.message.messageId,
+              provider: selected.harness,
+              nativeSteer: input.nativeSteer,
+              rebuiltHistory: reconstructed !== null,
+              inputChars: text.length,
+              attachmentCount: dispatchAttachments.length,
+            });
+            const request = {
+              threadId,
+              clientMessageId: MessageId.make(command.message.messageId),
+              modelSelection: input.modelSelection,
+              ...(text ? { input: text } : {}),
+              ...(dispatchAttachments.length ? { attachments: dispatchAttachments } : {}),
+              ...(command.message.skills === undefined ? {} : { skills: command.message.skills }),
+              ...(command.message.mentions === undefined
+                ? {}
+                : { mentions: command.message.mentions }),
+            };
+            const result = yield* input.nativeSteer
+              ? provider.steerTurn(request)
+              : command.reviewTarget === undefined
+                ? provider.sendTurn(request)
+                : provider.startReview({ threadId, target: command.reviewTarget });
+            yield* settleMessage(
+              publisher,
+              {
+                type: "acknowledged",
+                threadId,
+                messageId: command.message.messageId,
+                turnId: result.turnId,
+              },
+              new Date().toISOString(),
+            );
+            return result;
+          }).pipe(Effect.provideService(SqlClient.SqlClient, sql)),
+        ),
     };
   }),
 );

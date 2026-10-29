@@ -5116,7 +5116,11 @@ function makeClaudeAdapter(options?: ClaudeAdapterLiveOptions) {
       );
 
     const listSessions: ClaudeAdapterShape["listSessions"] = () =>
-      Effect.sync(() => Array.from(sessions.values(), ({ session }) => ({ ...session })));
+      Effect.sync(() =>
+        Array.from(sessions.values())
+          .filter((context) => !context.stopped)
+          .map(({ session }) => ({ ...session })),
+      );
 
     const hasSession: ClaudeAdapterShape["hasSession"] = (threadId) =>
       Effect.sync(() => {

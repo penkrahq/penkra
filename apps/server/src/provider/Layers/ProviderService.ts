@@ -32,6 +32,7 @@ import {
   ProviderStartOptions,
   TurnId,
   type ProviderRuntimeEvent,
+  type ProviderKind,
   type ProviderSession,
 } from "@penkra/contracts";
 import {
@@ -403,6 +404,23 @@ const makeProviderService = (options?: ProviderServiceLiveOptions) =>
       yield* Effect.serviceOption(AgentGatewayCredentials),
     );
     const directory = yield* ProviderSessionDirectory;
+    const removeBinding = (
+      threadId: ThreadId,
+      path: "stop" | "retire" | "replacement-failed",
+      reason: string,
+    ) =>
+      Effect.gen(function* () {
+        const binding = yield* directory.getBinding(threadId);
+        yield* directory.remove(threadId);
+        if (Option.isSome(binding)) {
+          yield* Effect.logInfo("provider.binding.removed", {
+            threadId,
+            provider: binding.value.provider,
+            path,
+            reason,
+          });
+        }
+      });
     const lifecycle = makeThreadRuntime({
       retireNativeContinuation: (threadId, provider) =>
         withNativeCommitLock(
@@ -416,7 +434,7 @@ const makeProviderService = (options?: ProviderServiceLiveOptions) =>
                   provider,
                   resumeCursor: null,
                 });
-              yield* directory.remove(threadId);
+              yield* removeBinding(threadId, "retire", "native continuation retired");
               const state = getDispatchState(threadId);
               state.nextGeneration++;
               state.latestGeneration = state.nextGeneration;
@@ -447,10 +465,16 @@ const makeProviderService = (options?: ProviderServiceLiveOptions) =>
     const threadSessionIdleMs = Math.max(0, options?.threadSessionIdleMs ?? THREAD_SESSION_IDLE_MS);
     const clearRuntimeIdleTimer = lifecycle.cancelIdle;
     const waitForRuntimeIdleStop = lifecycle.waitIdle;
+    const idleHolds = new Map<ThreadId, { count: number; pendingProvider?: ProviderKind }>();
 
     const scheduleRuntimeIdleStop = (threadId: ThreadId, provider: ProviderSession["provider"]) => {
       clearRuntimeIdleTimer(threadId);
       if (provider !== "claudeAgent") return;
+      const hold = idleHolds.get(threadId);
+      if (hold) {
+        hold.pendingProvider = provider;
+        return;
+      }
       const dispatch = dispatchStateByThread.get(threadId);
       if (
         (dispatch?.outstandingTurnIds.size ?? 0) > 0 ||
@@ -491,17 +515,34 @@ const makeProviderService = (options?: ProviderServiceLiveOptions) =>
     ): Effect.Effect<A, E | ProviderSessionDirectoryPersistenceError, R> =>
       Effect.suspend(() => {
         const hadIdleJob = lifecycle.hasIdleJob(threadId);
+        const hold = idleHolds.get(threadId) ?? { count: 0 };
+        hold.count += 1;
+        idleHolds.set(threadId, hold);
         clearRuntimeIdleTimer(threadId);
         return waitForRuntimeIdleStop(threadId).pipe(
           Effect.andThen(effect),
           Effect.onExit((exit) =>
-            (Exit.isSuccess(exit) ? options?.scheduleIdleStopOnSuccess === true : hadIdleJob)
-              ? Effect.gen(function* () {
-                  const binding = yield* directory.getBinding(threadId);
-                  if (Option.isSome(binding))
-                    scheduleRuntimeIdleStop(threadId, binding.value.provider);
-                })
-              : Effect.void,
+            Effect.gen(function* () {
+              const shouldSchedule = Exit.isSuccess(exit)
+                ? options?.scheduleIdleStopOnSuccess === true
+                : hadIdleJob;
+              if (shouldSchedule) {
+                const binding = yield* directory.getBinding(threadId);
+                if (Option.isSome(binding))
+                  scheduleRuntimeIdleStop(threadId, binding.value.provider);
+              }
+            }).pipe(
+              Effect.ensuring(
+                Effect.sync(() => {
+                  hold.count -= 1;
+                  if (hold.count === 0) {
+                    idleHolds.delete(threadId);
+                    if (hold.pendingProvider)
+                      scheduleRuntimeIdleStop(threadId, hold.pendingProvider);
+                  }
+                }),
+              ),
+            ),
           ),
         );
       });
@@ -1390,6 +1431,14 @@ const makeProviderService = (options?: ProviderServiceLiveOptions) =>
         } as const;
       });
 
+    const isRoutable: ProviderServiceShape["isRoutable"] = (threadId) =>
+      Effect.gen(function* () {
+        const binding = yield* directory.getBinding(threadId);
+        if (Option.isNone(binding)) return (yield* findLiveSessionAdapter(threadId)) !== null;
+        const adapter = yield* registry.getByProvider(binding.value.provider);
+        return yield* adapter.hasSession(threadId);
+      });
+
     const ensure: ProviderServiceShape["ensure"] = (threadId, rawInput) =>
       Effect.gen(function* () {
         const parsed = yield* decodeInputOrValidationError({
@@ -1500,7 +1549,16 @@ const makeProviderService = (options?: ProviderServiceLiveOptions) =>
                   ? lifecycle
                       .dispose(adapter, threadId, null)
                       .pipe(
-                        Effect.andThen(withBindingWriteLock(threadId, directory.remove(threadId))),
+                        Effect.andThen(
+                          withBindingWriteLock(
+                            threadId,
+                            removeBinding(
+                              threadId,
+                              "replacement-failed",
+                              "session replacement failed",
+                            ),
+                          ),
+                        ),
                         Effect.andThen(Effect.sync(lease.retire)),
                       )
                   : Effect.void,
@@ -1924,7 +1982,10 @@ const makeProviderService = (options?: ProviderServiceLiveOptions) =>
             yield* lifecycle.dispose(adapter, input.threadId, rawInput.reason);
             liveRuntimeTaskIds.delete(input.threadId);
             yield* waitForRuntimeIdleStop(input.threadId);
-            yield* withBindingWriteLock(input.threadId, directory.remove(input.threadId));
+            yield* withBindingWriteLock(
+              input.threadId,
+              removeBinding(input.threadId, "stop", rawInput.reason),
+            );
             lease.retire();
             yield* analytics.record("provider.session.stopped", {
               provider: adapter.provider,
@@ -2409,6 +2470,8 @@ const makeProviderService = (options?: ProviderServiceLiveOptions) =>
 
     return {
       getRuntimeState: lifecycle.state,
+      isRoutable,
+      withIdleStopHeld: runIdleSensitiveProviderWork,
       stopConnection,
       ensure,
       sendTurn,

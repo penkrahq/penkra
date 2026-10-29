@@ -55,6 +55,11 @@ export type ProviderServiceSessionStartInput = ProviderSessionStartInput & {
 export interface ProviderServiceShape {
   /** Live native ownership, including startup before a turn/binding exists. */
   readonly getRuntimeState: (threadId: ThreadId) => ThreadRuntimeState;
+  readonly isRoutable: (threadId: ThreadId) => Effect.Effect<boolean, ProviderServiceError>;
+  readonly withIdleStopHeld: <A, E, R>(
+    threadId: ThreadId,
+    work: Effect.Effect<A, E, R>,
+  ) => Effect.Effect<A, E | ProviderServiceError, R>;
   /** Retire only the live runtimes owned by this Connection, then its process. */
   readonly stopConnection: (
     connectionId: ProviderConnectionId,
