@@ -66,7 +66,7 @@ The system Python does not expose KQ_FILTER_USER or KQ_NOTE_TRIGGER. Use a socke
 7. Record the final installed version, PID, /status and migration outcome or exact rollback limitation in update.log and report.md. Show a macOS notification summarizing the report. Exit after this one attempt. Do not re-run yourself.
 """
     (folder / "prompt.md").write_text(prompt)
-    command = [codex, "-a", "never", "exec", "--skip-git-repo-check", "-C", str(folder),
+    command = [codex, "-a", "never", "exec", "-m", os.environ.get("PENKRA_UPDATE_CODEX_MODEL", "gpt-6.1-sol"), "--skip-git-repo-check", "-C", str(folder),
                "-s", "danger-full-access", "-c", 'mcp_servers.penkra={url="http://127.0.0.1/unused",enabled=false}',
                "-o", str(folder / "codex-last-message.md"), "-"]
     pid = os.fork()
