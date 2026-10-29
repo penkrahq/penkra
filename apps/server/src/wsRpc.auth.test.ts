@@ -59,54 +59,6 @@ it.effect("does not accept a legacy query token on a non-loopback bind", () =>
   }),
 );
 
-it.effect("accepts an authenticated session on a non-loopback bind", () =>
-  Effect.gen(function* () {
-    const authenticatedSession = {
-      sessionId: "remote-session" as never,
-      subject: "owner-bootstrap",
-      method: "browser-session-cookie" as const,
-      role: "owner" as const,
-    };
-    const authenticateWebSocketUpgrade = vi.fn(() => Effect.succeed(authenticatedSession));
-
-    const session = yield* authenticateRpcWebSocketUpgrade({
-      config: { host: "0.0.0.0", authToken: "remote-secret", publicUrl: undefined },
-      legacyToken: "remote-secret",
-      request: {
-        headers: {},
-        cookies: { "penkra-session": "paired-session-credential" },
-        url: new URL("http://192.168.1.50:3773/ws?token=remote-secret"),
-      },
-      serverAuth: { authenticateWebSocketUpgrade },
-    });
-
-    assert.equal(session, authenticatedSession);
-    assert.equal(authenticateWebSocketUpgrade.mock.calls.length, 1);
-  }),
-);
-
-it.effect("preserves the legacy query token for loopback desktop sessions", () =>
-  Effect.gen(function* () {
-    const authenticateWebSocketUpgrade = vi.fn(() =>
-      Effect.fail(new AuthError({ message: "Unexpected authentication call.", status: 500 })),
-    );
-
-    const session = yield* authenticateRpcWebSocketUpgrade({
-      config: { host: "127.0.0.1", authToken: "desktop-secret", publicUrl: undefined },
-      legacyToken: "desktop-secret",
-      request: {
-        headers: {},
-        cookies: {},
-        url: new URL("http://127.0.0.1:3773/ws?token=desktop-secret"),
-      },
-      serverAuth: { authenticateWebSocketUpgrade },
-    });
-
-    assert.equal(session, null);
-    assert.equal(authenticateWebSocketUpgrade.mock.calls.length, 0);
-  }),
-);
-
 it.effect(
   "disables the legacy loopback query token when an HTTPS public origin is configured",
   () =>

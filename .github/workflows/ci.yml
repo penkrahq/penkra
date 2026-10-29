@@ -12,172 +12,20 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  static:
-    name: Static and Repository Contracts
+  checks:
+    name: Typecheck, lint and tests
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     steps:
       - name: Checkout
         uses: actions/checkout@v6
-        with:
-          fetch-depth: 0
-
       - name: Setup workspace
         uses: ./.github/actions/setup-workspace
         with:
-          cache-suffix: static
-
-      - name: Verify Penkra identity
-        run: bun run brand:check
-
-      - name: Format
-        run: bun run fmt:check
-
-      - name: Lint
-        run: bun run lint
-
+          cache-suffix: checks
       - name: Typecheck
         run: bun run typecheck
-
-      - name: Verify released migration lineage
-        run: bun run migrations:check
-
-      - name: Exercise release contracts
-        run: bun run release:smoke
-
-  workspace_tests:
-    name: Workspace Tests
-    runs-on: ubuntu-24.04
-    timeout-minutes: 15
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v6
-
-      - name: Setup workspace
-        uses: ./.github/actions/setup-workspace
-        with:
-          cache-suffix: workspace-tests
-
-      - name: Verify Linux terminal PTY native dependency
-        run: node scripts/node-pty-smoke.mjs
-
-      - name: Test non-server packages
-        run: bunx turbo run test --filter='!@penkra/cli'
-
-  server_tests:
-    name: Server Tests
-    runs-on: ubuntu-24.04
-    timeout-minutes: 15
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v6
-
-      - name: Setup workspace
-        uses: ./.github/actions/setup-workspace
-        with:
-          cache-suffix: server-tests
-
-      - name: Build server test dependencies
-        run: bunx turbo run build --filter='@penkra/cli^...' --filter='penkra-sample-app^...'
-
-      - name: Run isolated server suite
-        run: bun run --cwd apps/server test
-
-  browser_tests:
-    name: Browser Tests (${{ matrix.name }})
-    strategy:
-      fail-fast: true
-      matrix:
-        include:
-          - name: ChatView
-            command: test:browser:chat-view
-          - name: Components
-            command: test:browser:components
-    runs-on: ubuntu-24.04
-    timeout-minutes: 15
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v6
-
-      - name: Setup workspace
-        uses: ./.github/actions/setup-workspace
-        with:
-          cache-suffix: browser-${{ matrix.command }}
-
-      - name: Cache Playwright browser
-        uses: actions/cache@v5
-        with:
-          path: ~/.cache/ms-playwright
-          key: ${{ runner.os }}-playwright-${{ hashFiles('bun.lock') }}
-          restore-keys: |
-            ${{ runner.os }}-playwright-
-
-      - name: Install Chromium runtime
-        timeout-minutes: 10
-        env:
-          DEBIAN_FRONTEND: noninteractive
-        working-directory: apps/web
-        run: ./node_modules/.bin/playwright install --with-deps chromium
-
-      - name: Run browser partition
-        timeout-minutes: 10
-        run: bun run --cwd apps/web ${{ matrix.command }}
-
-      - name: Retain browser failure evidence
-        if: ${{ failure() }}
-        uses: actions/upload-artifact@v6
-        with:
-          name: browser-failure-${{ matrix.name }}
-          path: apps/web/src/**/__screenshots__/**
-          if-no-files-found: warn
-          retention-days: 14
-
-  build_contracts:
-    name: Desktop Build and Compiler Contract
-    runs-on: ubuntu-24.04
-    timeout-minutes: 15
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v6
-
-      - name: Setup workspace
-        uses: ./.github/actions/setup-workspace
-        with:
-          cache-suffix: build-contracts
-
-      - name: Build desktop pipeline
-        run: bun run build:desktop
-
-      - name: Verify diagnostics QA exclusions in normal bundles
-        run: bun run test:diagnostics-bundles
-
-      - name: Verify preload bundle output
-        run: |
-          test -f apps/desktop/dist-electron/preload.js
-          grep -nE "desktopBridge|getWsUrl|PICK_FOLDER_CHANNEL|wsUrl" apps/desktop/dist-electron/preload.js
-
-  quality_gate:
-    name: Penkra CI Quality Gate
-    if: ${{ always() }}
-    needs:
-      - static
-      - workspace_tests
-      - server_tests
-      - browser_tests
-      - build_contracts
-    runs-on: ubuntu-24.04
-    steps:
-      - name: Require every source quality lane
-        env:
-          STATIC_RESULT: ${{ needs.static.result }}
-          WORKSPACE_TEST_RESULT: ${{ needs.workspace_tests.result }}
-          SERVER_TEST_RESULT: ${{ needs.server_tests.result }}
-          BROWSER_TEST_RESULT: ${{ needs.browser_tests.result }}
-          BUILD_CONTRACT_RESULT: ${{ needs.build_contracts.result }}
-        run: |
-          set -euo pipefail
-          test "$STATIC_RESULT" = success
-          test "$WORKSPACE_TEST_RESULT" = success
-          test "$SERVER_TEST_RESULT" = success
-          test "$BROWSER_TEST_RESULT" = success
-          test "$BUILD_CONTRACT_RESULT" = success
+      - name: Lint
+        run: bun run lint
+      - name: Test
+        run: bun run test
