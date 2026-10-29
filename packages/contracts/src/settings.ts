@@ -41,6 +41,11 @@ export const SkillsServerSettings = Schema.Struct({
 });
 export type SkillsServerSettings = typeof SkillsServerSettings.Type;
 
+export const ConversationServerSettings = Schema.Struct({
+  steerComposerMessages: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.sync(() => false))),
+  steerThreadMessages: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.sync(() => false))),
+});
+
 export const ServerSettings = Schema.Struct({
   enableAssistantStreaming: Schema.Boolean.pipe(
     Schema.withDecodingDefault(Effect.sync(() => true)),
@@ -59,6 +64,7 @@ export const ServerSettings = Schema.Struct({
     ),
   }).pipe(Schema.withDecodingDefault(Effect.sync(() => ({})))),
   skills: SkillsServerSettings.pipe(Schema.withDecodingDefault(Effect.sync(() => ({})))),
+  conversations: ConversationServerSettings.pipe(Schema.withDecodingDefault(Effect.sync(() => ({})))),
 });
 export type ServerSettings = typeof ServerSettings.Type;
 
@@ -112,6 +118,12 @@ export const ServerSettingsPatch = Schema.Struct({
   skills: Schema.optionalKey(
     Schema.Struct({
       disabled: Schema.optionalKey(Schema.Array(Schema.String.check(Schema.isMaxLength(256)))),
+    }),
+  ),
+  conversations: Schema.optionalKey(
+    Schema.Struct({
+      steerComposerMessages: Schema.optionalKey(Schema.Boolean),
+      steerThreadMessages: Schema.optionalKey(Schema.Boolean),
     }),
   ),
 });

@@ -191,7 +191,7 @@ export const CleanCoreSendMessageInput = Schema.Struct({
   reviewTarget: Schema.optional(ProviderReviewTarget),
   runtimeMode: Schema.optional(RuntimeMode),
   message: CleanCoreQueuedMessage,
-  dispatchMode: Schema.Literals(["queue", "steer"]),
+  dispatchMode: Schema.optionalKey(Schema.Literals(["auto", "queue", "steer"])),
   modelSelection: Schema.optional(ModelSelection),
   connectionId: Schema.optional(Schema.NullOr(ProviderConnectionId)),
   providerOptions: Schema.optional(ProviderStartOptions),

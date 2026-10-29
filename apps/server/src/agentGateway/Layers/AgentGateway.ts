@@ -323,7 +323,7 @@ export const makeAgentGateway = Effect.gen(function* () {
     definition: {
       name: "penkra_send_message",
       description:
-        "Post an agent-authored follow-up into another existing Penkra thread, never the caller thread. Read the target thread first to check status and queuedTurns. A busy target returns its queue admission immediately; Penkra does not wait for it. If new text must act now, pass now; for a message you already queued, use penkra_steer_message. The reply confirms persisted admission, not provider acceptance: deliver, steer and interrupt-deliver include seq; queue includes position and queueLength. Read the thread for the outcome. Agent and user messages follow the same rules: a failed direct message stays Failed and joins the next send in order; a failed queued head stays queued with last_error until another send retries it or the user edits/removes it. Per-turn limits can split pending work across turns without dropping messages. Rejection before admission writes nothing. To change the target Connection or model, pass connectionId, modelSelection, or both; the selection takes effect when that turn starts and remains for later turns. The provider cannot change: create a new thread for another provider. Penkra never substitutes another account.",
+        "Post an agent-authored follow-up into another existing Penkra thread, never the caller thread. Read the target thread first to check status and queuedTurns. A busy target returns its admission immediately; the owner's setting may steer a compatible running turn, otherwise it queues. Penkra does not wait for the outcome. If new text must act now, pass now; for a message you already queued, use penkra_steer_message. The reply confirms persisted admission, not provider acceptance: deliver, steer and interrupt-deliver include seq; queue includes position and queueLength. Read the thread for the outcome. Agent and user messages follow the same rules: a failed direct message stays Failed and joins the next send in order; a failed queued head stays queued with last_error until another send retries it or the user edits/removes it. Per-turn limits can split pending work across turns without dropping messages. Rejection before admission writes nothing. To change the target Connection or model, pass connectionId, modelSelection, or both; the selection takes effect when that turn starts and remains for later turns. The provider cannot change: create a new thread for another provider. Penkra never substitutes another account.",
       inputSchema: {
         type: "object",
         properties: {
@@ -339,7 +339,7 @@ export const makeAgentGateway = Effect.gen(function* () {
           now: {
             type: "boolean",
             description:
-              "Request action during a running turn: native steer where supported, otherwise interrupt that turn and run this message afterward. Without now, wait in FIFO until the running turn ends.",
+              "Request action during a running turn: native steer where supported, otherwise interrupt that turn and run this message afterward. Without now, the owner's settings may steer a compatible running turn; otherwise the message waits in FIFO.",
           },
           connectionId: {
             type: ["string", "null"],
@@ -383,7 +383,7 @@ export const makeAgentGateway = Effect.gen(function* () {
             origin: { _tag: "agent", senderThreadId: ThreadId.make(context.callerThreadId) },
             queuedAt: isoNow(),
           },
-          dispatchMode: now ? "steer" : "queue",
+          dispatchMode: now ? "steer" : "auto",
           ...(input.connectionId === undefined ? {} : { connectionId: input.connectionId }),
           ...(input.modelSelection === undefined ? {} : { modelSelection: input.modelSelection }),
         });

@@ -1,5 +1,6 @@
 import { ProviderAuthCircuits } from "../provider/providerAuthCircuit.ts";
 import { ServerConfig } from "../config.ts";
+import { ServerSettingsService } from "../serverSettings.ts";
 import { ensureDurableThreadWorkspace } from "../scratchWorkspaces.ts";
 import { ManagedAttachmentRepository } from "../persistence/Services/ManagedAttachments.ts";
 import {} from "node:crypto";
@@ -82,6 +83,7 @@ export class ThreadSender extends Context.Service<
 export const makeThreadSender = Effect.gen(function* () {
   const scope = yield* Effect.scope;
   const serverConfig = yield* ServerConfig;
+  const serverSettings = yield* ServerSettingsService;
   const sql = yield* SqlClient.SqlClient;
   const publisher = yield* ThreadPublisher;
   const withLane = (yield* ThreadLanes).run;
@@ -559,9 +561,13 @@ export const makeThreadSender = Effect.gen(function* () {
           if (current === undefined)
             return yield* Effect.fail(new Error("The thread does not exist."));
           const selection = resolveDraftSendSelection(current, input);
+          const settings = yield* serverSettings.getSettings;
           const request = {
             ...input,
             ...selection,
+            autoSteer: input.message.origin._tag === "user"
+              ? settings.conversations.steerComposerMessages
+              : input.message.origin._tag === "agent" && settings.conversations.steerThreadMessages,
             supportsSteer:
               providerSupportsNativeTurnSteering(current.provider) &&
               selection.connectionId === current.connectionId,

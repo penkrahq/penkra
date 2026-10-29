@@ -3953,7 +3953,7 @@ function ChatViewContent({
   const onSendRef = useRef<
     (
       e?: { preventDefault: () => void },
-      dispatchMode?: "queue" | "steer",
+      dispatchMode?: "auto" | "queue" | "steer",
       queuedTurn?: ComposerSubmission,
     ) => Promise<boolean>
   >(async () => false);
@@ -4002,7 +4002,7 @@ function ChatViewContent({
   const submitComposer = async (
     intent: "send" | "save",
     e?: { preventDefault: () => void },
-    dispatchMode: "queue" | "steer" = "queue",
+    dispatchMode: "auto" | "queue" | "steer" = "auto",
   ): Promise<boolean> => {
     const saving = intent === "save";
     e?.preventDefault();
@@ -4530,7 +4530,7 @@ function ChatViewContent({
       });
   };
 
-  const onSend = (e?: { preventDefault: () => void }, dispatchMode: "queue" | "steer" = "queue") =>
+  const onSend = (e?: { preventDefault: () => void }, dispatchMode: "auto" | "queue" | "steer" = "auto") =>
     submitComposer("send", e, dispatchMode);
 
   useEffect(() => {
@@ -5823,12 +5823,9 @@ function ChatViewContent({
         setComposerDraftPromptHistorySavedDraft(threadId, null);
       }
       expectedPromptHistoryPromptRef.current = null;
-      const dispatchMode =
-        (event.metaKey || event.ctrlKey) &&
-        hasLiveTurn &&
-        !admittingThreadsRef.current.has(threadId)
-          ? "steer"
-          : "queue";
+      const dispatchMode = (event.metaKey || event.ctrlKey)
+        ? serverSettings?.conversations.steerComposerMessages ? "queue" : "steer"
+        : "auto";
       void onSend(undefined, dispatchMode);
       return true;
     }

@@ -1,16 +1,56 @@
 import { IconBrandGithub, IconBrandX, IconBrandYoutube } from "@tabler/icons-react";
-import { useEffect, useState } from "react";
-import type { DesktopAppOpenIntent, DesktopAppOpenWithPreferences } from "@penkra/contracts";
+import { useEffect, useRef, useState } from "react";
+import type {
+  DesktopAppOpenIntent,
+  DesktopAppOpenWithPreferences,
+  ServerSettings,
+} from "@penkra/contracts";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 
 import { useAppInstallationSnapshot } from "~/appInstallationStore";
 import { useSpacesUiStore } from "~/spacesUiStore";
 import { APP_VERSION } from "~/branding";
 import { OpenWithRowShared } from "~/components/settings/open-with-row-shared/OpenWithRowShared";
+import {
+  ConversationsSectionShared,
+  type ConversationSteerSource,
+} from "~/components/settings/conversations-section-shared/ConversationsSectionShared";
 import { SettingRowShared } from "~/components/settings/setting-row-shared/SettingRowShared";
 import { SettingsSectionShared } from "~/components/settings/settings-section-shared/SettingsSectionShared";
 import { collectFileHandlerRows, fileTypeLabel } from "~/lib/appOpenWith";
+import { serverQueryKeys, serverSettingsQueryOptions } from "~/lib/serverReactQuery";
+import { ensureNativeApi } from "~/nativeApi";
 
 export function SettingsGeneralPage() {
+  const queryClient = useQueryClient();
+  const settingsQuery = useQuery(serverSettingsQueryOptions());
+  const writes = useRef<Promise<void>>(Promise.resolve());
+  const writeRevision = useRef(0);
+  const setSteer = (source: ConversationSteerSource, enabled: boolean) => {
+    const current = queryClient.getQueryData<ServerSettings>(serverQueryKeys.settings());
+    if (!current) return;
+    const key = source === "composer" ? "steerComposerMessages" : "steerThreadMessages";
+    const conversations = { ...current.conversations, [key]: enabled };
+    queryClient.setQueryData(serverQueryKeys.settings(), {
+      ...current,
+      conversations,
+    });
+    const revision = ++writeRevision.current;
+    writes.current = writes.current.then(async () => {
+      try {
+        const settings = await ensureNativeApi().server.updateSettings({
+          conversations: { [key]: enabled },
+        });
+        if (revision === writeRevision.current)
+          queryClient.setQueryData(serverQueryKeys.settings(), settings);
+      } catch {
+        if (revision === writeRevision.current)
+          await queryClient.invalidateQueries({
+            queryKey: serverQueryKeys.settings(),
+          });
+      }
+    });
+  };
   const installations = useAppInstallationSnapshot();
   const activeSpaceId = useSpacesUiStore((state) => state.activeSpaceId);
   const isEnabled = (appId: string) =>
@@ -63,6 +103,12 @@ export function SettingsGeneralPage() {
 
   return (
     <div className="flex flex-col gap-6" data-pencil-page="general">
+      <ConversationsSectionShared
+        steerComposer={settingsQuery.data?.conversations.steerComposerMessages ?? false}
+        steerThreads={settingsQuery.data?.conversations.steerThreadMessages ?? false}
+        disabled={!settingsQuery.data}
+        onSteerChange={setSteer}
+      />
       <SettingsSectionShared title="Open with">
         <HandlerPreferenceRow
           apps={urlHandlers}

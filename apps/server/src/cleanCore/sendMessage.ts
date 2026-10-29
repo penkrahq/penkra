@@ -31,7 +31,8 @@ export interface SendMessageInput extends Pick<
 > {
   readonly threadId: string;
   readonly message: QueuedMessage;
-  readonly dispatchMode: "queue" | "steer";
+  readonly dispatchMode?: "auto" | "queue" | "steer";
+  readonly autoSteer?: boolean;
   readonly supportsSteer: boolean;
 }
 export interface SendDriver {
@@ -114,16 +115,20 @@ export const sendMessage = (
         // An admitted start is busy even before its provider turn-start event.
         const pending = yield* sql`SELECT 1 FROM thread_items WHERE thread_id=${input.threadId}
         AND kind='user' AND status='sending' LIMIT 1`;
+        const state = thread.state === "running" ||
+          (pending.length === 0 && (yield* driver.isRunning(input.threadId)))
+          ? "running" : thread.state;
+        const automatic = (input.dispatchMode === undefined || input.dispatchMode === "auto") &&
+          input.autoSteer === true && state === "running" && input.supportsSteer &&
+          queue.length + pending.length === 0;
         const plan = planSend({
-          state:
-            thread.state === "running" ||
-            (pending.length === 0 && (yield* driver.isRunning(input.threadId)))
-              ? "running"
-              : thread.state,
-          dispatchMode: input.dispatchMode,
+          state,
+          dispatchMode: input.dispatchMode === "steer" || input.dispatchMode === "queue"
+            ? input.dispatchMode : automatic ? "steer" : "queue",
           supportsSteer: input.supportsSteer,
           queueLength: queue.length + pending.length,
         });
+        if (automatic && plan === "steer") yield* encodeUserItemAdmission(input, true);
         yield* driver.claimAttachments(input);
         if (plan === "queue") {
           const queued = yield* enqueueMessage(
