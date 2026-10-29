@@ -779,10 +779,12 @@ export class AppRegistryClient {
   }
 
   async #registryTrustKeys(): Promise<ReadonlyArray<RegistryTrustKey>> {
-    if (this.#trustedRegistryKeys.length > 0) return this.#trustedRegistryKeys;
     const api = new URL(this.#apiUrl);
     const loopback = api.hostname === "localhost" || api.hostname === "127.0.0.1";
-    if (!loopback) throw new Error("No trusted Penkra registry signing key is configured.");
+    if (!loopback) {
+      if (this.#trustedRegistryKeys.length > 0) return this.#trustedRegistryKeys;
+      throw new Error("No trusted Penkra registry signing key is configured.");
+    }
     const response = await this.#fetch(`${this.#apiUrl}/.well-known/penkra-registry-keys.json`, {
       headers: { accept: "application/json" },
       signal: AbortSignal.timeout(15_000),
