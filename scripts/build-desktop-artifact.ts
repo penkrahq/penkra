@@ -20,7 +20,6 @@ import {
   REQUIRED_APPS_ARCHIVE_FILE_NAME,
   REQUIRED_APPS_BUNDLE_DIRECTORY,
   REQUIRED_APPS_LOCK_FILE_NAME,
-  REQUIRED_APPS_SOURCE_PATH_ENV,
 } from "@penkra/shared/requiredAppsRelease";
 
 import { BRAND_ASSET_PATHS } from "./lib/brand-assets.ts";
@@ -870,42 +869,41 @@ const buildDesktopArtifact = Effect.fn("buildDesktopArtifact")(function* (
     serverDist: path.join(repoRoot, "apps/server/dist"),
   };
   const bundledClientEntry = path.join(distDirs.serverDist, "client/index.html");
-  const configuredRequiredAppsSource = process.env[REQUIRED_APPS_SOURCE_PATH_ENV]?.trim();
-  const requiredAppsSourcePath = configuredRequiredAppsSource
-    ? path.resolve(configuredRequiredAppsSource)
-    : [
-        path.join(repoRoot, ".release-inputs", "penkra-apps", "apps"),
-        path.resolve(repoRoot, "..", "penkra-apps", "apps"),
-      ].find((candidate) => existsSync(path.join(candidate, "penkra-app.json")));
-
-  if (!requiredAppsSourcePath) {
-    return yield* new BuildScriptError({
-      message: `Required Apps source is unavailable. Set ${REQUIRED_APPS_SOURCE_PATH_ENV} to the pinned penkra-apps/apps directory.`,
-    });
-  }
-  const requiredAppsRepositoryRoot = spawnSync(
-    "git",
-    ["-C", requiredAppsSourcePath, "rev-parse", "--show-toplevel"],
-    { encoding: "utf8" },
+  const requiredAppsRepository = path.resolve(
+    process.env.PENKRA_REQUIRED_APPS_REPOSITORY?.trim() || path.join(repoRoot, "..", "penkra-apps"),
   );
-  if (requiredAppsRepositoryRoot.status !== 0) {
-    return yield* new BuildScriptError({
-      message: "Required Apps source is not inside its Git repository.",
+  const commit = requiredAppsReleaseLock.sourceCommit;
+  const hasCommit = () =>
+    spawnSync("git", ["-C", requiredAppsRepository, "cat-file", "-e", `${commit}^{commit}`])
+      .status === 0;
+  if (!hasCommit()) {
+    spawnSync("git", ["-C", requiredAppsRepository, "fetch", "origin", commit], {
+      stdio: "inherit",
     });
+    if (!hasCommit())
+      return yield* new BuildScriptError({
+        message: `Pinned required Apps commit ${commit} is not available in ${requiredAppsRepository}`,
+      });
   }
-  const requiredAppsSourceCommit = spawnSync(
+  const requiredAppsStage = path.join(stageRoot, "required-apps-source");
+  yield* fs.makeDirectory(requiredAppsStage, { recursive: true });
+  const archive = spawnSync(
     "git",
-    ["-C", requiredAppsSourcePath, "rev-parse", "HEAD"],
-    { encoding: "utf8" },
+    ["-C", requiredAppsRepository, "archive", "--format=tar", commit, "apps"],
+    { maxBuffer: 256 * 1024 * 1024 },
   );
-  if (
-    requiredAppsSourceCommit.status !== 0 ||
-    requiredAppsSourceCommit.stdout.trim() !== requiredAppsReleaseLock.sourceCommit
-  ) {
+  if (archive.status !== 0 || !archive.stdout)
     return yield* new BuildScriptError({
-      message: `Required Apps source must be checked out at ${requiredAppsReleaseLock.sourceCommit}.`,
+      message: "Could not archive the pinned required Apps source.",
+      cause: archive.error,
     });
-  }
+  const extract = spawnSync("tar", ["-x", "-C", requiredAppsStage], { input: archive.stdout });
+  if (extract.status !== 0)
+    return yield* new BuildScriptError({
+      message: "Could not extract the pinned required Apps source.",
+      cause: extract.error,
+    });
+  const requiredAppsSourcePath = path.join(requiredAppsStage, "apps");
 
   if (!options.skipBuild) {
     yield* Effect.log("[desktop-artifact] Building desktop/server/web artifacts...");

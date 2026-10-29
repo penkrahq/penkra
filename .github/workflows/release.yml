@@ -20,7 +20,7 @@ env:
   RELEASE_VERSION: ${{ inputs.release_version }}
   RELEASE_TAG: ${{ format('v{0}', inputs.release_version) }}
   SOURCE_COMMIT: ${{ inputs.source_commit }}
-  PENKRA_REQUIRED_APPS_SOURCE_PATH: .release-inputs/penkra-apps/apps
+  PENKRA_REQUIRED_APPS_REPOSITORY: .release-inputs/penkra-apps
 
 permissions:
   actions: read
