@@ -327,6 +327,7 @@ function traceAppTabHost(event: string, details: Record<string, unknown> = {}): 
 
 export class AppTabViewHost implements AppTabHost {
   readonly #idleClose = new AppTabIdleClose();
+  readonly #pendingHostedFind = new WeakMap<WebContents, (reason: string) => void>();
   readonly #installations: AppInstallationService;
   readonly #sessions: Pick<AppSessionManager, "get">;
   readonly #broker: Pick<AppOperationBroker, "registerTab">;
@@ -1245,17 +1246,27 @@ export class AppTabViewHost implements AppTabHost {
   }): Promise<{ activeMatchOrdinal: number; matches: number }> {
     const contents = this.#requireHostedPage(this.#require(input.tabId), input.pageId).view
       .webContents;
-    return await new Promise((resolve) => {
+    this.#pendingHostedFind.get(contents)?.("The browser search was replaced.");
+    return await new Promise((resolve, reject) => {
       let requestId = -1;
       let settled = false;
       const finish = (result: { activeMatchOrdinal: number; matches: number }) => {
         if (settled) return;
         settled = true;
-        clearTimeout(timeout);
         contents.removeListener("found-in-page", found);
+        contents.removeListener("destroyed", destroyed);
+        this.#pendingHostedFind.delete(contents);
         resolve(result);
       };
-      const timeout = setTimeout(() => finish({ activeMatchOrdinal: 0, matches: 0 }), 2_000);
+      const cancel = (reason: string) => {
+        if (settled) return;
+        settled = true;
+        contents.removeListener("found-in-page", found);
+        contents.removeListener("destroyed", destroyed);
+        this.#pendingHostedFind.delete(contents);
+        reject(new Error(reason));
+      };
+      const destroyed = () => cancel("The browser page closed before find completed.");
       const found = (_event: Electron.Event, result: Electron.FoundInPageResult) => {
         if (result.requestId === requestId && result.finalUpdate) {
           finish({
@@ -1265,18 +1276,28 @@ export class AppTabViewHost implements AppTabHost {
         }
       };
       contents.on("found-in-page", found);
-      requestId = contents.findInPage(input.text, {
-        forward: input.action !== "previous",
-        findNext: input.action !== "search",
-        matchCase: false,
-      });
+      contents.once("destroyed", destroyed);
+      this.#pendingHostedFind.set(contents, cancel);
+      try {
+        requestId = contents.findInPage(input.text, {
+          forward: input.action !== "previous",
+          findNext: input.action !== "search",
+          matchCase: false,
+        });
+      } catch (error) {
+        settled = true;
+        contents.removeListener("found-in-page", found);
+        contents.removeListener("destroyed", destroyed);
+        this.#pendingHostedFind.delete(contents);
+        reject(error);
+      }
     });
   }
 
   stopFindInHostedPage(tabId: string, pageId: string): void {
-    this.#requireHostedPage(this.#require(tabId), pageId).view.webContents.stopFindInPage(
-      "clearSelection",
-    );
+    const contents = this.#requireHostedPage(this.#require(tabId), pageId).view.webContents;
+    this.#pendingHostedFind.get(contents)?.("The browser search was stopped.");
+    contents.stopFindInPage("clearSelection");
   }
 
   async captureHostedPage(
