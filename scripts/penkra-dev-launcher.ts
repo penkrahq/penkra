@@ -588,6 +588,7 @@ function startInstance(
       ].join(":"),
       ELECTRON_RENDERER_PORT: "5733",
       PENKRA_API_URL: "http://localhost:3012",
+      PENKRA_REMOTE_RELAY_URL: "ws://127.0.0.1:3013/v1",
       PENKRA_DEV_INSTANCE_NUMBER: String(instance),
       PENKRA_ROOT: definition.developmentRoot,
       PENKRA_WEBSITE_ORIGIN: "http://localhost:3000",
