@@ -7,6 +7,7 @@ import { memo, useEffect, useRef } from "react";
 import { ChevronDownIcon, ChevronUpIcon, SearchIcon, XIcon } from "~/lib/icons";
 import { cn } from "~/lib/utils";
 import { useFind } from "./find/FindProvider";
+import { Spinner } from "./ui/spinner";
 
 export interface ChatSearchBarProps {
   open: boolean;
@@ -87,21 +88,21 @@ export const ChatSearchBar = memo(function ChatSearchBar(props: ChatSearchBarPro
           aria-live="polite"
           aria-atomic="true"
         >
-          <span className="mr-auto px-1 text-[length:var(--app-font-size-ui,12px)] tabular-nums text-muted-foreground">
-            {state.error === "timeout"
-              ? state.total > 0
-                ? `${state.current || "–"} / ${state.total} results · Some views timed out`
-                : "Search timed out in some views"
+          <span className="mr-auto flex items-center gap-1.5 px-1 text-[length:var(--app-font-size-ui,12px)] tabular-nums text-muted-foreground">
+            {/* Results show as each view answers; a view still searching only keeps the spinner. */}
+            {state.total > 0
+              ? `${state.current || "–"} / ${state.total} results`
               : state.pending
                 ? "Searching…"
-                : state.total === 0
-                  ? "No results"
-                  : `${state.current || "–"} / ${state.total} results`}
+                : "No results"}
+            {state.pending && state.total > 0 ? (
+              <Spinner className="size-3" aria-label="Still searching" />
+            ) : null}
           </span>
           <button
             type="button"
             onClick={() => void previous()}
-            disabled={state.pending || state.total === 0}
+            disabled={state.total === 0}
             className="rounded p-1 text-muted-foreground hover:bg-muted hover:text-foreground disabled:opacity-35"
             title="Previous result (Shift+Enter)"
             aria-label="Previous result"
@@ -111,7 +112,7 @@ export const ChatSearchBar = memo(function ChatSearchBar(props: ChatSearchBarPro
           <button
             type="button"
             onClick={() => void next()}
-            disabled={state.pending || state.total === 0}
+            disabled={state.total === 0}
             className="rounded p-1 text-muted-foreground hover:bg-muted hover:text-foreground disabled:opacity-35"
             title="Next result (Enter)"
             aria-label="Next result"
