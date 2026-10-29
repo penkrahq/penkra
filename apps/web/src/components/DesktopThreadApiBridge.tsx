@@ -12,7 +12,7 @@ import {
   subscribeDesktopThreadLiveStateChanges,
 } from "../desktopThreadApiBroker";
 import { useStore } from "../store";
-import { getThreadList, subscribeThreadList } from "../threadListStore";
+import { getThreadList, getThreadListById, subscribeThreadList } from "../threadListStore";
 import { sortThreadsForSidebar } from "./Sidebar.logic";
 
 export function folderStates(folderId: FolderId): ReadonlyArray<AppThreadState> {
@@ -121,15 +121,29 @@ export function DesktopThreadApiBridge() {
       string,
       { spaceId: string; threads: ReadonlyArray<AppThreadState> }
     >();
+    const dirtyFolders = new Set<string>();
+    let previousRows = getThreadListById();
+    const schedule = (folderId: string | null | undefined) => {
+      if (!folderId || disposed) return;
+      dirtyFolders.add(folderId);
+      if (scheduled) return;
+      scheduled = true;
+      queueMicrotask(publish);
+    };
     const publish = () => {
       scheduled = false;
       if (disposed) return;
-      const folders = useStore.getState().folders;
-      const currentFolderIds = new Set(folders.map((folder) => folder.id));
-      for (const folderId of published.keys()) {
-        if (!currentFolderIds.has(folderId as FolderId)) published.delete(folderId);
-      }
-      for (const folder of folders) {
+      const folders = new Map(
+        useStore.getState().folders.map((folder) => [folder.id as string, folder]),
+      );
+      const dirty = [...dirtyFolders];
+      dirtyFolders.clear();
+      for (const folderId of dirty) {
+        const folder = folders.get(folderId);
+        if (!folder) {
+          published.delete(folderId);
+          continue;
+        }
         try {
           const threads = folderStates(folder.id);
           const previous = published.get(folder.id);
@@ -142,16 +156,42 @@ export function DesktopThreadApiBridge() {
         }
       }
     };
-    const schedule = () => {
-      if (scheduled || disposed) return;
-      scheduled = true;
-      queueMicrotask(publish);
-    };
-    const unsubscribeStore = useStore.subscribe(schedule);
-    const unsubscribeThreads = subscribeThreadList(schedule);
-    const unsubscribeDrafts = useComposerDraftStore.subscribe(schedule);
-    const unsubscribeLive = subscribeDesktopThreadLiveStateChanges(schedule);
-    schedule();
+    const unsubscribeStore = useStore.subscribe((state, previous) => {
+      if (state.folders === previous.folders) return;
+      const before = new Map(previous.folders.map((folder) => [folder.id as string, folder]));
+      const after = new Map(state.folders.map((folder) => [folder.id as string, folder]));
+      for (const [id, folder] of after) {
+        if (!before.has(id) || before.get(id)?.spaceId !== folder.spaceId) schedule(id);
+      }
+      for (const id of before.keys()) if (!after.has(id)) schedule(id);
+    });
+    const unsubscribeThreads = subscribeThreadList(() => {
+      const next = getThreadListById();
+      if (next === previousRows) return;
+      for (const [id, row] of next) {
+        const old = previousRows.get(id);
+        if (old !== row) {
+          schedule(old?.folderId);
+          schedule(row.folderId);
+        }
+      }
+      for (const [id, old] of previousRows) if (!next.has(id)) schedule(old.folderId);
+      previousRows = next;
+    });
+    const unsubscribeDrafts = useComposerDraftStore.subscribe((state, previous) => {
+      const next = state.draftsByThreadId;
+      const before = previous.draftsByThreadId;
+      if (next === before) return;
+      const rows = getThreadListById();
+      for (const id of new Set([...Object.keys(before), ...Object.keys(next)])) {
+        const threadId = ThreadId.make(id);
+        if (before[threadId] !== next[threadId]) schedule(rows.get(id)?.folderId);
+      }
+    });
+    const unsubscribeLive = subscribeDesktopThreadLiveStateChanges((threadId) => {
+      schedule(getThreadListById().get(threadId)?.folderId);
+    });
+    for (const folder of useStore.getState().folders) schedule(folder.id);
     return () => {
       disposed = true;
       unsubscribeStore();
