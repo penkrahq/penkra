@@ -48,6 +48,10 @@ export class RemoteAccountCoordinator {
     await this.input.transition(suspended ? "suspend" : "wake", this.#snapshot);
   }
 
+  async networkPathChanged(): Promise<void> {
+    await this.input.transition("network-path", this.#snapshot);
+  }
+
   async setAccess(accountId: string, accessOn: boolean): Promise<void> {
     if (this.#snapshot.accountId !== accountId) throw new Error("The signed-in account changed.");
     const accountGeneration = this.#generation;

@@ -1,5 +1,5 @@
 // FILE: build-apple-speech-helper.mjs
-// Purpose: Builds the macOS SpeechTranscriber helper for development and release target arches.
+// Purpose: Builds macOS native helpers for development and release target architectures.
 // Layer: Desktop build tooling
 
 import { spawnSync } from "node:child_process";
@@ -11,9 +11,18 @@ import { fileURLToPath } from "node:url";
 if (process.platform !== "darwin") process.exit(0);
 
 const desktopRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
-const source = join(desktopRoot, "native", "macos", "PenkraSpeechTranscriber.swift");
+const helper = process.argv[2] === "network" ? "network" : "speech";
+const source = join(
+  desktopRoot,
+  "native",
+  "macos",
+  helper === "network" ? "PenkraNetworkPathMonitor.swift" : "PenkraSpeechTranscriber.swift",
+);
 const outputDirectory = join(desktopRoot, "resources", "native");
-const output = join(outputDirectory, "penkra-speech-transcriber");
+const output = join(
+  outputDirectory,
+  helper === "network" ? "penkra-network-path-monitor" : "penkra-speech-transcriber",
+);
 const requestedArch = process.env.PENKRA_DESKTOP_TARGET_ARCH?.trim() || process.arch;
 
 function run(command, args) {
@@ -53,6 +62,6 @@ if (requestedArch === "universal") {
 } else if (requestedArch === "arm64" || requestedArch === "x64") {
   compile(requestedArch, output);
 } else {
-  throw new Error(`Unsupported Apple speech helper architecture: ${requestedArch}`);
+  throw new Error(`Unsupported macOS native helper architecture: ${requestedArch}`);
 }
 chmodSync(output, 0o755);

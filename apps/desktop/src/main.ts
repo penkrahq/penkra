@@ -257,6 +257,7 @@ import { AppCommandPipeServer, resolveAppCommandPipePath } from "./appCommandPip
 import { RemoteLinkRegistrationOwner, RemoteRegistrationError } from "./remoteLinkRegistration";
 import { RemoteLifecycleHost } from "./remoteLifecycleHost";
 import { RemoteAccountCoordinator } from "./remoteAccountCoordinator";
+import { watchRemoteNetworkPath } from "./remoteNetworkPath";
 import { RemoteAccessController } from "./remoteAccessController";
 import { registerRemoteAccessIpc } from "./remoteAccessIpc";
 import { AppTabObserver } from "./appTabObserver";
@@ -1159,6 +1160,7 @@ let fetchPenkraAccount: typeof fetch = (...args) => fetch(...args);
 let remoteRegistrationOwner: RemoteLinkRegistrationOwner | null = null;
 let remoteLifecycleHost: RemoteLifecycleHost | null = null;
 let remoteAccountCoordinator: RemoteAccountCoordinator | null = null;
+let remoteNetworkFinished: Promise<void> | null = null;
 let remoteLifecycleBackend: ChildProcess.ChildProcess | null = null;
 let pendingRemoteSignInAccountId: string | null = null;
 const remoteRegistrationLifetime = new AbortController();
@@ -5034,6 +5036,8 @@ async function stopBackendAndWaitForExit(options?: {
 
 async function disposeAppCommandPipeServerForShutdown(reason: string): Promise<void> {
   remoteRegistrationLifetime.abort();
+  await remoteNetworkFinished;
+  remoteNetworkFinished = null;
   remoteRegistrationOwner?.invalidate();
   const pipeServer = appCommandPipeServer;
   appCommandPipeServer = null;
@@ -8556,6 +8560,15 @@ async function bootstrap(): Promise<void> {
     });
   });
   await remoteAccountCoordinator.initialize(getPenkraAccountId);
+  remoteNetworkFinished = watchRemoteNetworkPath({
+    signal: remoteRegistrationLifetime.signal,
+    onPath: () => {
+      void remoteAccountCoordinator?.networkPathChanged().catch((error) => {
+        console.error("[remote-link] Failed to apply network path transition.", error);
+      });
+    },
+    onError: (error) => console.error("[remote-link] Network path monitor failed.", error),
+  });
   const remoteAccess = new RemoteAccessController({
     account: getPenkraAccountId,
     register: (accountId, signal) => remoteRegistrationOwner!.ensure(accountId, signal),

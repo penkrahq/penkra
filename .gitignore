@@ -6,6 +6,7 @@ node_modules
 *.tsbuildinfo
 apps/*/dist
 apps/desktop/resources/native/penkra-speech-transcriber
+apps/desktop/resources/native/penkra-network-path-monitor
 .astro
 packages/*/dist
 .env
