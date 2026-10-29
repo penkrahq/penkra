@@ -1,3 +1,4 @@
+import { recordP29AppsLauncherClick } from "../../lib/p29LayoutTrace";
 import { useThreadSummary } from "../../threadListStore";
 import type { DesktopAppTabDescriptor } from "@penkra/contracts";
 import { type FolderId, type ThreadId } from "@penkra/contracts";
@@ -366,6 +367,7 @@ export function SingleChatSurface(props: { threadId: ThreadId; folderId: FolderI
   );
   const appsLauncherPressed = dockState.open && dockState.activePaneId === appsPane?.id;
   const handleAppsLauncher = () => {
+    recordP29AppsLauncherClick(folderId);
     const action = resolveAppsLauncherAction({
       dockOpen: dockState.open,
       activePaneId: dockState.activePaneId,

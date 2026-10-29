@@ -4,6 +4,10 @@ import { useRightDockStore } from "../rightDockStore";
 import { useStore } from "../store";
 
 let lastBoundaryError: string | null = null;
+const APPS_LAUNCHER_EVENT = "penkra:p29-apps-launcher";
+export function recordP29AppsLauncherClick(folderId: string): void {
+  window.dispatchEvent(new CustomEvent(APPS_LAUNCHER_EVENT, { detail: folderId }));
+}
 export function recordP29BoundaryError(error: unknown): void {
   lastBoundaryError = error instanceof Error ? `${error.name}: ${error.message}` : String(error);
 }
@@ -18,6 +22,8 @@ export function useP29LayoutTrace(input: {
     if (!expected || !folderId) return;
     let frame = 0;
     let anomaly: Record<string, unknown> | null = null;
+    let appsClicked = false;
+    let lastAfterClickDock = "";
     let observedShell: HTMLElement | null = null;
     const observer = new MutationObserver((records) => {
       const relevant =
@@ -117,19 +123,43 @@ export function useP29LayoutTrace(input: {
       };
       if ((missingChat || missingTabs) && anomaly === null) {
         anomaly = snapshot;
-        console.warn("[p29] missing chat or dock surface", {
-          missingChat,
-          missingTabs,
-          ...snapshot,
-        });
+        console.warn(
+          "[p29] missing chat or dock surface " +
+            JSON.stringify({
+              missingChat,
+              missingTabs,
+              ...snapshot,
+            }),
+        );
       } else if (anomaly && !missingChat && !missingTabs) {
-        console.warn("[p29] surface restored", { before: anomaly, after: snapshot });
+        console.warn(
+          "[p29] surface restored " + JSON.stringify({ before: anomaly, after: snapshot }),
+        );
         anomaly = null;
+        appsClicked = false;
+        lastAfterClickDock = "";
+      }
+      if (anomaly && appsClicked) {
+        const currentDock = JSON.stringify(snapshot.dockState);
+        if (currentDock !== lastAfterClickDock) {
+          lastAfterClickDock = currentDock;
+          console.warn(
+            "[p29] Apps click layout " + JSON.stringify({ before: anomaly, after: snapshot }),
+          );
+        }
       }
     };
     const schedule = () => {
       if (!frame) frame = requestAnimationFrame(inspect);
     };
+    const onAppsClick = (event: Event) => {
+      if (anomaly && event instanceof CustomEvent && event.detail === folderId) {
+        appsClicked = true;
+        lastAfterClickDock = "";
+        schedule();
+      }
+    };
+    window.addEventListener(APPS_LAUNCHER_EVENT, onAppsClick);
     const stopStore = useStore.subscribe((state, previous) => {
       if (state.folders !== previous.folders) schedule();
     });
@@ -141,6 +171,7 @@ export function useP29LayoutTrace(input: {
     schedule();
     return () => {
       observer.disconnect();
+      window.removeEventListener(APPS_LAUNCHER_EVENT, onAppsClick);
       stopStore();
       stopDock();
       window.removeEventListener("resize", schedule);
