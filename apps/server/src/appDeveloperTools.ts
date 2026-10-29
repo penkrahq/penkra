@@ -6,8 +6,6 @@ import * as Path from "node:path";
 import { defaultProcessTreeKiller } from "./processTreeKiller";
 
 const APP_TEST_HOST_STOP_TIMEOUT_MS = 1_000;
-const APP_TEST_HOST_RESULT_POLL_MS = 25;
-const APP_TEST_HOST_EXIT_GRACE_MS = 250;
 
 export { packageAppDirectory, type AppPackageEvidence } from "@penkra/shared/appPackaging";
 
@@ -23,7 +21,8 @@ export interface AppIntegrationTestEvidence {
 
 export async function testAppDirectory(input: {
   directory: string;
-  timeoutMs?: number;
+  signal?: AbortSignal | undefined;
+  onPhase?: ((line: string) => void) | undefined;
 }): Promise<AppIntegrationTestEvidence> {
   const source = await FS.realpath(Path.resolve(input.directory));
   const { electron, host } = await resolveAppTestRuntime();
@@ -36,7 +35,8 @@ export async function testAppDirectory(input: {
       source,
       profile,
       resultPath,
-      timeoutMs: input.timeoutMs ?? 30_000,
+      signal: input.signal,
+      onPhase: input.onPhase,
     });
     const result = JSON.parse(await FS.readFile(resultPath, "utf8")) as Record<string, unknown>;
     if (result.ok !== true)
@@ -102,7 +102,8 @@ function spawnAppTestHost(input: {
   source: string;
   profile: string;
   resultPath: string;
-  timeoutMs: number;
+  signal?: AbortSignal | undefined;
+  onPhase?: ((line: string) => void) | undefined;
 }): Promise<void> {
   return new Promise((resolve, reject) => {
     const environment: NodeJS.ProcessEnv = {
@@ -131,92 +132,61 @@ function spawnAppTestHost(input: {
     };
     child.stdout?.on("data", append);
     child.stderr?.on("data", append);
-    let completionWatch: ReturnType<typeof setInterval> | undefined;
-    let timeout: ReturnType<typeof setTimeout> | undefined;
-    const clearCompletionWatch = () => {
-      if (completionWatch) clearInterval(completionWatch);
-    };
-    const settleFromTerminalEvidence = async () => {
-      if (settled || terminating) return;
-      if (!(await hasTerminalAppTestResult(input.resultPath)) || settled || terminating) return;
-      terminating = true;
-      const exited = await waitForExit(childExited, APP_TEST_HOST_EXIT_GRACE_MS);
-      const cleanupFailure = exited ? null : await stopAppTestHost(child, childExited);
+    let pendingDiagnostics = "";
+    child.stderr?.on("data", (chunk: Buffer) => {
+      pendingDiagnostics += chunk.toString("utf8");
+      const lines = pendingDiagnostics.split("\n");
+      pendingDiagnostics = (lines.pop() ?? "").slice(-8_192);
+      for (const line of lines) {
+        if (line.startsWith("[penkra-app-test] phase=")) input.onPhase?.(line);
+      }
+    });
+    const finish = (error?: Error) => {
       if (settled) return;
       settled = true;
-      if (timeout) clearTimeout(timeout);
-      clearCompletionWatch();
-      if (cleanupFailure) {
-        reject(new Error(`App integration host completed but cleanup failed: ${cleanupFailure}`));
-        return;
-      }
-      resolve();
+      input.signal?.removeEventListener("abort", abort);
+      if (error) reject(error);
+      else resolve();
     };
-    completionWatch = setInterval(() => {
-      void settleFromTerminalEvidence();
-    }, APP_TEST_HOST_RESULT_POLL_MS);
-    timeout = setTimeout(() => {
+    const abort = () => {
       if (settled || terminating) return;
       terminating = true;
-      clearCompletionWatch();
-      void stopAppTestHost(child, childExited).then((cleanupFailure) => {
-        if (settled) return;
-        settled = true;
-        const timeoutMessage = appTestHostFailure(
-          `App integration test exceeded ${input.timeoutMs} ms.`,
-          output,
-        );
-        reject(
-          new Error(
-            cleanupFailure
-              ? `${timeoutMessage}\nApp test cleanup failed: ${cleanupFailure}`
-              : timeoutMessage,
-          ),
-        );
-      });
-    }, input.timeoutMs);
+      void stopAppTestHost(child, childExited).then(
+        (failure) => {
+          finish(
+            new Error(
+              failure
+                ? `App integration test cancelled; cleanup failed: ${failure}`
+                : "App integration test cancelled.",
+            ),
+          );
+        },
+        (error: unknown) => finish(error instanceof Error ? error : new Error(String(error))),
+      );
+    };
+    input.signal?.addEventListener("abort", abort, { once: true });
     child.once("error", (error) => {
       resolveExited?.();
-      if (settled) return;
-      settled = true;
-      if (timeout) clearTimeout(timeout);
-      clearCompletionWatch();
-      reject(error);
+      if (!terminating) finish(error);
     });
-    child.once("exit", async (code, signal) => {
+    child.once("exit", (code, signal) => {
       resolveExited?.();
-      if (settled || terminating) return;
-      settled = true;
-      if (timeout) clearTimeout(timeout);
-      clearCompletionWatch();
-      if (
-        code === 0 ||
-        (await FS.stat(input.resultPath)
-          .then(() => true)
-          .catch(() => false))
-      ) {
-        resolve();
-      } else {
-        reject(
-          new Error(
-            appTestHostFailure(
-              `App integration host failed${signal ? ` with ${signal}` : ` with exit code ${code ?? "unknown"}`}.`,
-              output,
+      if (terminating) return;
+      void FS.stat(input.resultPath).then(
+        () => finish(),
+        () =>
+          finish(
+            new Error(
+              appTestHostFailure(
+                `The App integration host exited (${signal ?? `code ${code ?? "unknown"}`}) without a result.`,
+                output,
+              ),
             ),
           ),
-        );
-      }
+      );
     });
+    if (input.signal?.aborted) abort();
   });
-}
-
-async function hasTerminalAppTestResult(resultPath: string): Promise<boolean> {
-  return FS.readFile(resultPath, "utf8")
-    .then((content) => {
-      const result = JSON.parse(content) as Record<string, unknown>;
-      return typeof result.ok === "boolean";
-    })
-    .catch(() => false);
 }
 
 async function stopAppTestHost(

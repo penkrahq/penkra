@@ -68,6 +68,8 @@ export interface PenkraExecContext {
   callerTurnId?: string | null;
   cwd?: string | null;
   additionalCoreCommands?: ReadonlyArray<InstructionOperation>;
+  signal?: AbortSignal | undefined;
+  onAppTestPhase?: (line: string) => void;
 }
 
 export interface AppDeveloperOperations {
@@ -999,7 +1001,7 @@ async function executeAppDeveloperCommand(
   }
   const directory = resolveAppPath(String(input.directory), context, "App directory");
   if (command === "test") {
-    return operations.test({ directory });
+    return operations.test({ directory, signal: context.signal, onPhase: context.onAppTestPhase });
   }
   if (command === "package") {
     return operations.package({
@@ -1014,7 +1016,17 @@ async function executeAppDeveloperCommand(
     });
   }
   const visibility = (input.visibility ?? "private") as "private" | "public";
-  return withRegistryTarget(operations.publish({ directory, visibility, bridge, env }), env);
+  return withRegistryTarget(
+    operations.publish({
+      directory,
+      visibility,
+      bridge,
+      env,
+      signal: context.signal,
+      onPhase: context.onAppTestPhase,
+    }),
+    env,
+  );
 }
 
 function resolveAppPath(value: string, context: PenkraExecContext, label: string): string {

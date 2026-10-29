@@ -22,11 +22,13 @@ import {
   type ProviderKind,
   type ServerProviderStatus,
 } from "@penkra/contracts";
-import { Effect, Layer, Option } from "effect";
+import { Effect, Layer, Option, PubSub, Scope, Stream } from "effect";
 
 import { ServerConfig } from "../../config.ts";
 import * as SqlClient from "effect/sql/SqlClient";
 import { ThreadPublisher } from "../../cleanCore/ThreadPublisher.ts";
+import { applyProviderEvent } from "../../cleanCore/providerStreamConsumer.ts";
+import { threadItemActivityData } from "../../cleanCore/threadItemData.ts";
 import { findThreadPolicyError } from "../../cleanCore/threadErrors.ts";
 import { ThreadReads } from "../../cleanCore/ThreadReads.ts";
 import { AgentGateway, type AgentGatewayShape } from "../Services/AgentGateway.ts";
@@ -713,18 +715,111 @@ export const makeAgentGateway = Effect.gen(function* () {
           projectCwd: Option.isSome(folder) ? folder.value.workspaceRoot : null,
           stateDir: serverConfig.stateDir,
         });
-        const result = yield* Effect.tryPromise({
-          try: () =>
-            executePenkraExecCommand(commandInput, {
-              spaceId: callerSpaceId,
-              folderId: caller.folderId,
-              threadId: caller.id,
-              callerTurnId: context.callerWriteTurnId,
-              cwd,
-              additionalCoreCommands: agentGatewayCommandCatalog(gatewayCommands),
-            }),
-          catch: (error) => new ToolInputError(errorText(error)),
-        });
+        const result = yield* Effect.scoped(
+          Effect.gen(function* () {
+            const scope = yield* Scope.Scope;
+            const events = yield* PubSub.subscribe(publisher.providerEvents);
+            const turnEnded = new AbortController();
+            yield* Stream.fromEffectRepeat(PubSub.take(events)).pipe(
+              Stream.runForEach((event) =>
+                Effect.sync(() => {
+                  if (
+                    (event.type === "turn.ended" &&
+                      event.threadId === caller.id &&
+                      event.turnId === context.callerWriteTurnId) ||
+                    ((event.type === "provider.exited" || event.type === "provider.failed") &&
+                      event.threadIds.includes(caller.id))
+                  )
+                    turnEnded.abort();
+                }),
+              ),
+              Effect.forkIn(scope),
+            );
+            yield* context.assertCallerTurnActive();
+            const activityId = `app-test:${randomUUID()}`;
+            let activityWrites: Promise<void> = Promise.resolve();
+            const onAppTestPhase = (line: string) => {
+              const match =
+                /^\[penkra-app-test\] phase=([a-z-]+) state=(start|complete|failed)/.exec(line);
+              if (!match) return;
+              const [, phase, state] = match;
+              const labels: Record<string, string> = {
+                "electron-ready": "Starting the App test…",
+                "runtime-start": "Starting the App runtime…",
+                "app-sideload": "Loading the App…",
+                "installation-enable": "Enabling the App…",
+                "agent-help-validate": "Checking App instructions…",
+                "tab-open": "Opening the App tab…",
+                "diagnostics-read": "Checking App diagnostics…",
+                "runtime-stop": "Stopping the App test…",
+                "success-evidence-write": "Saving App test results…",
+                "failure-evidence-write": "Saving App test results…",
+              };
+              const detail = labels[phase ?? ""];
+              if (!detail) return;
+              const finished = state === "complete" && phase === "success-evidence-write";
+              const failed = state === "complete" && phase === "failure-evidence-write";
+              const timestamp = new Date().toISOString();
+              activityWrites = activityWrites
+                .then(async () => {
+                  if (turnEnded.signal.aborted) return;
+                  await Effect.runPromise(
+                    context.assertCallerTurnActive().pipe(
+                      Effect.flatMap(() =>
+                        applyProviderEvent(publisher, {
+                          type: "item",
+                          threadId: caller.id,
+                          item: {
+                            threadId: caller.id,
+                            sourceId: activityId,
+                            turnId: context.callerWriteTurnId,
+                            kind: "tool",
+                            status: failed ? "error" : finished ? "done" : "running",
+                            text: detail,
+                            data: threadItemActivityData({
+                              tone: "tool",
+                              kind: "tool.updated",
+                              summary: "Testing App",
+                              payload: {
+                                itemType: "dynamic_tool_call",
+                                title: "Testing App",
+                                detail,
+                              },
+                            }),
+                            createdAt: timestamp,
+                            updatedAt: timestamp,
+                          },
+                        }),
+                      ),
+                      Effect.provideService(SqlClient.SqlClient, sql),
+                    ),
+                  );
+                })
+                .catch((error: unknown) => {
+                  console.error("App test activity update failed", error);
+                });
+            };
+            return yield* Effect.tryPromise({
+              try: async (signal) => {
+                try {
+                  return await executePenkraExecCommand(commandInput, {
+                    spaceId: callerSpaceId,
+                    folderId: caller.folderId,
+                    threadId: caller.id,
+                    callerTurnId: context.callerWriteTurnId,
+                    cwd,
+                    additionalCoreCommands: agentGatewayCommandCatalog(gatewayCommands),
+                    signal: AbortSignal.any([signal, turnEnded.signal]),
+                    onAppTestPhase,
+                  });
+                } finally {
+                  await activityWrites;
+                }
+              },
+              catch: (error) => new ToolInputError(errorText(error)),
+            });
+          }),
+        );
         if (isPenkraExecImage(result)) {
           return mcpToolResultImage({
             data: result.data,

@@ -12,7 +12,6 @@ import { app, BrowserWindow, ipcMain, protocol } from "electron";
 import { startDesktopAppRuntime } from "./desktopAppRuntime";
 import { bootstrapDevelopmentSideload } from "./developmentAppSideload";
 import { PENKRA_APP_SCHEME } from "./appRuntimePolicy";
-import { withAppTestPhaseTimeout } from "./appTestHostPhases";
 import { createAppTestHostDiagnosticWriter } from "./appTestHostDiagnostics";
 
 const sourcePath = requiredEnvironment("PENKRA_APP_TEST_SOURCE");
@@ -39,10 +38,18 @@ protocol.registerSchemesAsPrivileged([
   },
 ]);
 
-void runHostPhase("electron-ready", () => app.whenReady())
-  .then(async () => {
-    const window = new BrowserWindow({ show: false, width: 800, height: 600 });
-    const runtime = await runHostPhase("runtime-start", () =>
+async function run(): Promise<void> {
+  let result: Record<string, unknown> = {
+    ok: false,
+    error: "The App integration host did not produce a result.",
+    profilePath,
+  };
+  let runtime: Awaited<ReturnType<typeof startDesktopAppRuntime>> | undefined;
+  let window: BrowserWindow | undefined;
+  try {
+    await runHostPhase("electron-ready", () => app.whenReady());
+    window = new BrowserWindow({ show: false, width: 800, height: 600 });
+    const startedRuntime = await runHostPhase("runtime-start", () =>
       startDesktopAppRuntime({
         resolveFolderTitle: async () => "App test",
         userDataPath: profilePath,
@@ -77,12 +84,9 @@ void runHostPhase("electron-ready", () => app.whenReady())
         getAccountId: async () => "app-test-account",
       }),
     );
-    let result: Record<string, unknown> = {
-      ok: false,
-      error: "The App integration host did not produce a result.",
-      profilePath,
-    };
-    try {
+    runtime = startedRuntime;
+    {
+      const runtime = startedRuntime;
       await runHostPhase("app-sideload", () =>
         bootstrapDevelopmentSideload(runtime, sourcePath, TEST_SPACE_ID),
       );
@@ -148,40 +152,40 @@ void runHostPhase("electron-ready", () => app.whenReady())
         diagnostics,
         profilePath,
       };
-    } catch (error) {
-      result = {
-        ok: false,
-        error: error instanceof Error ? error.message : String(error),
-        profilePath,
-      };
-      process.exitCode = 1;
-    } finally {
-      await runHostPhase("runtime-stop", () => runtime.stop(), 5_000).catch(() => undefined);
-      window.destroy();
+    }
+  } catch (error) {
+    result = {
+      ok: false,
+      error: error instanceof Error ? error.message : String(error),
+      profilePath,
+    };
+    process.exitCode = 1;
+  } finally {
+    if (runtime) await runHostPhase("runtime-stop", () => runtime!.stop()).catch(() => undefined);
+    try {
       await runHostPhase(
         result.ok === true ? "success-evidence-write" : "failure-evidence-write",
-        () =>
-          FS.writeFile(resultPath, `${JSON.stringify(result, null, 2)}\n`, {
-            encoding: "utf8",
-            mode: 0o600,
-          }),
-        2_000,
+        async () => {
+          const temporary = `${resultPath}.tmp`;
+          const file = await FS.open(temporary, "w", 0o600);
+          try {
+            await file.writeFile(`${JSON.stringify(result, null, 2)}\n`, "utf8");
+            await file.sync();
+          } finally {
+            await file.close();
+          }
+          await FS.rename(temporary, resultPath);
+        },
       );
-      // runtime.stop has observed exact controller process and stdio closure,
-      // and the result file is durable. Electron 40 app.exit() can return
-      // without terminating when this disposable host is supervised by pipes,
-      // so end the isolated process only after those cleanup receipts exist.
-      process.exit(typeof process.exitCode === "number" ? process.exitCode : 0);
+    } catch {
+      process.exitCode = 1;
     }
-  })
-  .catch(async (error) => {
-    await FS.writeFile(
-      resultPath,
-      `${JSON.stringify({ ok: false, error: String(error), profilePath }, null, 2)}\n`,
-      { mode: 0o600 },
-    ).catch(() => undefined);
-    process.exit(1);
-  });
+    window?.destroy();
+    process.exit(typeof process.exitCode === "number" ? process.exitCode : 0);
+  }
+}
+
+void run();
 
 function requiredEnvironment(name: string): string {
   const value = process.env[name]?.trim();
@@ -189,18 +193,10 @@ function requiredEnvironment(name: string): string {
   return Path.resolve(value);
 }
 
-async function runHostPhase<T>(
-  phase: string,
-  run: () => Promise<T> | T,
-  timeoutMs?: number,
-): Promise<T> {
+async function runHostPhase<T>(phase: string, run: () => Promise<T> | T): Promise<T> {
   hostDiagnostics.write(`[penkra-app-test] phase=${phase} state=start\n`);
   try {
-    const result = await withAppTestPhaseTimeout({
-      phase,
-      run,
-      ...(timeoutMs === undefined ? {} : { timeoutMs }),
-    });
+    const result = await run();
     hostDiagnostics.write(`[penkra-app-test] phase=${phase} state=complete\n`);
     return result;
   } catch (error) {

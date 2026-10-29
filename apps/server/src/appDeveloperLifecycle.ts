@@ -20,6 +20,8 @@ export async function publishAppDirectory(input: {
   visibility: "public" | "private";
   bridge: AppDeveloperBridge;
   env?: NodeJS.ProcessEnv;
+  signal?: AbortSignal | undefined;
+  onPhase?: ((line: string) => void) | undefined;
   dependencies?: {
     test?: typeof testAppDirectory;
     package?: typeof packageAppDirectory;
@@ -29,7 +31,11 @@ export async function publishAppDirectory(input: {
   const packageApp = input.dependencies?.package ?? packageAppDirectory;
   const temporary = await FS.mkdtemp(Path.join(OS.tmpdir(), "penkra-app-publish-"));
   try {
-    const integration = await test({ directory: input.directory });
+    const integration = await test({
+      directory: input.directory,
+      signal: input.signal,
+      onPhase: input.onPhase,
+    });
     const packagePath = Path.join(temporary, "app.penkra");
     const evidence = await packageApp({
       directory: input.directory,
