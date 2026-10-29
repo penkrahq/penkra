@@ -635,7 +635,7 @@ export default function ChatView(props: ChatViewProps) {
     (row !== null && !hasServerThread && !awaitingCreationResponse)
   )
     return (
-      <div className="flex min-h-0 flex-1 items-center justify-center">
+      <div data-p29-thread-hydration className="flex min-h-0 flex-1 items-center justify-center">
         <ThreadDetailHydrationState
           state={rowReadState.state}
           error={rowReadState.error}
@@ -6343,7 +6343,7 @@ function ChatViewContent({
       {/* Main content area with optional plan sidebar */}
       <ThreadShell>
         {/* Chat column */}
-        <div className="relative flex min-h-0 min-w-0 flex-1 flex-col">
+        <div data-p29-thread-content className="relative flex min-h-0 min-w-0 flex-1 flex-col">
           <div className="flex min-h-0 min-w-0 flex-1 flex-col">
             {shouldRenderChatPaneContent && isCenteredEmptyLanding ? (
               <ThreadScreenEmpty className={CHAT_COLUMN_GUTTER_CLASS_NAME}>

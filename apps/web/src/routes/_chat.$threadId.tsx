@@ -1,3 +1,4 @@
+import { useP29LayoutTrace } from "../lib/p29LayoutTrace";
 // FILE: _chat.$threadId.tsx
 // Purpose: Resolve the active thread route into a single chat surface.
 // Layer: Route container
@@ -111,6 +112,17 @@ function ChatThreadRouteView() {
     threadDeleted,
     startupHydrated,
   ]);
+
+  useP29LayoutTrace({
+    threadId,
+    folderId: activeFolderId,
+    expected:
+      startupHydrated &&
+      routeThreadExists &&
+      !threadArchived &&
+      !threadDeleted &&
+      activeFolderId !== null,
+  });
 
   if (threadArchived || threadDeleted) {
     return null;

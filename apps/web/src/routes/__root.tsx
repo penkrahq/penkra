@@ -1,3 +1,4 @@
+import { recordP29BoundaryError } from "../lib/p29LayoutTrace";
 import { KEYBINDINGS } from "@penkra/shared/keybindings";
 import { threadShellFromRow } from "@penkra/shared/threadView";
 import { applyFolderAppTabs } from "../rightDockStore";
@@ -320,6 +321,7 @@ function GlobalWhatsNewSurface() {
 }
 
 function RootRouteErrorView({ error, reset }: ErrorComponentProps) {
+  recordP29BoundaryError(error);
   const message = errorMessage(error);
   const details = errorDetails(error);
 
