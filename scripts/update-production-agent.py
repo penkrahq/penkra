@@ -70,7 +70,7 @@ The system Python does not expose KQ_FILTER_USER or KQ_NOTE_TRIGGER. Use a socke
 7. Record the final installed version, PID, /status and migration outcome or exact rollback limitation in update.log and report.md. Show a macOS notification summarizing the report. Exit after this one attempt. Do not re-run yourself.
 """
     previous_updates = sorted((path for path in folder.parent.iterdir() if path.is_dir() and path != folder), key=lambda path: path.name, reverse=True)
-    prior_helper = next((path / "updater.py" for path in previous_updates if (path / "updater.py").is_file() and (path / "report.md").is_file() and (path / "report.md").read_text().startswith("UPDATE OK")), None)
+    prior_helper = next((path / "updater.py" for path in previous_updates if (path / "updater.py").is_file() and (path / "report.md").is_file() and (path / "report.md").read_text().startswith("UPDATE OK") and (path / "prompt.md").is_file() and "For this recovery only" not in (path / "prompt.md").read_text()), None)
     if prior_helper:
         prompt += f"\nA helper from the last successful update is at {prior_helper} (and finalize.py if present). Copy it into this folder as the starting point, adapt only the candidate path, app paths and this run's recovery instructions, then run the required preflight (HTTP-worker wake, directory-event exercise, rotation handling, post-helper exit check) against the copy. Don't write a new monitor unless the copied one fails preflight; then report why.\n"
     if os.environ.get("PENKRA_UPDATE_NO_ROLLBACK") == "1":
@@ -100,6 +100,7 @@ The system Python does not expose KQ_FILTER_USER or KQ_NOTE_TRIGGER. Use a socke
         with (folder / "prompt.md").open("rb") as source, (folder / "run.log").open("ab", buffering=0) as log:
             version = subprocess.run([codex, "--version"], capture_output=True, text=True)
             log.write(("Updater Codex: " + str(codex) + "\nVersion: " + (version.stdout or version.stderr).strip() + "\n").encode())
+            log.write(("Selected prior helper: " + (str(prior_helper.parent) if prior_helper else "none") + " (newest successful normal-update run; recovery-only runs excluded)\n").encode())
             child = subprocess.Popen(command, stdin=source, stdout=log, stderr=log, env=env)
             status = child.wait()
         (folder / "agent-exit.json").write_text(json.dumps({"exitCode": status}))
