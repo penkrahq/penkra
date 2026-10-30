@@ -42,14 +42,9 @@ function waitForControllerReady(child: ChildProcess, stderr: () => string): Prom
     const settle = (error?: Error) => {
       if (settled) return;
       settled = true;
-      clearTimeout(timeout);
       if (error) rejectReady(error);
       else resolveReady();
     };
-    const timeout = setTimeout(
-      () => settle(new Error(`App controller handshake timed out.\n${stderr()}`)),
-      5_000,
-    );
     child.on("message", (message: unknown) => {
       if (!message || typeof message !== "object") return;
       const type = (message as { type?: unknown }).type;
@@ -80,17 +75,12 @@ function waitForControllerResult(
     const settle = (error?: Error, result?: unknown) => {
       if (settled) return;
       settled = true;
-      clearTimeout(timeout);
       child.removeListener("message", onMessage);
       child.removeListener("error", onError);
       child.removeListener("exit", onExit);
       if (error) rejectResult(error);
       else resolveResult(result);
     };
-    const timeout = setTimeout(
-      () => settle(new Error(`App controller operation timed out.\n${stderr()}`)),
-      10_000,
-    );
     const onMessage = (message: unknown) => {
       if (!message || typeof message !== "object") return;
       const response = message as {
