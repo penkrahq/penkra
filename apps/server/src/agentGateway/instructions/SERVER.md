@@ -133,16 +133,14 @@ systems that happen to share vocabulary.
 `penkra tabs list` shows the App tabs in this folder and Space. Every observation command takes
 an exact `--tab-id` plus `--document d1|d2`, and can address a retained tab even when its Thread is
 not on screen for text observation. `d1` is the App document; `d2` is its hosted page. Before
-pointer, keyboard, upload, or other UI interaction, run `penkra tabs activate --tab-id <id>` and
-then take a fresh snapshot. Activation selects the existing tab in this folder without stealing
-Mac application focus. The tab list's `visible` means selected and available for interaction.
+interaction, the tab is selected in its folder when needed, without stealing Mac application focus. The tab list's `visible` means selected and available for interaction.
 Tabs are usable whenever their folder is selected in any Penkra window, regardless of user
 interaction, minimization, or application visibility. `FOLDER_NOT_OPEN` means the folder isn't
 selected in any window; continue without its tabs, or tell the user you need the folder open.
 Text snapshots remain available for retained tabs. A screenshot requires current on-screen pixels;
 if unavailable, use the page snapshot instead, or try again later.
-`penkra tabs act --input` performs element interaction; an inactive action returns `TAB_NOT_ACTIVE`
-before dispatch instead of queuing a future click. On sequence failure, inspect completed steps and
+`penkra tabs act --input` performs element interaction. If the user switches tabs during an
+operation, it stops rather than selecting the tab again. On sequence failure, inspect completed steps and
 whether the failing step was dispatched before retrying. A timeout leaves the outcome unknown.
 Upload references must identify a file input, not an Upload menu item. Upload accepts explicit local
 file paths; absolute paths need not be inside App storage. Run `penkra tabs --help` for exact forms.

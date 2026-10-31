@@ -171,6 +171,21 @@ export function resolveAppCommandPipePath(_userDataPath: string): string {
 }
 
 export class AppCommandPipeServer {
+  async #ensurePresented(
+    tab: DesktopAppTabDescriptor,
+    threadId: string,
+    signal: AbortSignal,
+  ): Promise<void> {
+    try {
+      if (!this.#activate) throw new Error("Tab activation is unavailable.");
+      await this.#activate(tab, threadId, signal);
+    } catch (error) {
+      throw Object.assign(error instanceof Error ? error : new Error(String(error)), {
+        dispatched: false,
+        outcome: "not-started",
+      });
+    }
+  }
   readonly #server: Net.Server;
   readonly #sockets = new Set<Net.Socket>();
   readonly #skillSubscribers = new Map<Net.Socket, { blocked: boolean; dirty: boolean }>();
@@ -590,28 +605,31 @@ export class AppCommandPipeServer {
         await this.#tabs.close(tab.id);
         return { ok: true, id: request.id, result: { tabId: tab.id, closed: true } };
       }
-      case "tabs.snapshot":
+      case "tabs.snapshot": {
+        const options = observationOptions(params);
+        const tab = this.#tab(params);
+        if (options.boxes) {
+          await this.#ensurePresented(tab, this.#scope(params).threadId, signal);
+        }
+        return {
+          ok: true,
+          id: request.id,
+          result: await this.#observe(params, () => this.#observer.snapshot(tab.id, options)),
+        };
+      }
+      case "tabs.act": {
+        const tab = this.#tab(params);
+        const steps = appTabActSteps(params.steps);
+        const human = optionalBoolean(params.human, "human") ?? false;
+        await this.#ensurePresented(tab, this.#scope(params).threadId, signal);
         return {
           ok: true,
           id: request.id,
           result: await this.#observe(params, () =>
-            this.#observer.snapshot(this.#tab(params).id, observationOptions(params)),
+            this.#observer.act(tab.id, steps, human, this.#scope(params).threadId, signal),
           ),
         };
-      case "tabs.act":
-        return {
-          ok: true,
-          id: request.id,
-          result: await this.#observe(params, () =>
-            this.#observer.act(
-              this.#tab(params).id,
-              appTabActSteps(params.steps),
-              optionalBoolean(params.human, "human") ?? false,
-              this.#scope(params).threadId,
-              signal,
-            ),
-          ),
-        };
+      }
       case "tabs.evaluate":
         return {
           ok: true,
@@ -626,8 +644,7 @@ export class AppCommandPipeServer {
         };
       case "tabs.screenshot": {
         const tab = this.#tab(params);
-        if (!this.#activate) throw new Error("Tab activation is unavailable.");
-        await this.#activate(tab, this.#scope(params).threadId, signal);
+        await this.#ensurePresented(tab, this.#scope(params).threadId, signal);
         return {
           ok: true,
           id: request.id,
@@ -1071,6 +1088,8 @@ export class AppCommandPipeServer {
     if (!tab) {
       throw Object.assign(new Error(`App tab ${tabId} is gone from the caller folder and Space.`), {
         code: "TAB_GONE",
+        dispatched: false,
+        outcome: "not-started",
       });
     }
     assertAppTabAgentAddressable(tab);

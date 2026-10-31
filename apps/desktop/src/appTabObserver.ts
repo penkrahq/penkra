@@ -510,6 +510,17 @@ export class AppTabObserver {
         try {
           await this.#interaction.run(context, async () => {
             controller.signal.throwIfAborted();
+            // Watch presentation for every step, including wait and dialog. If
+            // the user switches tabs, stop the sequence instead of selecting it
+            // again on a later step.
+            const document =
+              "ref" in step
+                ? referenceDocument(step.ref)
+                : "document" in step
+                  ? step.document
+                  : "d1";
+            await this.#target(tabId, document, true, true);
+            controller.signal.throwIfAborted();
             switch (step.action) {
               case "click":
                 results.push(await this.click(tabId, step.ref, false, human));
@@ -552,6 +563,7 @@ export class AppTabObserver {
                 results.push(await this.handleDialog(tabId, step.accept, step.text));
                 break;
             }
+            controller.signal.throwIfAborted();
           });
         } catch (error) {
           throw Object.assign(error instanceof Error ? error : new Error(String(error)), {
@@ -1207,12 +1219,14 @@ export class AppTabObserver {
     const boundedTimeout = Math.min(MAX_WAIT_MS, Math.max(1, timeoutMs));
     const deadline = Date.now() + boundedTimeout;
     while (Date.now() <= deadline) {
+      this.#interaction.getStore()?.controller.signal.throwIfAborted();
       const target = await this.#target(tabId, document);
       const found = await this.#execute(
         target,
         `(document.body?.innerText ?? "").includes(${JSON.stringify(text)})`,
         true,
       );
+      this.#interaction.getStore()?.controller.signal.throwIfAborted();
       if (found === true) return { tabId, text, found: true };
       await new Promise((resolve) => setTimeout(resolve, 100));
     }
@@ -1268,7 +1282,7 @@ export class AppTabObserver {
   #requireActive(tabId: string, target: AppTabObservationTarget): void {
     const context = this.#interaction.getStore();
     const error = () =>
-      Object.assign(new Error("Activate this tab, take a fresh snapshot, then retry."), {
+      Object.assign(new Error("The tab lost presentation during the operation."), {
         code: "TAB_NOT_ACTIVE",
         tabId,
         dispatched: context?.dispatched ?? false,
@@ -1903,12 +1917,26 @@ export class AppTabObserver {
     }
   }
 
-  #execute(
+  async #execute(
     target: AppTabObservationTarget,
     source: string,
     userGesture: boolean,
   ): Promise<unknown> {
-    return target.webContents.executeJavaScript(source, userGesture);
+    const signal = this.#interaction.getStore()?.controller.signal;
+    signal?.throwIfAborted();
+    const execution = target.webContents.executeJavaScript(source, userGesture);
+    if (!signal) return execution;
+    let abort!: () => void;
+    const cancelled = new Promise<never>((_, reject) => {
+      abort = () => reject(signal.reason);
+      signal.addEventListener("abort", abort, { once: true });
+      if (signal.aborted) abort();
+    });
+    try {
+      return await Promise.race([execution, cancelled]);
+    } finally {
+      signal.removeEventListener("abort", abort);
+    }
   }
 }
 
