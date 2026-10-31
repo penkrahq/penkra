@@ -6,7 +6,7 @@
 // Depends on: DisclosureChevron (members are sibling virtual-list rows)
 
 import { DisclosureChevron } from "../ui/DisclosureChevron";
-import { extractWebFetchUrl } from "../../lib/toolCallLabel";
+import { extractWebFetchUrl } from "@penkra/shared/toolCallLabel";
 import { LinkChipIcon } from "../LinkChipIcon";
 import type { ToolCallGroupSummary } from "./toolCallGroup.logic";
 import { WorkEntryLeftIcon } from "./TimelineWorkEntryRow";

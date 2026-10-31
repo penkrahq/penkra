@@ -5,7 +5,7 @@
 // Depends on: @penkra/contracts tool lifecycle item types
 
 import type { ToolLifecycleItemType } from "@penkra/contracts";
-import { basenameOfPath } from "../file-icons";
+import { basenameOfPath } from "./pathNames";
 import { extractToolArgumentField } from "./toolArgumentSummary";
 
 export function normalizeCompactToolLabel(value: string): string {

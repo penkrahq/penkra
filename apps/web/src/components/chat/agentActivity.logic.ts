@@ -3,7 +3,7 @@
 // Layer: Chat presentation helpers
 // Exports: agent activity detection, formatting, and timeline compaction
 
-import { normalizeCompactToolLabel } from "../../lib/toolCallLabel";
+import { normalizeCompactToolLabel } from "@penkra/shared/toolCallLabel";
 import type { WorkLogEntry } from "../../session-logic";
 
 export interface AgentActivityDetail {

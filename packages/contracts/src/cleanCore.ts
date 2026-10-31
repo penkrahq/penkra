@@ -54,6 +54,15 @@ export const CleanCoreListThreadItemsPageInput = Schema.Struct({
 });
 export type CleanCoreListThreadItemsPageInput = typeof CleanCoreListThreadItemsPageInput.Type;
 
+export const CleanCoreToolDisplay = Schema.Struct({
+  label: Schema.String,
+  category: Schema.Literals(["command", "edit", "read", "search", "agent", "tool", "other"]),
+  icon: Schema.Literals(["terminal", "edit", "read", "search", "agent", "penkra", "web", "tool"]),
+  host: Schema.optional(Schema.String),
+  fileKeys: Schema.optional(Schema.Array(Schema.String)),
+  summarizable: Schema.Boolean,
+});
+
 export const CleanCoreThreadItem = Schema.Struct({
   threadId: ThreadId,
   seq: NonNegativeInt,
@@ -63,6 +72,7 @@ export const CleanCoreThreadItem = Schema.Struct({
   status: Schema.String,
   text: Schema.NullOr(Schema.String),
   data: Schema.NullOr(Schema.String),
+  display: Schema.optional(CleanCoreToolDisplay),
   createdAt: IsoDateTime,
   updatedAt: IsoDateTime,
 });

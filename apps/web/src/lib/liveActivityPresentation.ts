@@ -6,7 +6,7 @@ import { useSyncExternalStore } from "react";
 
 import type { WorkLogEntry, WorkLogLiveActivity } from "../workLog";
 import { formatClockDuration } from "../session-logic";
-import { deriveReadableCommandDisplay } from "./toolCallLabel";
+import { deriveReadableCommandDisplay } from "@penkra/shared/toolCallLabel";
 
 const NO_ACTIVITY_THRESHOLD_MS = 30_000;
 const LIVE_ACTIVITY_TICK_MS = 1_000;

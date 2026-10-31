@@ -15,7 +15,7 @@ import {
   formatElapsed,
   isTranscriptSeparatorWorkEntry,
 } from "../../session-logic";
-import { normalizeCompactToolLabel as normalizeCompactToolLabelValue } from "../../lib/toolCallLabel";
+import { normalizeCompactToolLabel as normalizeCompactToolLabelValue } from "@penkra/shared/toolCallLabel";
 import {
   isSummarizableToolCallEntry,
   MIN_COLLAPSIBLE_TOOL_GROUP_SIZE,

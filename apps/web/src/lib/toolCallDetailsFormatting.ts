@@ -5,7 +5,7 @@
 //          createMarkdownCodeFence
 // Depends on: WorkLogToolOutputDetails shape from toolCallDetails
 
-import type { WorkLogToolOutputDetails } from "./toolCallDetails";
+import type { WorkLogToolOutputDetails } from "@penkra/shared/toolCallDetails";
 
 export function formatShellCommand(command: string): string {
   return command

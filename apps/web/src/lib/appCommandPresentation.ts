@@ -4,7 +4,7 @@
 
 import type { DesktopAppInstallationSnapshot, DesktopInstalledApp } from "@penkra/contracts";
 
-import { deriveInlineCommandCall } from "./toolCallLabel";
+import { deriveInlineCommandCall } from "@penkra/shared/toolCallLabel";
 
 export interface InstalledAppCommandPresentation {
   readonly app: DesktopInstalledApp;

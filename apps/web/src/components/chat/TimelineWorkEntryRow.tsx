@@ -42,7 +42,6 @@ import ChatMarkdown from "../ChatMarkdown";
 import { DiffStatLabel } from "./DiffStatLabel";
 import { type ExpandedImagePreview } from "./ExpandedImagePreview";
 import { LinkChipIcon } from "../LinkChipIcon";
-import { normalizeCompactToolLabel } from "./MessagesTimeline.logic";
 import { PenkraMark } from "../foundations/penkra-mark-shared/PenkraMark";
 import { ToolCallDetailsContent } from "./ToolCallDetailsDialog";
 import { DisclosureChevron } from "../ui/DisclosureChevron";
@@ -50,20 +49,23 @@ import { DisclosureRegion } from "../ui/DisclosureRegion";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 import { fileDiffStatsByPath, resolveFileDiffStatByChangedPath } from "~/lib/diffRendering";
 import {
-  extractToolArgumentField,
-  isPrefixedToolArgumentSummary,
-} from "../../lib/toolArgumentSummary";
-import {
   deriveReadableCommandDisplay,
-  deriveInlineCommandCall,
-  derivePenkraMcpToolTitle,
   extractWebFetchUrl,
   normalizeToolTextForComparison,
   isPenkraExecCommandTool,
   resolveCommandVisualKind,
   sanitizePenkraMcpToolPreview,
-  type PenkraMcpToolStatus,
-} from "../../lib/toolCallLabel";
+} from "@penkra/shared/toolCallLabel";
+import {
+  extractFilePathFromDetail,
+  workEntryPreview,
+  isFileReadToolEntry,
+  isGitHubMcpToolCall,
+  toolWorkEntryStatus,
+  isPenkraToolCall,
+  toolWorkEntryHeading,
+  combineWorkEntryDisplayText,
+} from "@penkra/shared/workEntryDisplay";
 import { openThreadFileReference, useThreadResourceOpener } from "../../lib/threadResourceOpener";
 import type { TimestampFormat } from "../../appSettings";
 import {
@@ -116,112 +118,6 @@ function workToneIcon(tone: TimelineWorkEntry["tone"]): {
     icon: ZapIcon,
     className: "text-muted-foreground/45",
   };
-}
-
-/**
- * Try to extract a clean file path from a detail string that may contain JSON.
- * Handles patterns like:
- *   Read {"file_path":"/Users/foo/bar.ts","offset":10}
- *   {"file_path":"/path/to/file.ts"}
- */
-function extractFilePathFromDetail(detail: string): string | null {
-  const plainPathMatch = /^(.+?\.[A-Za-z0-9][A-Za-z0-9._-]*)(?::\d+)?(?::\d+)?$/u.exec(
-    detail.trim(),
-  );
-  if (plainPathMatch?.[1]?.includes("/")) {
-    return plainPathMatch[1].trim();
-  }
-  // "path" is generic enough that a nested match (e.g. inside a config object)
-  // may not be the file the tool acted on — only regex-scan truncated JSON.
-  return extractToolArgumentField(detail, ["file_path", "filePath", "path", "filename"], {
-    fallbackScan: "whenUnparsed",
-  });
-}
-
-function workEntryPreview(workEntry: TimelineWorkEntry): string | null {
-  const isFileRelated =
-    workEntry.requestKind === "file-read" ||
-    workEntry.requestKind === "file-change" ||
-    workEntry.itemType === "file_change";
-
-  if (
-    isPenkraExecCommandTool({
-      toolName: workEntry.toolName,
-      title: workEntry.toolTitle,
-      fallbackLabel: workEntry.label,
-    }) &&
-    (workEntry.command || workEntry.rawCommand)
-  ) {
-    return null;
-  }
-
-  if (workEntry.itemType === "command_execution" || workEntry.command || workEntry.rawCommand) {
-    const command = workEntry.command ?? workEntry.rawCommand;
-    if (command) return deriveReadableCommandDisplay(command).target;
-  }
-
-  if (workEntry.preview) return workEntry.preview;
-
-  // Prefer clean basenames from changedFiles
-  if (workEntry.changedFiles && workEntry.changedFiles.length > 0) {
-    const names = workEntry.changedFiles.map((p) => basenameOfPath(p));
-    if (names.length === 1) return names[0]!;
-    return `${names.length} files`;
-  }
-
-  if (workEntry.itemType === "collab_agent_tool_call" && (workEntry.subagents?.length ?? 0) > 0) {
-    if (workEntry.subagentAction?.summaryText) {
-      return workEntry.subagentAction.summaryText;
-    }
-    const labels = workEntry.subagents!.map((subagent) => {
-      const presentation = subagentPrimaryLabel(subagent);
-      return (
-        presentation.nickname ?? presentation.primaryLabel ?? basenameOfPath(subagent.threadId)
-      );
-    });
-    return labels.length === 1 ? labels[0]! : `${labels.length} subagents`;
-  }
-
-  if (workEntry.itemType === "collab_agent_tool_call") {
-    return workEntry.detail ?? workEntry.subagentAction?.prompt ?? null;
-  }
-
-  // For detail, try to extract a clean file path first
-  if (workEntry.detail) {
-    const filePath = extractFilePathFromDetail(workEntry.detail);
-    if (filePath) return basenameOfPath(filePath);
-
-    // For file-related entries, the heading alone is enough — don't show raw JSON
-    if (isFileRelated) return null;
-
-    // For other entries, if the detail looks like raw JSON, skip it
-    const trimmedDetail = workEntry.detail.trim();
-    if (trimmedDetail.startsWith("{") || trimmedDetail.startsWith("[")) return null;
-
-    // Dynamic/MCP tool calls surface their arguments as `ToolName: {json}` —
-    // transport detail, not a human summary. The raw call stays in toolDetails.
-    // Failed calls keep their detail inline: it may carry the error text (e.g.
-    // an MCP error serialized as `McpError: {json}`), and on a failure more
-    // information beats a tidy row.
-    if (toolWorkEntryStatus(workEntry) !== "failed" && isPrefixedToolArgumentSummary(trimmedDetail))
-      return null;
-
-    const readLinesMatch = /^Read\s+(\d+\s+lines?)$/i.exec(trimmedDetail);
-    if (readLinesMatch?.[1]) return readLinesMatch[1];
-
-    // Clean, non-JSON detail — show it
-    return trimmedDetail;
-  }
-
-  return null;
-}
-
-// Provider read tools (e.g. Claude's `Read`) arrive as generic dynamic tool calls
-// without a `file-read` requestKind, so match their tool name to surface the search icon
-// instead of the generic tool/wrench fallback.
-function isFileReadToolEntry(workEntry: TimelineWorkEntry): boolean {
-  const name = (workEntry.toolName ?? "").toLowerCase().replace(/[^a-z]/g, "");
-  return name === "read" || name === "readfile" || name === "viewfile";
 }
 
 // Command rows reuse toolCallLabel's wrapper-aware classifier so wrapped git/gh
@@ -339,32 +235,6 @@ export function workEntryLeftIcon(workEntry: TimelineWorkEntry): LucideIcon {
   return workEntryIcon(workEntry);
 }
 
-function isGitHubMcpToolCall(workEntry: TimelineWorkEntry): boolean {
-  const toolName = workEntry.toolName?.trim().toLowerCase();
-  return Boolean(toolName?.startsWith("mcp__codex_apps__github"));
-}
-
-// Penkra's agent gateway command gets the Penkra mark instead of the generic
-// MCP glyph. Providers may report the same command with their transport prefix
-// or as a bare tool name, so presentation normalizes the provider spelling.
-function toolWorkEntryStatus(workEntry: TimelineWorkEntry): PenkraMcpToolStatus {
-  if (workEntry.toolStatus) return workEntry.toolStatus;
-  return workEntry.activityKind !== undefined && workEntry.activityKind !== "tool.completed"
-    ? "running"
-    : "completed";
-}
-
-function isPenkraToolCall(workEntry: TimelineWorkEntry): boolean {
-  return (
-    derivePenkraMcpToolTitle({
-      toolName: workEntry.toolName,
-      title: workEntry.toolTitle,
-      fallbackLabel: workEntry.label,
-      status: toolWorkEntryStatus(workEntry),
-    }) !== null
-  );
-}
-
 // Render command, agent-task, file-change, and file-read rows at the tighter
 // compact density so every tool-call line shares one height regardless of whether
 // it carries a disclosure chevron.
@@ -388,50 +258,6 @@ export function prefersCompactWorkEntryRow(workEntry: TimelineWorkEntry): boolea
     // disclosure chevron; keep them at the same compact height as command rows.
     EntryIcon === SearchIcon
   );
-}
-
-function capitalizePhrase(value: string): string {
-  const trimmed = value.trim();
-  if (trimmed.length === 0) {
-    return value;
-  }
-  return `${trimmed.charAt(0).toUpperCase()}${trimmed.slice(1)}`;
-}
-
-function toolWorkEntryHeading(workEntry: TimelineWorkEntry): string {
-  const command = workEntry.command ?? workEntry.rawCommand;
-  if (
-    command &&
-    isPenkraExecCommandTool({
-      toolName: workEntry.toolName,
-      title: workEntry.toolTitle,
-      fallbackLabel: workEntry.label,
-    })
-  ) {
-    return deriveInlineCommandCall(command);
-  }
-  const penkraTitle = derivePenkraMcpToolTitle({
-    toolName: workEntry.toolName,
-    title: workEntry.toolTitle,
-    fallbackLabel: workEntry.label,
-    status: toolWorkEntryStatus(workEntry),
-  });
-  if (penkraTitle) {
-    return penkraTitle;
-  }
-  if (!workEntry.toolTitle) {
-    return capitalizePhrase(normalizeCompactToolLabel(workEntry.label));
-  }
-  return capitalizePhrase(normalizeCompactToolLabel(workEntry.toolTitle));
-}
-
-function combineWorkEntryDisplayText(heading: string, preview: string | null): string {
-  if (!preview) {
-    return heading;
-  }
-  return normalizeToolTextForComparison(heading) === normalizeToolTextForComparison(preview)
-    ? heading
-    : `${heading} ${preview}`;
 }
 
 export function workEntryFindText(workEntry: WorkLogEntry): string {

@@ -4,6 +4,50 @@
   "private": true,
   "type": "module",
   "exports": {
+    "./toolItemDisplay": {
+      "types": "./src/toolItemDisplay.ts",
+      "import": "./src/toolItemDisplay.ts"
+    },
+    "./workEntryDisplay": {
+      "types": "./src/workEntryDisplay.ts",
+      "import": "./src/workEntryDisplay.ts"
+    },
+    "./linkChips": {
+      "types": "./src/linkChips.ts",
+      "import": "./src/linkChips.ts"
+    },
+    "./subagentPresentation": {
+      "types": "./src/subagentPresentation.ts",
+      "import": "./src/subagentPresentation.ts"
+    },
+    "./workLog": {
+      "types": "./src/workLog.ts",
+      "import": "./src/workLog.ts"
+    },
+    "./toolCallDetails": {
+      "types": "./src/toolCallDetails.ts",
+      "import": "./src/toolCallDetails.ts"
+    },
+    "./threadItemActivity": {
+      "types": "./src/threadItemActivity.ts",
+      "import": "./src/threadItemActivity.ts"
+    },
+    "./toolCallGroup": {
+      "types": "./src/toolCallGroup.ts",
+      "import": "./src/toolCallGroup.ts"
+    },
+    "./pathNames": {
+      "types": "./src/pathNames.ts",
+      "import": "./src/pathNames.ts"
+    },
+    "./toolArgumentSummary": {
+      "types": "./src/toolArgumentSummary.ts",
+      "import": "./src/toolArgumentSummary.ts"
+    },
+    "./toolCallLabel": {
+      "types": "./src/toolCallLabel.ts",
+      "import": "./src/toolCallLabel.ts"
+    },
     "./desktopCredentialLimits": {
       "types": "./src/desktopCredentialLimits.ts",
       "import": "./src/desktopCredentialLimits.ts"

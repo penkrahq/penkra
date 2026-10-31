@@ -11,6 +11,7 @@ import type {
   CleanCoreThreadItem,
   CleanCoreTurnSegment,
 } from "@penkra/contracts";
+import { toolItemDisplay } from "@penkra/shared/toolItemDisplay";
 import { Effect } from "effect";
 import * as SqlClient from "effect/sql/SqlClient";
 
@@ -38,6 +39,18 @@ interface ThreadItemRecordsPage {
   readonly items: ReadonlyArray<ThreadItemRecord>;
   /** Pass as `beforeSeq` to read the next older page, or null when exhausted. */
   readonly nextCursor: number | null;
+}
+
+/** Add derived presentation only to UI reads; keep stored data byte-for-byte intact. */
+export function withToolDisplay(item: ThreadItemRecord): CleanCoreThreadItem {
+  if (item.kind !== "tool") return item;
+  try {
+    const display = toolItemDisplay(item);
+    return display ? { ...item, display } : item;
+  } catch {
+    // A malformed legacy payload must remain readable if presentation fails.
+    return item;
+  }
 }
 
 export const THREAD_ITEMS_PAGE_SIZE = 50;
@@ -139,7 +152,13 @@ export const listThreadItemsPage = (input: PageInput) =>
       }
       segments[turnId] = parts;
     }
-    return { ...page, turns, finals, segments } satisfies ThreadItemsPage;
+    return {
+      ...page,
+      items: page.items.map(withToolDisplay),
+      turns,
+      finals,
+      segments,
+    } satisfies ThreadItemsPage;
   });
 
 export const listTurnItems = (
@@ -164,7 +183,7 @@ export const listTurnItems = (
       AND seq>=${from} ${to === null ? sql`` : sql`AND seq<${to}`}
       ${finalSeq === null ? sql`` : sql`AND seq<>${finalSeq}`} ${before === null ? sql`` : sql`AND seq<${before}`} ORDER BY seq DESC LIMIT ${limit}`;
     return {
-      items: rows,
+      items: rows.map(withToolDisplay),
       nextCursor: rows.length === limit ? rows.at(-1)!.seq : null,
     } satisfies ThreadItemRecordsPage;
   });

@@ -5,6 +5,9 @@
 // Layer: app-level utility shared by composer, file changes, timeline, sidebar.
 // Depends on: Central icon assets served from /central-icons-reversed (see central-icons.tsx).
 
+import { basenameOfPath } from "@penkra/shared/pathNames";
+export { basenameOfPath } from "@penkra/shared/pathNames";
+
 // Generic bracket glyph used whenever a file type has no dedicated Central icon.
 const DEFAULT_FILE_ICON = "code-brackets";
 
@@ -157,12 +160,6 @@ const FILE_ICON_BY_EXTENSION = createIconTable({
   m4a: "audio",
   aac: "audio",
 });
-
-export function basenameOfPath(pathValue: string): string {
-  const slashIndex = Math.max(pathValue.lastIndexOf("/"), pathValue.lastIndexOf("\\"));
-  if (slashIndex === -1) return pathValue;
-  return pathValue.slice(slashIndex + 1);
-}
 
 // True when the basename matches a known filename or a known file extension.
 // Used both for icon selection and to decide whether an inline token (e.g. an

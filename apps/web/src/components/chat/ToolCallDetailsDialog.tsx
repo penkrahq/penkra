@@ -8,7 +8,7 @@ import type { ReactNode } from "react";
 import { createMarkdownCodeFence, formatShellTranscript } from "~/lib/toolCallDetailsFormatting";
 import { cn } from "~/lib/utils";
 import type { TimestampFormat } from "../../appSettings";
-import type { WorkLogToolDetails, WorkLogToolOutputDetails } from "../../lib/toolCallDetails";
+import type { WorkLogToolDetails, WorkLogToolOutputDetails } from "@penkra/shared/toolCallDetails";
 import type { WorkLogLiveActivity } from "../../workLog";
 import {
   formatLiveActivityElapsed,
