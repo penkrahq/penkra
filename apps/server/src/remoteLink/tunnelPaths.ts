@@ -56,7 +56,18 @@ export function resolveTunnelPath(input: {
         ATTACHMENT_CANCEL_ROUTE_PATH,
         VOICE_TRANSCRIPTION_UPLOAD_ROUTE_PATH,
       ].some((path) => path === url.pathname);
-    if (!download && !upload) throw new TunnelPathError();
+    const exportIDs = url.searchParams.getAll("threadId");
+    const threadExport =
+      input.method === "GET" &&
+      url.pathname === "/api/thread-export" &&
+      [...url.searchParams.keys()].length === 1 &&
+      exportIDs.length === 1 &&
+      exportIDs[0] !== undefined &&
+      exportIDs[0].length > 0 &&
+      exportIDs[0].length <= 2048 &&
+      exportIDs[0] === exportIDs[0].trim() &&
+      !/[\p{Cc}]/u.test(exportIDs[0]);
+    if (!download && !upload && !threadExport) throw new TunnelPathError();
   }
   return `${url.pathname}${url.search}`;
 }
