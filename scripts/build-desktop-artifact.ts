@@ -897,7 +897,8 @@ const buildDesktopArtifact = Effect.fn("buildDesktopArtifact")(function* (
       message: "Could not archive the pinned required Apps source.",
       cause: archive.error,
     });
-  const extract = spawnSync("tar", ["-xf", "-", "-C", requiredAppsStage], {
+  const extract = spawnSync("tar", ["-xf", "-"], {
+    cwd: requiredAppsStage,
     input: archive.stdout,
   });
   if (extract.status !== 0)
