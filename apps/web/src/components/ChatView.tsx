@@ -326,6 +326,7 @@ import { ComposerVoiceButton } from "./chat/ComposerVoiceButton";
 import { VoiceRecorderShared } from "./middle-panel/voice-recorder-shared/VoiceRecorderShared";
 import { ComposerReferenceAttachments } from "./chat/ComposerReferenceAttachments";
 import { ComposerSlashStatusDialog } from "./chat/ComposerSlashStatusDialog";
+import { ContextWindowMeter } from "./chat/ContextWindowMeter";
 import { ExpandedImageOverlay } from "./chat/ExpandedImageOverlay";
 import { TranscriptSelectionActionLayer } from "./chat/TranscriptSelectionActionLayer";
 import { WorkflowRunCard } from "./chat/WorkflowRunCard";
@@ -6148,6 +6149,17 @@ function ChatViewContent({
                     applicationTrailingExpands={isVoiceRecording || isVoiceTranscribing}
                     applicationTrailing={
                       <>
+                        {!isVoiceRecording &&
+                        !isVoiceTranscribing &&
+                        composerFooterControlsPlan.showContextMeter &&
+                        runtimeUsageContextWindow ? (
+                          <ContextWindowMeter
+                            usage={runtimeUsageContextWindow}
+                            cumulativeCostUsd={activeCumulativeCostUsd}
+                            activeWindowLabel={contextWindowSelectionStatus.activeLabel}
+                            pendingWindowLabel={contextWindowSelectionStatus.pendingSelectedLabel}
+                          />
+                        ) : null}
                         {!isVoiceRecording && !isVoiceTranscribing ? composerPickerControls : null}
                         {!isVoiceRecording &&
                         !isVoiceTranscribing &&

@@ -57,9 +57,10 @@ const KNOWN_CONTEXT_WINDOW_MAX_TOKENS = {
 function deriveLatestUsageContextWindowSnapshot(
   activities: ReadonlyArray<OrchestrationThreadActivity>,
 ): ContextWindowSnapshot | null {
-  for (let index = activities.length - 1; index >= 0; index -= 1) {
-    const activity = activities[index];
-    if (!activity || activity.kind !== "context-window.updated") {
+  const current = activities.find((activity) => activity.id === "context-window:latest");
+  const candidates = current ? [current, ...activities.toReversed()] : activities.toReversed();
+  for (const activity of candidates) {
+    if (activity.kind !== "context-window.updated") {
       continue;
     }
 

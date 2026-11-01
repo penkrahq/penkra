@@ -94,6 +94,6 @@ export function threadItemToActivity(item: CleanCoreThreadItem): OrchestrationTh
     payload: payload as OrchestrationThreadActivity["payload"],
     turnId: item.turnId === null ? null : TurnId.make(item.turnId),
     sequence: item.seq,
-    createdAt: item.createdAt,
+    createdAt: item.sourceId === "context-window:latest" ? item.updatedAt : item.createdAt,
   };
 }

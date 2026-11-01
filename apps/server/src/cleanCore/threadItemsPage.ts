@@ -83,7 +83,7 @@ const readPage = (input: PageInput, outline: boolean) =>
         updated_at AS "updatedAt"
       FROM thread_items
       WHERE thread_id = ${input.threadId}
-        ${outline ? sql`AND (kind IN ('user','question','turn') OR turn_id IS NULL)` : sql``}
+        ${outline ? sql`AND source_id <> 'context-window:latest' AND (kind IN ('user','question','turn') OR turn_id IS NULL)` : sql``}
         AND (${before} IS NULL OR seq < ${before})
       ORDER BY seq DESC
       LIMIT ${limit}
@@ -152,9 +152,17 @@ export const listThreadItemsPage = (input: PageInput) =>
       }
       segments[turnId] = parts;
     }
+    // The context meter is a single per-thread snapshot, not a timeline row.
+    // Include it on the first page even when its original sequence is old,
+    // without consuming page capacity or changing the pagination cursor.
+    const [contextWindow] =
+      input.beforeSeq === undefined
+        ? yield* sql<ThreadItemRecord>`SELECT thread_id AS "threadId",seq,source_id AS "sourceId",turn_id AS "turnId",kind,status,text,data,
+          created_at AS "createdAt",updated_at AS "updatedAt" FROM thread_items WHERE thread_id=${input.threadId} AND source_id='context-window:latest'`
+        : [];
     return {
       ...page,
-      items: page.items.map(withToolDisplay),
+      items: [...page.items, ...(contextWindow ? [contextWindow] : [])].map(withToolDisplay),
       turns,
       finals,
       segments,

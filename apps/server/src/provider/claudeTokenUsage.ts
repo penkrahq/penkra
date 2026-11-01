@@ -4,7 +4,7 @@ import type {
   SDKControlGetContextUsageResponse,
 } from "@anthropic-ai/claude-agent-sdk";
 import type { ThreadTokenUsageSnapshot } from "@penkra/contracts";
-import { getModelCapabilities, trimOrNull } from "@penkra/shared/model";
+import { getModelCapabilities } from "@penkra/shared/model";
 
 import { positiveFiniteNumber } from "./tokenUsage.ts";
 
@@ -43,15 +43,11 @@ export function claudePromptTokensFromRawUsage(usage: Record<string, unknown>): 
 }
 
 export function resolveClaudeEffectiveContextBudget(
-  lastKnownAutoCompactThreshold: number | undefined,
-  currentAutoCompactWindow: number | undefined,
+  _lastKnownAutoCompactThreshold: number | undefined,
+  _currentAutoCompactWindow: number | undefined,
   lastKnownContextWindow: number | undefined,
 ): number | undefined {
-  const autoCompactBudget = lastKnownAutoCompactThreshold ?? currentAutoCompactWindow;
-  if (autoCompactBudget !== undefined && lastKnownContextWindow !== undefined) {
-    return Math.min(autoCompactBudget, lastKnownContextWindow);
-  }
-  return autoCompactBudget ?? lastKnownContextWindow;
+  return lastKnownContextWindow;
 }
 
 export function stripClaudeContextWindowSuffix(apiModelId: string): string {
@@ -133,6 +129,7 @@ export function resolveClaudeApiModelIdContextWindowMaxTokens(
   if (!apiModelId) {
     return undefined;
   }
+  if (/\[1m\]$/iu.test(apiModelId)) return 1_000_000;
   return positiveFiniteNumber(
     getModelCapabilities("claudeAgent", stripClaudeContextWindowSuffix(apiModelId))
       .contextWindowTokens,
@@ -141,21 +138,10 @@ export function resolveClaudeApiModelIdContextWindowMaxTokens(
 
 export function resolveSelectedClaudeAutoCompactWindow(
   _model: string | null | undefined,
-  selectedAutoCompactWindow: string | null | undefined,
+  _selectedAutoCompactWindow: string | null | undefined,
 ): number | undefined {
-  const resolvedAutoCompactWindow = trimOrNull(selectedAutoCompactWindow) ?? "200k";
-  if (
-    !Object.prototype.hasOwnProperty.call(
-      CLAUDE_CONTEXT_WINDOW_MAX_TOKENS,
-      resolvedAutoCompactWindow,
-    )
-  ) {
-    return undefined;
-  }
-
-  return CLAUDE_CONTEXT_WINDOW_MAX_TOKENS[
-    resolvedAutoCompactWindow as keyof typeof CLAUDE_CONTEXT_WINDOW_MAX_TOKENS
-  ];
+  // Legacy draft selections must not impose a smaller window on a new turn.
+  return undefined;
 }
 
 export function resolveEffectiveClaudeContextWindow(input: {
@@ -163,11 +149,6 @@ export function resolveEffectiveClaudeContextWindow(input: {
   readonly lastKnownContextWindow: number | undefined;
 }): number | undefined {
   const { reportedContextWindow, lastKnownContextWindow } = input;
-  if (reportedContextWindow !== undefined && lastKnownContextWindow !== undefined) {
-    // Some SDK result payloads still report the historical 200k window for
-    // native-1M models. Never downgrade a known model capacity from that field.
-    return Math.max(reportedContextWindow, lastKnownContextWindow);
-  }
   return reportedContextWindow ?? lastKnownContextWindow;
 }
 
@@ -176,9 +157,8 @@ export function snapshotFromClaudeContextUsage(
   totalProcessedTokens?: number,
 ): ThreadTokenUsageSnapshot {
   const effectiveMaxTokens =
-    positiveFiniteNumber(usage.autoCompactThreshold) ??
-    positiveFiniteNumber(usage.maxTokens) ??
-    positiveFiniteNumber(usage.rawMaxTokens);
+    positiveFiniteNumber(usage.rawMaxTokens) ??
+    positiveFiniteNumber(usage.maxTokens);
   const usedTokens = Math.max(0, Math.round(usage.totalTokens));
   const rawApiUsage = usage.apiUsage as Record<string, unknown> | undefined;
   const inputTokens = Math.max(

@@ -249,6 +249,28 @@ export function toCleanCoreProviderEvents(
         },
       ];
     }
+    case "thread.token-usage.updated": {
+      if (!ownsTurn) return [];
+      const activity = projectProviderRuntimeActivities(event)[0];
+      if (!activity) return [];
+      return [
+        {
+          type: "item",
+          threadId: event.threadId,
+          item: {
+            threadId: event.threadId,
+            sourceId: "context-window:latest",
+            turnId: null,
+            kind: "notice",
+            status: "done",
+            text: null,
+            data: threadItemActivityData(activity),
+            createdAt: event.createdAt,
+            updatedAt: event.createdAt,
+          },
+        },
+      ];
+    }
     case "runtime.warning": {
       const message = event.payload.message;
       if (

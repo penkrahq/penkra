@@ -241,6 +241,7 @@ interface ClaudeTurnState {
   readonly assistantTextBlocks: Map<number, AssistantTextBlockState>;
   readonly assistantTextBlockOrder: Array<AssistantTextBlockState>;
   readonly sawFileChange: boolean;
+  contextWindowDenial?: string;
   nextSyntheticAssistantBlockIndex: number;
   // Offset into assistantTextBlockOrder where the current assistant API
   // message's blocks begin. A turn spans many API messages (tool-use round
@@ -1395,6 +1396,11 @@ function makeClaudeAdapter(options?: ClaudeAdapterLiveOptions) {
     const teardownProcessTree = options?.teardownProcessTree ?? teardownProviderProcessTree;
 
     const sessions = new Map<ThreadId, ClaudeSessionContext>();
+    // Account entitlements can differ for the same model; remember only within
+    // this server lifetime so a later account change can be discovered.
+    const contextWindowDenials = new Set<string>();
+    const contextWindowDenialKey = (connectionId: ProviderConnectionId | null | undefined, model: string) =>
+      `${connectionId ?? "default"}\0${stripClaudeContextWindowSuffix(model).toLowerCase()}`;
 
     const enableClaudeComputerUse = async (
       context: ClaudeSessionContext,
@@ -2950,8 +2956,23 @@ function makeClaudeAdapter(options?: ClaudeAdapterLiveOptions) {
           return;
         }
 
-        yield* ensureSyntheticTurn(context);
         const content = message.message?.content;
+        if (message.error && context.turnState && context.currentApiModelId &&
+            /\[1m\]$/iu.test(context.currentApiModelId)) {
+          const reason = Array.isArray(content)
+            ? content.map((block) => block.type === "text" ? block.text : "").join(" ")
+            : "";
+          if (/(?:\b1m\b|1,?000,?000|million).*(?:context|window)|(?:context|window).*(?:\b1m\b|1,?000,?000|million)/iu.test(reason) &&
+              /(?:not available|not supported|not allowed|unavailable|entitle|access|permission)/iu.test(reason)) {
+            contextWindowDenials.add(contextWindowDenialKey(context.connectionId, context.currentApiModelId));
+            context.turnState.contextWindowDenial = reason;
+            yield* Effect.logWarning("provider.context-window.fallback", {
+              threadId: context.session.threadId, model: stripClaudeContextWindowSuffix(context.currentApiModelId), reason,
+            });
+            return;
+          }
+        }
+        yield* ensureSyntheticTurn(context);
         if (Array.isArray(content)) {
           for (const block of content) {
             if (!block || typeof block !== "object") {
@@ -3058,8 +3079,9 @@ function makeClaudeAdapter(options?: ClaudeAdapterLiveOptions) {
           hasPendingUserInterrupt(context) && message.subtype === "error_during_execution"
             ? "interrupted"
             : turnStatusFromResult(message);
-        const errorMessage =
-          message.subtype === "success"
+        const errorMessage = context.turnState?.contextWindowDenial
+          ? "1M context isn't available on this account; your next message uses the standard window."
+          : message.subtype === "success"
             ? message.is_error
               ? normalizeClaudeUserVisibleErrorMessage(message.result, status)
               : undefined
@@ -4328,8 +4350,6 @@ function makeClaudeAdapter(options?: ClaudeAdapterLiveOptions) {
             ? "bypassPermissions"
             : "dontAsk");
         const settings = {
-          // Native 1M models otherwise compact near their full model limit. Keep
-          // Penkra's safer 200k budget explicit unless the thread opts into 1M.
           autoCompactEnabled: true,
           ...(requestedAutoCompactWindowTokens !== undefined
             ? { autoCompactWindow: requestedAutoCompactWindowTokens }
@@ -4754,14 +4774,54 @@ function makeClaudeAdapter(options?: ClaudeAdapterLiveOptions) {
           yield* updateResumeCursor(context);
         }
 
-        if (modelSelection?.model) {
-          const apiModelId = resolveApiModelId(modelSelection);
-          if (apiModelId !== context.currentApiModelId) {
-            yield* Effect.tryPromise({
-              try: () => context.query.setModel(apiModelId),
-              catch: (cause) => toRequestError("turn/setModel", cause),
+        {
+          const defaultModelId = modelSelection
+            ? resolveApiModelId(modelSelection)
+            : (context.session.model ?? getDefaultModel("claudeAgent"));
+          const modelChoice = yield* Effect.tryPromise({
+            try: async () => {
+              let chosen = defaultModelId;
+              let fallbackReason: string | undefined;
+              let extendedRejected = false;
+              try {
+                const models = await context.query.supportedModels();
+                const extended = models.find((row) => {
+                  const value = row.value.trim();
+                  const resolved = row.resolvedModel?.trim() || stripClaudeContextWindowSuffix(value);
+                  return /\[1m\]$/iu.test(value) && resolved.toLowerCase() === defaultModelId.toLowerCase();
+                });
+                if (extended && !contextWindowDenials.has(contextWindowDenialKey(context.connectionId, defaultModelId))) {
+                  chosen = extended.value.trim();
+                }
+              } catch (cause) {
+                fallbackReason = toMessage(cause, "Claude model discovery failed");
+              }
+              if (chosen !== context.currentApiModelId) {
+                try {
+                  await context.query.setModel(chosen);
+                } catch (cause) {
+                  if (chosen === defaultModelId) throw cause;
+                  fallbackReason = toMessage(cause, "Claude rejected its extended context model");
+                  extendedRejected = true;
+                  chosen = defaultModelId;
+                  if (chosen !== context.currentApiModelId) await context.query.setModel(chosen);
+                }
+              }
+              return { apiModelId: chosen, fallbackReason, extendedRejected };
+            },
+            catch: (cause) => toRequestError("turn/setModel", cause),
+          });
+          if (modelChoice.extendedRejected) {
+            contextWindowDenials.add(contextWindowDenialKey(context.connectionId, defaultModelId));
+          }
+          if (modelChoice.fallbackReason) {
+            yield* Effect.logWarning("provider.context-window.fallback", {
+              threadId: input.threadId,
+              model: defaultModelId,
+              reason: modelChoice.fallbackReason,
             });
           }
+          const apiModelId = modelChoice.apiModelId;
           context.currentApiModelId = apiModelId;
           context.rerouteOriginalApiModelId = undefined;
           context.lastKnownContextWindow =
