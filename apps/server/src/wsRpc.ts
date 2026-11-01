@@ -114,18 +114,12 @@ import { bufferLiveUiStream, type LiveUiStreamDropReport } from "./wsStreamBackp
 import {} from "./wsSyncAcknowledgements";
 import { wsRpcErrorCode } from "./wsRpcErrorMapping";
 import { findThreadPolicyError } from "./cleanCore/threadErrors.ts";
+import { getRendererCredential } from "./rendererCredential";
 
-// Consume this before server startup can spawn provider or tool children.
-const rendererTokenEnvKey = "PENKRA_RENDERER_WS_TOKEN";
-let rendererWsToken: string | undefined;
-for (const key of Object.keys(process.env)) {
-  if (key.toUpperCase() === rendererTokenEnvKey) {
-    rendererWsToken ??= process.env[key];
-    delete process.env[key];
-  }
-}
-
-export function isRendererToken(candidate: string | null, token = rendererWsToken): boolean {
+export function isRendererToken(
+  candidate: string | null,
+  token = getRendererCredential(),
+): boolean {
   if (!candidate || !token) return false;
   const expected = Buffer.from(token);
   const actual = Buffer.from(candidate);

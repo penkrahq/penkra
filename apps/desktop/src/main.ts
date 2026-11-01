@@ -4581,7 +4581,7 @@ function backendEnv(): NodeJS.ProcessEnv {
       PENKRA_PORT: String(backendPort),
       PENKRA_HOME: BASE_DIR,
       PENKRA_AUTH_TOKEN: backendAuthToken,
-      PENKRA_RENDERER_WS_TOKEN: backendRendererToken,
+      PENKRA_RENDERER_PIPE: "1",
       PENKRA_DESKTOP_SHUTDOWN_TOKEN: DESKTOP_BACKEND_SHUTDOWN_TOKEN,
       PENKRA_APP_TEST_ELECTRON: process.execPath,
       PENKRA_APP_TEST_HOST: Path.join(__dirname, "entry.js"),
@@ -4589,6 +4589,10 @@ function backendEnv(): NodeJS.ProcessEnv {
     },
     process.pid,
   );
+  // Do not forward a stale value from an inherited shell environment.
+  for (const key of Object.keys(env)) {
+    if (key.toUpperCase() === "PENKRA_RENDERER_WS_TOKEN") delete env[key];
+  }
   // The backend runs the same login-shell probe at startup and does not begin listening
   // until it returns, so an unmarked child serializes a second ~1s hydration behind ours.
   // Written explicitly in both directions: an inherited marker must never suppress a
@@ -4875,8 +4879,13 @@ function startBackend(trigger: BackendStartTrigger = "lifecycle"): void {
     },
     // Keep output piped in every environment so startup blockers and readiness
     // are observable even when packaged log setup is unavailable.
-    stdio: ["ignore", "pipe", "pipe"],
+    stdio: ["ignore", "pipe", "pipe", "pipe"],
   });
+  const credentialPipe = child.stdio[3];
+  if (credentialPipe && "end" in credentialPipe) {
+    credentialPipe.on("error", () => writeDesktopLogHeader("renderer credential pipe failed"));
+    credentialPipe.end(backendRendererToken);
+  }
   const listeningDetector = new ServerListeningDetector();
   const startupBlockDetector = new BackendStartupBlockDetector();
   const outputTailDetector = new BackendOutputTailDetector();

@@ -1,4 +1,5 @@
 import { assert, it } from "@effect/vitest";
+import { spawn } from "node:child_process";
 import { MessageId } from "@penkra/contracts";
 import { Effect } from "effect";
 import * as SqlClient from "effect/sql/SqlClient";
@@ -13,8 +14,52 @@ import { seedThreadFolderFixture } from "./cleanCore/threadFixtures";
 import { createThread } from "./cleanCore/threadStore";
 import { enqueueMessage, readThreadQueue } from "./cleanCore/threadQueue";
 
+async function checkCredentialPipe(
+  value: string,
+  enabled = true,
+  providePipe = true,
+): Promise<string> {
+  const moduleUrl = new URL("./rendererCredential.ts", import.meta.url).href;
+  const script = `const m=await import(${JSON.stringify(moduleUrl)}); await m.initializeRendererCredential(); console.log(m.getRendererCredential() === 'a'.repeat(64) ? 'accepted' : 'rejected');`;
+  return await new Promise((resolve, reject) => {
+    const child = spawn(process.execPath, ["--input-type=module", "--eval", script], {
+      env: { ...process.env, PENKRA_RENDERER_PIPE: enabled ? "1" : "0" },
+      stdio: ["ignore", "pipe", "pipe", providePipe ? "pipe" : "ignore"],
+    });
+    let output = "";
+    let errors = "";
+    if (!child.stdout || !child.stderr) {
+      child.kill();
+      reject(new Error("Credential test output pipes unavailable"));
+      return;
+    }
+    child.stdout.on("data", (chunk) => {
+      output += chunk;
+    });
+    child.stderr.on("data", (chunk) => {
+      errors += chunk;
+    });
+    child.on("error", reject);
+    child.on("close", (code) => (code === 0 ? resolve(output.trim()) : reject(new Error(errors))));
+    const pipe = child.stdio[3];
+    if (pipe && "end" in pipe) {
+      pipe.on("error", reject);
+      pipe.end(value);
+    } else if (providePipe) reject(new Error("Credential pipe unavailable"));
+  });
+}
+
 it.effect("renderer and external attribution survive queue persistence", () =>
   Effect.gen(function* () {
+    assert.equal(yield* Effect.promise(() => checkCredentialPipe("a".repeat(64))), "accepted");
+    assert.equal(yield* Effect.promise(() => checkCredentialPipe("invalid")), "rejected");
+    assert.equal(yield* Effect.promise(() => checkCredentialPipe("")), "rejected");
+    assert.equal(yield* Effect.promise(() => checkCredentialPipe("a".repeat(65))), "rejected");
+    assert.equal(yield* Effect.promise(() => checkCredentialPipe("", true, false)), "rejected");
+    assert.equal(
+      yield* Effect.promise(() => checkCredentialPipe("a".repeat(64), false)),
+      "rejected",
+    );
     assert.isTrue(isRendererToken("renderer-secret", "renderer-secret"));
     assert.isFalse(isRendererToken("legacy-secret", "renderer-secret"));
     yield* runMigrations();
