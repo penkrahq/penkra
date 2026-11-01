@@ -7,13 +7,16 @@
 
 import type { MessageOrigin } from "@penkra/contracts";
 
-export type UserTurnMarkerKind = "agent" | "agent-steer" | "steer";
+export type UserTurnMarkerKind = "agent" | "agent-steer" | "external" | "external-steer" | "steer";
 
 export function resolveUserTurnMarker(message: {
   readonly origin?: MessageOrigin | undefined;
   readonly steered?: true | undefined;
 }): UserTurnMarkerKind | null {
   if (message.origin?._tag === "recovery") return null;
+  if (message.origin?._tag === "external") {
+    return message.steered ? "external-steer" : "external";
+  }
   if (message.origin?._tag === "agent") {
     return message.steered ? "agent-steer" : "agent";
   }

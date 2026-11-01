@@ -488,6 +488,8 @@ export function normalizeChatMessage(
     previous.origin?._tag === origin?._tag &&
     (previous.origin?._tag !== "agent" ||
       (origin?._tag === "agent" && previous.origin.senderThreadId === origin.senderThreadId)) &&
+    (previous.origin?._tag !== "external" ||
+      (origin?._tag === "external" && previous.origin.client === origin.client)) &&
     previous.delivery === delivery &&
     previous.sequence === incoming.sequence &&
     previous.turnId === incoming.turnId &&

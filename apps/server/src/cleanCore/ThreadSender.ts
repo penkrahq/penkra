@@ -52,6 +52,7 @@ export class ThreadSender extends Context.Service<
     readonly steerQueued: (
       input: CleanCoreQueuedMessageInput,
       callerThreadId?: ThreadId,
+      origin?: ThreadSendInput["message"]["origin"],
     ) => Effect.Effect<CleanCoreSendAdmission, Error>;
     readonly editQueued: (input: {
       threadId: ThreadId;
@@ -424,7 +425,11 @@ export const makeThreadSender = Effect.gen(function* () {
           return { threadId, interruptRequested: true, interruptedTurnId: runtime.activeTurnId };
         }),
       ),
-    steerQueued: (input: CleanCoreQueuedMessageInput, callerThreadId?: ThreadId) =>
+    steerQueued: (
+      input: CleanCoreQueuedMessageInput,
+      callerThreadId?: ThreadId,
+      origin?: ThreadSendInput["message"]["origin"],
+    ) =>
       withLane(
         input.threadId,
         Effect.gen(function* () {
@@ -498,7 +503,7 @@ export const makeThreadSender = Effect.gen(function* () {
               const selected = yield* writeSendingMessage(
                 {
                   threadId: input.threadId,
-                  message,
+                  message: origin ? { ...message, origin } : message,
                   skills: message.skills,
                   mentions: message.mentions,
                   dispatchMode: "steer",
@@ -566,7 +571,7 @@ export const makeThreadSender = Effect.gen(function* () {
             ...input,
             ...selection,
             autoSteer:
-              input.message.origin._tag === "user"
+              input.message.origin._tag === "user" || input.message.origin._tag === "external"
                 ? settings.conversations.steerComposerMessages
                 : input.message.origin._tag === "agent" &&
                   settings.conversations.steerThreadMessages,

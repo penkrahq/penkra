@@ -338,7 +338,10 @@ export class DesktopThreadCommands {
                 messageId: MessageId.make(`app:${request.input.composeId}`),
                 text,
                 attachments: [...receipt.attachments],
-                origin: { _tag: "user" as const },
+                origin: {
+                  _tag: "external" as const,
+                  client: request.appName?.trim() || request.appId,
+                },
                 queuedAt: receipt.createdAt,
               },
               modelSelection: Schema.decodeUnknownSync(ModelSelection)(modelSelection),

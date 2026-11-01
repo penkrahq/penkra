@@ -910,6 +910,9 @@ async function requestAppThreadOperation(
   const base = {
     id: Crypto.randomUUID(),
     appId: identity.appId,
+    appName:
+      getInstalledAppPackage(runtime.installations.snapshot(), identity.appId, identity.spaceId)
+        ?.name ?? identity.appId,
     spaceId: identity.spaceId,
     folderId: identity.folderId,
     tabId: identity.tabId,
@@ -1575,6 +1578,7 @@ async function showPenkraResourceContextMenu(input: {
 }
 
 let backendAuthToken = "";
+let backendRendererToken = "";
 let backendHttpUrl = "";
 let backendWsUrl = "";
 let backendInitialWindowOpenInFlight: Promise<void> | null = null;
@@ -4577,6 +4581,7 @@ function backendEnv(): NodeJS.ProcessEnv {
       PENKRA_PORT: String(backendPort),
       PENKRA_HOME: BASE_DIR,
       PENKRA_AUTH_TOKEN: backendAuthToken,
+      PENKRA_RENDERER_WS_TOKEN: backendRendererToken,
       PENKRA_DESKTOP_SHUTDOWN_TOKEN: DESKTOP_BACKEND_SHUTDOWN_TOKEN,
       PENKRA_APP_TEST_ELECTRON: process.execPath,
       PENKRA_APP_TEST_HOST: Path.join(__dirname, "entry.js"),
@@ -6977,9 +6982,23 @@ function registerIpcHandlers(): void {
 
   ipcMain.removeAllListeners(IPC.wsUrl);
   ipcMain.on(IPC.wsUrl, (event: IpcMainEvent) => {
+    if (
+      event.sender.isDestroyed() ||
+      !shellWindowRegistry.hasWebContents(event.sender) ||
+      event.senderFrame !== event.sender.mainFrame
+    ) {
+      event.returnValue = null;
+      return;
+    }
     // The backend port is reserved at runtime, so preload asks main for the
     // live URL instead of trusting build-time or inherited renderer env.
     const wsUrl = normalizeDesktopWsUrl(backendWsUrl) ?? resolveDesktopWsUrlFromEnv(process.env);
+    if (wsUrl && backendRendererToken) {
+      const rendererUrl = new URL(wsUrl);
+      rendererUrl.searchParams.set("rendererToken", backendRendererToken);
+      event.returnValue = rendererUrl.toString();
+      return;
+    }
     // sendSync receives the first returnValue assignment immediately.
     event.returnValue = wsUrl;
   });
@@ -8053,6 +8072,7 @@ async function bootstrap(): Promise<void> {
   }
 
   backendAuthToken = Crypto.randomBytes(24).toString("hex");
+  backendRendererToken = Crypto.randomBytes(32).toString("hex");
   await reserveBackendEndpoint("bootstrap");
 
   appStorage = new AppStorageService(app.getPath("userData"));

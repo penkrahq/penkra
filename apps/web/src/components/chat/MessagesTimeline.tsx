@@ -36,9 +36,10 @@ import {
 import { recordChatLifecycleUiDiagnostic } from "../../chatLifecycleDiagnostics";
 import ChatMarkdown from "../ChatMarkdown";
 import { InlineLinkChip } from "../InlineLinkChip";
-import { BotIcon, type LucideIcon, SteerIcon } from "~/lib/icons";
+import { BotIcon, type LucideIcon, SteerIcon, TerminalIcon } from "~/lib/icons";
 import { CrossTaskOriginLabel, type CrossTaskOrigin } from "./CrossTaskOriginLabel";
 import { useStore } from "../../store";
+import { ensureNativeApi } from "~/nativeApi";
 import { PenkraThreadCreationCard } from "./PenkraThreadCreationCard";
 import { PresentedMediaRow } from "./PresentedMediaRow";
 import { presentedVideoMimeType } from "./presentedMediaType";
@@ -171,6 +172,8 @@ const USER_TURN_MARKER_PRESENTATION: Record<
 > = {
   agent: { Icon: BotIcon, label: "Sent by agent" },
   "agent-steer": { Icon: BotIcon, label: "Steered by agent" },
+  external: { Icon: TerminalIcon, label: "Sent from Terminal" },
+  "external-steer": { Icon: TerminalIcon, label: "Steered from Terminal" },
   steer: { Icon: SteerIcon, label: "Steering conversation" },
 };
 
@@ -189,6 +192,19 @@ function UserDispatchModeChip({
   const senderThread = useStore((state) =>
     senderThreadId ? state.threadShellById?.[senderThreadId] : undefined,
   );
+  useEffect(() => {
+    if (!senderThreadId || senderThread) return;
+    let cancelled = false;
+    void ensureNativeApi()
+      .cleanCore.getThreadShell({ threadId: senderThreadId })
+      .then((shell) => {
+        if (!cancelled && shell) useStore.getState().syncServerThreadShell(senderThreadId, shell);
+      })
+      .catch((error: unknown) => console.error("Failed to read message sender", error));
+    return () => {
+      cancelled = true;
+    };
+  }, [senderThreadId, senderThread]);
   const markerKind = resolveUserTurnMarker({ steered, origin });
   if (!markerKind) {
     return null;
@@ -199,9 +215,11 @@ function UserDispatchModeChip({
   const clampedSenderTitle = senderTitle?.trim() ? clampMentionTitle(senderTitle) : undefined;
   const hasKnownSenderTitle = clampedSenderTitle !== undefined;
   const senderLabel =
-    origin?._tag === "agent" && hasKnownSenderTitle
-      ? `${steered ? "Steered" : "Sent"} by ${senderTitle}`
-      : label;
+    origin?._tag === "external"
+      ? `${steered ? "Steered" : "Sent"} from ${origin.client}`
+      : origin?._tag === "agent" && hasKnownSenderTitle
+        ? `${steered ? "Steered" : "Sent"} by ${senderTitle}`
+        : label;
   const content = (
     <>
       <Icon className="size-3 shrink-0 text-muted-foreground/75" />

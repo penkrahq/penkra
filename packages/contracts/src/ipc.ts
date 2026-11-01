@@ -860,6 +860,7 @@ export interface DesktopThreadComposeAttachment {
 interface DesktopThreadApiRequestBase {
   id: string;
   appId: string;
+  appName?: string;
   spaceId: string;
   folderId: string;
   tabId: string;

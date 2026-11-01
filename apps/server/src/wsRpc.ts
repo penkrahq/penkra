@@ -1,4 +1,5 @@
 import { ModelSelection } from "@penkra/contracts";
+import { randomUUID, timingSafeEqual } from "node:crypto";
 import { ProviderAuthCircuits } from "./provider/providerAuthCircuit.ts";
 import { PLAY_TURN_RECOVERY_PROMPT } from "./cleanCore/sendMessage.ts";
 import { getNavigation, updateNavigation } from "./cleanCore/navigation";
@@ -93,6 +94,8 @@ import {
   ownerDeviceChanges,
 } from "./remoteLink/devicesControl";
 import {
+  CurrentWsConnection,
+  originForWsConnection,
   provideWsConnectionSession,
   WsConnectionSessionMiddleware,
   WsConnectionSessionMiddlewareLive,
@@ -101,6 +104,7 @@ import {
   WsConnectionSessionsLive,
   type WsConnectionSession,
 } from "./wsConnectionSessions";
+
 import { negotiateWsCompatibility, validateWsFeatureCompatibility } from "./wsCompatibility";
 import {
   requiresWebSocketAuthentication,
@@ -110,6 +114,31 @@ import { bufferLiveUiStream, type LiveUiStreamDropReport } from "./wsStreamBackp
 import {} from "./wsSyncAcknowledgements";
 import { wsRpcErrorCode } from "./wsRpcErrorMapping";
 import { findThreadPolicyError } from "./cleanCore/threadErrors.ts";
+
+// Consume this before server startup can spawn provider or tool children.
+const rendererTokenEnvKey = "PENKRA_RENDERER_WS_TOKEN";
+let rendererWsToken: string | undefined;
+for (const key of Object.keys(process.env)) {
+  if (key.toUpperCase() === rendererTokenEnvKey) {
+    rendererWsToken ??= process.env[key];
+    delete process.env[key];
+  }
+}
+
+export function isRendererToken(candidate: string | null, token = rendererWsToken): boolean {
+  if (!candidate || !token) return false;
+  const expected = Buffer.from(token);
+  const actual = Buffer.from(candidate);
+  return expected.length === actual.length && timingSafeEqual(expected, actual);
+}
+
+export const isPairedPhoneSession = (sessionId: string, subject: string) =>
+  Effect.gen(function* () {
+    const sql = yield* SqlClient.SqlClient;
+    const rows = yield* sql<{ sessionId: string }>`SELECT session_id AS "sessionId"
+      FROM remote_devices WHERE session_id=${sessionId} AND device_id=${subject} LIMIT 1`;
+    return rows.length > 0;
+  });
 
 const SessionScopedWsFeatureRpcGroup = WsFeatureRpcGroup.middleware(WsConnectionSessionMiddleware);
 
@@ -315,19 +344,31 @@ const makeWsRpcHandlersLayer = () =>
         [WS_METHODS.cleanCoreSendMessage]: (input) =>
           rpcEffect(
             runtimeStartup.enqueueCommand(
-              Effect.flatMap(Effect.service(ThreadSender), (sender) =>
-                sender.send({
+              Effect.gen(function* () {
+                const connection = yield* CurrentWsConnection;
+                const sender = yield* ThreadSender;
+                const origin = originForWsConnection(connection.connectionClass);
+                const result = yield* sender.send({
                   ...input,
-                  message: { ...input.message, origin: { _tag: "user" } },
-                }),
-              ),
+                  message: { ...input.message, origin },
+                });
+                yield* Effect.logInfo("Accepted WebSocket send", connection);
+                return result;
+              }),
             ),
             "Failed to send the message",
           ),
         [WS_METHODS.cleanCoreSteerQueued]: (input) =>
           rpcEffect(
             runtimeStartup.enqueueCommand(
-              Effect.flatMap(Effect.service(ThreadSender), (sender) => sender.steerQueued(input)),
+              Effect.gen(function* () {
+                const connection = yield* CurrentWsConnection;
+                const sender = yield* ThreadSender;
+                const origin = originForWsConnection(connection.connectionClass);
+                const result = yield* sender.steerQueued(input, undefined, origin);
+                yield* Effect.logInfo("Accepted WebSocket steer", connection);
+                return result;
+              }),
             ),
             "Failed to steer the queued message",
           ),
@@ -401,7 +442,10 @@ const makeWsRpcHandlersLayer = () =>
           rpcEffect(
             runtimeStartup.enqueueCommand(
               Effect.gen(function* () {
-                const result = yield* createAndSendThread(input);
+                const connection = yield* CurrentWsConnection;
+                const origin = originForWsConnection(connection.connectionClass);
+                const result = yield* createAndSendThread(input, origin);
+                yield* Effect.logInfo("Accepted WebSocket create and send", connection);
                 const query = yield* ThreadReads;
                 const shell = yield* query.getThreadShellById(result.thread.id);
                 if (Option.isNone(shell))
@@ -932,6 +976,7 @@ function trustedWebSocketRequestUrl(
 export function authenticateRpcWebSocketUpgrade(input: {
   readonly config: Pick<ServerConfigShape, "authToken" | "host" | "publicUrl">;
   readonly legacyToken: string | null;
+  readonly rendererToken?: string | null;
   readonly request: AuthRequest;
   readonly serverAuth: Pick<ServerAuthShape, "authenticateWebSocketUpgrade">;
 }): Effect.Effect<AuthenticatedSession | null, AuthError> {
@@ -939,7 +984,8 @@ export function authenticateRpcWebSocketUpgrade(input: {
     !requiresWebSocketAuthentication(input.config) ||
     (isLoopbackHost(input.config.host) &&
       !input.config.publicUrl &&
-      input.legacyToken === input.config.authToken)
+      (input.legacyToken === input.config.authToken ||
+        isRendererToken(input.rendererToken ?? null)))
   ) {
     return Effect.succeed(null);
   }
@@ -1003,9 +1049,14 @@ export function makeWebsocketRpcRouteLayer<R>(
             });
           }
           const legacyToken = url.searchParams.get("token");
+          const rendererAuthenticated =
+            isLoopbackHost(config.host) &&
+            !config.publicUrl &&
+            isRendererToken(url.searchParams.get("rendererToken"));
           const authenticatedSession = yield* authenticateRpcWebSocketUpgrade({
             config,
             legacyToken,
+            rendererToken: url.searchParams.get("rendererToken"),
             request: makeEffectAuthRequest(request),
             serverAuth,
           });
@@ -1014,14 +1065,25 @@ export function makeWebsocketRpcRouteLayer<R>(
             return yield* runWithConnectionSession(request, {
               role: "owner",
               attachmentPrincipal: LOCAL_LOOPBACK_ATTACHMENT_PRINCIPAL,
+              connectionClass: rendererAuthenticated ? "renderer" : "external",
+              sessionId: randomUUID(),
             });
           }
+
+          // Only sessions bound to a trusted paired phone get phone attribution;
+          // other bearer and browser sessions are external clients.
+          const paired = yield* isPairedPhoneSession(
+            authenticatedSession.sessionId,
+            authenticatedSession.subject,
+          );
 
           return yield* sessions.runAuthenticatedConnection(
             authenticatedSession.sessionId,
             runWithConnectionSession(request, {
               role: authenticatedSession.role,
               attachmentPrincipal: attachmentPrincipalForSession(authenticatedSession.sessionId),
+              connectionClass: paired ? "phone" : "external",
+              sessionId: authenticatedSession.sessionId,
             }),
           );
         }).pipe(

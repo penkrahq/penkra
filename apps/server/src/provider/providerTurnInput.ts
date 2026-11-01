@@ -49,7 +49,8 @@ export function formatUserTurnMember(
   message: Pick<CleanCoreQueuedMessage, "text" | "origin">,
 ): string {
   const origin = Schema.decodeUnknownSync(SendingMessageOrigin)(message.origin);
-  if (origin._tag === "user" || origin._tag === "recovery") return message.text;
+  if (origin._tag === "user" || origin._tag === "recovery" || origin._tag === "external")
+    return message.text;
   return [
     "<agent_message_sender>",
     "This message was written by the agent in another Penkra thread, not by the user.",

@@ -21,6 +21,18 @@ import {
 } from "./managedAttachmentPrincipal";
 
 export type WsSessionRole = "owner" | "client";
+export type WsConnectionClass = "renderer" | "phone" | "external";
+export function originForWsConnection(connectionClass: WsConnectionClass) {
+  return connectionClass === "external"
+    ? { _tag: "external" as const, client: "Terminal" }
+    : { _tag: "user" as const };
+}
+export const CurrentWsConnection = Context.Reference<{
+  readonly connectionClass: WsConnectionClass;
+  readonly sessionId: string;
+}>("penkra/ws/CurrentConnection", {
+  defaultValue: () => ({ connectionClass: "external", sessionId: "unknown" }),
+});
 
 export const CurrentWsSessionRole = Context.Reference<WsSessionRole>(
   "penkra/ws/CurrentSessionRole",
@@ -30,6 +42,8 @@ export const CurrentWsSessionRole = Context.Reference<WsSessionRole>(
 export interface WsConnectionSession {
   readonly role: WsSessionRole;
   readonly attachmentPrincipal: ManagedAttachmentPrincipal;
+  readonly connectionClass?: WsConnectionClass;
+  readonly sessionId?: string;
 }
 
 /**
@@ -104,6 +118,10 @@ export function provideWsConnectionSession<A, E, R>(
   return session
     ? effect.pipe(
         Effect.provideService(CurrentWsSessionRole, session.role),
+        Effect.provideService(CurrentWsConnection, {
+          connectionClass: session.connectionClass ?? "external",
+          sessionId: session.sessionId ?? "unknown",
+        }),
         Effect.provideService(CurrentManagedAttachmentPrincipal, session.attachmentPrincipal),
       )
     : effect;
