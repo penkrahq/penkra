@@ -4530,8 +4530,10 @@ function ChatViewContent({
       });
   };
 
-  const onSend = (e?: { preventDefault: () => void }, dispatchMode: "auto" | "queue" | "steer" = "auto") =>
-    submitComposer("send", e, dispatchMode);
+  const onSend = (
+    e?: { preventDefault: () => void },
+    dispatchMode: "auto" | "queue" | "steer" = "auto",
+  ) => submitComposer("send", e, dispatchMode);
 
   useEffect(() => {
     const handler = (event: globalThis.KeyboardEvent) => {
@@ -5823,9 +5825,12 @@ function ChatViewContent({
         setComposerDraftPromptHistorySavedDraft(threadId, null);
       }
       expectedPromptHistoryPromptRef.current = null;
-      const dispatchMode = (event.metaKey || event.ctrlKey)
-        ? serverSettings?.conversations.steerComposerMessages ? "queue" : "steer"
-        : "auto";
+      const dispatchMode =
+        event.metaKey || event.ctrlKey
+          ? serverSettings?.conversations.steerComposerMessages
+            ? "queue"
+            : "steer"
+          : "auto";
       void onSend(undefined, dispatchMode);
       return true;
     }
@@ -5997,6 +6002,7 @@ function ChatViewContent({
               ) : null}
               <ComposerQueuedHeader
                 queuedTurns={queuedMessages}
+                running={isTurnWorking}
                 actionInFlightIds={queuedComposerActionInFlightIds}
                 onSteer={steerQueuedMessage}
                 onRemove={removeQueuedMessage}

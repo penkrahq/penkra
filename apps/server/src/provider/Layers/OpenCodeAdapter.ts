@@ -2,10 +2,13 @@ import { randomUUID } from "node:crypto";
 import { makeKeyedLock } from "../../keyedLock.ts";
 import { rm } from "node:fs/promises";
 import path from "node:path";
+import { createLogger } from "../../logger.ts";
 import {
   importOpenCodeConversation,
   type OpenCodeConversationExport,
 } from "../openCodeConversationTransfer.ts";
+
+const transferLog = createLogger("opencode-transfer");
 import {
   findOpenCodeStorage,
   hasOpenCodeDatabase,
@@ -26,16 +29,19 @@ import {
   RuntimeRequestId,
   type ThreadTokenUsageSnapshot,
   type ProviderConnectionId,
+  type RuntimeMode,
   ThreadId,
   type ToolLifecycleItemType,
   TurnId,
   type UserInputQuestion,
 } from "@penkra/contracts";
 import { Cause, Deferred, Effect, Exit, Layer, Option, Queue, Ref, Scope, Stream } from "effect";
+import * as SqlClient from "effect/sql/SqlClient";
 import type {
   AssistantMessage,
   OpencodeClient,
   Part,
+  PermissionRuleset,
   PermissionRequest,
   QuestionRequest,
   Todo,
@@ -96,7 +102,10 @@ import {
   resolvePreferredOpenCodeModelProviders,
 } from "../OpenCodeDiscovery.ts";
 import { nonNegativeFiniteNumber, nonNegativeInteger, positiveInteger } from "../tokenUsage.ts";
-import { providerPermissionDecision } from "../providerPermissionPolicy.ts";
+import {
+  openCodeSessionRulesEnforce,
+  providerPermissionDecision,
+} from "../providerPermissionPolicy.ts";
 
 type OpenCodeCompatibleProvider = Extract<ProviderKind, "opencode">;
 
@@ -985,12 +994,60 @@ export function makeOpenCodeAdapterLive(options?: OpenCodeAdapterLiveOptions) {
     OpenCodeAdapter,
     Effect.gen(function* () {
       const serverConfig = yield* ServerConfig;
+      const sql = yield* SqlClient.SqlClient;
       const openCodeRuntime = yield* OpenCodeRuntime;
       const agentGatewayCredentials =
         Option.getOrUndefined(yield* Effect.serviceOption(AgentGatewayCredentials)) ??
         options?.agentGatewayCredentials;
       const gatewayToolBridge = yield* AgentGatewayToolBridge;
       const provider = adapterConfig.provider;
+      const enforceSessionPermissions = (
+        client: OpencodeClient,
+        sessionID: string,
+        runtimeMode: RuntimeMode,
+        threadId?: ThreadId,
+        resumed = true,
+      ) =>
+        Effect.gen(function* () {
+          const expected = buildOpenCodePermissionRules(runtimeMode);
+          let actual = yield* runOpenCodeSdk("session.get", () =>
+            client.session.get({ sessionID }),
+          );
+          let updated = false;
+          if (!openCodeSessionRulesEnforce(actual.data?.permission, expected)) {
+            yield* runOpenCodeSdk("session.update", () =>
+              client.session.update({ sessionID, permission: expected }),
+            );
+            updated = true;
+            actual = yield* runOpenCodeSdk("session.get", () => client.session.get({ sessionID }));
+          }
+          if (!openCodeSessionRulesEnforce(actual.data?.permission, expected))
+            return yield* new OpenCodeRuntimeError({
+              operation: "session.permissions",
+              detail: "OpenCode did not apply the required session permissions.",
+            });
+          yield* Effect.logInfo("provider.session.permissions-verified", {
+            threadId,
+            runtimeMode,
+            nativeSessionId: sessionID,
+            resumed,
+            updated,
+          });
+          return sessionID;
+        }).pipe(
+          Effect.tapError((cause) =>
+            Effect.logError("provider.session.permissions-failed", {
+              threadId,
+              nativeSessionId: sessionID,
+              cause,
+            }),
+          ),
+          Effect.tapError(() =>
+            runOpenCodeSdk("session.abort", () => client.session.abort({ sessionID })).pipe(
+              Effect.ignore({ log: true }),
+            ),
+          ),
+        );
       const withNativeDeletion = makeKeyedLock<string>();
       const prepareManagedProcess = (launch: ProviderManagedLaunchContext) =>
         Effect.gen(function* () {
@@ -1760,6 +1817,12 @@ export function makeOpenCodeAdapterLive(options?: OpenCodeAdapterLiveOptions) {
                   ),
                 );
                 if (Exit.isSuccess(replyExit)) {
+                  yield* Effect.logInfo("provider.permission.policy", {
+                    threadId: context.session.threadId,
+                    permission: event.properties.permission,
+                    event: "permission.asked",
+                    reply: policyReply,
+                  });
                   return;
                 }
                 context.policyResolvedPermissionIds.delete(event.properties.id);
@@ -2648,7 +2711,24 @@ export function makeOpenCodeAdapterLive(options?: OpenCodeAdapterLiveOptions) {
                         resumedSessionId,
                         binaryPath,
                       );
-                      yield* importNativeConversation(client, launch, source, conversation);
+                      yield* importNativeConversation(
+                        client,
+                        launch,
+                        source,
+                        conversation,
+                        input.runtimeMode,
+                        async () => {
+                          const rows = await Effect.runPromise(
+                            sql<{
+                              peer: number;
+                            }>`SELECT EXISTS(SELECT 1 FROM threads other WHERE other.id<>owner.id AND other.deleted_at IS NULL AND (other.provider='opencode' AND other.provider_session_id=${resumedSessionId} OR other.native_state_id=owner.native_state_id)) AS peer FROM threads owner WHERE owner.id=${input.threadId} AND owner.deleted_at IS NULL`,
+                          );
+                          if (rows.length !== 1 || rows[0]!.peer)
+                            throw new Error(
+                              "The native conversation owner is missing or shared; no storage was changed.",
+                            );
+                        },
+                      );
                       yield* Effect.tryPromise({
                         try: async () => {
                           if (
@@ -2676,21 +2756,7 @@ export function makeOpenCodeAdapterLive(options?: OpenCodeAdapterLiveOptions) {
                       });
                     }
                     const createSessionId = resumedSessionId
-                      ? runOpenCodeSdk("session.update", () =>
-                          client.session.update({
-                            sessionID: resumedSessionId,
-                            permission: buildOpenCodePermissionRules(input.runtimeMode),
-                          }),
-                        ).pipe(
-                          Effect.tapError(() =>
-                            runOpenCodeSdk("session.abort", () =>
-                              client.session.abort({
-                                sessionID: resumedSessionId,
-                              }),
-                            ).pipe(Effect.ignore({ log: true })),
-                          ),
-                          Effect.as(resumedSessionId),
-                        )
+                      ? Effect.succeed(resumedSessionId)
                       : runOpenCodeSdk("session.create", () => {
                           const sessionCreateInput = {
                             ...(initialParsedModel
@@ -2703,7 +2769,6 @@ export function makeOpenCodeAdapterLive(options?: OpenCodeAdapterLiveOptions) {
                                 }
                               : {}),
                             ...(initialAgent ? { agent: initialAgent } : {}),
-                            permission: buildOpenCodePermissionRules(input.runtimeMode),
                             title: `Penkra ${input.threadId}`,
                           };
                           return client.session.create(
@@ -2723,6 +2788,17 @@ export function makeOpenCodeAdapterLive(options?: OpenCodeAdapterLiveOptions) {
                                 ),
                           ),
                         );
+                    const verifiedSessionId = createSessionId.pipe(
+                      Effect.flatMap((sessionID) =>
+                        enforceSessionPermissions(
+                          client,
+                          sessionID,
+                          input.runtimeMode,
+                          input.threadId,
+                          resumedSessionId !== undefined,
+                        ),
+                      ),
+                    );
                     const loadModelContextLimits = openCodeRuntime
                       .loadOpenCodeProviderList(client)
                       .pipe(
@@ -2733,7 +2809,7 @@ export function makeOpenCodeAdapterLive(options?: OpenCodeAdapterLiveOptions) {
                       );
                     // Session creation and metadata discovery are independent once the server is up.
                     const [openCodeSessionId, modelContextLimitBySlug] = yield* Effect.all(
-                      [createSessionId, loadModelContextLimits],
+                      [verifiedSessionId, loadModelContextLimits],
                       { concurrency: "unbounded" },
                     );
                     const unregister = yield* Effect.sync(() =>
@@ -2984,8 +3060,6 @@ export function makeOpenCodeAdapterLive(options?: OpenCodeAdapterLiveOptions) {
             model: parsedModel,
             ...(context.activeAgent ? { agent: context.activeAgent } : {}),
             ...(context.activeVariant ? { variant: context.activeVariant } : {}),
-            // 0.14.4: subagents are disabled; agents use `penkra threads` instead.
-            tools: { task: false },
             parts: [
               ...(providerText ? [{ type: "text" as const, text: providerText }] : []),
               ...fileParts,
@@ -3222,15 +3296,19 @@ export function makeOpenCodeAdapterLive(options?: OpenCodeAdapterLiveOptions) {
         launch: ProviderManagedLaunchContext,
         source: OpenCodeStorage,
         conversation: OpenCodeConversationExport,
+        runtimeMode: RuntimeMode,
+        assertNoPeers: () => Promise<void>,
+        onStep: (step: string) => void = () => {},
       ) =>
         Effect.gen(function* () {
+          onStep("project.current");
           const project = yield* runOpenCodeSdk("project.current", () => client.project.current());
           if (!project.data?.worktree)
             return yield* new OpenCodeRuntimeError({
               operation: "storage.import",
               detail: "OpenCode did not report the target worktree.",
             });
-          yield* Effect.tryPromise({
+          return yield* Effect.tryPromise({
             try: (signal) =>
               importOpenCodeConversation({
                 conversation,
@@ -3240,7 +3318,18 @@ export function makeOpenCodeAdapterLive(options?: OpenCodeAdapterLiveOptions) {
                 temporaryRoot: launch.profileRoot,
                 env: launch.childEnvironment(process.env),
                 signal,
+                onStep,
+                assertNoPeers,
+                verifyPermissions: async () => {
+                  await Effect.runPromise(
+                    enforceSessionPermissions(client, conversation.info.id, runtimeMode),
+                    { signal },
+                  );
+                },
+                onCleanupError: (path, cause) =>
+                  transferLog.error("provider.storage.cleanup-failed", { path, cause }),
                 deleteTarget: async () => {
+                  await assertNoPeers();
                   const result = await client.session.delete(
                     { sessionID: conversation.info.id },
                     { throwOnError: false, signal },
@@ -3303,18 +3392,54 @@ export function makeOpenCodeAdapterLive(options?: OpenCodeAdapterLiveOptions) {
             source,
             input.providerSessionId,
             input.managedLaunch.binaryPath,
+          ).pipe(
+            Effect.tapError((cause) =>
+              Effect.logError("provider.storage.copy-failed", {
+                provider,
+                step: "export",
+                nativeSessionId: input.providerSessionId,
+                connectionId: input.managedLaunch.connectionId,
+                bytes: null,
+                messages: null,
+                cause,
+              }),
+            ),
           );
-          yield* withDiscoveryClient(
+          let copyStep = "connect";
+          const copyResult = yield* withDiscoveryClient(
             { cwd: conversation.info.directory, managedLaunch: input.managedLaunch },
             ({ client }) =>
-              importNativeConversation(client, input.managedLaunch, source, conversation).pipe(
-                Effect.mapError(toAdapterRequestError),
-              ),
+              importNativeConversation(
+                client,
+                input.managedLaunch,
+                source,
+                conversation,
+                input.runtimeMode,
+                input.assertNoPeers,
+                (step) => {
+                  copyStep = step;
+                },
+              ).pipe(Effect.mapError(toAdapterRequestError)),
+          ).pipe(
+            Effect.tapError((cause) =>
+              Effect.logError("provider.storage.copy-failed", {
+                provider,
+                step: copyStep,
+                nativeSessionId: input.providerSessionId,
+                connectionId: input.managedLaunch.connectionId,
+                messages: conversation.messages.length,
+                bytes: Buffer.byteLength(JSON.stringify(conversation)),
+                cause,
+              }),
+            ),
           );
           yield* Effect.logInfo("provider.storage.copied", {
             provider,
             nativeSessionId: input.providerSessionId,
             connectionId: input.managedLaunch.connectionId,
+            missingToolOutputs: copyResult.missingToolOutputs.length,
+            missingToolOutputPaths: copyResult.missingToolOutputs,
+            normalizedEmptyErrorRaw: copyResult.normalizedEmptyErrorRaw,
           });
           return input.providerSessionId;
         }).pipe(
@@ -3437,6 +3562,9 @@ export function makeOpenCodeAdapterLive(options?: OpenCodeAdapterLiveOptions) {
                   method: "auth/probe",
                   detail: "The probe has no owned gateway process.",
                 });
+              const denyAll: PermissionRuleset = [
+                { permission: "*", pattern: "*", action: "deny" },
+              ];
               const created = yield* runOpenCodeSdk("session.create", () =>
                 client.session.create({
                   directory: input.cwd,
@@ -3446,11 +3574,31 @@ export function makeOpenCodeAdapterLive(options?: OpenCodeAdapterLiveOptions) {
                     id: parsedModel.modelID,
                     ...(input.effort ? { variant: input.effort } : {}),
                   },
-                  permission: [{ permission: "*", pattern: "*", action: "deny" }],
+                  permission: denyAll,
                 }),
               ).pipe(Effect.mapError(toAdapterRequestError));
               const sessionID = created.data?.id;
               if (!sessionID) return false;
+              yield* runOpenCodeSdk("session.get", () =>
+                client.session.get({ sessionID, directory: input.cwd }),
+              ).pipe(
+                Effect.flatMap((result) =>
+                  openCodeSessionRulesEnforce(result.data?.permission, denyAll)
+                    ? Effect.void
+                    : Effect.fail(
+                        new OpenCodeRuntimeError({
+                          operation: "auth/probe",
+                          detail: "OpenCode probe permissions were not applied.",
+                        }),
+                      ),
+                ),
+                Effect.mapError(toAdapterRequestError),
+                Effect.onError(() =>
+                  runOpenCodeSdk("session.delete", () =>
+                    client.session.delete({ sessionID, directory: input.cwd }),
+                  ).pipe(Effect.ignore),
+                ),
+              );
               const unregisterProbe = yield* Effect.sync(() =>
                 agentGatewayCredentials.processes.registerProbe(
                   server.gatewayProcessToken!,
@@ -3463,7 +3611,6 @@ export function makeOpenCodeAdapterLive(options?: OpenCodeAdapterLiveOptions) {
                   directory: input.cwd,
                   model: parsedModel,
                   ...(input.effort ? { variant: input.effort } : {}),
-                  tools: { "*": false },
                   parts: [{ type: "text", text: "Reply OK." }],
                 }),
               ).pipe(

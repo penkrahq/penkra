@@ -249,8 +249,23 @@ export function toCleanCoreProviderEvents(
         },
       ];
     }
-    case "runtime.warning":
-      return [];
+    case "runtime.warning": {
+      const message = event.payload.message;
+      if (
+        event.turnId === undefined ||
+        !/\b(?:usage limit|quota|credits?|rate limit)\b/i.test(message)
+      )
+        return [];
+      return [
+        {
+          type: "turn.limit-warning",
+          threadId: event.threadId,
+          turnId: event.turnId,
+          message: message.slice(0, 4096),
+          at: event.createdAt,
+        },
+      ];
+    }
     case "runtime.error": {
       return [
         {

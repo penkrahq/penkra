@@ -58,6 +58,7 @@ export function compactQueuedComposerPreviewMarkdown(value: string): string {
 interface ComposerQueuedHeaderProps {
   queuedTurns: readonly CleanCoreQueuedMessage[];
   actionInFlightIds?: ReadonlySet<string>;
+  running?: boolean;
   onSteer: (queuedTurn: CleanCoreQueuedMessage) => void;
   onRemove: (queuedTurn: CleanCoreQueuedMessage) => void;
   onEdit: (queuedTurn: CleanCoreQueuedMessage) => void;
@@ -69,6 +70,7 @@ interface ComposerQueuedHeaderProps {
 export const ComposerQueuedHeader = function ComposerQueuedHeader({
   queuedTurns,
   actionInFlightIds,
+  running = true,
   onSteer,
   onRemove,
   onEdit,
@@ -101,6 +103,7 @@ export const ComposerQueuedHeader = function ComposerQueuedHeader({
             </ComposerStackedPanelRowMain>
             <QueuedComposerActions
               queuedTurn={queuedTurn}
+              running={running}
               busy={actionInFlightIds?.has(queuedTurn.messageId) === true}
               onSteer={onSteer}
               onRemove={onRemove}

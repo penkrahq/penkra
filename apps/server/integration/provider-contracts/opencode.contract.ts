@@ -124,6 +124,7 @@ it("exports and verifies a large native conversation through a regular file", as
       temporaryRoot: fixture.root,
       env: targetEnv,
       signal: fixture.signal,
+      assertNoPeers: async () => {},
       deleteTarget: async () => {},
       command: async (args) => ({
         ...(await fixture.command(args, fixture.root, targetEnv)),
@@ -660,6 +661,7 @@ export const Proof = async () => ({tool:{proof:{description:'Return the native s
       temporaryRoot: path.join(fixture.root, "transfer"),
       env: preservedEnv,
       signal: fixture.signal,
+      assertNoPeers: async () => {},
       deleteTarget: async () => {
         const result = await preservedClient.session.delete(
           { sessionID: source.session.id },

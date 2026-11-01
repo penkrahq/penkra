@@ -17,6 +17,7 @@ import { ComposerPickerMenu, ComposerPickerMenuPopup } from "./ComposerPickerMen
 type QueuedComposerActionsProps = {
   queuedTurn: CleanCoreQueuedMessage;
   busy?: boolean;
+  running?: boolean;
   onSteer: (queuedTurn: CleanCoreQueuedMessage) => void;
   onRemove: (queuedTurn: CleanCoreQueuedMessage) => void;
   onEdit: (queuedTurn: CleanCoreQueuedMessage) => void;
@@ -25,6 +26,7 @@ type QueuedComposerActionsProps = {
 function QueuedComposerActions({
   queuedTurn,
   busy = false,
+  running = true,
   onSteer,
   onRemove,
   onEdit,
@@ -32,8 +34,8 @@ function QueuedComposerActions({
   return (
     <div className="flex shrink-0 items-center gap-0" aria-busy={busy || undefined}>
       <Button variant="subtle" size="chip" disabled={busy} onClick={() => void onSteer(queuedTurn)}>
-        <SteerIcon />
-        <span>Steer</span>
+        {running ? <SteerIcon /> : null}
+        <span>{running ? "Steer" : "Send"}</span>
       </Button>
       <IconButton
         variant="ghost"

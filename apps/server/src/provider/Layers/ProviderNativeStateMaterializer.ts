@@ -1,13 +1,14 @@
 // FILE: ProviderNativeStateMaterializer.ts
 // Purpose: Crash-safe filesystem materialization for provider-native state.
 
-import { cp, lstat, mkdir, rename, rm } from "node:fs/promises";
+import { cp, lstat, mkdir, readdir, rename, rm } from "node:fs/promises";
 import * as Path from "node:path";
 import { randomUUID } from "node:crypto";
 import { Effect, Layer } from "effect";
+import * as SqlClient from "effect/sql/SqlClient";
 
 import { ServerConfig } from "../../config.ts";
-import { providerNativeStateRoot } from "../providerNativeStatePaths.ts";
+import { providerNativeStateRoot, providerOpaquePathKey } from "../providerNativeStatePaths.ts";
 import { findOneExactCodexRollout } from "../codexManagedNativeState.ts";
 import {
   claudeProjectHasConversation,
@@ -80,6 +81,44 @@ async function exactNativeEntries(input: {
 
 export const makeProviderNativeStateMaterializer = Effect.gen(function* () {
   const config = yield* ServerConfig;
+  const sql = yield* SqlClient.SqlClient;
+
+  // Run before admitting turns. The database owner lock prevents another server
+  // from creating generations while this process starts.
+  const referenced = new Set<string>();
+  let after = "";
+  for (;;) {
+    const rows = yield* sql<{
+      id: string;
+      nativeStateId: string | null;
+    }>`SELECT id,native_state_id AS "nativeStateId" FROM threads WHERE id>${after} ORDER BY id LIMIT 500`;
+    for (const row of rows)
+      if (row.nativeStateId !== null) referenced.add(providerOpaquePathKey(row.nativeStateId));
+    if (rows.length < 500) break;
+    after = rows[rows.length - 1]!.id;
+  }
+  const stateRoot = Path.join(config.stateDir, "provider-native-state");
+  const names = yield* Effect.tryPromise({
+    try: () => readdir(stateRoot),
+    catch: (cause) => cause,
+  }).pipe(
+    Effect.catch((cause) => {
+      if ((cause as NodeJS.ErrnoException).code === "ENOENT") return Effect.succeed([] as string[]);
+      return Effect.logError("provider.storage.sweep-failed", { path: stateRoot, cause }).pipe(
+        Effect.as([] as string[]),
+      );
+    }),
+  );
+  for (const name of names) {
+    if (!/^[a-f0-9]{64}$/.test(name) || referenced.has(name)) continue;
+    const path = Path.join(stateRoot, name);
+    yield* Effect.tryPromise({
+      try: () => rm(path, { recursive: true, force: true }),
+      catch: (cause) => cause,
+    }).pipe(
+      Effect.catch((cause) => Effect.logError("provider.storage.discard-failed", { path, cause })),
+    );
+  }
 
   const clone: ProviderNativeStateMaterializerShape["clone"] = (input) =>
     Effect.gen(function* () {

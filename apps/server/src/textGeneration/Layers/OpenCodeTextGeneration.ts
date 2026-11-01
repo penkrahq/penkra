@@ -16,6 +16,7 @@ import { sanitizeGeneratedThreadTitle } from "@penkra/shared/chatThreads";
 import { getModelSelectionStringOptionValue } from "@penkra/shared/model";
 
 import { resolveProviderAttachmentPath } from "../../provider/providerAttachmentPaths.ts";
+import { openCodeSessionRulesEnforce } from "../../provider/providerPermissionPolicy.ts";
 import { ServerConfig } from "../../config.ts";
 import { appendFileAttachmentsPromptBlock } from "../../provider/attachmentProjection.ts";
 import {
@@ -388,6 +389,14 @@ const makeOpenCodeCompatibleTextGeneration = (config: OpenCodeCompatibleTextGene
             if (!session.data) {
               throw new Error("OpenCode session.create returned no session payload.");
             }
+            const permissions = await client.session.get({ sessionID: session.data.id });
+            if (
+              !openCodeSessionRulesEnforce(
+                permissions.data?.permission,
+                sessionCreateInput.permission,
+              )
+            )
+              throw new Error("OpenCode text-generation permissions were not applied.");
 
             const result = await client.session.prompt({
               sessionID: session.data.id,

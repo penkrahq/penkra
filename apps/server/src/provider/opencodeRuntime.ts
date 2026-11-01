@@ -458,7 +458,7 @@ export function buildOpenCodePermissionRules(runtimeMode: RuntimeMode): Permissi
           { permission: "question", pattern: "*", action: "allow" },
         ];
 
-  return runtimeRules;
+  return [...runtimeRules, { permission: "task", pattern: "*", action: "deny" }];
 }
 
 export function buildOpenCodeServerProcessEnv(input: {

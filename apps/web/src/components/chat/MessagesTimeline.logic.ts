@@ -317,6 +317,47 @@ export function deriveMessagesTimelineRows(input: {
     });
   }
   for (const [id, turn] of Object.entries(turns)) {
+    const final = finals[id];
+    if (turn.status === "running" || turn.status === "interrupted" || turn.status === "error") {
+      let warning: unknown;
+      let warningAt: unknown;
+      try {
+        const data = turn.data === null ? undefined : JSON.parse(turn.data);
+        warning = data?.limitWarning;
+        warningAt = data?.limitWarningAt;
+      } catch {
+        warning = undefined;
+      }
+      if (typeof warning === "string" && warning.length > 0) {
+        const reported = typeof warningAt === "string" ? new Date(warningAt) : null;
+        const text =
+          reported !== null && !Number.isNaN(reported.getTime())
+            ? `${warning}\n\nReported ${reported.toLocaleString()}.`
+            : warning;
+        const message = threadItemToChatMessage({
+          ...turn,
+          sourceId: `limit-warning:${id}`,
+          kind: "text",
+          status: "done",
+          text,
+          data: null,
+        });
+        events.push({
+          seq: final?.seq ?? turn.seq,
+          priority: 3,
+          rows: [
+            {
+              kind: "message",
+              id: `limit-warning:${id}`,
+              createdAt: turn.updatedAt,
+              message,
+              showAssistantCopyButton: false,
+              assistantCopyStreaming: false,
+            },
+          ],
+        });
+      }
+    }
     if (turn.status === "running") {
       if (input.isWorking && input.activeTurnStartedAt && id === input.activeTurnId)
         events.push({
@@ -332,7 +373,6 @@ export function deriveMessagesTimelineRows(input: {
         });
       continue;
     }
-    const final = finals[id];
     const segments = input.segments?.[id] ?? [];
     for (const segment of segments) {
       if (!segment.hasSteps) continue;

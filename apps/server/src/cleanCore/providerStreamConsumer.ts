@@ -35,6 +35,13 @@ import {
 
 export type CleanCoreProviderEvent =
   | {
+      readonly type: "turn.limit-warning";
+      readonly threadId: string;
+      readonly turnId: string;
+      readonly message: string;
+      readonly at: string;
+    }
+  | {
       readonly type: "user.consumed";
       readonly threadId: string;
       readonly sourceId: string;
@@ -94,6 +101,19 @@ export const PROVIDER_CUTOFF_NOTICE = "This turn was cut off because the provide
 const writeProviderEvent = (event: CleanCoreProviderEvent) =>
   Effect.gen(function* () {
     switch (event.type) {
+      case "turn.limit-warning": {
+        const sql = yield* SqlClient.SqlClient;
+        const changed = yield* sql`UPDATE thread_items
+          SET data=json_set(data, '$.limitWarning', ${event.message}, '$.limitWarningAt', ${event.at}), updated_at=${event.at}
+          WHERE thread_id=${event.threadId} AND source_id=${`turn:${event.turnId}`} AND kind='turn' AND status='running'
+          RETURNING seq`;
+        if (changed.length === 0)
+          yield* Effect.logWarning("provider.limit-warning.missing-running-turn", {
+            threadId: event.threadId,
+            turnId: event.turnId,
+          });
+        return changed.length ? [event.threadId] : [];
+      }
       case "user.consumed": {
         const sql = yield* SqlClient.SqlClient;
         const changed = yield* sql`UPDATE thread_items SET turn_id=${event.turnId},
@@ -118,17 +138,27 @@ const writeProviderEvent = (event: CleanCoreProviderEvent) =>
         return [event.threadId];
       }
       case "turn.ended": {
+        const sql = yield* SqlClient.SqlClient;
+        const [turn] = yield* sql<{
+          warning: string | null;
+        }>`SELECT json_extract(data, '$.limitWarning') AS warning
+          FROM thread_items WHERE thread_id=${event.threadId} AND source_id=${`turn:${event.turnId}`} AND kind='turn'`;
         yield* setThreadState(
           event.threadId,
           event.state === "error" ? "error" : "idle",
           null,
-          event.state === "error" ? (event.error ?? "Turn failed") : null,
+          event.state === "error"
+            ? (event.error ?? "Turn failed")
+            : event.state === "interrupted"
+              ? (turn?.warning ?? null)
+              : null,
           event.at,
         );
-        const sql = yield* SqlClient.SqlClient;
         yield* sql`UPDATE thread_items
           SET status = ${event.state === "completed" ? "done" : event.state},
-              data = json_set(data, '$.endedAt', ${event.at}), updated_at = ${event.at}
+              data = CASE WHEN ${event.state} = 'completed'
+                THEN json_remove(json_set(data, '$.endedAt', ${event.at}), '$.limitWarning', '$.limitWarningAt')
+                ELSE json_set(data, '$.endedAt', ${event.at}) END, updated_at = ${event.at}
           WHERE thread_id = ${event.threadId} AND source_id = ${`turn:${event.turnId}`} AND kind = 'turn'`;
         // The turn's outcome settles its still-running items in the same write.
         yield* settleRunningItems(event.threadId, event.at, event.turnId);

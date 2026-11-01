@@ -1,7 +1,7 @@
 // Preserves the pinned OpenCode tool-state outputPath field during native import.
 import { createHash, randomUUID } from "node:crypto";
 import { constants, createReadStream } from "node:fs";
-import { chmod, copyFile, link, mkdir, realpath, rm, stat } from "node:fs/promises";
+import { chmod, copyFile, link, lstat, mkdir, realpath, rm, stat } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import type { FilePart, Part } from "@opencode-ai/sdk/v2";
@@ -22,8 +22,30 @@ async function digest(file: string): Promise<string> {
   return hash.digest("hex");
 }
 
-async function preserve(file: string, sourceRoot: string, targetDataRoot: string): Promise<string> {
-  const [source, root] = await Promise.all([realpath(file), realpath(sourceRoot)]);
+async function preserve(
+  file: string,
+  sourceRoot: string,
+  targetDataRoot: string,
+): Promise<{ path: string; missing: boolean }> {
+  const root = await realpath(sourceRoot);
+  let source: string;
+  try {
+    source = await realpath(file);
+  } catch (cause) {
+    if (!(cause instanceof Error && "code" in cause && cause.code === "ENOENT")) throw cause;
+    try {
+      await lstat(file);
+      throw new Error("OpenCode tool output is a dangling link or otherwise inaccessible.");
+    } catch (entryCause) {
+      if (!(entryCause instanceof Error && "code" in entryCause && entryCause.code === "ENOENT"))
+        throw entryCause;
+    }
+    const hash = createHash("sha256").update(file).digest("hex");
+    return {
+      path: path.join(targetDataRoot, "tool-output", `penkra-missing-${hash}`),
+      missing: true,
+    };
+  }
   if (!contains(root, source) || !(await stat(source)).isFile()) {
     throw new Error("OpenCode tool output is not a regular file inside its source data root.");
   }
@@ -44,7 +66,7 @@ async function preserve(file: string, sourceRoot: string, targetDataRoot: string
     }
     if ((await digest(destination)) !== hash)
       throw new Error("OpenCode destination tool output does not match its source.");
-    return destination;
+    return { path: destination, missing: false };
   } finally {
     await rm(staging, { force: true });
   }
@@ -54,13 +76,15 @@ export async function relocateOpenCodeToolOutputFiles(
   parts: readonly Part[],
   sourceDataRoot: string,
   targetDataRoot: string,
+  onMissing?: (source: string) => void,
 ): Promise<Part[]> {
-  const moved = new Map<string, string>();
+  const moved = new Map<string, { path: string; missing: boolean }>();
   const move = async (source: string) => {
     let destination = moved.get(source);
     if (destination === undefined) {
       destination = await preserve(source, sourceDataRoot, targetDataRoot);
       moved.set(source, destination);
+      if (destination.missing) onMissing?.(source);
     }
     return destination;
   };
@@ -70,7 +94,7 @@ export async function relocateOpenCodeToolOutputFiles(
     const source = fileURLToPath(url);
     if (!contains(sourceDataRoot, source)) return part;
     const destination = await move(source);
-    const relocated = pathToFileURL(destination);
+    const relocated = pathToFileURL(destination.path);
     relocated.search = url.search;
     relocated.hash = url.hash;
     return {
@@ -79,9 +103,17 @@ export async function relocateOpenCodeToolOutputFiles(
       ...(part.source &&
       (part.source.type === "file" || part.source.type === "symbol") &&
       part.source.path === source
-        ? { source: { ...part.source, path: destination } }
+        ? { source: { ...part.source, path: destination.path } }
         : {}),
     };
+  };
+  const moveAttachments = async (parts: FilePart[]): Promise<FilePart[]> => {
+    // A failed attachment must not leave other copies running during rollback.
+    const results = await Promise.allSettled(parts.map(moveAttachment));
+    return results.map((result) => {
+      if (result.status === "rejected") throw result.reason;
+      return result.value;
+    });
   };
   const result: Part[] = [];
   for (const part of parts) {
@@ -105,7 +137,7 @@ export async function relocateOpenCodeToolOutputFiles(
           ...part.state,
           ...(part.state.attachments === undefined
             ? {}
-            : { attachments: await Promise.all(part.state.attachments.map(moveAttachment)) }),
+            : { attachments: await moveAttachments(part.state.attachments) }),
         },
       });
       continue;
@@ -117,9 +149,11 @@ export async function relocateOpenCodeToolOutputFiles(
         ...part.state,
         ...(part.state.attachments === undefined
           ? {}
-          : { attachments: await Promise.all(part.state.attachments.map(moveAttachment)) }),
-        metadata: { ...part.state.metadata, outputPath: destination },
-        output: part.state.output.replaceAll(source, destination),
+          : { attachments: await moveAttachments(part.state.attachments) }),
+        metadata: { ...part.state.metadata, outputPath: destination.path },
+        output: destination.missing
+          ? part.state.output
+          : part.state.output.replaceAll(source, destination.path),
       },
     });
   }

@@ -46,6 +46,15 @@ export const makeProviderThreadSwitchCoordinator = Effect.gen(function* () {
   const provider = yield* ProviderService;
   const directory = yield* ProviderSessionDirectory;
   const materializer = yield* ProviderNativeStateMaterializer;
+  const discardBestEffort = (id: string) =>
+    materializer.discard(id).pipe(
+      Effect.catchCause((cause) =>
+        Effect.logError("provider.storage.discard-failed", {
+          path: providerNativeStateRoot(config.stateDir, id),
+          cause: Cause.pretty(cause),
+        }),
+      ),
+    );
   const launchResolver = yield* ProviderLaunchResolver;
   const registry = yield* ProviderAdapterRegistry;
   const config = yield* ServerConfig;
@@ -212,44 +221,60 @@ export const makeProviderThreadSwitchCoordinator = Effect.gen(function* () {
           return yield* failure(
             "The native conversation is shared by multiple Threads; no storage was changed.",
           );
-        const adapter = yield* registry
-          .getByProvider("opencode")
-          .pipe(
-            Effect.mapError((cause) =>
-              failure("The native runtime is unavailable for conversation transfer.", cause),
-            ),
-          );
-        if (!adapter.copyNativeConversation)
-          return yield* failure("The native runtime does not implement conversation transfer.");
-        const launch = yield* launchResolver
-          .resolveProfile({
+        const copied = yield* Effect.gen(function* () {
+          const adapter = yield* registry.getByProvider("opencode");
+          if (!adapter.copyNativeConversation)
+            return yield* Effect.fail(
+              new Error("The native runtime does not implement conversation transfer."),
+            );
+          const launch = yield* launchResolver.resolveProfile({
             harness: "opencode",
             connectionId: selection.connectionId,
             installationId: selection.installationId,
             internalProviderId: selection.internalProviderId,
             nativeStateIdentity: id,
-          })
-          .pipe(
-            Effect.mapError((cause) =>
-              failure("Could not authorize the target native store.", cause),
-            ),
-          );
-        const providerSessionId = yield* adapter
-          .copyNativeConversation({
-            providerSessionId: thread.providerSessionId,
+          });
+          return yield* adapter.copyNativeConversation({
+            providerSessionId: thread.providerSessionId!,
             sourceProfileRoot: providerConnectionProfileRoot(
               config.stateDir,
               thread.connectionId ?? "anonymous:opencode",
             ),
-            sourceNativeStateRoot: providerNativeStateRoot(config.stateDir, thread.nativeStateId),
+            sourceNativeStateRoot: providerNativeStateRoot(config.stateDir, thread.nativeStateId!),
             managedLaunch: launch,
-          })
-          .pipe(
-            Effect.mapError((cause) =>
-              failure("Could not transfer the exact native conversation.", cause),
-            ),
-          );
-        nativeState = { id, providerSessionId };
+            runtimeMode: input.command.runtimeMode,
+            assertNoPeers: async () => {
+              const peers = await Effect.runPromise(
+                sql`SELECT id FROM threads WHERE (provider='opencode' AND provider_session_id=${thread.providerSessionId} OR native_state_id=${thread.nativeStateId}) AND id<>${input.command.threadId} AND deleted_at IS NULL LIMIT 1`,
+              );
+              if (peers.length)
+                throw new Error(
+                  "The native conversation is shared by multiple Threads; no storage was changed.",
+                );
+            },
+          });
+        }).pipe(
+          Effect.catchCause((cause) => {
+            if (Cause.hasInterruptsOnly(cause)) return Effect.failCause(cause);
+            return Effect.gen(function* () {
+              const peers =
+                yield* sql`SELECT id FROM threads WHERE (provider='opencode' AND provider_session_id=${thread.providerSessionId} OR native_state_id=${thread.nativeStateId}) AND id<>${input.command.threadId} AND deleted_at IS NULL LIMIT 1`;
+              if (peers.length)
+                return yield* failure(
+                  "The native conversation is shared by multiple Threads; no storage was changed.",
+                );
+              yield* Effect.logError("provider.storage.copy-failed", {
+                provider: "opencode",
+                step: "copy",
+                threadId: input.command.threadId,
+                cause: Cause.pretty(cause),
+              });
+              yield* discardBestEffort(id);
+              return null;
+            });
+          }),
+        );
+        nativeState = { id, providerSessionId: copied };
       } else {
         const copied = yield* materializer
           .clone({
@@ -259,11 +284,21 @@ export const makeProviderThreadSwitchCoordinator = Effect.gen(function* () {
             targetNativeStateId: id,
           })
           .pipe(
-            Effect.mapError((cause) =>
-              failure("Could not copy the thread's native conversation.", cause),
-            ),
+            Effect.catchCause((cause) => {
+              if (Cause.hasInterruptsOnly(cause)) return Effect.failCause(cause);
+              return Effect.gen(function* () {
+                yield* Effect.logError("provider.storage.copy-failed", {
+                  provider: selection.harness,
+                  step: "clone",
+                  threadId: input.command.threadId,
+                  cause: Cause.pretty(cause),
+                });
+                yield* discardBestEffort(id);
+                return null;
+              });
+            }),
           );
-        nativeState = { id, providerSessionId: copied.providerSessionId };
+        nativeState = { id, providerSessionId: copied?.providerSessionId ?? null };
       }
     } else if (!nativeSteer && selection.changed) {
       yield* provider
@@ -286,7 +321,7 @@ export const makeProviderThreadSwitchCoordinator = Effect.gen(function* () {
       const rows = yield* sql<{
         nativeStateId: string | null;
       }>`SELECT native_state_id AS "nativeStateId" FROM threads WHERE id=${input.command.threadId}`;
-      if (rows[0]?.nativeStateId !== nativeState.id) yield* materializer.discard(nativeState.id);
+      if (rows[0]?.nativeStateId !== nativeState.id) yield* discardBestEffort(nativeState.id);
     });
     if (!nativeSteer)
       yield* sql
@@ -307,23 +342,8 @@ export const makeProviderThreadSwitchCoordinator = Effect.gen(function* () {
           Effect.mapError((cause) => failure("Could not commit the turn selection.", cause)),
           Effect.onError(() => discardUncommitted.pipe(Effect.orDie)),
         );
-    if (
-      !nativeSteer &&
-      selection.harness === "opencode" &&
-      nativeState !== undefined &&
-      nativeState.providerSessionId !== null &&
-      thread.nativeStateId !== null
-    )
-      yield* materializer
-        .discard(thread.nativeStateId)
-        .pipe(
-          Effect.mapError((cause) =>
-            failure(
-              "Could not remove the previous native generation after the verified transfer committed.",
-              cause,
-            ),
-          ),
-        );
+    if (!nativeSteer && nativeState !== undefined && thread.nativeStateId !== null)
+      yield* discardBestEffort(thread.nativeStateId);
     if (
       !nativeSteer &&
       selection.connectionId !== null &&
@@ -419,7 +439,14 @@ export const makeProviderThreadSwitchCoordinator = Effect.gen(function* () {
   );
   return {
     dispatchTurnStart: (input) =>
-      dispatchTurnAdmission(input).pipe(Effect.provideService(SqlClient.SqlClient, sql)),
+      dispatchTurnAdmission(input).pipe(
+        Effect.mapError((cause) =>
+          cause instanceof ProviderThreadSwitchCoordinatorError
+            ? cause
+            : failure("Could not prepare the provider turn.", cause),
+        ),
+        Effect.provideService(SqlClient.SqlClient, sql),
+      ),
   } satisfies ProviderThreadSwitchCoordinatorShape;
 });
 

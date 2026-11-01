@@ -213,6 +213,7 @@ export const makeThreadSender = Effect.gen(function* () {
           Effect.gen(function* () {
             const [thread] = yield* sql<{
               state: string;
+              lastError: string | null;
               queue: string;
               provider: string;
               model: string;
@@ -223,12 +224,13 @@ export const makeThreadSender = Effect.gen(function* () {
               archivedAt: string | null;
               deletedAt: string | null;
             }>`
-        SELECT state,queue,provider,model,runtime_mode AS "runtimeMode",model_options AS "modelOptions",connection_id AS "connectionId",draft,
+        SELECT state,last_error AS "lastError",queue,provider,model,runtime_mode AS "runtimeMode",model_options AS "modelOptions",connection_id AS "connectionId",draft,
         archived_at AS "archivedAt",deleted_at AS "deletedAt" FROM threads WHERE id=${threadId}`;
             if (
               thread === undefined ||
               thread.state === "running" ||
               (thread.state === "error" && !retryFailedHead) ||
+              (thread.lastError !== null && !retryFailedHead) ||
               thread.archivedAt !== null ||
               thread.deletedAt !== null
             )
@@ -274,9 +276,7 @@ export const makeThreadSender = Effect.gen(function* () {
   );
   yield* Stream.fromEffectRepeat(PubSub.take(providerEvents)).pipe(
     Stream.runForEach((event) =>
-      event.type === "turn.ended"
-        ? Effect.forkIn(deliverHead(event.threadId, true), scope)
-        : Effect.void,
+      event.type === "turn.ended" ? Effect.forkIn(deliverHead(event.threadId), scope) : Effect.void,
     ),
     Effect.forkIn(scope),
   );
@@ -305,7 +305,7 @@ export const makeThreadSender = Effect.gen(function* () {
         );
         if (changed !== null) {
           publisher.publish({ threadId: input.threadId });
-          if (changed.wasHead) yield* Effect.forkIn(deliverHead(input.threadId, true), scope);
+          if (changed.wasHead) yield* Effect.forkIn(deliverHead(input.threadId), scope);
         }
         return { ...input, removed: changed !== null };
       }).pipe(Effect.provideService(SqlClient.SqlClient, sql)),
@@ -327,7 +327,7 @@ export const makeThreadSender = Effect.gen(function* () {
           const rows = yield* sql<{
             id: string;
           }>`SELECT id FROM threads WHERE connection_id=${connectionId} AND id>${after} AND deleted_at IS NULL AND archived_at IS NULL ORDER BY id LIMIT 50`;
-          for (const row of rows) yield* Effect.forkIn(deliverHead(row.id, true), scope);
+          for (const row of rows) yield* Effect.forkIn(deliverHead(row.id), scope);
           if (rows.length < 50) return;
           after = rows[rows.length - 1]!.id;
         }
@@ -371,7 +371,7 @@ export const makeThreadSender = Effect.gen(function* () {
           const result = yield* moveIntoDraft("queue", input);
           if (result.removed) {
             publisher.publish({ threadId: input.threadId });
-            if (result.wasHead) yield* Effect.forkIn(deliverHead(input.threadId, true), scope);
+            if (result.wasHead) yield* Effect.forkIn(deliverHead(input.threadId), scope);
           }
           return result;
         }).pipe(Effect.provideService(SqlClient.SqlClient, sql)),
@@ -565,9 +565,11 @@ export const makeThreadSender = Effect.gen(function* () {
           const request = {
             ...input,
             ...selection,
-            autoSteer: input.message.origin._tag === "user"
-              ? settings.conversations.steerComposerMessages
-              : input.message.origin._tag === "agent" && settings.conversations.steerThreadMessages,
+            autoSteer:
+              input.message.origin._tag === "user"
+                ? settings.conversations.steerComposerMessages
+                : input.message.origin._tag === "agent" &&
+                  settings.conversations.steerThreadMessages,
             supportsSteer:
               providerSupportsNativeTurnSteering(current.provider) &&
               selection.connectionId === current.connectionId,

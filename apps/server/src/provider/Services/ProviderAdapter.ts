@@ -24,6 +24,7 @@ import type {
   ProviderSteerTurnInput,
   ProviderSession,
   ProviderSessionStartInput,
+  RuntimeMode,
   ServerVoiceTranscriptionInput,
   ServerVoiceTranscriptionResult,
   ThreadId,
@@ -197,6 +198,8 @@ export interface ProviderAdapterShape<TError> {
     readonly sourceProfileRoot: string;
     readonly sourceNativeStateRoot?: string;
     readonly managedLaunch: ProviderManagedLaunchContext;
+    readonly runtimeMode: RuntimeMode;
+    readonly assertNoPeers: () => Promise<void>;
   }) => Effect.Effect<string | null, TError>;
 
   /** Idempotent native deletion, including after the Connection has signed out. */
