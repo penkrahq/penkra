@@ -897,10 +897,12 @@ const buildDesktopArtifact = Effect.fn("buildDesktopArtifact")(function* (
       message: "Could not archive the pinned required Apps source.",
       cause: archive.error,
     });
-  const extract = spawnSync("tar", ["-x", "-C", requiredAppsStage], { input: archive.stdout });
+  const extract = spawnSync("tar", ["-xf", "-", "-C", requiredAppsStage], {
+    input: archive.stdout,
+  });
   if (extract.status !== 0)
     return yield* new BuildScriptError({
-      message: "Could not extract the pinned required Apps source.",
+      message: `Could not extract the pinned required Apps source: ${extract.stderr?.toString().trim() || extract.error?.message || `exit ${extract.status}`}`,
       cause: extract.error,
     });
   const requiredAppsSourcePath = path.join(requiredAppsStage, "apps");
