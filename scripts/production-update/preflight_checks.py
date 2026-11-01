@@ -32,18 +32,24 @@ def check():
             if args[0] == '/usr/bin/xattr':
                 return SimpleNamespace(returncode=1, stdout='')
             return SimpleNamespace(returncode=0, stdout='Authority=Developer ID Application: test')
-        def fail_verify(*args): raise RuntimeError('database verification failure')
+        events = []
+        def check_space(): events.append('space')
+        def stop(): events.append('quit')
+        def fail_verify(*args):
+            events.append('verify')
+            raise RuntimeError('database verification failure')
         with patch.object(helper, 'note'), patch.object(helper, 'cmd', fake_command), \
              patch.object(helper, 'version', return_value='0.14.6'), \
              patch.object(helper, 'sha', return_value='hash'), \
              patch.object(helper, 'boundaries', return_value={}), \
-             patch.object(helper, 'watcher_preflight'), patch.object(helper, 'migration_preflight'), patch.object(helper, 'quit_all'), \
-             patch.object(helper, 'verify_db', fail_verify), patch.object(helper, 'Monitor', FakeMonitor), \
+             patch.object(helper, 'watcher_preflight'), patch.object(helper, 'space_preflight', side_effect=check_space), patch.object(helper, 'quit_all', side_effect=stop), \
+             patch.object(helper, 'migration_preflight', side_effect=fail_verify), patch.object(helper, 'Monitor', FakeMonitor), \
              patch.object(helper, 'report', side_effect=AssertionError('worker reported before exiting')):
             result = helper.main()
         assert result[0] == 'preflight' and result[1:3] == (10, 11)
         assert result[5]['oldversion'] == '0.14.6' and result[6] == 123.0
         assert 'database verification failure' in result[5]['reason']
+        assert events == ['space', 'quit', 'space', 'verify']
         assert not (update/'Penkra.app').exists()
     print('database preflight relaunch result check passed')
 

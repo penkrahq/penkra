@@ -59,14 +59,28 @@ def verify_db(path,app=None):
     env=os.environ.copy(); env['ELECTRON_RUN_AS_NODE']='1'
     return cmd([str(exe),str(script),'verify',str(path)],env=env)
 
+def space_preflight():
+    """Check a conservative filesystem-only bound while Production is running."""
+    total = DB.stat().st_size
+    for suffix in ('-wal', '-shm'):
+        try: total += pathlib.Path(str(DB) + suffix).stat().st_size
+        except FileNotFoundError: pass
+    required = 4 * total
+    filesystem = os.statvfs(D)
+    available = filesystem.f_bavail * filesystem.f_frsize
+    note('space preflight required='+str(required)+' available='+str(available))
+    if available < required:
+        gib = (required + 1024**3 - 1) // 1024**3
+        raise RuntimeError('not enough free disk space (need '+str(gib)+' GB); required '+str(required)+' bytes, available '+str(available))
+
 def migration_preflight():
-    """Compare the closed-on-disk migration tracker with the candidate bundle."""
-    connection = sqlite3.connect(DB.as_uri()+'?mode=ro&immutable=1', uri=True)
-    try:
-        current = connection.execute('SELECT max(migration_id) FROM effect_sql_migrations').fetchone()[0]
-        logical = connection.execute('SELECT (page_count-freelist_count)*page_size FROM pragma_page_count(), pragma_freelist_count(), pragma_page_size()').fetchone()[0]
-    finally: connection.close()
-    if not isinstance(current, int): raise RuntimeError('database migration ID is unavailable')
+    """Verify the stopped database under its lifecycle lock and compare migration IDs."""
+    result = verify_db(DB)
+    try: current = json.loads(result.stdout)['latestMigrationId']
+    except (ValueError, KeyError, TypeError) as error:
+        raise RuntimeError('database migration ID is unavailable from penkra-database verify') from error
+    if not isinstance(current, int) or isinstance(current, bool):
+        raise RuntimeError('database migration ID is unavailable from penkra-database verify')
     script = r'''const fs=require('fs'),path=require('path');
 const dir=path.join(process.argv[1],'Contents/Resources/app.asar/apps/server/dist');
 const found=[]; for(const f of fs.readdirSync(dir).filter(x=>/^MigrationBackup.*\.mjs$/.test(x))) {
@@ -81,19 +95,7 @@ console.log(found[0]);'''
     try: candidate=int(result.stdout.strip())
     except ValueError: raise RuntimeError('candidate migration ID is unreadable')
     if candidate < current: raise RuntimeError('candidate migration ID is older than database')
-    wal=pathlib.Path(str(DB)+'-wal')
-    base=DB.stat().st_size+(wal.stat().st_size if wal.exists() else 0)
-    # The app's guard uses 2x the larger of main/logical size for ordinary
-    # migrations, and 4x logical size for clean-core upgrades. Requiring the
-    # larger of that value and main+WAL keeps its no-backup fallback closed.
-    clean_core = current < 176 <= candidate
-    app_required = 4*logical if clean_core else 2*max(DB.stat().st_size,logical)
-    required=max(base, app_required)
-    filesystem=os.statvfs(D); available=filesystem.f_bavail*filesystem.f_frsize
-    note('migration preflight database='+str(current)+' candidate='+str(candidate)+
-         ' required='+str(required)+' available='+str(available))
-    if candidate>current and available<required:
-        raise RuntimeError('migration backup needs '+str(required)+' bytes; '+str(available)+' available')
+    note('migration preflight database='+str(current)+' candidate='+str(candidate))
 
 def proc_table():
     r=cmd(['/bin/ps','-axo','pid=,comm='])
@@ -874,10 +876,12 @@ def main():
             note(label+' total stat file bytes='+str(total))
         candidate_hash=sha(C/'Contents/Resources/app.asar'); note('candidate app.asar SHA256 '+candidate_hash)
         b=boundaries(); watcher_preflight(); note('hash API preflight completed')
-        migration_preflight()
+        space_preflight()
         save_json(U/'preflight-state.json', {'oldversion': oldversion})
         quit_all()
-        try: verify_db(DB)
+        try:
+            space_preflight()
+            migration_preflight()
         except Exception as e:
             note('database preflight failed '+str(e))
             mon=Monitor(boundaries())

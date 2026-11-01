@@ -9,6 +9,7 @@ export type PenkraDatabaseHealth = {
   readonly sqliteVersion: string;
   readonly tableCount: number;
   readonly migrationCount: number;
+  readonly latestMigrationId: number;
   readonly itemCount: number;
   readonly threadCount: number;
 };
@@ -71,6 +72,10 @@ export function inspectPenkraDatabaseHealth(query: DatabaseHealthQuery): PenkraD
   if (migrationCount === 0) {
     throw new Error("Penkra database has no recorded migration lineage.");
   }
+  const latestMigrationId = finiteInteger(
+    firstValue(query("SELECT MAX(migration_id) AS value FROM effect_sql_migrations")[0]),
+    "latest migration id",
+  );
 
   const threadCount = finiteInteger(
     firstValue(query("SELECT COUNT(*) AS value FROM threads")[0]),
@@ -90,5 +95,12 @@ export function inspectPenkraDatabaseHealth(query: DatabaseHealthQuery): PenkraD
   );
   if (invalid > 0)
     throw new Error(`Penkra database contains ${invalid} item(s) with invalid JSON.`);
-  return { sqliteVersion, tableCount: tables.size, migrationCount, threadCount, itemCount };
+  return {
+    sqliteVersion,
+    tableCount: tables.size,
+    migrationCount,
+    latestMigrationId,
+    threadCount,
+    itemCount,
+  };
 }

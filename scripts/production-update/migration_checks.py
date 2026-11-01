@@ -25,16 +25,33 @@ def check():
             db.execute('INSERT INTO effect_sql_migrations VALUES (214)')
         helper.configure(update, root/'candidate.app', root/'installed.app', userdata)
         def candidate(value): return lambda *a, **k: SimpleNamespace(stdout=str(value)+'\n')
-        with patch.object(helper, 'cmd', candidate(215)), patch.object(helper.os, 'statvfs', return_value=SimpleNamespace(f_bavail=0, f_frsize=4096)):
+        with patch.object(helper.os, 'statvfs', return_value=SimpleNamespace(f_bavail=0, f_frsize=4096)):
+            try: helper.space_preflight()
+            except RuntimeError as error: assert 'not enough free disk space' in str(error)
+            else: raise AssertionError('insufficient free space was accepted')
+        with patch.object(helper.os, 'statvfs', return_value=SimpleNamespace(f_bavail=1000000, f_frsize=4096)):
+            helper.space_preflight()
+        wal, shm = pathlib.Path(str(database)+'-wal'), pathlib.Path(str(database)+'-shm')
+        wal.write_bytes(b'w' * 1000); shm.write_bytes(b's' * 2000)
+        required = 4 * (database.stat().st_size + wal.stat().st_size + shm.stat().st_size)
+        with patch.object(helper.os, 'statvfs', return_value=SimpleNamespace(f_bavail=required-1, f_frsize=1)):
+            try: helper.space_preflight()
+            except RuntimeError as error: assert 'not enough free disk space' in str(error)
+            else: raise AssertionError('WAL and shared-memory bytes were not counted')
+        wal.unlink(); shm.unlink()
+        with patch.object(helper, 'verify_db', return_value=SimpleNamespace(stdout='{"latestMigrationId":214}')):
+            with patch.object(helper, 'cmd', candidate(215)):
+                helper.migration_preflight()
+            with patch.object(helper, 'cmd', candidate(214)):
+                helper.migration_preflight()
+            with patch.object(helper, 'cmd', candidate(213)):
+                try: helper.migration_preflight()
+                except RuntimeError as error: assert 'older' in str(error)
+                else: raise AssertionError('older candidate was accepted')
+        with patch.object(helper, 'verify_db', return_value=SimpleNamespace(stdout='{"migrationCount":214}')):
             try: helper.migration_preflight()
-            except RuntimeError as error: assert 'needs' in str(error) and '0 available' in str(error)
-            else: raise AssertionError('migration without space was accepted')
-        with patch.object(helper, 'cmd', candidate(214)), patch.object(helper.os, 'statvfs', return_value=SimpleNamespace(f_bavail=0, f_frsize=4096)):
-            helper.migration_preflight()
-        with patch.object(helper, 'cmd', candidate(213)):
-            try: helper.migration_preflight()
-            except RuntimeError as error: assert 'older' in str(error)
-            else: raise AssertionError('older candidate was accepted')
+            except RuntimeError as error: assert 'migration ID is unavailable' in str(error)
+            else: raise AssertionError('missing migration ID was accepted')
         monitor = helper.Monitor(helper.boundaries())
         monitor.launch_time = time.time()-1
         try:
