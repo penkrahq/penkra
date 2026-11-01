@@ -43,7 +43,15 @@ async function checkCredentialPipe(
     child.on("close", (code) => (code === 0 ? resolve(output.trim()) : reject(new Error(errors))));
     const pipe = child.stdio[3];
     if (pipe && "end" in pipe) {
-      pipe.on("error", reject);
+      pipe.on("error", (error: NodeJS.ErrnoException) => {
+        // The child closes the pipe without draining it when disabled or oversized.
+        if (
+          (!enabled || value.length > 64) &&
+          (error.code === "EPIPE" || error.code === "ECONNRESET")
+        )
+          return;
+        reject(error);
+      });
       pipe.end(value);
     } else if (providePipe) reject(new Error("Credential pipe unavailable"));
   });
