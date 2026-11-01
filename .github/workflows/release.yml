@@ -258,6 +258,7 @@ jobs:
         if: matrix.platform == 'mac'
         env:
           NODE_OPTIONS: --max-old-space-size=4096
+          PENKRA_REGISTRY_TRUSTED_KEYS: ${{ vars.PENKRA_REGISTRY_TRUSTED_KEYS }}
           CSC_LINK: ${{ secrets.CSC_LINK }}
           CSC_KEY_PASSWORD: ${{ secrets.CSC_KEY_PASSWORD }}
           APPLE_API_KEY: ${{ runner.temp }}/AuthKey_${{ secrets.APPLE_API_KEY_ID }}.p8
@@ -278,6 +279,7 @@ jobs:
         if: matrix.platform == 'linux'
         env:
           NODE_OPTIONS: --max-old-space-size=4096
+          PENKRA_REGISTRY_TRUSTED_KEYS: ${{ vars.PENKRA_REGISTRY_TRUSTED_KEYS }}
         shell: bash
         run: |
           set -euo pipefail
@@ -293,6 +295,7 @@ jobs:
         if: matrix.platform == 'win'
         env:
           NODE_OPTIONS: --max-old-space-size=4096
+          PENKRA_REGISTRY_TRUSTED_KEYS: ${{ vars.PENKRA_REGISTRY_TRUSTED_KEYS }}
         shell: bash
         run: |
           set -euo pipefail
