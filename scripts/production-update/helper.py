@@ -861,8 +861,9 @@ def main():
     note('START one-shot production update')
     moved=False; oldversion=None; candidate_hash=None; backup=None
     try:
+        expected_version = json.loads((pathlib.Path(__file__).resolve().parents[2] / 'apps/desktop/package.json').read_text())['version']
         note('candidate version '+version(C))
-        if version(C)!='0.14.6': raise RuntimeError('candidate version mismatch')
+        if version(C)!=expected_version: raise RuntimeError('candidate version mismatch')
         if C.resolve() == P.resolve(): raise RuntimeError('candidate is the installed application')
         with (C/'Contents/Info.plist').open('rb') as source:
             if plistlib.load(source).get('CFBundleIdentifier') != 'com.penkra.app':
@@ -905,7 +906,7 @@ def main():
             cmd(['/usr/bin/codesign','--verify','--deep','--strict',str(P)])
             sign=cmd(['/usr/bin/codesign','--display','--verbose=4',str(P)]).stdout
             if 'Authority=Developer ID Application:' not in sign: raise RuntimeError('installed Developer ID missing')
-            if version(P)!='0.14.6': raise RuntimeError('installed version mismatch')
+            if version(P)!=expected_version: raise RuntimeError('installed version mismatch')
             installed_hash=sha(P/'Contents/Resources/app.asar')
             if installed_hash!=candidate_hash: raise RuntimeError('installed app.asar hash mismatch')
             note('installed app.asar SHA256 matches candidate '+installed_hash)
@@ -928,7 +929,7 @@ def main():
                 mode = 'fail' if SCRATCH_FAULT == 'migration-failure' else 'commit'
                 cmd([bun, str(probe), str(root), str(DB), str(LOGS/'server.log'), mode], env=LAUNCH_ENV)
                 raise RuntimeError('forced scratch failure after '+mode+' migration')
-            ap,bp,st=mon.ready(P,'0.14.6',b); backup=mon.backup
+            ap,bp,st=mon.ready(P,expected_version,b); backup=mon.backup
             mon.close()
             note('helper exiting to verify persistence')
             return ('success',ap,bp,st,backup,oldversion,mon.launch_time)

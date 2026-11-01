@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Check that failed database preflight relaunches before final reporting."""
 import pathlib
+import json
 import plistlib
 import tempfile
 from types import SimpleNamespace
@@ -39,7 +40,7 @@ def check():
             events.append('verify')
             raise RuntimeError('database verification failure')
         with patch.object(helper, 'note'), patch.object(helper, 'cmd', fake_command), \
-             patch.object(helper, 'version', return_value='0.14.6'), \
+             patch.object(helper, 'version', side_effect=lambda app: json.loads((pathlib.Path(helper.__file__).resolve().parents[2]/'apps/desktop/package.json').read_text())['version'] if app == candidate else '0.14.6'), \
              patch.object(helper, 'sha', return_value='hash'), \
              patch.object(helper, 'boundaries', return_value={}), \
              patch.object(helper, 'watcher_preflight'), patch.object(helper, 'space_preflight', side_effect=check_space), patch.object(helper, 'quit_all', side_effect=stop), \
