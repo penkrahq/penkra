@@ -620,8 +620,12 @@ def prepare_scratch(root, candidate, snapshot, installed):
             subprocess.run(['/bin/cp', '-cRp', str(source), str(destination / version_name)], check=True)
     # The historical fixture predates the current space-icon vocabulary. Keep
     # its migration state intact, but make its scratch copy launchable.
-    with sqlite3.connect(str(userdata / 'state.sqlite')) as connection:
-        connection.execute("UPDATE projection_spaces SET icon='bag' WHERE icon='folder'")
+    connection = sqlite3.connect(str(userdata / 'state.sqlite'))
+    try:
+        with connection:
+            connection.execute("UPDATE projection_spaces SET icon='bag' WHERE icon='folder'")
+    finally:
+        connection.close()
     # Preflight parses an existing line. This one is synthetic and cannot be
     # mistaken for an event from the candidate launch because it predates the
     # monitored log boundary.
