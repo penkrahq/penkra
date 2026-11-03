@@ -195,6 +195,8 @@ interface OpenCodeSessionContext {
   lastEmittedTokenUsageKey: string | undefined;
   latestTurnCostUsd: number | undefined;
   activeTurnId: TurnId | undefined;
+  activePromptMessageId: string | undefined;
+  activePromptObserved: boolean;
   turnSettled: Deferred.Deferred<void, ProviderAdapterRequestError> | undefined;
   /** The abort request whose provider-side `session.error: Aborted` echo is expected. */
   pendingAbortErrorTurnId: TurnId | undefined;
@@ -690,6 +692,8 @@ function updateProviderSession(
 
 function clearActiveTurnState(context: OpenCodeSessionContext): void {
   context.activeTurnId = undefined;
+  context.activePromptMessageId = undefined;
+  context.activePromptObserved = false;
   context.activeAgent = undefined;
   context.activeVariant = undefined;
   context.latestTurnCostUsd = undefined;
@@ -804,7 +808,12 @@ function subscribedEventSessionId(event: OpenCodeSubscribedEvent): string | unde
     return undefined;
   }
 
-  const sessionId = (properties as { readonly sessionID?: unknown }).sessionID;
+  const value = properties as {
+    readonly sessionID?: unknown;
+    readonly info?: { readonly sessionID?: unknown };
+    readonly part?: { readonly sessionID?: unknown };
+  };
+  const sessionId = value.sessionID ?? value.info?.sessionID ?? value.part?.sessionID;
   return typeof sessionId === "string" ? sessionId : undefined;
 }
 
@@ -1587,6 +1596,14 @@ export function makeOpenCodeAdapterLive(options?: OpenCodeAdapterLiveOptions) {
 
         switch (event.type) {
           case "message.updated": {
+            const info = event.properties.info;
+            if (
+              context.activePromptMessageId &&
+              (info.id === context.activePromptMessageId ||
+                (info.role === "assistant" && info.parentID === context.activePromptMessageId))
+            ) {
+              context.activePromptObserved = true;
+            }
             const messageSnapshotKey = openCodeSnapshotKey(event.properties.info);
             if (
               context.messageSnapshotKeyById.get(event.properties.info.id) === messageSnapshotKey
@@ -1980,7 +1997,11 @@ export function makeOpenCodeAdapterLive(options?: OpenCodeAdapterLiveOptions) {
               break;
             }
 
-            if (event.properties.status.type === "idle" && turnId) {
+            if (
+              event.properties.status.type === "idle" &&
+              turnId &&
+              (context.activePromptObserved || context.pendingAbortErrorTurnId === turnId)
+            ) {
               if (
                 context.pendingAbortErrorTurnId === turnId &&
                 event.properties.sessionID === context.openCodeSessionId
@@ -2005,7 +2026,10 @@ export function makeOpenCodeAdapterLive(options?: OpenCodeAdapterLiveOptions) {
           }
 
           case "session.idle": {
-            if (turnId) {
+            if (
+              turnId &&
+              (context.activePromptObserved || context.pendingAbortErrorTurnId === turnId)
+            ) {
               if (
                 context.pendingAbortErrorTurnId === turnId &&
                 event.properties.sessionID === context.openCodeSessionId
@@ -2900,6 +2924,8 @@ export function makeOpenCodeAdapterLive(options?: OpenCodeAdapterLiveOptions) {
                   lastEmittedTokenUsageKey: undefined,
                   latestTurnCostUsd: undefined,
                   activeTurnId: undefined,
+                  activePromptMessageId: undefined,
+                  activePromptObserved: false,
                   turnSettled: undefined,
                   pendingAbortErrorTurnId: undefined,
                   activeAgent: undefined,
@@ -3015,6 +3041,9 @@ export function makeOpenCodeAdapterLive(options?: OpenCodeAdapterLiveOptions) {
             ? input.modelSelection.options?.variant
             : undefined;
 
+        const providerMessageId = `msg_${randomUUID()}`;
+        context.activePromptMessageId = providerMessageId;
+        context.activePromptObserved = false;
         context.turnSettled = yield* Deferred.make<void, ProviderAdapterRequestError>();
         context.activeTurnId = turnId;
         // Penkra has one execution mode. A stale provider option that requests
@@ -3043,7 +3072,6 @@ export function makeOpenCodeAdapterLive(options?: OpenCodeAdapterLiveOptions) {
           },
         });
 
-        const providerMessageId = `msg_${randomUUID()}`;
         // promptAsync can run tools as soon as it is called. Register the
         // execution before giving the prompt to OpenCode.
         agentGatewayCredentials?.beginTurn(

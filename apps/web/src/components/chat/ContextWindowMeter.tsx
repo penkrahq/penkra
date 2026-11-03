@@ -67,7 +67,13 @@ export function ContextWindowMeter(props: {
           </button>
         }
       />
-      <PopoverPopup tooltipStyle side="top" align="end" className="w-max max-w-none px-3 py-2">
+      <PopoverPopup
+        nativeAppOverlay={false}
+        tooltipStyle
+        side="top"
+        align="end"
+        className="w-max max-w-none px-3 py-2"
+      >
         <div className="space-y-1.5 leading-tight">
           <div className="text-[length:var(--app-font-size-ui-sm,11px)] font-medium text-muted-foreground">
             Context window
