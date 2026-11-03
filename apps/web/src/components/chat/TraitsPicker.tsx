@@ -441,6 +441,17 @@ export const TraitsMenuContent = memo(function TraitsMenuContentImpl({
             onValueChange={(value) => commitTrait({ [contextWindowTraitId]: value })}
             onSelectionComplete={onSelectionComplete}
           />
+          {provider === "claudeAgent" && contextWindowTraitId === "workingContextWindow" ? (
+            <div className="px-2 pb-1.5 text-muted-foreground/80 text-[length:var(--app-font-size-ui,12px)]">
+              200K limits the working window and triggers earlier compaction; the model can still
+              support 1M.
+            </div>
+          ) : null}
+          {provider === "codex" && contextWindowTraitId === "workingContextWindow" ? (
+            <div className="px-2 pb-1.5 text-muted-foreground/80 text-[length:var(--app-font-size-ui,12px)]">
+              Codex reserves part of the window. Larger contexts can use more of your plan limits.
+            </div>
+          ) : null}
         </>
       ) : null}
       {contextWindowOptions.length <= 1 &&

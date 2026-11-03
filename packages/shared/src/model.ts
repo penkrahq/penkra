@@ -257,7 +257,10 @@ function legacyCapabilityDescriptors(
   if (caps.contextWindowOptions.length > 0) {
     const defaultContextWindowOption = caps.contextWindowOptions.find((option) => option.isDefault);
     descriptors.push({
-      id: "contextWindow",
+      id:
+        provider === "claudeAgent" || provider === "codex"
+          ? "workingContextWindow"
+          : "contextWindow",
       label: "Context Window",
       type: "select",
       options: caps.contextWindowOptions.map((option) => ({
@@ -452,6 +455,9 @@ export function normalizeCodexModelOptions(
   const nextOptions: CodexModelOptions = {
     ...(reasoningEffort ? { reasoningEffort } : {}),
     ...(fastModeEnabled ? { fastMode: true } : {}),
+    ...(trimOrNull(modelOptions?.workingContextWindow)
+      ? { workingContextWindow: trimOrNull(modelOptions?.workingContextWindow)! }
+      : {}),
   };
   return Object.keys(nextOptions).length > 0 ? nextOptions : undefined;
 }
@@ -471,6 +477,9 @@ export function normalizeClaudeModelOptions(
     ...(thinking !== undefined ? { thinking } : {}),
     ...(effort ? { effort } : {}),
     ...(fastMode ? { fastMode: true } : {}),
+    ...(modelOptions?.workingContextWindow
+      ? { workingContextWindow: modelOptions.workingContextWindow }
+      : {}),
     ...(autoCompactWindow ? { autoCompactWindow } : {}),
   };
   return Object.keys(nextOptions).length > 0 ? nextOptions : undefined;

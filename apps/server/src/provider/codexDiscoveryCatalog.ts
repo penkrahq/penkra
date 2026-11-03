@@ -254,6 +254,30 @@ export function parseCodexPluginListResponse(
   };
 }
 
+export function codexContextWindowsFromCache(
+  response: unknown,
+): Map<string, { standard: number; maximum: number }> {
+  const result = new Map<string, { standard: number; maximum: number }>();
+  for (const value of readArray(readObject(response), "models") ?? []) {
+    const row = readObject(value);
+    const slug = readString(row, "slug")?.trim();
+    const standard = row?.context_window;
+    const maximum = row?.max_context_window;
+    if (
+      slug &&
+      typeof standard === "number" &&
+      Number.isSafeInteger(standard) &&
+      standard > 0 &&
+      typeof maximum === "number" &&
+      Number.isSafeInteger(maximum) &&
+      maximum > standard
+    ) {
+      result.set(slug, { standard, maximum });
+    }
+  }
+  return result;
+}
+
 export function parseCodexModelListResponse(response: unknown): ProviderListModelsResult["models"] {
   const responseRecord = readObject(response);
   const resultRecord = readObject(responseRecord, "result") ?? responseRecord;

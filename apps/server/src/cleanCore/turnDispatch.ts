@@ -81,6 +81,29 @@ export const TurnDispatchLive = Layer.effect(
               : undefined;
             let reconstruct = false;
             if (!input.nativeSteer) {
+              const requestedWindow =
+                input.modelSelection.provider === "claudeAgent"
+                  ? (input.modelSelection.options?.workingContextWindow ?? "1m")
+                  : input.modelSelection.provider === "codex"
+                    ? (input.modelSelection.options?.workingContextWindow ?? "default")
+                    : undefined;
+              if (
+                session &&
+                session.provider === input.modelSelection.provider &&
+                requestedWindow !== undefined &&
+                (session.workingContextWindow ??
+                  (session.provider === "claudeAgent" ? "1m" : "default")) !== requestedWindow
+              ) {
+                if (!provider.stopRuntimeSession) {
+                  return yield* Effect.fail(
+                    new Error(
+                      "Cannot restart the provider session for the selected context window.",
+                    ),
+                  );
+                }
+                yield* provider.stopRuntimeSession({ threadId });
+                session = undefined;
+              }
               if (session && session.runtimeMode !== runtimeMode) {
                 yield* provider.stop({ threadId, reason: "runtime-mode-change" });
                 session = undefined;

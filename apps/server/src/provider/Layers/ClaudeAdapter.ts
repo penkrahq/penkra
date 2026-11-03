@@ -522,6 +522,15 @@ function mapSupportedModels(models: ModelInfo[]): ProviderListModelsResult {
     const descriptor: ProviderListModelsResult["models"][number] = {
       slug,
       name: claudeModelDisplayName(model, slug, defaultModelSlug === slug),
+      ...(/^(?:claude-fable-5-1|claude-opus-5-5|claude-sonnet-5-5|claude-haiku-5-5)$/u.test(slug)
+        ? {
+            contextWindowOptions: [
+              { value: "200k", label: "200K" },
+              { value: "1m", label: "1M", isDefault: true as const },
+            ],
+            defaultContextWindow: "1m",
+          }
+        : {}),
       ...(defaultModelSlug === slug ? { isDefault: true as const } : {}),
       ...(model.description.trim() ? { description: model.description.trim() } : {}),
       ...(model.supportedEffortLevels && model.supportedEffortLevels.length > 0
@@ -1399,8 +1408,10 @@ function makeClaudeAdapter(options?: ClaudeAdapterLiveOptions) {
     // Account entitlements can differ for the same model; remember only within
     // this server lifetime so a later account change can be discovered.
     const contextWindowDenials = new Set<string>();
-    const contextWindowDenialKey = (connectionId: ProviderConnectionId | null | undefined, model: string) =>
-      `${connectionId ?? "default"}\0${stripClaudeContextWindowSuffix(model).toLowerCase()}`;
+    const contextWindowDenialKey = (
+      connectionId: ProviderConnectionId | null | undefined,
+      model: string,
+    ) => `${connectionId ?? "default"}\0${stripClaudeContextWindowSuffix(model).toLowerCase()}`;
 
     const enableClaudeComputerUse = async (
       context: ClaudeSessionContext,
@@ -2957,17 +2968,31 @@ function makeClaudeAdapter(options?: ClaudeAdapterLiveOptions) {
         }
 
         const content = message.message?.content;
-        if (message.error && context.turnState && context.currentApiModelId &&
-            /\[1m\]$/iu.test(context.currentApiModelId)) {
+        if (
+          message.error &&
+          context.turnState &&
+          context.currentApiModelId &&
+          /\[1m\]$/iu.test(context.currentApiModelId)
+        ) {
           const reason = Array.isArray(content)
-            ? content.map((block) => block.type === "text" ? block.text : "").join(" ")
+            ? content.map((block) => (block.type === "text" ? block.text : "")).join(" ")
             : "";
-          if (/(?:\b1m\b|1,?000,?000|million).*(?:context|window)|(?:context|window).*(?:\b1m\b|1,?000,?000|million)/iu.test(reason) &&
-              /(?:not available|not supported|not allowed|unavailable|entitle|access|permission)/iu.test(reason)) {
-            contextWindowDenials.add(contextWindowDenialKey(context.connectionId, context.currentApiModelId));
+          if (
+            /(?:\b1m\b|1,?000,?000|million).*(?:context|window)|(?:context|window).*(?:\b1m\b|1,?000,?000|million)/iu.test(
+              reason,
+            ) &&
+            /(?:not available|not supported|not allowed|unavailable|entitle|access|permission)/iu.test(
+              reason,
+            )
+          ) {
+            contextWindowDenials.add(
+              contextWindowDenialKey(context.connectionId, context.currentApiModelId),
+            );
             context.turnState.contextWindowDenial = reason;
             yield* Effect.logWarning("provider.context-window.fallback", {
-              threadId: context.session.threadId, model: stripClaudeContextWindowSuffix(context.currentApiModelId), reason,
+              threadId: context.session.threadId,
+              model: stripClaudeContextWindowSuffix(context.currentApiModelId),
+              reason,
             });
             return;
           }
@@ -4367,6 +4392,12 @@ function makeClaudeAdapter(options?: ClaudeAdapterLiveOptions) {
         const claudeSdkEnv = input.managedLaunch
           ? input.managedLaunch.childEnvironment(process.env)
           : yield* resolveClaudeSdkEnv;
+        const workingContextWindow = modelSelection?.options?.workingContextWindow ?? "1m";
+        if (workingContextWindow === "200k") {
+          claudeSdkEnv.CLAUDE_CODE_DISABLE_1M_CONTEXT = "1";
+        } else {
+          delete claudeSdkEnv.CLAUDE_CODE_DISABLE_1M_CONTEXT;
+        }
         claudeSdkEnv.MAX_MCP_OUTPUT_TOKENS = String(INLINE_TOOL_RESULT_BYTES);
         if (input.managedLaunch) {
           const targetConfigDir = claudeSdkEnv.CLAUDE_CONFIG_DIR?.trim();
@@ -4577,6 +4608,7 @@ function makeClaudeAdapter(options?: ClaudeAdapterLiveOptions) {
             provider: PROVIDER,
             status: "ready",
             runtimeMode: input.runtimeMode,
+            workingContextWindow,
             ...(input.cwd ? { cwd: input.cwd } : {}),
             ...(modelSelection?.model ? { model: modelSelection.model } : {}),
             ...(threadId ? { threadId } : {}),
@@ -4787,10 +4819,19 @@ function makeClaudeAdapter(options?: ClaudeAdapterLiveOptions) {
                 const models = await context.query.supportedModels();
                 const extended = models.find((row) => {
                   const value = row.value.trim();
-                  const resolved = row.resolvedModel?.trim() || stripClaudeContextWindowSuffix(value);
-                  return /\[1m\]$/iu.test(value) && resolved.toLowerCase() === defaultModelId.toLowerCase();
+                  const resolved =
+                    row.resolvedModel?.trim() || stripClaudeContextWindowSuffix(value);
+                  return (
+                    /\[1m\]$/iu.test(value) &&
+                    resolved.toLowerCase() === defaultModelId.toLowerCase()
+                  );
                 });
-                if (extended && !contextWindowDenials.has(contextWindowDenialKey(context.connectionId, defaultModelId))) {
+                if (
+                  extended &&
+                  !contextWindowDenials.has(
+                    contextWindowDenialKey(context.connectionId, defaultModelId),
+                  )
+                ) {
                   chosen = extended.value.trim();
                 }
               } catch (cause) {

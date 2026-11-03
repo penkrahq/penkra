@@ -148,6 +148,10 @@ const PROVIDER_TARGET_OPTION_RULES = {
     primaryOptionKey: "reasoningEffort",
     options: {
       reasoningEffort: providerOptionRule("string", CODEX_REASONING_EFFORT_OPTIONS),
+      workingContextWindow: providerOptionRule("string", [], "model-discovery", {
+        advertised: false,
+        validation: { kind: "context-window" },
+      }),
       fastMode: providerOptionRule("boolean", [], "model-discovery", {
         advertised: false,
         validation: {
@@ -174,6 +178,10 @@ const PROVIDER_TARGET_OPTION_RULES = {
           kind: "boolean-capability",
           capability: "supportsThinkingToggle",
         },
+      }),
+      workingContextWindow: providerOptionRule("string", [], "model-discovery", {
+        advertised: false,
+        validation: { kind: "context-window" },
       }),
       autoCompactWindow: providerOptionRule("string", [], "model-discovery", {
         advertised: false,

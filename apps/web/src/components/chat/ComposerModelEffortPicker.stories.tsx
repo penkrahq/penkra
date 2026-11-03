@@ -51,7 +51,7 @@ const baseModel = {
 const twoWindows = {
   ...baseModel,
   contextWindowOptions: [
-    { value: "200k", label: "Standard" },
+    { value: "200k", label: "200K" },
     { value: "1m", label: "1M", isDefault: true },
   ],
   defaultContextWindow: "1m",
@@ -105,3 +105,28 @@ const oneWindow = {
   defaultContextWindow: "1m",
 } as unknown as ProviderModelDescriptor;
 export const OneWindow: Story = { args: { runtimeModel: oneWindow, runtimeModels: [oneWindow] } };
+
+const codexWindows = {
+  slug: "gpt-6-luna",
+  name: "GPT-6 Luna",
+  supportedReasoningEfforts: [{ value: "low" }, { value: "medium" }],
+  contextWindowOptions: [
+    { value: "272000", label: "272K" },
+    { value: "872000", label: "872K", isDefault: true },
+  ],
+  defaultContextWindow: "872000",
+} as unknown as ProviderModelDescriptor;
+export const CodexContextChoice: Story = {
+  args: {
+    provider: "codex",
+    model: "gpt-6-luna",
+    runtimeModel: codexWindows,
+    runtimeModels: [codexWindows],
+    modelOptionsByProvider: {
+      codex: [{ slug: "gpt-6-luna", name: "GPT-6 Luna" }],
+      claudeAgent: [],
+      opencode: [],
+    } as never,
+    renderConnectionSection: () => <></>,
+  },
+};

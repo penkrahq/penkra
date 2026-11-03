@@ -1,7 +1,7 @@
 import { type ChildProcess, type ChildProcessWithoutNullStreams, spawn } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { EventEmitter } from "node:events";
-import { mkdir, rm, writeFile } from "node:fs/promises";
+import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import * as Path from "node:path";
 import { StringDecoder } from "node:string_decoder";
 import type { ClientRequest as PinnedCodexRequest } from "./provider/generated/codex/ClientRequest.ts";
@@ -85,6 +85,7 @@ import {
 } from "./codexAppServerTransport.ts";
 import { buildCodexTurnInput, type CodexTurnInputItem } from "./codexTurnInput.ts";
 import {
+  codexContextWindowsFromCache,
   parseCodexModelListResponse,
   parseCodexPluginListResponse,
   parseCodexSkillsListResponse,
@@ -330,11 +331,25 @@ export interface CodexAppServerStartSessionInput {
   readonly lifecycleGeneration?: string;
   readonly cwd?: string;
   readonly model?: string;
+  readonly workingContextWindow?: string;
   readonly serviceTier?: string;
   readonly resumeCursor?: unknown;
   readonly providerOptions?: ProviderSessionStartInput["providerOptions"];
   readonly managedLaunch?: ProviderManagedLaunchContext;
   readonly runtimeMode: RuntimeMode;
+}
+
+async function readManagedCodexContextWindows(launch: ProviderManagedLaunchContext) {
+  try {
+    const contents = await readFile(
+      Path.join(launch.profileRoot, "codex-home", "models_cache.json"),
+      "utf8",
+    );
+    return codexContextWindowsFromCache(JSON.parse(contents));
+  } catch {
+    // A missing or invalid provider cache is not evidence of a model's window.
+    return new Map<string, { standard: number; maximum: number }>();
+  }
 }
 
 export interface CodexThreadTurnSnapshot {
@@ -1063,6 +1078,7 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
         status: "connecting",
         runtimeMode: input.runtimeMode,
         model: normalizeCodexModelSlug(input.model),
+        workingContextWindow: input.workingContextWindow ?? "default",
         cwd: resolvedCwd,
         threadId,
         createdAt: now,
@@ -1163,9 +1179,30 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
         normalizeCodexModelSlug(input.model),
         context.transport.account,
       );
+      const windows = input.managedLaunch
+        ? (await readManagedCodexContextWindows(input.managedLaunch)).get(normalizedModel ?? "")
+        : undefined;
+      const selectedWindow = input.workingContextWindow
+        ? Number(input.workingContextWindow)
+        : windows?.maximum;
+      if (
+        input.workingContextWindow !== undefined &&
+        (!windows || (selectedWindow !== windows.standard && selectedWindow !== windows.maximum))
+      ) {
+        throw new Error(
+          "The selected Codex context window is unavailable in this account's model catalog.",
+        );
+      }
       const sessionOverrides = {
-        ...(gatewaySessionLease
-          ? { config: buildCodexThreadMcpConfig(gatewaySessionLease.connection) }
+        ...(gatewaySessionLease || selectedWindow !== undefined
+          ? {
+              config: {
+                ...(gatewaySessionLease
+                  ? buildCodexThreadMcpConfig(gatewaySessionLease.connection)
+                  : {}),
+                ...(selectedWindow !== undefined ? { model_context_window: selectedWindow } : {}),
+              },
+            }
           : {}),
         model: normalizedModel ?? null,
         ...(input.serviceTier !== undefined ? { serviceTier: input.serviceTier } : {}),
@@ -2120,7 +2157,25 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
             if (nextCursor !== null) seenCursors.add(nextCursor);
             cursor = nextCursor;
           } while (cursor !== null);
-          data.models = models;
+          const contextWindows = await readManagedCodexContextWindows(input.managedLaunch);
+          data.models = models.map((model) => {
+            const window = contextWindows.get(model.slug);
+            if (!window) return model;
+            const label = (tokens: number) =>
+              tokens % 1000 === 0 ? `${tokens / 1000}K` : tokens.toLocaleString("en-US");
+            return {
+              ...model,
+              contextWindowOptions: [
+                { value: String(window.standard), label: label(window.standard) },
+                {
+                  value: String(window.maximum),
+                  label: label(window.maximum),
+                  isDefault: true as const,
+                },
+              ],
+              defaultContextWindow: String(window.maximum),
+            };
+          });
         } else if (kind === "skills") {
           const response = await this.sendRequest<Record<string, unknown>>(
             transport,

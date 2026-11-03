@@ -1592,6 +1592,10 @@ const makeCodexAdapter = (options?: CodexAdapterLiveOptions) =>
         ...(input.providerOptions !== undefined ? { providerOptions: input.providerOptions } : {}),
         ...(input.managedLaunch !== undefined ? { managedLaunch: input.managedLaunch } : {}),
         runtimeMode: input.runtimeMode,
+        ...(input.modelSelection?.provider === "codex" &&
+        input.modelSelection.options?.workingContextWindow
+          ? { workingContextWindow: input.modelSelection.options.workingContextWindow }
+          : {}),
         ...codexModelSelectionOverrides(input.modelSelection),
       };
 

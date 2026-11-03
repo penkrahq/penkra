@@ -68,6 +68,7 @@ export const CodexModelOptions = Schema.Struct({
   // Codex runtime discovery can expose early-access effort values outside the built-in enum.
   reasoningEffort: Schema.optional(TrimmedNonEmptyString),
   fastMode: Schema.optional(Schema.Boolean),
+  workingContextWindow: Schema.optional(TrimmedNonEmptyString),
 });
 export type CodexModelOptions = typeof CodexModelOptions.Type;
 
@@ -75,6 +76,7 @@ export const ClaudeModelOptions = Schema.Struct({
   thinking: Schema.optional(Schema.Boolean),
   effort: Schema.optional(Schema.Literals(CLAUDE_CODE_EFFORT_OPTIONS)),
   fastMode: Schema.optional(Schema.Boolean),
+  workingContextWindow: Schema.optional(Schema.Literals(["200k", "1m"])),
   autoCompactWindow: Schema.optional(Schema.String),
   // Legacy persisted field. Normalization migrates this to autoCompactWindow.
   contextWindow: Schema.optional(Schema.String),
