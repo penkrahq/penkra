@@ -34,6 +34,7 @@ import { ComposerPickerMenu, ComposerPickerMenuPopup } from "./ComposerPickerMen
 import { getComposerTraitSelection, hasVisibleComposerTraitControls } from "./composerTraits";
 import { Tooltip, TooltipPopup, TooltipShortcut, TooltipTrigger } from "../ui/tooltip";
 import { MenuEffort } from "../middle-panel/menu-effort/MenuEffort";
+import { ContextWindowSlider } from "./ContextWindowSlider";
 
 const ULTRATHINK_PROMPT_PREFIX = "Ultrathink:\n";
 
@@ -430,28 +431,14 @@ export const TraitsMenuContent = memo(function TraitsMenuContentImpl({
       {contextWindowOptions.length > 1 ? (
         <>
           {hasPriorContextWindowSection ? <MenuDivider /> : null}
-          <TraitRadioSection
-            label={contextWindowDescriptor?.label ?? "Context"}
+          <ContextWindowSlider
+            label={contextWindowDescriptor?.label ?? "Context Window"}
+            options={contextWindowOptions}
             value={contextWindow ?? defaultContextWindow ?? ""}
-            options={contextWindowOptions.map((option) => ({
-              value: option.value,
-              label: option.label,
-              isDefault: option.value === defaultContextWindow,
-            }))}
-            onValueChange={(value) => commitTrait({ [contextWindowTraitId]: value })}
-            onSelectionComplete={onSelectionComplete}
+            onCommit={(value) =>
+              commitTrait({ [contextWindowTraitId]: value }, { keepMenuOpen: true })
+            }
           />
-          {provider === "claudeAgent" && contextWindowTraitId === "workingContextWindow" ? (
-            <div className="px-2 pb-1.5 text-muted-foreground/80 text-[length:var(--app-font-size-ui,12px)]">
-              200K limits the working window and triggers earlier compaction; the model can still
-              support 1M.
-            </div>
-          ) : null}
-          {provider === "codex" && contextWindowTraitId === "workingContextWindow" ? (
-            <div className="px-2 pb-1.5 text-muted-foreground/80 text-[length:var(--app-font-size-ui,12px)]">
-              Codex reserves part of the window. Larger contexts can use more of your plan limits.
-            </div>
-          ) : null}
         </>
       ) : null}
       {contextWindowOptions.length <= 1 &&

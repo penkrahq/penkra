@@ -262,11 +262,7 @@ export const makeThreadSender = Effect.gen(function* () {
                 threadId,
                 messageId: head.messageId,
                 provider: input.modelSelection.provider,
-                deliveredWindow:
-                  input.modelSelection.provider === "codex" ||
-                  input.modelSelection.provider === "claudeAgent"
-                    ? (input.modelSelection.options?.workingContextWindow ?? "default")
-                    : "catalog",
+                deliveredWindow: input.modelSelection.options?.compactionThreshold ?? "default",
               });
             }
             return selected.delivery;
@@ -578,18 +574,10 @@ export const makeThreadSender = Effect.gen(function* () {
           if (current === undefined)
             return yield* Effect.fail(new Error("The thread does not exist."));
           const selection = resolveDraftSendSelection(current, input);
-          const previousOptions = current.modelOptions ? JSON.parse(current.modelOptions) : {};
-          const contextDefault = current.provider === "claudeAgent" ? "1m" : "default";
-          const changesWindow =
-            (current.provider === "claudeAgent" || current.provider === "codex") &&
-            selection.modelSelection.provider === current.provider &&
-            (previousOptions.workingContextWindow ?? contextDefault) !==
-              (selection.modelSelection.options?.workingContextWindow ?? contextDefault);
           const settings = yield* serverSettings.getSettings;
           const request = {
             ...input,
             ...selection,
-            ...(changesWindow ? { dispatchMode: "queue" as const } : {}),
             autoSteer:
               input.message.origin._tag === "user" || input.message.origin._tag === "external"
                 ? settings.conversations.steerComposerMessages
@@ -597,21 +585,16 @@ export const makeThreadSender = Effect.gen(function* () {
                   settings.conversations.steerThreadMessages,
             supportsSteer:
               providerSupportsNativeTurnSteering(current.provider) &&
-              selection.connectionId === current.connectionId &&
-              !changesWindow,
+              selection.connectionId === current.connectionId,
           };
           const { admission, delivery } = yield* sendMessage(publisher, driver, request);
           if (delivery === null && admission.plan === "queue") {
-            if (
-              (input.modelSelection?.provider === "codex" ||
-                input.modelSelection?.provider === "claudeAgent") &&
-              input.modelSelection.options?.workingContextWindow !== undefined
-            ) {
+            if (input.modelSelection?.options?.compactionThreshold !== undefined) {
               yield* Effect.logInfo("provider.queue.context_window.requested", {
                 threadId: input.threadId,
                 messageId: input.message.messageId,
                 provider: input.modelSelection.provider,
-                requestedWindow: input.modelSelection.options.workingContextWindow,
+                requestedWindow: input.modelSelection.options.compactionThreshold,
               });
             }
             if (current.state !== "running")

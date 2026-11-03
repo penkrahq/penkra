@@ -30,6 +30,46 @@ export const EMPTY_MODEL_CAPABILITIES: ModelCapabilities = {
   promptInjectedEffortLevels: [],
   contextWindowOptions: [],
 };
+
+/** Provider limits use both raw token counts and compact strings such as 200k. */
+export function parseContextTokenCount(value: string | undefined | null): number | null {
+  if (!value) return null;
+  const match = /^(\d+(?:\.\d+)?)\s*([km])?$/i.exec(value.trim());
+  if (!match) return null;
+  const count =
+    Number(match[1]) * (match[2]?.toLowerCase() === "m" ? 1_000_000 : match[2] ? 1_000 : 1);
+  return Number.isSafeInteger(count) && count > 0 ? count : null;
+}
+
+/** P54's stops are Penkra compaction thresholds, not model capacity choices. */
+export function compactionThresholdOptions(maximum: number) {
+  if (!Number.isSafeInteger(maximum) || maximum <= 0) return [];
+  const stops = [...[200_000, 400_000, 600_000, 800_000].filter((n) => n < maximum), maximum];
+  const defaultValue = stops.includes(400_000) ? 400_000 : stops[stops.length - 1]!;
+  return stops.map((tokens) => ({
+    value: String(tokens),
+    label:
+      tokens % 1_000_000 === 0
+        ? `${tokens / 1_000_000}M`
+        : tokens % 1_000 === 0
+          ? `${tokens / 1_000}K`
+          : tokens.toLocaleString("en-US"),
+    ...(tokens === defaultValue ? { isDefault: true as const } : {}),
+  }));
+}
+
+export function resolveCompactionThreshold(maximum: number, selected?: string | null): number {
+  const options = compactionThresholdOptions(maximum);
+  const requested = parseContextTokenCount(selected);
+  if (requested !== null) {
+    return Number(
+      options.filter((option) => Number(option.value) <= requested).at(-1)?.value ??
+        options[0]?.value ??
+        maximum,
+    );
+  }
+  return Number(options.find((option) => option.isDefault)?.value ?? maximum);
+}
 export function getModelOptions(provider: ProviderKind = "codex") {
   return MODEL_OPTIONS_BY_PROVIDER[provider];
 }
@@ -455,6 +495,9 @@ export function normalizeCodexModelOptions(
   const nextOptions: CodexModelOptions = {
     ...(reasoningEffort ? { reasoningEffort } : {}),
     ...(fastModeEnabled ? { fastMode: true } : {}),
+    ...(trimOrNull(modelOptions?.compactionThreshold)
+      ? { compactionThreshold: trimOrNull(modelOptions?.compactionThreshold)! }
+      : {}),
     ...(trimOrNull(modelOptions?.workingContextWindow)
       ? { workingContextWindow: trimOrNull(modelOptions?.workingContextWindow)! }
       : {}),
@@ -477,6 +520,9 @@ export function normalizeClaudeModelOptions(
     ...(thinking !== undefined ? { thinking } : {}),
     ...(effort ? { effort } : {}),
     ...(fastMode ? { fastMode: true } : {}),
+    ...(trimOrNull(modelOptions?.compactionThreshold)
+      ? { compactionThreshold: trimOrNull(modelOptions?.compactionThreshold)! }
+      : {}),
     ...(modelOptions?.workingContextWindow
       ? { workingContextWindow: modelOptions.workingContextWindow }
       : {}),
@@ -558,6 +604,9 @@ export function normalizeOpenCodeModelOptions(
   const nextOptions: OpenCodeModelOptions = {
     ...(variant ? { variant } : {}),
     ...(agent ? { agent } : {}),
+    ...(trimOrNull(modelOptions?.compactionThreshold)
+      ? { compactionThreshold: trimOrNull(modelOptions?.compactionThreshold)! }
+      : {}),
   };
   return Object.keys(nextOptions).length > 0 ? nextOptions : undefined;
 }

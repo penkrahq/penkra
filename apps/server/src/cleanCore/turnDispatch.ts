@@ -7,6 +7,8 @@ import {
   type ProviderTurnStartResult,
 } from "@penkra/contracts";
 import { Effect, Layer, Context } from "effect";
+import { randomUUID } from "node:crypto";
+import { parseContextTokenCount, resolveCompactionThreshold } from "@penkra/shared/model";
 import * as SqlClient from "effect/sql/SqlClient";
 import { ServerConfig } from "../config.ts";
 import { ProviderService } from "../provider/Services/ProviderService.ts";
@@ -17,7 +19,10 @@ import { resolveProviderDispatchAttachments } from "../provider/providerAttachme
 import { ManagedAttachmentRepository } from "../persistence/Services/ManagedAttachments.ts";
 import { ServerSettingsService } from "../serverSettings.ts";
 import { ProviderAuthCircuits } from "../provider/providerAuthCircuit.ts";
+import { ProviderCatalogService } from "../provider/Services/ProviderCatalog.ts";
 import { ThreadPublisher } from "./ThreadPublisher.ts";
+import { upsertThreadItem } from "./threadStore.ts";
+import { threadItemActivityData } from "./threadItemData.ts";
 import { buildReconstructedTurnInput } from "./reconstructedTurnInput.ts";
 import { settleMessage } from "./sendMessage.ts";
 import type { ProviderThreadSwitchCoordinatorShape } from "../orchestration/Services/ProviderThreadSwitchCoordinator.ts";
@@ -51,6 +56,7 @@ export const TurnDispatchLive = Layer.effect(
     const attachments = yield* ManagedAttachmentRepository;
     const settings = yield* ServerSettingsService;
     const circuits = yield* ProviderAuthCircuits;
+    const catalog = yield* ProviderCatalogService;
     const publisher = yield* ThreadPublisher;
     return {
       dispatch: (input: TurnDispatchInput) =>
@@ -81,29 +87,6 @@ export const TurnDispatchLive = Layer.effect(
               : undefined;
             let reconstruct = false;
             if (!input.nativeSteer) {
-              const requestedWindow =
-                input.modelSelection.provider === "claudeAgent"
-                  ? (input.modelSelection.options?.workingContextWindow ?? "1m")
-                  : input.modelSelection.provider === "codex"
-                    ? (input.modelSelection.options?.workingContextWindow ?? "default")
-                    : undefined;
-              if (
-                session &&
-                session.provider === input.modelSelection.provider &&
-                requestedWindow !== undefined &&
-                (session.workingContextWindow ??
-                  (session.provider === "claudeAgent" ? "1m" : "default")) !== requestedWindow
-              ) {
-                if (!provider.stopRuntimeSession) {
-                  return yield* Effect.fail(
-                    new Error(
-                      "Cannot restart the provider session for the selected context window.",
-                    ),
-                  );
-                }
-                yield* provider.stopRuntimeSession({ threadId });
-                session = undefined;
-              }
               if (session && session.runtimeMode !== runtimeMode) {
                 yield* provider.stop({ threadId, reason: "runtime-mode-change" });
                 session = undefined;
@@ -127,6 +110,81 @@ export const TurnDispatchLive = Layer.effect(
                     : { resumeCursor: runtime.resumeCursor }),
                   ...(reconstruct ? { resumePolicy: "fresh" as const } : {}),
                 });
+              }
+            }
+            if (!input.nativeSteer && !reconstruct && command.reviewTarget === undefined) {
+              const [usageRow] = yield* sql<{ data: string | null }>`SELECT data FROM thread_items
+                WHERE thread_id=${threadId} AND source_id='context-window:latest'`;
+              let usage: { usedTokens?: number; maxTokens?: number; provider?: string } | undefined;
+              try {
+                usage = usageRow?.data ? JSON.parse(usageRow.data).payload : undefined;
+              } catch {
+                usage = undefined;
+              }
+              if (
+                usage?.provider === selected.harness &&
+                typeof usage.usedTokens === "number" &&
+                usage.usedTokens > 0
+              ) {
+                const models = yield* catalog
+                  .get({ provider: selected.harness, connectionId: selected.connectionId }, [
+                    "models",
+                  ])
+                  .pipe(
+                    Effect.catch(() => Effect.succeed({ models: [], version: 0, error: null })),
+                  );
+                const model = models.models?.find(
+                  (item) => item.slug === input.modelSelection.model,
+                );
+                const maximum = Math.max(
+                  usage.maxTokens ?? 0,
+                  ...(model?.contextWindowOptions ?? []).map(
+                    (item) => parseContextTokenCount(item.value) ?? 0,
+                  ),
+                );
+                const options = input.modelSelection.options;
+                const selectedThreshold = options?.compactionThreshold;
+                const legacy =
+                  options && "workingContextWindow" in options
+                    ? options.workingContextWindow
+                    : undefined;
+                const threshold =
+                  maximum > 0
+                    ? resolveCompactionThreshold(maximum, selectedThreshold ?? legacy)
+                    : 400_000;
+                yield* Effect.logInfo("provider.compaction.threshold", {
+                  threadId,
+                  messageId: command.message.messageId,
+                  provider: selected.harness,
+                  usedTokens: usage.usedTokens,
+                  threshold,
+                });
+                if (usage.usedTokens > threshold) {
+                  yield* provider.compactThread({ threadId }).pipe(
+                    Effect.catch((cause) =>
+                      Effect.gen(function* () {
+                        const message = `Context compaction failed: ${cause instanceof Error ? cause.message : String(cause)}. Sending the message anyway.`;
+                        const now = new Date().toISOString();
+                        yield* upsertThreadItem({
+                          threadId,
+                          sourceId: `compaction-failed:${randomUUID()}`,
+                          kind: "notice",
+                          status: "done",
+                          text: message,
+                          data: threadItemActivityData({
+                            tone: "warning",
+                            kind: "context_compaction",
+                            summary: message,
+                            payload: { message },
+                          }),
+                          createdAt: now,
+                          updatedAt: now,
+                        });
+                        publisher.publish({ threadId });
+                      }),
+                    ),
+                  );
+                }
               }
             }
             const reconstructed = reconstruct

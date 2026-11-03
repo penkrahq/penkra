@@ -52,9 +52,12 @@ const twoWindows = {
   ...baseModel,
   contextWindowOptions: [
     { value: "200k", label: "200K" },
-    { value: "1m", label: "1M", isDefault: true },
+    { value: "400k", label: "400K", isDefault: true },
+    { value: "600k", label: "600K" },
+    { value: "800k", label: "800K" },
+    { value: "1m", label: "1M" },
   ],
-  defaultContextWindow: "1m",
+  defaultContextWindow: "400k",
 } as unknown as ProviderModelDescriptor;
 
 const meta = {

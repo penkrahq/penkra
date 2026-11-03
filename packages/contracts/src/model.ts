@@ -69,6 +69,7 @@ export const CodexModelOptions = Schema.Struct({
   reasoningEffort: Schema.optional(TrimmedNonEmptyString),
   fastMode: Schema.optional(Schema.Boolean),
   workingContextWindow: Schema.optional(TrimmedNonEmptyString),
+  compactionThreshold: Schema.optional(TrimmedNonEmptyString),
 });
 export type CodexModelOptions = typeof CodexModelOptions.Type;
 
@@ -77,6 +78,7 @@ export const ClaudeModelOptions = Schema.Struct({
   effort: Schema.optional(Schema.Literals(CLAUDE_CODE_EFFORT_OPTIONS)),
   fastMode: Schema.optional(Schema.Boolean),
   workingContextWindow: Schema.optional(Schema.Literals(["200k", "1m"])),
+  compactionThreshold: Schema.optional(TrimmedNonEmptyString),
   autoCompactWindow: Schema.optional(Schema.String),
   // Legacy persisted field. Normalization migrates this to autoCompactWindow.
   contextWindow: Schema.optional(Schema.String),
@@ -86,6 +88,7 @@ export type ClaudeModelOptions = typeof ClaudeModelOptions.Type;
 export const OpenCodeModelOptions = Schema.Struct({
   variant: Schema.optional(TrimmedNonEmptyString),
   agent: Schema.optional(TrimmedNonEmptyString),
+  compactionThreshold: Schema.optional(TrimmedNonEmptyString),
 });
 export type OpenCodeModelOptions = typeof OpenCodeModelOptions.Type;
 

@@ -62,6 +62,7 @@ import {
 } from "@penkra/contracts";
 import {
   applyClaudePromptEffortPrefix,
+  compactionThresholdOptions,
   getDefaultModel,
   getEffectiveClaudeCodeEffort,
   resolveApiModelId,
@@ -374,6 +375,10 @@ interface ClaudeSessionContext {
   // heartbeats. Journal events remain unique, while itemId ties the visible
   // started/updated/completed lifecycle together.
   activeCompaction: { readonly itemId: RuntimeItemId } | undefined;
+  manualCompaction?: {
+    readonly completion: Deferred.Deferred<void, ProviderAdapterRequestError>;
+    boundarySeen: boolean;
+  };
   // Original API model id the runtime rerouted away from (safeguard refusal
   // fallback). Tracks the in-flight turn only; turn completion restores the
   // user-selected model via setModel so the fallback cannot pin later turns.
@@ -524,11 +529,8 @@ function mapSupportedModels(models: ModelInfo[]): ProviderListModelsResult {
       name: claudeModelDisplayName(model, slug, defaultModelSlug === slug),
       ...(/^(?:claude-fable-5-1|claude-opus-5-5|claude-sonnet-5-5|claude-haiku-5-5)$/u.test(slug)
         ? {
-            contextWindowOptions: [
-              { value: "200k", label: "200K" },
-              { value: "1m", label: "1M", isDefault: true as const },
-            ],
-            defaultContextWindow: "1m",
+            contextWindowOptions: compactionThresholdOptions(1_000_000),
+            defaultContextWindow: "400000",
           }
         : {}),
       ...(defaultModelSlug === slug ? { isDefault: true as const } : {}),
@@ -3485,6 +3487,9 @@ function makeClaudeAdapter(options?: ClaudeAdapterLiveOptions) {
             });
             return;
           case "compact_boundary": {
+            if (context.manualCompaction && message.compact_metadata.trigger === "manual") {
+              context.manualCompaction.boundarySeen = true;
+            }
             const compaction = context.activeCompaction ?? {
               itemId: RuntimeItemId.make(`claude-compaction:${base.eventId}`),
             };
@@ -3850,6 +3855,41 @@ function makeClaudeAdapter(options?: ClaudeAdapterLiveOptions) {
       message: ClaudeRuntimeMessage,
     ): Effect.Effect<void> =>
       Effect.gen(function* () {
+        if (message.type === "result" && context.manualCompaction) {
+          const pending = context.manualCompaction;
+          delete context.manualCompaction;
+          if (message.subtype === "success" && !message.is_error && pending.boundarySeen) {
+            yield* Deferred.succeed(pending.completion, undefined);
+          } else {
+            if (context.activeCompaction) {
+              const stamp = yield* makeEventStamp();
+              yield* offerRuntimeEvent(context, {
+                type: "item.completed",
+                eventId: stamp.eventId,
+                createdAt: stamp.createdAt,
+                provider: PROVIDER,
+                threadId: context.session.threadId,
+                itemId: context.activeCompaction.itemId,
+                payload: {
+                  itemType: "context_compaction",
+                  status: "failed",
+                  title: "Context compaction",
+                  detail: "Context compaction failed",
+                },
+                providerRefs: {},
+              });
+              context.activeCompaction = undefined;
+            }
+            yield* Deferred.fail(
+              pending.completion,
+              toRequestError(
+                "session/compact",
+                new Error("Claude did not complete manual compaction."),
+              ),
+            );
+          }
+          return;
+        }
         if ((message.type === "user" || message.type === "result") && context.processOwner.process)
           void claudeProcessDiagnostics.get(context.processOwner.process)?.sampleMemory();
         if (
@@ -3951,6 +3991,14 @@ function makeClaudeAdapter(options?: ClaudeAdapterLiveOptions) {
       exit: Exit.Exit<void, Error>,
     ): Effect.Effect<void, ProviderAdapterProcessError> =>
       Effect.gen(function* () {
+        if (context.manualCompaction) {
+          const pending = context.manualCompaction;
+          delete context.manualCompaction;
+          yield* Deferred.fail(
+            pending.completion,
+            toRequestError("session/compact", new Error("Claude stopped during compaction.")),
+          );
+        }
         if (context.stopped) {
           return;
         }
@@ -4392,12 +4440,8 @@ function makeClaudeAdapter(options?: ClaudeAdapterLiveOptions) {
         const claudeSdkEnv = input.managedLaunch
           ? input.managedLaunch.childEnvironment(process.env)
           : yield* resolveClaudeSdkEnv;
-        const workingContextWindow = modelSelection?.options?.workingContextWindow ?? "1m";
-        if (workingContextWindow === "200k") {
-          claudeSdkEnv.CLAUDE_CODE_DISABLE_1M_CONTEXT = "1";
-        } else {
-          delete claudeSdkEnv.CLAUDE_CODE_DISABLE_1M_CONTEXT;
-        }
+        const workingContextWindow = "1m";
+        delete claudeSdkEnv.CLAUDE_CODE_DISABLE_1M_CONTEXT;
         claudeSdkEnv.MAX_MCP_OUTPUT_TOKENS = String(INLINE_TOOL_RESULT_BYTES);
         if (input.managedLaunch) {
           const targetConfigDir = claudeSdkEnv.CLAUDE_CONFIG_DIR?.trim();
@@ -5172,6 +5216,28 @@ function makeClaudeAdapter(options?: ClaudeAdapterLiveOptions) {
         return yield* snapshotThread(context);
       });
 
+    const compactThread: NonNullable<ClaudeAdapterShape["compactThread"]> = (threadId) =>
+      Effect.gen(function* () {
+        const context = yield* requireSession(threadId);
+        if (context.turnState || context.manualCompaction) {
+          return yield* toRequestError("session/compact", new Error("Claude is already busy."));
+        }
+        const completion = yield* Deferred.make<void, ProviderAdapterRequestError>();
+        context.manualCompaction = { completion, boundarySeen: false };
+        yield* Queue.offer(context.promptQueue, {
+          type: "message",
+          message: buildUserMessage({ sdkContent: [{ type: "text", text: "/compact" }] }),
+        }).pipe(
+          Effect.mapError((cause) => toRequestError("session/compact", cause)),
+          Effect.tapError(() =>
+            Effect.sync(() => {
+              delete context.manualCompaction;
+            }),
+          ),
+        );
+        yield* Deferred.await(completion);
+      });
+
     const rollbackThread: ClaudeAdapterShape["rollbackThread"] = (threadId, _numTurns) =>
       Effect.fail(
         new ProviderAdapterValidationError({
@@ -5535,6 +5601,7 @@ function makeClaudeAdapter(options?: ClaudeAdapterLiveOptions) {
       backgroundTask,
       readThread,
       rollbackThread,
+      compactThread,
       respondToUserInput,
       stopSession,
       listSessions,

@@ -886,7 +886,12 @@ const makeWsRpcHandlersLayer = () =>
             "Failed to get provider capability health",
           ),
         [WS_METHODS.providerCompactThread]: (input) =>
-          rpcEffect(providerService.compactThread(input), "Failed to compact thread"),
+          rpcEffect(
+            Effect.flatMap(Effect.service(ThreadSender), (sender) =>
+              sender.runExclusive(input.threadId, providerService.compactThread(input)),
+            ),
+            "Failed to compact thread",
+          ),
         [WS_METHODS.providerGetCatalog]: ({ kinds, ...scope }) =>
           rpcEffect(providerCatalog.get(scope, kinds), "Failed to read the provider catalog"),
         [WS_METHODS.providerReloadCatalog]: (scope) =>

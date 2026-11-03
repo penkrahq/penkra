@@ -478,8 +478,13 @@ jobs:
             fi
             gh release upload "$RELEASE_TAG" release/* --repo "$GITHUB_REPOSITORY" --clobber
           else
+            release_notes="**Windows notice:** The Windows x64 installer is intentionally unsigned in this initial release. Windows will show an Unknown publisher/SmartScreen warning, and this installer is manual-download only; Windows auto-updates remain disabled until signed distribution is available. Verify the installer with SHA256SUMS.txt and GitHub's build-provenance attestation."
+            if [[ "$RELEASE_VERSION" == "0.14.10" ]]; then
+              release_notes+=$'\n\n**Context slider:** Penkra compacts between messages when the selected threshold is exceeded. One large turn or a long tool run can exceed it before then. Compaction retains a summary, so exact details can be lost, especially at lower settings. Token use can affect cost or subscription limits; the slider does not guarantee savings.'
+              release_notes+=$'\n\n**Provider runtimes:** Codex, Claude Code and Agent SDK, and OpenCode and SDK are unchanged.'
+            fi
             gh release create "$RELEASE_TAG" release/* --repo "$GITHUB_REPOSITORY" --verify-tag --draft --generate-notes --title "Penkra $RELEASE_TAG" \
-              --notes "**Windows notice:** The Windows x64 installer is intentionally unsigned in this initial release. Windows will show an Unknown publisher/SmartScreen warning, and this installer is manual-download only; Windows auto-updates remain disabled until signed distribution is available. Verify the installer with SHA256SUMS.txt and GitHub's build-provenance attestation."
+              --notes "$release_notes"
           fi
 
   publish_release:

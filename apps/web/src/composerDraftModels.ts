@@ -85,11 +85,18 @@ export function normalizeProviderModelOptions(
       : provider === "codex" && (legacy?.codexFastMode === true || legacy?.serviceTier === "fast")
         ? true
         : undefined;
+  const codexThreshold = trimStringOrUndefined(codexCandidate?.compactionThreshold);
+  const codexLegacyWindow = trimStringOrUndefined(codexCandidate?.workingContextWindow);
   const codex =
-    codexReasoningEffort !== undefined || codexFastMode !== undefined
+    codexReasoningEffort !== undefined ||
+    codexFastMode !== undefined ||
+    codexThreshold !== undefined ||
+    codexLegacyWindow !== undefined
       ? {
           ...(codexReasoningEffort ? { reasoningEffort: codexReasoningEffort } : {}),
           ...(codexFastMode !== undefined ? { fastMode: codexFastMode } : {}),
+          ...(codexThreshold ? { compactionThreshold: codexThreshold } : {}),
+          ...(codexLegacyWindow ? { workingContextWindow: codexLegacyWindow } : {}),
         }
       : undefined;
 
@@ -115,23 +122,40 @@ export function normalizeProviderModelOptions(
   const autoCompactWindow =
     trimStringOrUndefined(claudeCandidate?.autoCompactWindow) ??
     trimStringOrUndefined(claudeCandidate?.contextWindow);
+  const claudeThreshold = trimStringOrUndefined(claudeCandidate?.compactionThreshold);
+  const claudeLegacyWindow: "200k" | "1m" | undefined =
+    claudeCandidate?.workingContextWindow === "200k" ||
+    claudeCandidate?.workingContextWindow === "1m"
+      ? claudeCandidate.workingContextWindow
+      : undefined;
   const claudeAgent =
     claudeEffort !== undefined ||
     claudeThinking !== undefined ||
     claudeFastMode !== undefined ||
-    autoCompactWindow !== undefined
+    autoCompactWindow !== undefined ||
+    claudeThreshold !== undefined ||
+    claudeLegacyWindow !== undefined
       ? {
           ...(claudeEffort ? { effort: claudeEffort } : {}),
           ...(claudeThinking !== undefined ? { thinking: claudeThinking } : {}),
           ...(claudeFastMode !== undefined ? { fastMode: claudeFastMode } : {}),
           ...(autoCompactWindow ? { autoCompactWindow } : {}),
+          ...(claudeThreshold ? { compactionThreshold: claudeThreshold } : {}),
+          ...(claudeLegacyWindow ? { workingContextWindow: claudeLegacyWindow } : {}),
         }
       : undefined;
 
   const variant = trimStringOrUndefined(openCodeCandidate?.variant);
   const agent = trimStringOrUndefined(openCodeCandidate?.agent);
+  const openCodeThreshold = trimStringOrUndefined(openCodeCandidate?.compactionThreshold);
   const opencode =
-    variant || agent ? { ...(variant ? { variant } : {}), ...(agent ? { agent } : {}) } : undefined;
+    variant || agent || openCodeThreshold
+      ? {
+          ...(variant ? { variant } : {}),
+          ...(agent ? { agent } : {}),
+          ...(openCodeThreshold ? { compactionThreshold: openCodeThreshold } : {}),
+        }
+      : undefined;
 
   if (!codex && !claudeAgent && !opencode) return null;
   return {
@@ -206,10 +230,31 @@ export function reconcileProviderScopedModelSelection(
 }
 
 export function stripNonStickyModelOptions(selection: ModelSelection): ModelSelection {
-  if (selection.provider !== "claudeAgent") return selection;
+  if (selection.provider === "opencode") {
+    const { compactionThreshold: _threshold, ...rest } = selection.options ?? {};
+    return makeModelSelection(
+      selection.provider,
+      selection.model,
+      Object.keys(rest).length ? rest : undefined,
+    );
+  }
+  if (selection.provider === "codex") {
+    const {
+      compactionThreshold: _threshold,
+      workingContextWindow: _legacy,
+      ...rest
+    } = selection.options ?? {};
+    return makeModelSelection(
+      selection.provider,
+      selection.model,
+      Object.keys(rest).length ? rest : undefined,
+    );
+  }
   const {
     contextWindow: _contextWindow,
     autoCompactWindow: _autoCompactWindow,
+    workingContextWindow: _legacy,
+    compactionThreshold: _threshold,
     ...rest
   } = selection.options ?? {};
   return makeModelSelection(
@@ -222,10 +267,12 @@ export function stripNonStickyModelOptions(selection: ModelSelection): ModelSele
 export function sanitizeStickyModelSelectionMap(
   map: Partial<Record<ProviderKind, ModelSelection>>,
 ): Partial<Record<ProviderKind, ModelSelection>> {
-  const claude = map.claudeAgent;
-  return claude?.provider === "claudeAgent"
-    ? { ...map, claudeAgent: stripNonStickyModelOptions(claude) }
-    : map;
+  return Object.fromEntries(
+    Object.entries(map).map(([provider, selection]) => [
+      provider,
+      selection ? stripNonStickyModelOptions(selection) : selection,
+    ]),
+  ) as Partial<Record<ProviderKind, ModelSelection>>;
 }
 
 export function legacySyncModelSelectionOptions(

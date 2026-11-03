@@ -2312,7 +2312,7 @@ const makeProviderService = (options?: ProviderServiceLiveOptions) =>
                 provider: binding.provider,
                 ...(binding.adapterKey !== undefined ? { adapterKey: binding.adapterKey } : {}),
                 ...(binding.runtimeMode !== undefined ? { runtimeMode: binding.runtimeMode } : {}),
-                status: "stopped",
+                ...(binding.status !== undefined ? { status: binding.status } : {}),
                 resumeCursor: binding.resumeCursor,
                 runtimePayload: {
                   ...runtimePayloadRecord(binding.runtimePayload),

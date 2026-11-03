@@ -148,6 +148,11 @@ const PROVIDER_TARGET_OPTION_RULES = {
     primaryOptionKey: "reasoningEffort",
     options: {
       reasoningEffort: providerOptionRule("string", CODEX_REASONING_EFFORT_OPTIONS),
+      compactionThreshold: providerOptionRule("string", [], "model-discovery", {
+        advertised: false,
+        validation: { kind: "non-empty-string" },
+        allowsCustomValue: true,
+      }),
       workingContextWindow: providerOptionRule("string", [], "model-discovery", {
         advertised: false,
         validation: { kind: "context-window" },
@@ -165,6 +170,11 @@ const PROVIDER_TARGET_OPTION_RULES = {
     primaryOptionKey: "effort",
     options: {
       effort: providerOptionRule("string", CLAUDE_CODE_EFFORT_OPTIONS),
+      compactionThreshold: providerOptionRule("string", [], "model-discovery", {
+        advertised: false,
+        validation: { kind: "non-empty-string" },
+        allowsCustomValue: true,
+      }),
       fastMode: providerOptionRule("boolean", [], "model-discovery", {
         advertised: false,
         validation: {
@@ -197,6 +207,11 @@ const PROVIDER_TARGET_OPTION_RULES = {
     primaryOptionKey: "variant",
     options: {
       variant: providerOptionRule("string", [], "model-discovery"),
+      compactionThreshold: providerOptionRule("string", [], "model-discovery", {
+        advertised: false,
+        validation: { kind: "non-empty-string" },
+        allowsCustomValue: true,
+      }),
       agent: providerOptionRule("string", [], "model-discovery", {
         validation: { kind: "non-empty-string" },
         allowsCustomValue: true,

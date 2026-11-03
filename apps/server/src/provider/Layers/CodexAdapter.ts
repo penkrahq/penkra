@@ -965,14 +965,23 @@ function mapToRuntimeEvents(
     ];
   }
 
-  if (event.method === "thread/compacting") {
+  if (
+    event.method === "thread/compacting" ||
+    event.method === "thread/compact/completed" ||
+    event.method === "thread/compact/failed"
+  ) {
     return [
       {
         ...runtimeEventBase(event, canonicalThreadId),
-        type: "item.updated",
+        type: event.method === "thread/compacting" ? "item.updated" : "item.completed",
         payload: {
           itemType: "context_compaction",
-          status: "inProgress",
+          status:
+            event.method === "thread/compacting"
+              ? "inProgress"
+              : event.method === "thread/compact/failed"
+                ? "failed"
+                : "completed",
           title: "Context compaction",
           detail: event.message ?? "Compacting context",
           ...(event.payload !== undefined ? { data: event.payload } : {}),

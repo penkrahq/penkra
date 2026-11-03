@@ -270,7 +270,7 @@ export function codexContextWindowsFromCache(
       standard > 0 &&
       typeof maximum === "number" &&
       Number.isSafeInteger(maximum) &&
-      maximum > standard
+      maximum >= standard
     ) {
       result.set(slug, { standard, maximum });
     }

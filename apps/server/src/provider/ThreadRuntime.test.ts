@@ -26,10 +26,15 @@ import { openCodeUnconfirmedIdleHasCompletedReply } from "./Layers/OpenCodeAdapt
 it("reconciles an unconfirmed OpenCode idle after compaction while ignoring a stale idle", () => {
   const prompt = { info: { id: "prompt", role: "user" as const } };
   const compact = { info: { id: "compact", role: "user" as const } };
-  const summary = { info: { id: "summary", role: "assistant" as const, time: { completed: 1 } } };
+  const summary = {
+    info: { id: "summary", role: "assistant" as const, summary: true, time: { completed: 1 } },
+  };
   const continued = { info: { id: "continued", role: "user" as const } };
   const reply = { info: { id: "reply", role: "assistant" as const, time: { completed: 2 } } };
   expect(openCodeUnconfirmedIdleHasCompletedReply([compact, summary], "prompt")).toBe(false);
+  expect(openCodeUnconfirmedIdleHasCompletedReply([prompt, compact, summary], "prompt")).toBe(
+    false,
+  );
   expect(
     openCodeUnconfirmedIdleHasCompletedReply(
       [prompt, compact, summary, continued, reply],

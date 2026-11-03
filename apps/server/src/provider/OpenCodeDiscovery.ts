@@ -9,6 +9,7 @@ import type {
   ProviderListModelsResult,
 } from "@penkra/contracts";
 import type { Agent, OpencodeClient } from "@opencode-ai/sdk/v2";
+import { compactionThresholdOptions, parseContextTokenCount } from "@penkra/shared/model";
 
 import { isAuthoritativelyFreeOpenCodeModel } from "./opencodeRuntime.ts";
 import { positiveInteger } from "./tokenUsage.ts";
@@ -351,9 +352,12 @@ function resolveOpenCodeContextWindowSupport(
   if (!context) {
     return { contextWindowOptions: [], defaultContextWindow: undefined };
   }
+  const maximum = parseContextTokenCount(context);
+  if (maximum === null) return { contextWindowOptions: [], defaultContextWindow: undefined };
+  const options = compactionThresholdOptions(maximum);
   return {
-    contextWindowOptions: [{ value: context, label: context.toUpperCase(), isDefault: true }],
-    defaultContextWindow: context,
+    contextWindowOptions: options,
+    defaultContextWindow: options.find((option) => option.isDefault)?.value,
   };
 }
 

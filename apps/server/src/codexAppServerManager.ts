@@ -34,7 +34,11 @@ import {
   type ServerVoiceTranscriptionResult,
   type UserInputQuestion,
 } from "@penkra/contracts";
-import { getModelSelectionBooleanOptionValue, normalizeModelSlug } from "@penkra/shared/model";
+import {
+  compactionThresholdOptions,
+  getModelSelectionBooleanOptionValue,
+  normalizeModelSlug,
+} from "@penkra/shared/model";
 import { INLINE_TOOL_RESULT_BYTES } from "@penkra/shared/toolResults";
 import { PENDING_INTERACTION_NOT_FOUND_FAILURE_CODE } from "@penkra/shared/threadSummary";
 import { decodeSubagentReceiverThreadIds } from "@penkra/shared/subagents";
@@ -1182,17 +1186,7 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
       const windows = input.managedLaunch
         ? (await readManagedCodexContextWindows(input.managedLaunch)).get(normalizedModel ?? "")
         : undefined;
-      const selectedWindow = input.workingContextWindow
-        ? Number(input.workingContextWindow)
-        : windows?.maximum;
-      if (
-        input.workingContextWindow !== undefined &&
-        (!windows || (selectedWindow !== windows.standard && selectedWindow !== windows.maximum))
-      ) {
-        throw new Error(
-          "The selected Codex context window is unavailable in this account's model catalog.",
-        );
-      }
+      const selectedWindow = windows?.maximum;
       const sessionOverrides = {
         ...(gatewaySessionLease || selectedWindow !== undefined
           ? {
@@ -1848,6 +1842,7 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
         status: "running",
       });
     }
+    const activityId = ProviderItemId.make(`codex-compaction:${randomUUID()}`);
     this.emitEvent({
       id: EventId.make(randomUUID()),
       kind: "notification",
@@ -1859,12 +1854,50 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
         : {}),
       ...(context.session.activeTurnId ? { turnId: context.session.activeTurnId } : {}),
       method: "thread/compacting",
+      itemId: activityId,
       message: "Compacting context",
       payload: {
         threadId: providerThreadId,
         state: "compacting",
       },
     });
+    let compactTurnId: TurnId | undefined;
+    let sawCompaction = false;
+    let resolveCompletion!: () => void;
+    let rejectCompletion!: (error: Error) => void;
+    const completion = new Promise<void>((resolve, reject) => {
+      resolveCompletion = resolve;
+      rejectCompletion = reject;
+    });
+    // A send failure can precede awaiting this promise.
+    void completion.catch(() => {});
+    const onEvent = (event: ProviderEvent) => {
+      if (event.threadId !== threadId || event.providerParentThreadId !== undefined) return;
+      if (event.method === "session/exited" || event.kind === "error") {
+        rejectCompletion(new Error(event.message ?? "Codex stopped during compaction."));
+        return;
+      }
+      if (event.method === "turn/started" && compactTurnId === undefined) {
+        compactTurnId = event.turnId;
+        return;
+      }
+      if (compactTurnId === undefined || event.turnId !== compactTurnId) return;
+      const payload = asObject(event.payload);
+      if (
+        event.method === "item/completed" &&
+        asObject(payload?.item)?.type === "contextCompaction"
+      ) {
+        sawCompaction = true;
+      }
+      if (event.method === "turn/aborted")
+        rejectCompletion(new Error("Codex compaction was interrupted."));
+      if (event.method === "turn/completed") {
+        const turn = asObject(payload?.turn);
+        if (turn?.status === "completed" && sawCompaction) resolveCompletion();
+        else rejectCompletion(new Error("Codex did not complete context compaction."));
+      }
+    };
+    this.on("event", onEvent);
     try {
       await this.sendRequest(context.transport, context.session.threadId, "thread/compact/start", {
         threadId: providerThreadId,
@@ -1873,7 +1906,34 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
         threadId: context.session.threadId,
         providerThreadId,
       }).pipe(this.runPromise);
+      await completion;
+      this.emitEvent({
+        id: EventId.make(randomUUID()),
+        kind: "notification",
+        provider: "codex",
+        threadId,
+        createdAt: new Date().toISOString(),
+        itemId: activityId,
+        method: "thread/compact/completed",
+        message: "Context compacted",
+        ...(context.lifecycleGeneration !== undefined
+          ? { lifecycleGeneration: context.lifecycleGeneration }
+          : {}),
+      });
     } catch (error) {
+      this.emitEvent({
+        id: EventId.make(randomUUID()),
+        kind: "notification",
+        provider: "codex",
+        threadId,
+        createdAt: new Date().toISOString(),
+        itemId: activityId,
+        method: "thread/compact/failed",
+        message: "Context compaction failed",
+        ...(context.lifecycleGeneration !== undefined
+          ? { lifecycleGeneration: context.lifecycleGeneration }
+          : {}),
+      });
       this.updateSession(context, {
         status: "error",
         lastError: error instanceof Error ? error.message : context.session.lastError,
@@ -1884,6 +1944,8 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
         cause: error,
       }).pipe(this.runPromise);
       throw error;
+    } finally {
+      this.off("event", onEvent);
     }
   }
 
@@ -2161,19 +2223,11 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
           data.models = models.map((model) => {
             const window = contextWindows.get(model.slug);
             if (!window) return model;
-            const label = (tokens: number) =>
-              tokens % 1000 === 0 ? `${tokens / 1000}K` : tokens.toLocaleString("en-US");
+            const options = compactionThresholdOptions(window.maximum);
             return {
               ...model,
-              contextWindowOptions: [
-                { value: String(window.standard), label: label(window.standard) },
-                {
-                  value: String(window.maximum),
-                  label: label(window.maximum),
-                  isDefault: true as const,
-                },
-              ],
-              defaultContextWindow: String(window.maximum),
+              contextWindowOptions: options,
+              defaultContextWindow: options.find((option) => option.isDefault)?.value,
             };
           });
         } else if (kind === "skills") {

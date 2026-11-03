@@ -181,6 +181,8 @@ interface OpenCodeSessionContext {
   readonly pendingQuestions: Map<string, QuestionRequest>;
   readonly pendingTextDeltasByPartId: Map<string, string>;
   readonly messageRoleById: Map<string, "user" | "assistant">;
+  readonly summaryMessageIds: Set<string>;
+  activeCompactionId?: string;
   readonly messageSnapshotKeyById: Map<string, string>;
   readonly partById: Map<string, Part>;
   readonly toolTurnById: Map<string, TurnId>;
@@ -215,6 +217,7 @@ interface OpenCodeMessageSnapshot {
   readonly info: {
     readonly id: string;
     readonly role: "user" | "assistant";
+    readonly summary?: boolean;
     readonly parentID?: string;
     readonly time?: {
       readonly completed?: number;
@@ -366,6 +369,8 @@ function rememberOpenCodeMessageSnapshot(
   snapshot: OpenCodeMessageSnapshot,
 ): void {
   context.messageRoleById.set(snapshot.info.id, snapshot.info.role);
+  if (snapshot.info.role === "assistant" && snapshot.info.summary === true)
+    context.summaryMessageIds.add(snapshot.info.id);
   context.messageSnapshotKeyById.set(snapshot.info.id, openCodeSnapshotKey(snapshot.info));
 
   for (const part of snapshot.parts) {
@@ -390,6 +395,7 @@ function openCodeMessageSnapshotFromEntry(entry: {
   readonly info: {
     readonly id: string;
     readonly role: string;
+    readonly summary?: boolean;
     readonly parentID?: string;
     readonly time?: {
       readonly created?: number;
@@ -712,6 +718,7 @@ export function openCodeUnconfirmedIdleHasCompletedReply(
       | {
           readonly id: string;
           readonly role: "assistant";
+          readonly summary?: boolean;
           readonly time: { readonly completed?: number };
         };
   }>,
@@ -723,7 +730,7 @@ export function openCodeUnconfirmedIdleHasCompletedReply(
   if (promptIndex < 0) return false;
   const assistant = messages
     .slice(promptIndex + 1)
-    .findLast((message) => message.info.role === "assistant");
+    .findLast((message) => message.info.role === "assistant" && message.info.summary !== true);
   return assistant?.info.role === "assistant" && assistant.info.time.completed !== undefined;
 }
 
@@ -1248,13 +1255,17 @@ export function makeOpenCodeAdapterLive(options?: OpenCodeAdapterLiveOptions) {
           readonly data?: unknown;
         },
       ) {
+        const itemId = context.activeCompactionId ?? `opencode-compaction:${crypto.randomUUID()}`;
+        const started = context.activeCompactionId === undefined;
+        context.activeCompactionId = itemId;
         yield* emit(context, {
           ...buildEventBase({
             threadId: context.session.threadId,
             turnId: input.turnId,
+            itemId,
             raw: input.raw,
           }),
-          type: "item.updated",
+          type: started ? "item.started" : "item.updated",
           payload: {
             itemType: "context_compaction",
             status: "inProgress",
@@ -1271,6 +1282,24 @@ export function makeOpenCodeAdapterLive(options?: OpenCodeAdapterLiveOptions) {
           readonly raw?: unknown;
         },
       ) {
+        const itemId = context.activeCompactionId;
+        if (itemId !== undefined) {
+          delete context.activeCompactionId;
+          yield* emit(context, {
+            ...buildEventBase({
+              threadId: context.session.threadId,
+              turnId: input.turnId,
+              itemId,
+              raw: input.raw,
+            }),
+            type: "item.completed",
+            payload: {
+              itemType: "context_compaction",
+              status: "completed",
+              detail: "Context compacted",
+            },
+          });
+        }
         updateProviderSession(
           context,
           {
@@ -1288,6 +1317,23 @@ export function makeOpenCodeAdapterLive(options?: OpenCodeAdapterLiveOptions) {
           payload: {
             state: "compacted",
             detail: { source: provider },
+          },
+        });
+      });
+
+      const emitContextCompactionFailed = Effect.fn("emitContextCompactionFailed")(function* (
+        context: OpenCodeSessionContext,
+      ) {
+        const itemId = context.activeCompactionId;
+        if (!itemId) return;
+        delete context.activeCompactionId;
+        yield* emit(context, {
+          ...buildEventBase({ threadId: context.session.threadId, itemId }),
+          type: "item.completed",
+          payload: {
+            itemType: "context_compaction",
+            status: "failed",
+            detail: "Context compaction failed",
           },
         });
       });
@@ -1676,6 +1722,10 @@ export function makeOpenCodeAdapterLive(options?: OpenCodeAdapterLiveOptions) {
             context.messageSnapshotKeyById.set(event.properties.info.id, messageSnapshotKey);
             if (event.properties.info.role === "assistant") {
               const assistantMessage = event.properties.info;
+              if (assistantMessage.summary === true) {
+                context.summaryMessageIds.add(assistantMessage.id);
+                break;
+              }
               const selectedModel = context.session.model;
               const maxTokens =
                 selectedModel !== undefined
@@ -1733,6 +1783,7 @@ export function makeOpenCodeAdapterLive(options?: OpenCodeAdapterLiveOptions) {
 
           case "message.removed": {
             context.messageRoleById.delete(event.properties.messageID);
+            context.summaryMessageIds.delete(event.properties.messageID);
             context.messageSnapshotKeyById.delete(event.properties.messageID);
             break;
           }
@@ -1748,6 +1799,7 @@ export function makeOpenCodeAdapterLive(options?: OpenCodeAdapterLiveOptions) {
               break;
             }
             const resolvedPart = applyPendingTextDeltaToPart(context, existingPart);
+            if (context.summaryMessageIds.has(resolvedPart.messageID)) break;
             if (resolvedPart !== existingPart) {
               context.partById.set(event.properties.partID, resolvedPart);
             }
@@ -1798,6 +1850,7 @@ export function makeOpenCodeAdapterLive(options?: OpenCodeAdapterLiveOptions) {
 
           case "message.part.updated": {
             const part = applyPendingTextDeltaToPart(context, event.properties.part);
+            if (context.summaryMessageIds.has(part.messageID)) break;
             const partSnapshotKey = openCodeSnapshotKey(part);
             if (context.partSnapshotKeyById.get(part.id) === partSnapshotKey) {
               break;
@@ -2119,7 +2172,11 @@ export function makeOpenCodeAdapterLive(options?: OpenCodeAdapterLiveOptions) {
           // Newer OpenCode servers can emit session.next.* events for the active
           // agent loop. Mirror them into Penkra's canonical transcript stream.
           case "session.next.text.delta": {
-            if (!turnId || event.properties.delta.length === 0) {
+            if (
+              !turnId ||
+              context.summaryMessageIds.has(event.properties.assistantMessageID) ||
+              event.properties.delta.length === 0
+            ) {
               break;
             }
             const itemId = openCodeNextTextItemId(turnId);
@@ -2150,7 +2207,7 @@ export function makeOpenCodeAdapterLive(options?: OpenCodeAdapterLiveOptions) {
           }
 
           case "session.next.text.ended": {
-            if (!turnId) {
+            if (!turnId || context.summaryMessageIds.has(event.properties.assistantMessageID)) {
               break;
             }
             const itemId = openCodeNextTextItemId(turnId);
@@ -2390,7 +2447,7 @@ export function makeOpenCodeAdapterLive(options?: OpenCodeAdapterLiveOptions) {
           }
 
           case "session.next.step.ended": {
-            if (!turnId) {
+            if (!turnId || context.summaryMessageIds.has(event.properties.assistantMessageID)) {
               break;
             }
             const selectedModel = context.session.model;
@@ -2978,6 +3035,7 @@ export function makeOpenCodeAdapterLive(options?: OpenCodeAdapterLiveOptions) {
                   partSnapshotKeyById: new Map(),
                   emittedTextByPartId: new Map(),
                   messageRoleById: new Map(),
+                  summaryMessageIds: new Set(),
                   messageSnapshotKeyById: new Map(),
                   completedAssistantPartIds: new Set(),
                   relatedSessionIds: new Set(),
@@ -3327,13 +3385,47 @@ export function makeOpenCodeAdapterLive(options?: OpenCodeAdapterLiveOptions) {
             });
           }
 
-          yield* runOpenCodeSdk("session.summarize", () =>
+          yield* emitContextCompactionProgress(context, { detail: "Compacting context" });
+
+          const result = yield* runOpenCodeSdk("session.summarize", () =>
             context.client.session.summarize({
               sessionID: context.openCodeSessionId,
               providerID: parsedModel.providerID,
               modelID: parsedModel.modelID,
             }),
-          ).pipe(Effect.mapError(toAdapterRequestError));
+          ).pipe(
+            Effect.mapError(toAdapterRequestError),
+            Effect.tapError(() => emitContextCompactionFailed(context)),
+          );
+          if (result.error || result.data !== true) {
+            yield* emitContextCompactionFailed(context);
+            return yield* new ProviderAdapterRequestError({
+              provider,
+              method: "session.summarize",
+              detail: `OpenCode compaction failed: ${JSON.stringify(result.error ?? result.data)}`,
+            });
+          }
+          // The event stream can lag behind the HTTP response. Mark completed
+          // summary messages before a subsequent turn makes late events visible.
+          const messages = yield* runOpenCodeSdk("session.messages", () =>
+            context.client.session.messages({ sessionID: context.openCodeSessionId }),
+          ).pipe(
+            Effect.mapError(toAdapterRequestError),
+            Effect.tapError(() => emitContextCompactionFailed(context)),
+          );
+          if (messages.error || !messages.data) {
+            yield* emitContextCompactionFailed(context);
+            return yield* new ProviderAdapterRequestError({
+              provider,
+              method: "session.messages",
+              detail: "Could not read the completed compaction summary.",
+            });
+          }
+          for (const entry of messages.data) {
+            if (entry.info.role === "assistant" && entry.info.summary === true)
+              context.summaryMessageIds.add(entry.info.id);
+          }
+          if (context.activeCompactionId !== undefined) yield* emitContextCompacted(context, {});
         });
 
       const withDiscoveryClient = <A>(

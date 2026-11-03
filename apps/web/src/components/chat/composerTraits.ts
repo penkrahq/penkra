@@ -12,6 +12,9 @@ import {
   getProviderOptionCurrentValue,
   getProviderOptionDescriptors,
   isClaudeUltrathinkPrompt,
+  compactionThresholdOptions,
+  parseContextTokenCount,
+  resolveCompactionThreshold,
   trimOrNull,
 } from "@penkra/shared/model";
 
@@ -38,6 +41,7 @@ function primaryTraitSelectDescriptor(
       candidate.type === "select" &&
       candidate.id !== "contextWindow" &&
       candidate.id !== "workingContextWindow" &&
+      candidate.id !== "compactionThreshold" &&
       candidate.id !== "autoCompactWindow",
   );
   return descriptor && descriptor.options.length > 1 ? descriptor : null;
@@ -79,10 +83,24 @@ export function getComposerTraitSelection(
     selections: modelOptions as Record<string, unknown> | undefined,
   });
   const primarySelectDescriptor = primaryTraitSelectDescriptor(descriptors);
-  const contextWindowDescriptor = asSelectDescriptor(
-    descriptors.find((descriptor) => descriptor.id === "workingContextWindow") ??
-      descriptors.find((descriptor) => descriptor.id === "contextWindow"),
+  const reportedOptions = runtimeModel?.contextWindowOptions ?? [];
+  const maximum = Math.max(
+    0,
+    ...reportedOptions.map((option) => parseContextTokenCount(option.value) ?? 0),
   );
+  const contextWindowOptions = maximum > 0 ? compactionThresholdOptions(maximum) : [];
+  const contextWindowDescriptor = contextWindowOptions.length
+    ? {
+        id: "compactionThreshold",
+        label: "Context Window",
+        type: "select" as const,
+        options: contextWindowOptions.map((option) => ({
+          id: option.value,
+          label: option.label,
+          ...(option.isDefault ? { isDefault: true as const } : {}),
+        })),
+      }
+    : null;
   const fastModeDescriptor = asBooleanDescriptor(
     descriptors.find((descriptor) => descriptor.id === "fastMode"),
   );
@@ -90,8 +108,6 @@ export function getComposerTraitSelection(
     descriptors.find((descriptor) => descriptor.id === "thinking"),
   );
   const effortLevels = selectOptions(primarySelectDescriptor);
-  // Only the provider's live catalog can establish actual selectable sizes.
-  const contextWindowOptions = runtimeModel?.contextWindowOptions ?? [];
   const defaultEffort =
     primarySelectDescriptor?.options.find((option) => option.isDefault)?.id ??
     primarySelectDescriptor?.options[0]?.id ??
@@ -103,9 +119,18 @@ export function getComposerTraitSelection(
   const resolvedEffort = trimOrNull(
     getProviderOptionCurrentValue(primarySelectDescriptor) as string | undefined,
   );
-  const resolvedContextWindow = trimOrNull(
-    getProviderOptionCurrentValue(contextWindowDescriptor) as string | undefined,
-  );
+  const selectedOptions = modelOptions as
+    | { compactionThreshold?: string; workingContextWindow?: string }
+    | undefined;
+  const resolvedContextWindow =
+    maximum > 0
+      ? String(
+          resolveCompactionThreshold(
+            maximum,
+            selectedOptions?.compactionThreshold ?? selectedOptions?.workingContextWindow,
+          ),
+        )
+      : null;
   const promptInjectedValues = promptInjectedValuesForDescriptor(
     caps.promptInjectedEffortLevels,
     primarySelectDescriptor,
