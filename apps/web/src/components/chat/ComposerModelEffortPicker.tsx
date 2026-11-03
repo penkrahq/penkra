@@ -7,15 +7,13 @@
 import {
   type ModelSlug,
   type ProviderAgentDescriptor,
-  type ProviderConnection,
-  type ProviderConnectionId,
   type ProviderKind,
   type ProviderModelDescriptor,
   type ProviderModelOptions,
   type ServerProviderStatus,
   type ThreadId,
 } from "@penkra/contracts";
-import { useState } from "react";
+import { type ReactNode, useState } from "react";
 
 import { ChevronDownIcon, FastModeIcon, SettingsIcon } from "~/lib/icons";
 import { cn } from "~/lib/utils";
@@ -38,7 +36,6 @@ import { getComposerTraitSelection, hasVisibleComposerTraitControls } from "./co
 import {
   getProviderIconClassName,
   ProviderModelMenuItems,
-  ProviderConnectionMenu,
   resolveProviderModelLabel,
 } from "./ProviderModelPicker";
 import { TraitsMenuContent } from "./TraitsPicker";
@@ -62,10 +59,8 @@ type ComposerModelEffortPickerProps = {
   hideStatusLabel?: boolean;
   disabled?: boolean;
   onProviderModelChange: (provider: ProviderKind, model: ModelSlug) => void;
-  connections?: ReadonlyArray<ProviderConnection>;
-  selectedConnectionId?: ProviderConnectionId | null;
-  onConnectionChange?: (connectionId: ProviderConnectionId | null) => void;
-  onManageConnections?: () => void;
+  /** The account and usage section at the foot of the menu. */
+  renderConnectionSection?: (close: () => void) => ReactNode;
   onSelectionCommitted?: () => void;
 
   // Traits/effort/speed data.
@@ -76,9 +71,11 @@ type ComposerModelEffortPickerProps = {
   modelOptions: ProviderModelOptions[ProviderKind] | undefined;
   prompt: string;
   onPromptChange: (prompt: string) => void;
+  reportedContextWindowTokens?: number | null | undefined;
 
   // Shared menu control.
   open?: boolean;
+  defaultOpen?: boolean;
   onOpenChange?: (open: boolean) => void;
   shortcutLabel?: string | null;
 };
@@ -89,7 +86,7 @@ type ComposerModelEffortPickerProps = {
 // header); the model is reachable via a sub-menu so the footer stays compact.
 export function ComposerModelEffortPicker(props: ComposerModelEffortPickerProps) {
   const { onOpenChange, open } = props;
-  const [uncontrolledOpen, setUncontrolledOpen] = useState(false);
+  const [uncontrolledOpen, setUncontrolledOpen] = useState(props.defaultOpen ?? false);
   const isMenuOpen = open ?? uncontrolledOpen;
 
   const setMenuOpen = (nextOpen: boolean) => {
@@ -101,10 +98,6 @@ export function ComposerModelEffortPicker(props: ComposerModelEffortPickerProps)
 
   const activeProvider = props.lockedProvider ?? props.provider;
   const ProviderIcon = PROVIDER_ICON_COMPONENT_BY_PROVIDER[activeProvider];
-  const hasAvailableConnections =
-    props.connections?.some(
-      (connection) => connection.harness === activeProvider && connection.lifecycle === "active",
-    ) === true;
   const modelLabel = resolveProviderModelLabel({
     provider: props.provider,
     lockedProvider: props.lockedProvider,
@@ -131,7 +124,10 @@ export function ComposerModelEffortPicker(props: ComposerModelEffortPickerProps)
   } = traitSelection;
 
   const supportsFastModeControl = fastModeDescriptor !== null || caps.supportsFastMode;
-  const hasTraitsTopSection = hasVisibleComposerTraitControls(traitSelection);
+  const hasTraitsTopSection =
+    hasVisibleComposerTraitControls(traitSelection) ||
+    traitSelection.contextWindowOptions.length === 1 ||
+    (props.reportedContextWindowTokens != null && props.reportedContextWindowTokens > 0);
 
   const effortLabel = effort
     ? (effortLevels.find((level) => level.value === effort)?.label ?? effort)
@@ -220,6 +216,7 @@ export function ComposerModelEffortPicker(props: ComposerModelEffortPickerProps)
   return (
     <ComposerPickerMenu
       open={isMenuOpen}
+      keepOpenOnSubmenuInteraction
       onOpenChange={(nextOpen) => {
         if (props.disabled) {
           setMenuOpen(false);
@@ -252,6 +249,7 @@ export function ComposerModelEffortPicker(props: ComposerModelEffortPickerProps)
             prompt={props.prompt}
             onPromptChange={props.onPromptChange}
             onSelectionComplete={handleAfterTraitsSelection}
+            reportedContextWindowTokens={props.reportedContextWindowTokens}
           />
         ) : null}
 
@@ -290,19 +288,7 @@ export function ComposerModelEffortPicker(props: ComposerModelEffortPickerProps)
             />
           </ComposerPickerMenuSubPopup>
         </MenuSub>
-        {props.onConnectionChange && hasAvailableConnections ? <MenuSeparator /> : null}
-        {props.onConnectionChange && hasAvailableConnections ? (
-          <ProviderConnectionMenu
-            provider={activeProvider}
-            connections={props.connections ?? []}
-            selectedConnectionId={props.selectedConnectionId}
-            onConnectionChange={props.onConnectionChange}
-            {...(props.onManageConnections
-              ? { onManageConnections: props.onManageConnections }
-              : {})}
-            onAfterSelection={handleAfterModelSelection}
-          />
-        ) : null}
+        {props.renderConnectionSection?.(() => setMenuOpen(false))}
       </ComposerPickerMenuPopup>
     </ComposerPickerMenu>
   );

@@ -263,6 +263,7 @@ export interface TraitsMenuContentProps {
   includeFastMode?: boolean;
   modelOptions?: ProviderOptions | null | undefined;
   onSelectionComplete?: () => void;
+  reportedContextWindowTokens?: number | null | undefined;
 }
 
 export const TraitsMenuContent = memo(function TraitsMenuContentImpl({
@@ -276,6 +277,7 @@ export const TraitsMenuContent = memo(function TraitsMenuContentImpl({
   includeFastMode: includeFastModeProp,
   modelOptions,
   onSelectionComplete,
+  reportedContextWindowTokens,
 }: TraitsMenuContentProps) {
   const includeFastMode = includeFastModeProp ?? true;
   const setProviderModelOptions = useComposerDraftStore((store) => store.setProviderModelOptions);
@@ -295,10 +297,14 @@ export const TraitsMenuContent = memo(function TraitsMenuContentImpl({
     fastModeDescriptor,
     promptInjectedValues,
   } = getComposerTraitSelection(provider, model, prompt, modelOptions, runtimeModel);
-  const hasVisibleControls = hasVisibleComposerTraitControls(
-    { caps, effortLevels, thinkingEnabled, contextWindowOptions, fastModeDescriptor },
-    { includeFastMode },
-  );
+  const hasReportedWindow = reportedContextWindowTokens != null && reportedContextWindowTokens > 0;
+  const hasVisibleControls =
+    hasReportedWindow ||
+    contextWindowOptions.length === 1 ||
+    hasVisibleComposerTraitControls(
+      { caps, effortLevels, thinkingEnabled, contextWindowOptions, fastModeDescriptor },
+      { includeFastMode },
+    );
   const supportsFastModeControl = fastModeDescriptor !== null || caps.supportsFastMode;
   // Fast mode rides the Effort header as a compact icon toggle whenever an
   // effort section exists; fast-only models (no effort levels) keep the
@@ -309,15 +315,18 @@ export const TraitsMenuContent = memo(function TraitsMenuContentImpl({
   const defaultAgent = defaultAgentForProvider(provider);
   const selectedAgent = getSelectedAgentValue(provider, modelOptions);
   const hasAgentControls = agentOptions.length > 0 && defaultAgent !== null;
-  const hasPriorContextWindowSection = thinkingEnabled !== null;
+  const hasPriorContextWindowSection = thinkingEnabled !== null || effortLevels.length > 0;
   // Both descriptor ids are resolved up here rather than inline. React Compiler cannot lower a `??`
   // in an object-key position, and it cannot match an optional-chained expression in a dependency
   // list to its own inferred scope — either one makes it skip this component entirely.
   const contextWindowTraitId = contextWindowDescriptor?.id ?? "contextWindow";
   const primarySelectDescriptorId = primarySelectDescriptor?.id;
-  const hasPriorEffortSection = thinkingEnabled !== null || contextWindowOptions.length > 1;
+  const hasPriorEffortSection = thinkingEnabled !== null;
   const hasPriorFastModeSection =
-    thinkingEnabled !== null || effortLevels.length > 0 || contextWindowOptions.length > 1;
+    thinkingEnabled !== null ||
+    effortLevels.length > 0 ||
+    contextWindowOptions.length > 0 ||
+    hasReportedWindow;
 
   // Single home for committing a trait change: merge the patch into the provider
   // options, persist it as sticky, and close the menu. Every section funnels here.
@@ -383,22 +392,6 @@ export const TraitsMenuContent = memo(function TraitsMenuContentImpl({
           onSelectionComplete={onSelectionComplete}
         />
       ) : null}
-      {contextWindowOptions.length > 1 ? (
-        <>
-          {hasPriorContextWindowSection ? <MenuDivider /> : null}
-          <TraitRadioSection
-            label={contextWindowDescriptor?.label ?? "Context"}
-            value={contextWindow ?? defaultContextWindow ?? ""}
-            options={contextWindowOptions.map((option) => ({
-              value: option.value,
-              label: option.label,
-              isDefault: option.value === defaultContextWindow,
-            }))}
-            onValueChange={(value) => commitTrait({ [contextWindowTraitId]: value })}
-            onSelectionComplete={onSelectionComplete}
-          />
-        </>
-      ) : null}
       {effortLevels.length > 0 ? (
         <>
           {hasPriorEffortSection ? <MenuDivider /> : null}
@@ -432,6 +425,40 @@ export const TraitsMenuContent = memo(function TraitsMenuContentImpl({
             onValueChange={handleEffortChange}
             onSelectionComplete={onSelectionComplete}
           />
+        </>
+      ) : null}
+      {contextWindowOptions.length > 1 ? (
+        <>
+          {hasPriorContextWindowSection ? <MenuDivider /> : null}
+          <TraitRadioSection
+            label={contextWindowDescriptor?.label ?? "Context"}
+            value={contextWindow ?? defaultContextWindow ?? ""}
+            options={contextWindowOptions.map((option) => ({
+              value: option.value,
+              label: option.label,
+              isDefault: option.value === defaultContextWindow,
+            }))}
+            onValueChange={(value) => commitTrait({ [contextWindowTraitId]: value })}
+            onSelectionComplete={onSelectionComplete}
+          />
+        </>
+      ) : null}
+      {contextWindowOptions.length <= 1 &&
+      (hasReportedWindow || contextWindowOptions.length === 1) ? (
+        <>
+          {hasPriorContextWindowSection ? <MenuDivider /> : null}
+          <div className="flex items-center justify-between px-2 py-1 text-[length:var(--app-font-size-ui,12px)] text-muted-foreground">
+            <span>
+              {provider === "codex" && hasReportedWindow
+                ? "Reported Context Window"
+                : (contextWindowDescriptor?.label ?? "Context Window")}
+            </span>
+            <span>
+              {hasReportedWindow
+                ? reportedContextWindowTokens.toLocaleString()
+                : contextWindowOptions[0]?.label}
+            </span>
+          </div>
         </>
       ) : null}
       {includeFastMode && supportsFastModeControl && !showsFastModeEffortToggle ? (
@@ -491,6 +518,7 @@ export const TraitsPicker = memo(function TraitsPicker({
   pencilMenuComponentId,
   menuClassName,
   triggerClassName,
+  reportedContextWindowTokens,
 }: TraitsMenuContentProps & {
   open?: boolean;
   onOpenChange?: (open: boolean) => void;
@@ -523,10 +551,13 @@ export const TraitsPicker = memo(function TraitsPicker({
   }, [setMenuOpen]);
   const { caps, effortLevels, thinkingEnabled, contextWindowOptions, fastModeDescriptor } =
     getComposerTraitSelection(provider, model, prompt, modelOptions, runtimeModel);
-  const hasVisibleControls = hasVisibleComposerTraitControls(
-    { caps, effortLevels, thinkingEnabled, contextWindowOptions, fastModeDescriptor },
-    { includeFastMode },
-  );
+  const hasVisibleControls =
+    (reportedContextWindowTokens != null && reportedContextWindowTokens > 0) ||
+    contextWindowOptions.length === 1 ||
+    hasVisibleComposerTraitControls(
+      { caps, effortLevels, thinkingEnabled, contextWindowOptions, fastModeDescriptor },
+      { includeFastMode },
+    );
   const agentOptions = getAgentOptions(provider, runtimeAgents);
   const defaultAgent = defaultAgentForProvider(provider);
   const hasAgentControls = agentOptions.length > 0 && defaultAgent !== null;
@@ -636,6 +667,7 @@ export const TraitsPicker = memo(function TraitsPicker({
       includeFastMode={includeFastMode}
       modelOptions={modelOptions}
       onSelectionComplete={handleSelectionComplete}
+      reportedContextWindowTokens={reportedContextWindowTokens}
     />
   );
 

@@ -446,53 +446,6 @@ const FOLDER_OPERATIONS: Readonly<Record<string, HostOperationDeclaration>> = {
     true,
   ),
   archive: threadMembershipOperation("archive", "Archive one exact folder member.", false),
-  compose: {
-    command: "penkra folder compose",
-    summary: "Write one exact composition into a selected folder member.",
-    instructions:
-      "Returns a composeId identifying this target and its saved message. Complex documents, attachments, Skills, and model choices use --input JSON.",
-    input: {
-      type: "object",
-      properties: {
-        threadId: THREAD_ID_INPUT,
-        text: { type: "string", maxLength: 200000 },
-        documents: { type: "array" },
-        files: { type: "array" },
-        images: { type: "array" },
-        skills: { type: "array", items: { type: "string" } },
-        model: { type: "array" },
-        effort: { type: "string" },
-      },
-      required: ["threadId"],
-      additionalProperties: false,
-    },
-    output: GENERIC_RESULT_SCHEMA,
-    examples: [
-      {
-        name: "Compose exact text",
-        command: "penkra folder compose --thread-id <id> --text '<message>'",
-      },
-    ],
-  },
-  send: {
-    command: "penkra folder send",
-    summary: "Send one previously saved composition.",
-    instructions:
-      "The saved composition must still match the untouched composer. Repeating the same composeId returns the same submission result.",
-    input: {
-      type: "object",
-      properties: {
-        composeId: { type: "string", minLength: 1 },
-        mode: { type: "string", enum: ["queue", "steer"] },
-      },
-      required: ["composeId"],
-      additionalProperties: false,
-    },
-    output: GENERIC_RESULT_SCHEMA,
-    examples: [
-      { name: "Send one composition", command: "penkra folder send --compose-id <compose-id>" },
-    ],
-  },
 };
 
 const OPEN_OPERATION: HostOperationDeclaration = {

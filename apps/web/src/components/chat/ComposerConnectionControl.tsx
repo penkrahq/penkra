@@ -1,5 +1,5 @@
 // FILE: ComposerConnectionControl.tsx
-// Purpose: Connection-scoped composer control, switcher, and usage detail popup.
+// Purpose: The model picker's connection section: account switcher and usage detail.
 
 import {
   type ProviderConnection,
@@ -8,18 +8,10 @@ import {
   type ProviderKind,
   type ServerProviderUsageSnapshot,
 } from "@penkra/contracts";
-import { IconKey, IconUser } from "@tabler/icons-react";
-import { useMemo, useState } from "react";
+import { IconKey } from "@tabler/icons-react";
+import { useMemo } from "react";
 
-import { Button } from "~/components/ui/button";
-import {
-  MenuItem,
-  MenuSeparator,
-  MenuSub,
-  MenuSubTrigger,
-  MenuTrigger,
-} from "~/components/ui/menu";
-import { Tooltip, TooltipPopup, TooltipTrigger } from "~/components/ui/tooltip";
+import { MenuItem, MenuSeparator, MenuSub, MenuSubTrigger } from "~/components/ui/menu";
 import { ensureNativeApi } from "~/nativeApi";
 import { ExternalLinkIcon, PlusIcon } from "~/lib/icons";
 import {
@@ -36,11 +28,7 @@ import { formatRateLimitResetCountdown, normalizeRateLimitLabel } from "~/lib/ra
 import { useProviderUsage } from "~/providerUsageStore";
 import { cn } from "~/lib/utils";
 
-import {
-  ComposerPickerMenu,
-  ComposerPickerMenuPopup,
-  ComposerPickerMenuSubPopup,
-} from "./ComposerPickerMenuPopup";
+import { ComposerPickerMenuSubPopup } from "./ComposerPickerMenuPopup";
 
 const API_KEY_METHOD_ID = "api-key";
 
@@ -197,7 +185,7 @@ function ConnectionSwitcher(props: {
   );
 }
 
-export function ComposerConnectionControl(props: {
+export function ComposerConnectionSection(props: {
   provider: ProviderKind;
   connections: ReadonlyArray<ProviderConnection>;
   authenticationMethods?: ProviderConnectionsSnapshot["authenticationMethods"];
@@ -205,9 +193,10 @@ export function ComposerConnectionControl(props: {
   selectedConnectionId: ProviderConnectionId | null | undefined;
   onConnectionChange: (connectionId: ProviderConnectionId | null) => void;
   onManageConnections?: () => void;
+  /** Closes the menu that hosts this section. */
+  onClose: () => void;
   onSelectionCommitted?: () => void;
 }) {
-  const [open, setOpen] = useState(false);
   const available = useMemo(
     () =>
       props.connections.filter(
@@ -254,40 +243,10 @@ export function ComposerConnectionControl(props: {
   const snapshot = selectedConnection ? snapshots.get(selectedConnection.id) : undefined;
   const rows = usageRows(snapshot);
   const resetOnly = resetOnlyRows(snapshot);
-  const title = apiKey ? `${selected.label} API key` : selected.label;
 
   return (
-    <ComposerPickerMenu
-      open={open}
-      onOpenChange={(nextOpen) => {
-        setOpen(nextOpen);
-      }}
-      keepOpenOnSubmenuInteraction
-    >
-      <Tooltip>
-        <TooltipTrigger
-          render={
-            <MenuTrigger
-              render={
-                <Button
-                  aria-label="Change connection"
-                  className="!size-[26px] shrink-0 rounded-full p-0 text-[var(--color-text-foreground-secondary)] hover:text-[var(--color-text-foreground)] sm:!size-[26px] [&_svg]:mx-0"
-                  size="icon-sm"
-                  variant="ghost"
-                />
-              }
-            />
-          }
-        >
-          {apiKey ? (
-            <IconKey aria-hidden="true" className="!size-4" stroke={1.8} />
-          ) : (
-            <IconUser aria-hidden="true" className="!size-4" stroke={1.8} />
-          )}
-        </TooltipTrigger>
-        {!open ? <TooltipPopup side="top">{title}</TooltipPopup> : null}
-      </Tooltip>
-      <ComposerPickerMenuPopup align="end" className="w-[244px] min-w-[244px]" side="top">
+    <>
+      <MenuSeparator />
         <div className="px-2 py-1 text-[length:var(--app-font-size-ui-sm,11px)] text-muted-foreground/60">
           Connection
         </div>
@@ -301,13 +260,13 @@ export function ComposerConnectionControl(props: {
               snapshots={snapshots}
               onConnectionChange={(connectionId) => {
                 props.onConnectionChange(connectionId);
-                setOpen(false);
+                props.onClose();
                 props.onSelectionCommitted?.();
               }}
               {...(props.onManageConnections
                 ? {
                     onManageConnections: () => {
-                      setOpen(false);
+                      props.onClose();
                       props.onManageConnections?.();
                     },
                   }
@@ -324,7 +283,7 @@ export function ComposerConnectionControl(props: {
               onClick={() => {
                 const dashboard = dashboardForConnection(selectedConnection!);
                 void ensureNativeApi().shell.openExternal(dashboard.url);
-                setOpen(false);
+                props.onClose();
               }}
             >
               View usage in {dashboardForConnection(selectedConnection!).label}
@@ -343,7 +302,6 @@ export function ComposerConnectionControl(props: {
             As of {formatUsageUpdatedAt(snapshot.updatedAt)}
           </p>
         ) : null}
-      </ComposerPickerMenuPopup>
-    </ComposerPickerMenu>
+    </>
   );
 }

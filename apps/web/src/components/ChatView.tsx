@@ -305,7 +305,7 @@ import {
   resolveProviderModelLabel,
 } from "./chat/ProviderModelPicker";
 import { ComposerModelEffortPicker } from "./chat/ComposerModelEffortPicker";
-import { ComposerConnectionControl } from "./chat/ComposerConnectionControl";
+import { ComposerConnectionSection } from "./chat/ComposerConnectionControl";
 import { resolveTraitsTriggerSummary, TraitsPicker } from "./chat/TraitsPicker";
 import { ComposerCommandItem, ComposerCommandMenu } from "./chat/ComposerCommandMenu";
 import {
@@ -5119,6 +5119,20 @@ function ChatViewContent({
     },
     [handleModelPickerOpenChange],
   );
+  const renderComposerConnectionSection = (close: () => void) =>
+    providerConnectionsQuery.data !== undefined ? (
+      <ComposerConnectionSection
+        provider={selectedProvider}
+        connections={composerConnectionCandidates}
+        authenticationMethods={providerConnectionsQuery.data.authenticationMethods}
+        anonymousRoutes={providerConnectionsQuery.data.anonymousRoutes}
+        selectedConnectionId={selectedConnectionId}
+        onConnectionChange={handleConnectionChange}
+        onManageConnections={handleManageConnections}
+        onClose={close}
+        onSelectionCommitted={scheduleComposerFocus}
+      />
+    ) : null;
   const composerPickerControls = useSplitComposerPickerControls ? (
     <>
       <ModelSelectorEmptyThread>
@@ -5139,6 +5153,7 @@ function ChatViewContent({
           open={isModelPickerOpen}
           onOpenChange={handleModelPickerOpenChange}
           shortcutLabel={modelPickerShortcutLabel}
+          renderConnectionSection={renderComposerConnectionSection}
           triggerClassName="!h-[25px] rounded-lg px-2 py-0 sm:!h-[25px] sm:px-2"
         />
       </ModelSelectorEmptyThread>
@@ -5150,6 +5165,7 @@ function ChatViewContent({
           runtimeModel={selectedRuntimeModel}
           runtimeModels={runtimeModelsByProvider[selectedProvider]}
           runtimeAgents={dynamicAgents}
+          reportedContextWindowTokens={activeContextWindow?.maxTokens}
           modelOptions={selectedProviderModelOptions}
           prompt={prompt}
           onPromptChange={setPromptFromTraits}
@@ -5182,6 +5198,7 @@ function ChatViewContent({
       runtimeModel={selectedRuntimeModel}
       runtimeModels={runtimeModelsByProvider[selectedProvider]}
       runtimeAgents={dynamicAgents}
+      reportedContextWindowTokens={activeContextWindow?.maxTokens}
       modelOptions={selectedProviderModelOptions}
       prompt={prompt}
       onPromptChange={setPromptFromTraits}
@@ -5190,6 +5207,7 @@ function ChatViewContent({
       open={isComposerModelEffortPickerOpen}
       onOpenChange={handleComposerModelEffortPickerOpenChange}
       shortcutLabel={modelPickerShortcutLabel}
+      renderConnectionSection={renderComposerConnectionSection}
     />
   );
   const ComposerFooterActions = useSplitComposerPickerControls
@@ -6161,26 +6179,6 @@ function ChatViewContent({
                           />
                         ) : null}
                         {!isVoiceRecording && !isVoiceTranscribing ? composerPickerControls : null}
-                        {!isVoiceRecording &&
-                        !isVoiceTranscribing &&
-                        providerConnectionsQuery.data !== undefined &&
-                        (composerConnectionCandidates.length > 0 ||
-                          providerConnectionsQuery.data.anonymousRoutes.some(
-                            (route) => route.harness === selectedProvider,
-                          )) ? (
-                          <ComposerConnectionControl
-                            provider={selectedProvider}
-                            connections={composerConnectionCandidates}
-                            authenticationMethods={
-                              providerConnectionsQuery.data.authenticationMethods
-                            }
-                            anonymousRoutes={providerConnectionsQuery.data.anonymousRoutes}
-                            selectedConnectionId={selectedConnectionId}
-                            onConnectionChange={handleConnectionChange}
-                            onManageConnections={handleManageConnections}
-                            onSelectionCommitted={scheduleComposerFocus}
-                          />
-                        ) : null}
                         {showVoiceNotesControl && (isVoiceRecording || isVoiceTranscribing) ? (
                           <>
                             <VoiceRecorderShared

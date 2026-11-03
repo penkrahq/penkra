@@ -79,8 +79,7 @@ export function getComposerTraitSelection(
   });
   const primarySelectDescriptor = primaryTraitSelectDescriptor(descriptors);
   const contextWindowDescriptor = asSelectDescriptor(
-    descriptors.find((descriptor) => descriptor.id === "autoCompactWindow") ??
-      descriptors.find((descriptor) => descriptor.id === "contextWindow"),
+    descriptors.find((descriptor) => descriptor.id === "contextWindow"),
   );
   const fastModeDescriptor = asBooleanDescriptor(
     descriptors.find((descriptor) => descriptor.id === "fastMode"),
@@ -89,14 +88,15 @@ export function getComposerTraitSelection(
     descriptors.find((descriptor) => descriptor.id === "thinking"),
   );
   const effortLevels = selectOptions(primarySelectDescriptor);
-  const contextWindowOptions = selectOptions(contextWindowDescriptor);
+  // Only the provider's live catalog can establish actual selectable sizes.
+  const contextWindowOptions = runtimeModel?.contextWindowOptions ?? [];
   const defaultEffort =
     primarySelectDescriptor?.options.find((option) => option.isDefault)?.id ??
     primarySelectDescriptor?.options[0]?.id ??
     null;
   const defaultContextWindow =
-    contextWindowDescriptor?.options.find((option) => option.isDefault)?.id ??
-    contextWindowDescriptor?.options[0]?.id ??
+    contextWindowOptions.find((option) => option.isDefault)?.value ??
+    contextWindowOptions[0]?.value ??
     null;
   const resolvedEffort = trimOrNull(
     getProviderOptionCurrentValue(primarySelectDescriptor) as string | undefined,

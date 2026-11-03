@@ -705,6 +705,28 @@ function clearActiveTurnState(context: OpenCodeSessionContext): void {
   // session context when the session is removed.
 }
 
+export function openCodeUnconfirmedIdleHasCompletedReply(
+  messages: ReadonlyArray<{
+    readonly info:
+      | { readonly id: string; readonly role: "user" }
+      | {
+          readonly id: string;
+          readonly role: "assistant";
+          readonly time: { readonly completed?: number };
+        };
+  }>,
+  promptId: string,
+): boolean {
+  const promptIndex = messages.findIndex(
+    (message) => message.info.role === "user" && message.info.id === promptId,
+  );
+  if (promptIndex < 0) return false;
+  const assistant = messages
+    .slice(promptIndex + 1)
+    .findLast((message) => message.info.role === "assistant");
+  return assistant?.info.role === "assistant" && assistant.info.time.completed !== undefined;
+}
+
 function openCodeNextTextItemId(turnId: TurnId): string {
   return `${turnId}-next-text`;
 }
@@ -1496,6 +1518,46 @@ export function makeOpenCodeAdapterLive(options?: OpenCodeAdapterLiveOptions) {
         return true;
       });
 
+      const reconcileUnconfirmedIdle = Effect.fn("reconcileUnconfirmedIdle")(function* (
+        context: OpenCodeSessionContext,
+        turnId: TurnId,
+        raw: unknown,
+      ) {
+        const promptId = context.activePromptMessageId;
+        if (!promptId) return;
+        const result = yield* Effect.exit(
+          runOpenCodeSdk("session.messages", () =>
+            context.client.session.messages({ sessionID: context.openCodeSessionId }),
+          ),
+        );
+        if (Exit.isFailure(result)) {
+          const detail = openCodeRuntimeErrorDetail(Cause.squash(result.cause));
+          yield* Effect.logWarning("OpenCode idle reconciliation failed", detail);
+          // This event pump terminates on disconnect; it has no healthy-reconnection
+          // signal on which to retry. Settle the turn visibly instead of waiting for
+          // another idle event that may never arrive.
+          if (context.activeTurnId === turnId && context.activePromptMessageId === promptId) {
+            yield* completeOpenCodeTurn(context, {
+              turnId,
+              raw,
+              errorMessage: `Could not verify OpenCode's completed turn: ${detail}`,
+            });
+          }
+          return;
+        }
+        if (
+          context.activeTurnId === turnId &&
+          context.activePromptMessageId === promptId &&
+          openCodeUnconfirmedIdleHasCompletedReply(result.value.data ?? [], promptId)
+        ) {
+          yield* completeOpenCodeTurn(context, {
+            turnId,
+            raw,
+            totalCostUsd: context.latestTurnCostUsd,
+          });
+        }
+      });
+
       const submitOpenCodePromptAsync = Effect.fn("submitOpenCodePromptAsync")(function* (
         context: OpenCodeSessionContext,
         input: {
@@ -1997,11 +2059,7 @@ export function makeOpenCodeAdapterLive(options?: OpenCodeAdapterLiveOptions) {
               break;
             }
 
-            if (
-              event.properties.status.type === "idle" &&
-              turnId &&
-              (context.activePromptObserved || context.pendingAbortErrorTurnId === turnId)
-            ) {
+            if (event.properties.status.type === "idle" && turnId) {
               if (
                 context.pendingAbortErrorTurnId === turnId &&
                 event.properties.sessionID === context.openCodeSessionId
@@ -2016,6 +2074,10 @@ export function makeOpenCodeAdapterLive(options?: OpenCodeAdapterLiveOptions) {
                 });
                 break;
               }
+              if (!context.activePromptObserved) {
+                yield* reconcileUnconfirmedIdle(context, turnId, event);
+                break;
+              }
               yield* completeOpenCodeTurn(context, {
                 turnId,
                 raw: event,
@@ -2026,10 +2088,7 @@ export function makeOpenCodeAdapterLive(options?: OpenCodeAdapterLiveOptions) {
           }
 
           case "session.idle": {
-            if (
-              turnId &&
-              (context.activePromptObserved || context.pendingAbortErrorTurnId === turnId)
-            ) {
+            if (turnId) {
               if (
                 context.pendingAbortErrorTurnId === turnId &&
                 event.properties.sessionID === context.openCodeSessionId
@@ -2042,6 +2101,10 @@ export function makeOpenCodeAdapterLive(options?: OpenCodeAdapterLiveOptions) {
                   type: "turn.aborted",
                   payload: { reason: "Interrupted by user." },
                 });
+                break;
+              }
+              if (!context.activePromptObserved) {
+                yield* reconcileUnconfirmedIdle(context, turnId, event);
                 break;
               }
               yield* completeOpenCodeTurn(context, {

@@ -21,6 +21,22 @@ import {
 import { makeThreadRuntime as makeRuntimeOwner } from "./ThreadRuntime.ts";
 import { ProviderAdapterProcessError, type ProviderAdapterError } from "./Errors.ts";
 import type { ProviderAdapterShape } from "./Services/ProviderAdapter.ts";
+import { openCodeUnconfirmedIdleHasCompletedReply } from "./Layers/OpenCodeAdapter.ts";
+
+it("reconciles an unconfirmed OpenCode idle after compaction while ignoring a stale idle", () => {
+  const prompt = { info: { id: "prompt", role: "user" as const } };
+  const compact = { info: { id: "compact", role: "user" as const } };
+  const summary = { info: { id: "summary", role: "assistant" as const, time: { completed: 1 } } };
+  const continued = { info: { id: "continued", role: "user" as const } };
+  const reply = { info: { id: "reply", role: "assistant" as const, time: { completed: 2 } } };
+  expect(openCodeUnconfirmedIdleHasCompletedReply([compact, summary], "prompt")).toBe(false);
+  expect(
+    openCodeUnconfirmedIdleHasCompletedReply(
+      [prompt, compact, summary, continued, reply],
+      "prompt",
+    ),
+  ).toBe(true);
+});
 
 const thread = ThreadId.make("runtime-owner");
 const peer = ThreadId.make("runtime-peer");

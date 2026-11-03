@@ -166,8 +166,9 @@ exact path the command returned rather than shortening or reconstructing it.
 
 The current surface's persistent folder has bounded operations under `penkra folder`. Use
 `penkra folder list/get/current` for lifecycle and composer state;
-`create/select/reorder/archive` for membership. Use `compose` to save a message for an exact
-member, including a background Thread, then pass the returned `composeId` to `penkra folder send`. Moving between folders happens in the sidebar; reorder changes both the sidebar and tabs. Run `penkra folder --help` for their exact schemas.
+`create/select/reorder/archive` for membership. To message another Thread, including a background
+Thread in the folder, use `penkra threads send`. Moving between folders happens in the sidebar;
+reorder changes both the sidebar and tabs. Run `penkra folder --help` for their exact schemas.
 
 The broader `penkra threads` commands below remain cross-Thread discovery and agent-coordination
 operations. They are not aliases for the current folder.
