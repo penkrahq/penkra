@@ -115,9 +115,13 @@ function ProviderModelRadioItem(
           )}
         >
           {modelOption.name}
+          {modelOption.status === "alpha" ? " · Alpha" : ""}
         </span>
       ) : (
-        modelOption.name
+        <>
+          {modelOption.name}
+          {modelOption.status === "alpha" ? " · Alpha" : ""}
+        </>
       )}
     </MenuRadioItem>
   );

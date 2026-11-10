@@ -1873,7 +1873,9 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
     void completion.catch(() => {});
     const onEvent = (event: ProviderEvent) => {
       if (event.threadId !== threadId || event.providerParentThreadId !== undefined) return;
-      if (event.method === "session/exited" || event.kind === "error") {
+      // Other errors, including MCP startup warnings, do not end the native
+      // compaction turn. Waiting for its terminal event prevents an early send.
+      if (event.method === "session/exited") {
         rejectCompletion(new Error(event.message ?? "Codex stopped during compaction."));
         return;
       }

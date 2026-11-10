@@ -1106,6 +1106,48 @@ function createPendingUserInputHarness() {
   return { manager, context, requireSession, writeMessage, emitEvent };
 }
 
+it("waits for Codex compaction to finish despite an unrelated MCP startup failure", async () => {
+  const { manager } = createPendingUserInputHarness();
+  const request = vi
+    .spyOn(
+      manager as unknown as { sendRequest: (...args: unknown[]) => Promise<unknown> },
+      "sendRequest",
+    )
+    .mockResolvedValue({});
+  const threadId = asThreadId("thread_1");
+  const turnId = asTurnId("compact-turn");
+  const event = (overrides: Partial<ProviderEvent>): ProviderEvent => ({
+    id: randomUUID() as ProviderEvent["id"],
+    kind: "notification",
+    provider: "codex",
+    threadId,
+    createdAt: new Date().toISOString(),
+    method: "test/event",
+    ...overrides,
+  });
+  let settled = false;
+  const compact = manager.compactThread(threadId).finally(() => {
+    settled = true;
+  });
+  await vi.waitFor(() => expect(request).toHaveBeenCalled());
+  manager.emit("event", event({ method: "turn/started", turnId }));
+  manager.emit(
+    "event",
+    event({ kind: "error", method: "mcpServer/startupFailed", message: "Paper unavailable" }),
+  );
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  expect(settled).toBe(false);
+  manager.emit(
+    "event",
+    event({ method: "item/completed", turnId, payload: { item: { type: "contextCompaction" } } }),
+  );
+  manager.emit(
+    "event",
+    event({ method: "turn/completed", turnId, payload: { turn: { status: "completed" } } }),
+  );
+  await expect(compact).resolves.toBeUndefined();
+});
+
 function createCollabNotificationHarness() {
   const manager = new CodexAppServerManager();
   const context = {

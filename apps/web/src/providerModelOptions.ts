@@ -20,6 +20,7 @@ export type ProviderOptions = ProviderModelOptions[ProviderKind];
 export interface ProviderModelOption {
   slug: string;
   name: string;
+  status?: "alpha" | "beta" | "deprecated" | "active";
   isDefault?: true;
   description?: string;
   upstreamProviderId?: string;
@@ -71,6 +72,7 @@ export function mergeDynamicModelOptions(input: {
   dynamicModels: ReadonlyArray<{
     slug: string;
     name?: string | null | undefined;
+    status?: "alpha" | "beta" | "deprecated" | "active" | undefined;
     description?: string | null | undefined;
     upstreamProviderId?: string | null | undefined;
     upstreamProviderName?: string | null | undefined;
@@ -101,6 +103,7 @@ export function mergeDynamicModelOptions(input: {
           ? rawName
           : displayNameFallback,
       ...(dynamicModel.isDefault === true ? { isDefault: true as const } : {}),
+      ...(dynamicModel.status ? { status: dynamicModel.status } : {}),
       ...(dynamicModel.description?.trim() ? { description: dynamicModel.description.trim() } : {}),
       ...(dynamicModel.upstreamProviderId?.trim()
         ? { upstreamProviderId: dynamicModel.upstreamProviderId.trim() }

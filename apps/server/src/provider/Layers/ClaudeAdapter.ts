@@ -182,6 +182,7 @@ import {
 import { ClaudeAdapter, type ClaudeAdapterShape } from "../Services/ClaudeAdapter.ts";
 import { type EventNdjsonLogger, makeEventNdjsonLogger } from "./EventNdjsonLogger.ts";
 import {
+  ProviderProcessExitUnprovenError,
   teardownChildProcessTree,
   teardownProviderProcessTree,
   type ProcessExitHandle,
@@ -5316,6 +5317,25 @@ function makeClaudeAdapter(options?: ClaudeAdapterLiveOptions) {
       signal.addEventListener("abort", abort, { once: true });
       if (signal.aborted) abort();
       let query: ClaudeQueryRuntime | undefined;
+      let readCompleted = false;
+      const finishCleanup = async () => {
+        const cleanup = await Effect.runPromise(
+          teardownCommandDiscoveryProcess(owner).pipe(
+            Effect.match({ onFailure: (error) => error, onSuccess: () => undefined }),
+          ),
+        );
+        if (!cleanup) return;
+        if (
+          !readCompleted ||
+          !(cleanup.cause instanceof ProviderProcessExitUnprovenError) ||
+          !cleanup.cause.rootExited
+        )
+          throw cleanup;
+        // The result is valid, but retain the owner for later teardown.
+        await Effect.runPromise(
+          Effect.logWarning("claude.catalog.cleanup_unproven", { pid: cleanup.cause.rootPid }),
+        );
+      };
       try {
         query = await createQuery({
           prompt: neverResolvingUserMessageStream(),
@@ -5335,13 +5355,15 @@ function makeClaudeAdapter(options?: ClaudeAdapterLiveOptions) {
           for await (const message of runtime) void message;
           throw new Error("Claude Connection read ended before its result was available.");
         })();
-        return await Promise.race([read(runtime), stream, aborted]);
+        const value = await Promise.race([read(runtime), stream, aborted]);
+        readCompleted = true;
+        return value;
       } finally {
         signal.removeEventListener("abort", abort);
         try {
           query?.close();
         } finally {
-          await Effect.runPromise(teardownCommandDiscoveryProcess(owner));
+          await finishCleanup();
         }
       }
     };

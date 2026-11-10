@@ -1698,6 +1698,8 @@ function ChatViewContent({
     customModelsByProvider,
     modelOptionsByProvider,
     unavailableModelProviders,
+    failedModelProviders,
+    reloadModelProvider,
     runtimeModelsByProvider,
   } = useProviderModelCatalog({
     selectedProvider,
@@ -5146,6 +5148,10 @@ function ChatViewContent({
           managedProviders={[...configuredProviderKinds]}
           modelOptionsByProvider={selectableModelOptionsByProvider}
           unavailableModelProviders={unavailableModelProviders}
+          failedModelProviders={failedModelProviders}
+          onRetryModels={(provider) => {
+            void reloadModelProvider(provider).catch(() => {});
+          }}
           hiddenProviders={composerHiddenProviders}
           providerOrder={settings.providerOrder}
           onProviderModelChange={onProviderModelSelect}
@@ -5192,6 +5198,10 @@ function ChatViewContent({
       managedProviders={[...configuredProviderKinds]}
       modelOptionsByProvider={selectableModelOptionsByProvider}
       unavailableModelProviders={unavailableModelProviders}
+      failedModelProviders={failedModelProviders}
+      onRetryModels={(provider) => {
+        void reloadModelProvider(provider).catch(() => {});
+      }}
       hiddenProviders={composerHiddenProviders}
       providerOrder={settings.providerOrder}
       threadId={threadId}

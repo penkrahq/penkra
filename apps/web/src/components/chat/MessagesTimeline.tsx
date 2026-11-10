@@ -1091,6 +1091,7 @@ export const MessagesTimeline = memo(function MessagesTimeline({
                             sizeBytes: file.sizeBytes,
                             type: file.type,
                           }))}
+                          align="end"
                           onImageExpand={onImageExpand}
                         />
                       </div>

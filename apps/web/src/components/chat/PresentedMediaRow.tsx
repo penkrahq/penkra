@@ -3,6 +3,7 @@ import { useEffect, useRef, useState } from "react";
 import { type WorkLogPresentedMedia } from "../../session-logic";
 import { ChevronLeftIcon, ChevronRightIcon, PlayIcon } from "~/lib/icons";
 import { toAttachmentPreviewUrl } from "~/lib/wsHttpUrl";
+import { cn } from "~/lib/utils";
 import type { ExpandedImagePreview } from "./ExpandedImagePreview";
 import { presentedVideoMimeType } from "./presentedMediaType";
 import { openThreadAttachmentReference, useThreadResourceOpener } from "~/lib/threadResourceOpener";
@@ -104,11 +105,15 @@ function PresentedItem({
 
 function PresentedMediaGallery({
   items,
+  align,
   onImageExpand,
 }: {
   items: ReadonlyArray<WorkLogPresentedMedia>;
+  align: PresentedMediaAlign;
   onImageExpand: (preview: ExpandedImagePreview) => void;
 }) {
+  // A sent message sits on the right, so its gallery mirrors: strip on the outside edge, flush right.
+  const mirrored = align === "end";
   const opener = useThreadResourceOpener();
   const [selectedIndex, setSelectedIndex] = useState(0);
   const index = Math.min(selectedIndex, items.length - 1);
@@ -125,10 +130,15 @@ function PresentedMediaGallery({
 
   return (
     <figure
-      className="my-2 w-[calc(100%-3rem)] max-w-xl"
+      className={cn("my-2 w-[calc(100%-3rem)] max-w-xl", mirrored && "ml-auto")}
       data-presented-gallery-id={items[0]!.presentationId ?? items[0]!.attachmentId}
     >
-      <div className="grid grid-cols-[minmax(0,1fr)_3.5rem] items-center gap-2">
+      <div
+        className={cn(
+          "grid items-center gap-2",
+          mirrored ? "grid-cols-[3.5rem_minmax(0,1fr)]" : "grid-cols-[minmax(0,1fr)_3.5rem]",
+        )}
+      >
         <div className="group relative min-w-0 overflow-hidden rounded-xl border border-border bg-muted/20">
           {selectedIsVideo ? (
             <div
@@ -177,7 +187,10 @@ function PresentedMediaGallery({
           </button>
         </div>
         <div
-          className="flex max-h-[28rem] flex-col gap-1.5 overflow-y-auto"
+          className={cn(
+            "flex max-h-[28rem] flex-col gap-1.5 overflow-y-auto",
+            mirrored && "order-first",
+          )}
           aria-label={navigationKind === "image" ? "Images" : "Media"}
         >
           {items.map((item, itemIndex) => (
@@ -233,11 +246,16 @@ function PresentedMediaGallery({
   );
 }
 
+type PresentedMediaAlign = "start" | "end";
+
 export function PresentedMediaRow({
   items,
+  align = "start",
   onImageExpand,
 }: {
   items: ReadonlyArray<WorkLogPresentedMedia>;
+  /** `end` for the user's own messages, which sit on the right. */
+  align?: PresentedMediaAlign;
   onImageExpand: (preview: ExpandedImagePreview) => void;
 }) {
   const visualItems = items.filter(isVisualMedia);
@@ -249,6 +267,7 @@ export function PresentedMediaRow({
             <PresentedMediaGallery
               key={item.attachmentId}
               items={visualItems}
+              align={align}
               onImageExpand={onImageExpand}
             />
           ) : null

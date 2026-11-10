@@ -3,11 +3,7 @@
 // Layer: Chat composer presentation
 // Depends on: provider availability metadata, shared menu primitives, and picker trigger styling.
 
-import {
-  type ModelSlug,
-  type ProviderKind,
-  type ServerProviderStatus,
-} from "@penkra/contracts";
+import { type ModelSlug, type ProviderKind, type ServerProviderStatus } from "@penkra/contracts";
 import { resolveSelectableModel } from "@penkra/shared/model";
 import * as Schema from "effect/Schema";
 import { type ReactNode, useDeferredValue, useRef, useState } from "react";
@@ -167,6 +163,8 @@ type ProviderModelMenuItemsProps = {
   modelOptionsByProvider: Record<ProviderKind, ReadonlyArray<ProviderModelOption>>;
   loadingModelProviders?: Partial<Record<ProviderKind, boolean>>;
   unavailableModelProviders?: Partial<Record<ProviderKind, boolean>>;
+  failedModelProviders?: Partial<Record<ProviderKind, boolean>>;
+  onRetryModels?: (provider: ProviderKind) => void;
   hiddenProviders?: ReadonlyArray<ProviderKind>;
   providerOrder?: ReadonlyArray<ProviderKind>;
   disabled?: boolean;
@@ -233,6 +231,24 @@ export const ProviderModelMenuItems = function ProviderModelMenuItems(
   };
 
   const renderModelRadioGroup = (provider: ProviderKind) => {
+    const withRetry = (content: ReactNode) =>
+      props.failedModelProviders?.[provider] && props.onRetryModels ? (
+        <>
+          <div className="px-3 py-2 text-muted-foreground" role="status">
+            Showing saved models.{" "}
+            <button
+              type="button"
+              className="underline"
+              onClick={() => props.onRetryModels?.(provider)}
+            >
+              Retry
+            </button>
+          </div>
+          {content}
+        </>
+      ) : (
+        content
+      );
     if (props.loadingModelProviders?.[provider]) {
       return (
         <div className="space-y-2 px-2 py-2" aria-label="Loading models">
@@ -253,6 +269,15 @@ export const ProviderModelMenuItems = function ProviderModelMenuItems(
           role="status"
         >
           Models unavailable
+          {props.onRetryModels ? (
+            <button
+              type="button"
+              className="ml-2 underline"
+              onClick={() => props.onRetryModels?.(provider)}
+            >
+              Retry
+            </button>
+          ) : null}
         </div>
       );
     }
@@ -305,7 +330,7 @@ export const ProviderModelMenuItems = function ProviderModelMenuItems(
         filteredOptions.length >= SEARCHABLE_MODEL_PICKER_THRESHOLD ||
         shouldUseCollapsibleModelGroups(groupedOptions.length, false);
       if (needsScrollContainer) {
-        return (
+        return withRetry(
           <div
             className={cn(
               "overflow-y-auto overscroll-contain py-0.5",
@@ -314,13 +339,13 @@ export const ProviderModelMenuItems = function ProviderModelMenuItems(
             )}
           >
             {content}
-          </div>
+          </div>,
         );
       }
-      return content;
+      return withRetry(content);
     }
 
-    return (
+    return withRetry(
       <PickerPanelShell
         searchPlaceholder="Search models or providers"
         query={modelSearchQuery}
@@ -332,7 +357,7 @@ export const ProviderModelMenuItems = function ProviderModelMenuItems(
         listMaxHeightClassName={COMPOSER_PICKER_MODEL_LIST_MAX_HEIGHT_CLASS_NAME}
       >
         {content}
-      </PickerPanelShell>
+      </PickerPanelShell>,
     );
   };
 
@@ -437,6 +462,8 @@ type ProviderModelPickerProps = {
   modelOptionsByProvider: Record<ProviderKind, ReadonlyArray<ProviderModelOption>>;
   loadingModelProviders?: Partial<Record<ProviderKind, boolean>>;
   unavailableModelProviders?: Partial<Record<ProviderKind, boolean>>;
+  failedModelProviders?: Partial<Record<ProviderKind, boolean>>;
+  onRetryModels?: (provider: ProviderKind) => void;
   hiddenProviders?: ReadonlyArray<ProviderKind>;
   providerOrder?: ReadonlyArray<ProviderKind>;
   activeProviderIconClassName?: string;
@@ -544,6 +571,10 @@ export const ProviderModelPicker = function ProviderModelPicker(props: ProviderM
           {...(props.unavailableModelProviders
             ? { unavailableModelProviders: props.unavailableModelProviders }
             : {})}
+          {...(props.failedModelProviders
+            ? { failedModelProviders: props.failedModelProviders }
+            : {})}
+          {...(props.onRetryModels ? { onRetryModels: props.onRetryModels } : {})}
           {...(props.hiddenProviders ? { hiddenProviders: props.hiddenProviders } : {})}
           {...(props.providerOrder ? { providerOrder: props.providerOrder } : {})}
           {...(props.disabled !== undefined ? { disabled: props.disabled } : {})}

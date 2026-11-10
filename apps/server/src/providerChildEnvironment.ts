@@ -68,7 +68,7 @@ const isTestHarnessKey = (key: string, env: NodeJS.ProcessEnv): boolean =>
 
 const MANAGED_UPDATE_OVERRIDES: Partial<Record<ProviderChildKind, NodeJS.ProcessEnv>> = {
   claude: { DISABLE_UPDATES: "1" },
-  opencode: { OPENCODE_DISABLE_AUTOUPDATE: "1" },
+  opencode: { OPENCODE_DISABLE_AUTOUPDATE: "1", OPENCODE_ENABLE_EXPERIMENTAL_MODELS: "true" },
 };
 
 export function buildProviderChildEnvironment(input: {

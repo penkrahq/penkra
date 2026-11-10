@@ -7,7 +7,7 @@ import type {
   ProviderModelDescriptor,
 } from "@penkra/contracts";
 import { useQuery } from "@tanstack/react-query";
-import { useCallback, useMemo } from "react";
+import { useCallback, useEffect, useMemo, useRef } from "react";
 import { filterProviderModelsForPicker } from "@penkra/shared/providerModelPresentation";
 import { useProviderCatalog } from "./useProviderCatalog";
 import { providerConnectionsQueryOptions } from "../lib/providerConnectionsReactQuery";
@@ -25,6 +25,8 @@ export interface ProviderModelCatalog {
   >;
   loadingModelProviders: Partial<Record<ProviderKind, boolean>>;
   unavailableModelProviders: Partial<Record<ProviderKind, boolean>>;
+  failedModelProviders: Partial<Record<ProviderKind, boolean>>;
+  reloadModelProvider: (provider: ProviderKind) => Promise<void>;
   runtimeModelsByProvider: Record<ProviderKind, ReadonlyArray<ProviderModelDescriptor>>;
   selectedRuntimeModel: ProviderModelDescriptor | undefined;
   selectedProviderModelsLoading: boolean;
@@ -105,6 +107,49 @@ export function useProviderModelCatalog(input: {
     () => ({ codex: codexModels, claudeAgent: claudeModels, opencode: openCodeModels }),
     [claudeModels, codexModels, openCodeModels],
   );
+  const reloadCodexModels = codexModels.reload;
+  const reloadClaudeModels = claudeModels.reload;
+  const reloadOpenCodeModels = openCodeModels.reload;
+  const reloadModelProvider = useCallback(
+    (provider: ProviderKind) => {
+      if (provider === "codex") return reloadCodexModels();
+      if (provider === "claudeAgent") return reloadClaudeModels();
+      return reloadOpenCodeModels();
+    },
+    [reloadCodexModels, reloadClaudeModels, reloadOpenCodeModels],
+  );
+  const codexFailed = codexModels.loadFailed;
+  const claudeFailed = claudeModels.loadFailed;
+  const openCodeFailed = openCodeModels.loadFailed;
+  useEffect(() => {
+    if (!input.discoveryEnabled) return;
+    for (const [provider, failed] of [
+      ["codex", codexFailed],
+      ["claudeAgent", claudeFailed],
+      ["opencode", openCodeFailed],
+    ] as const) {
+      if (failed && shouldDiscover(provider)) void reloadModelProvider(provider).catch(() => {});
+    }
+  }, [
+    input.discoveryEnabled,
+    codexFailed,
+    claudeFailed,
+    openCodeFailed,
+    reloadModelProvider,
+    shouldDiscover,
+  ]);
+  const lastFocusRefresh = useRef(Date.now());
+  useEffect(() => {
+    const refresh = () => {
+      if (Date.now() - lastFocusRefresh.current < 5 * 60_000) return;
+      lastFocusRefresh.current = Date.now();
+      for (const provider of PROVIDERS) {
+        if (shouldDiscover(provider, true)) void reloadModelProvider(provider).catch(() => {});
+      }
+    };
+    window.addEventListener("focus", refresh);
+    return () => window.removeEventListener("focus", refresh);
+  }, [reloadModelProvider, shouldDiscover]);
 
   const runtimeModelsByProvider = useMemo(
     () => ({
@@ -159,6 +204,14 @@ export function useProviderModelCatalog(input: {
     }
     return result;
   }, [modelQueries, runtimeModelsByProvider, shouldDiscover]);
+  const failedModelProviders = useMemo(
+    () => ({
+      codex: codexModels.loadFailed,
+      claudeAgent: claudeModels.loadFailed,
+      opencode: openCodeModels.loadFailed,
+    }),
+    [codexModels.loadFailed, claudeModels.loadFailed, openCodeModels.loadFailed],
+  );
 
   const selectedQuery = modelQueries[input.selectedProvider];
   const selectedProviderRuntimeModelDiscoveryPending =
@@ -175,6 +228,8 @@ export function useProviderModelCatalog(input: {
       modelOptionsByProvider,
       loadingModelProviders,
       unavailableModelProviders,
+      failedModelProviders,
+      reloadModelProvider,
       runtimeModelsByProvider,
       selectedRuntimeModel,
       selectedProviderModelsLoading:
@@ -194,6 +249,8 @@ export function useProviderModelCatalog(input: {
       selectedQuery.isLoading,
       selectedRuntimeModel,
       unavailableModelProviders,
+      failedModelProviders,
+      reloadModelProvider,
     ],
   );
 }
