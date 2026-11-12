@@ -7,6 +7,8 @@ node_modules
 apps/*/dist
 apps/desktop/resources/native/penkra-speech-transcriber
 apps/desktop/resources/native/penkra-network-path-monitor
+apps/desktop/resources/native/penkra-computer
+apps/desktop/resources/native/penkra-computer.version
 .astro
 packages/*/dist
 .env
