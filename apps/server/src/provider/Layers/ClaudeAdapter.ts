@@ -124,12 +124,12 @@ import {
   acquireAgentGatewaySessionLease,
   type AgentGatewaySessionLease,
 } from "../../agentGateway/sessionLease.ts";
-import { resolveProviderAttachmentPath } from "../providerAttachmentPaths.ts";
 import { ServerConfig } from "../../config.ts";
 import { buildFileAttachmentsPromptBlock } from "../attachmentProjection.ts";
 import { loadClaudeAgentSdk } from "../claudeAgentSdk.ts";
 import { buildClaudeProcessEnv } from "../claudeProcessEnv.ts";
 import { synchronizeClaudeSharedMcpConfig } from "../claudeSharedMcpConfig.ts";
+import { PENKRA_COMPUTER_MCP_NAME, resolvePenkraComputerMcpServer } from "../penkraComputerMcp.ts";
 import {
   classifyComputerUseCapability,
   type ComputerUseCapabilityHealth,
@@ -866,12 +866,6 @@ function titleForTool(itemType: CanonicalItemType): string {
   }
 }
 
-const SUPPORTED_CLAUDE_IMAGE_MIME_TYPES = new Set([
-  "image/gif",
-  "image/jpeg",
-  "image/png",
-  "image/webp",
-]);
 const CLAUDE_SETTING_SOURCES = [
   "user",
   "project",
@@ -956,20 +950,6 @@ function buildUserMessage(input: {
   } as unknown as SDKUserMessage;
 }
 
-function buildClaudeImageContentBlock(input: {
-  readonly mimeType: string;
-  readonly bytes: Uint8Array;
-}): Record<string, unknown> {
-  return {
-    type: "image",
-    source: {
-      type: "base64",
-      media_type: input.mimeType,
-      data: Buffer.from(input.bytes).toString("base64"),
-    },
-  };
-}
-
 function buildUserMessageEffect(
   input: ProviderSendTurnInput,
   dependencies: {
@@ -985,53 +965,10 @@ function buildUserMessageEffect(
       sdkContent.push({ type: "text", text });
     }
 
-    for (const attachment of input.attachments ?? []) {
-      if (attachment.type !== "image") {
-        continue;
-      }
-
-      if (!SUPPORTED_CLAUDE_IMAGE_MIME_TYPES.has(attachment.mimeType.toLowerCase())) {
-        continue;
-      }
-
-      const attachmentPath = resolveProviderAttachmentPath({
-        attachmentsDir: dependencies.attachmentsDir,
-        attachment,
-      });
-      if (!attachmentPath) {
-        return yield* new ProviderAdapterRequestError({
-          provider: PROVIDER,
-          method: "turn/start",
-          detail: `Invalid attachment id '${attachment.id}'.`,
-        });
-      }
-
-      const bytes = yield* dependencies.fileSystem.readFile(attachmentPath).pipe(
-        Effect.mapError(
-          (cause) =>
-            new ProviderAdapterRequestError({
-              provider: PROVIDER,
-              method: "turn/start",
-              detail: toMessage(cause, "Failed to read attachment file."),
-              cause,
-            }),
-        ),
-      );
-
-      sdkContent.push(
-        buildClaudeImageContentBlock({
-          mimeType: attachment.mimeType.toLowerCase(),
-          bytes,
-        }),
-      );
-    }
-
     const fileBlock = buildFileAttachmentsPromptBlock({
       attachments: input.attachments,
       attachmentsDir: dependencies.attachmentsDir,
       include: "all-files",
-      includeImage: (attachment) =>
-        !SUPPORTED_CLAUDE_IMAGE_MIME_TYPES.has(attachment.mimeType.toLowerCase()),
     });
     if (fileBlock) {
       sdkContent.push({ type: "text", text: fileBlock });
@@ -1416,11 +1353,12 @@ function makeClaudeAdapter(options?: ClaudeAdapterLiveOptions) {
       model: string,
     ) => `${connectionId ?? "default"}\0${stripClaudeContextWindowSuffix(model).toLowerCase()}`;
 
-    const enableClaudeComputerUse = async (
+    // Read-only: Claude's built-in computer-use server needs an interactive terminal, so
+    // Penkra never switches it on (P57 step 1). This reports whatever tool server is live.
+    const readClaudeComputerUseHealth = async (
       context: ClaudeSessionContext,
     ): Promise<ComputerUseCapabilityHealth> => {
       try {
-        await context.query.toggleMcpServer("computer-use", true);
         const statuses = await context.query.mcpServerStatus();
         const health = classifyComputerUseCapability({
           inventory: statuses
@@ -1452,7 +1390,7 @@ function makeClaudeAdapter(options?: ClaudeAdapterLiveOptions) {
               name: "computer-use",
               state: "failed",
               error:
-                cause instanceof Error ? cause.message : "Claude Computer Use failed to enable.",
+                cause instanceof Error ? cause.message : "Claude tool server status is unavailable.",
             },
           ],
         });
@@ -4518,6 +4456,7 @@ function makeClaudeAdapter(options?: ClaudeAdapterLiveOptions) {
             }),
           );
         }
+        const penkraComputer = resolvePenkraComputerMcpServer({ threadId });
         const penkraMcpServers = yield* Effect.tryPromise({
           try: async () => {
             const surface = agentGatewayToolBridge.requireSurface();
@@ -4604,7 +4543,23 @@ function makeClaudeAdapter(options?: ClaudeAdapterLiveOptions) {
           env: claudeSdkEnv,
           spawnClaudeCodeProcess: bindClaudeProcessOwner(processOwner),
           ...(input.cwd ? { additionalDirectories: [input.cwd] } : {}),
-          ...(penkraMcpServers ? { mcpServers: penkraMcpServers } : {}),
+          ...(penkraMcpServers || penkraComputer
+            ? {
+                mcpServers: {
+                  ...penkraMcpServers,
+                  ...(penkraComputer
+                    ? {
+                        [PENKRA_COMPUTER_MCP_NAME]: {
+                          type: "stdio" as const,
+                          command: penkraComputer.command,
+                          args: [...penkraComputer.args],
+                          env: { ...penkraComputer.env },
+                        },
+                      }
+                    : {}),
+                },
+              }
+            : {}),
         };
 
         const queryRuntime = yield* Effect.tryPromise({
@@ -4783,7 +4738,6 @@ function makeClaudeAdapter(options?: ClaudeAdapterLiveOptions) {
 
             const streamFiber = runFork(runSdkStream(context));
             context.streamFiber = streamFiber;
-            void enableClaudeComputerUse(context);
             streamFiber.addObserver((exit) => {
               if (context.stopped) {
                 return;
@@ -5524,7 +5478,7 @@ function makeClaudeAdapter(options?: ClaudeAdapterLiveOptions) {
         try: async () => {
           const context = sessions.get(ThreadId.make(input.threadId));
           if (!context) throw new Error(`Unknown Claude session: ${input.threadId}`);
-          const health = context.computerUseHealth ?? (await enableClaudeComputerUse(context));
+          const health = context.computerUseHealth ?? (await readClaudeComputerUseHealth(context));
           return {
             capabilities: [{ id: "computer-use", ...health }],
             source: "claude-agent-sdk",

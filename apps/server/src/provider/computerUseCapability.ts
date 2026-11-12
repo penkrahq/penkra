@@ -30,6 +30,9 @@ export interface McpStartupStatusEntry {
   readonly error: string | null;
 }
 
+const isComputerUseServerName = (name: string) =>
+  name === "penkra-computer" || /(?:^|[-_])computer[-_]?use(?:$|[-_])/.test(name.toLowerCase());
+
 const routeState = (
   inventory: McpToolInventoryEntry | undefined,
   startup: McpStartupStatusEntry | undefined,
@@ -53,12 +56,12 @@ export function classifyComputerUseCapability(input: {
   const rawInventory = input.inventory.find(
     (server) =>
       server.name !== "node_repl" &&
-      /(?:^|[-_])computer[-_]?use(?:$|[-_])/.test(server.name.toLowerCase()),
+      isComputerUseServerName(server.name),
   );
   const rawStartup = startupStatuses.find(
     (server) =>
       server.name !== "node_repl" &&
-      /(?:^|[-_])computer[-_]?use(?:$|[-_])/.test(server.name.toLowerCase()),
+      isComputerUseServerName(server.name),
   );
 
   const nodeState = routeState(nodeInventory, nodeStartup);

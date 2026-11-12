@@ -10,6 +10,10 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useAppInstallationSnapshot } from "~/appInstallationStore";
 import { useSpacesUiStore } from "~/spacesUiStore";
 import { APP_VERSION } from "~/branding";
+import {
+  ComputerUsePermissionsShared,
+  useComputerUsePermissions,
+} from "~/components/settings/computer-use-permissions-shared/ComputerUsePermissionsShared";
 import { OpenWithRowShared } from "~/components/settings/open-with-row-shared/OpenWithRowShared";
 import {
   ConversationsSectionShared,
@@ -51,6 +55,7 @@ export function SettingsGeneralPage() {
       }
     });
   };
+  const computerUse = useComputerUsePermissions();
   const installations = useAppInstallationSnapshot();
   const activeSpaceId = useSpacesUiStore((state) => state.activeSpaceId);
   const isEnabled = (appId: string) =>
@@ -109,6 +114,12 @@ export function SettingsGeneralPage() {
         disabled={!settingsQuery.data}
         onSteerChange={setSteer}
       />
+      {computerUse.available ? (
+        <ComputerUsePermissionsShared
+          onOpen={computerUse.open}
+          permissions={computerUse.permissions}
+        />
+      ) : null}
       <SettingsSectionShared title="Open with">
         <HandlerPreferenceRow
           apps={urlHandlers}

@@ -52,9 +52,11 @@ export interface ManagedAttachmentLimits {
 }
 
 export const DEFAULT_MANAGED_ATTACHMENT_LIMITS: ManagedAttachmentLimits = {
-  homeBytes: 5 * 1024 * 1024 * 1024,
+  // No byte limits: attachments are passed to providers by path, so size never
+  // limits a send. Counts still bound runaway staging.
+  homeBytes: Number.MAX_SAFE_INTEGER,
   homeCount: 20_000,
-  principalStagingBytes: 256 * 1024 * 1024,
+  principalStagingBytes: Number.MAX_SAFE_INTEGER,
   principalStagingCount: 16,
 };
 

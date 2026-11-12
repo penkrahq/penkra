@@ -543,7 +543,16 @@ const makeWsRpcHandlersLayer = () =>
                   return;
                 }
               }
-            }),
+            }).pipe(
+              Effect.tapCause((cause) =>
+                input.update.action === "resume"
+                  ? Effect.logError("thread continue failed", {
+                      threadId: input.update.threadId,
+                      cause,
+                    })
+                  : Effect.void,
+              ),
+            ),
             "Failed to update the thread",
           ),
         [WS_METHODS.cleanCoreListThreadItemsPage]: (input) =>
@@ -888,7 +897,32 @@ const makeWsRpcHandlersLayer = () =>
         [WS_METHODS.providerCompactThread]: (input) =>
           rpcEffect(
             Effect.flatMap(Effect.service(ThreadSender), (sender) =>
-              sender.runExclusive(input.threadId, providerService.compactThread(input)),
+              sender.runExclusive(
+                input.threadId,
+                // Manual compaction has no turn, so nothing else marks the
+                // thread busy: hold it running (sidebar Working spinner) for
+                // the compaction, then settle it back if no turn took over.
+                Effect.gen(function* () {
+                  const marked = yield* sql<{ id: string }>`UPDATE threads SET state='running',updated_at=${new Date().toISOString()}
+                    WHERE id=${input.threadId} AND state='idle' RETURNING id`;
+                  if (marked.length > 0) threadPublisher.publish({ threadId: input.threadId });
+                  return yield* providerService.compactThread(input).pipe(
+                    Effect.ensuring(
+                      marked.length === 0
+                        ? Effect.void
+                        : sql`UPDATE threads SET state='idle',updated_at=${new Date().toISOString()}
+                            WHERE id=${input.threadId} AND state='running' AND active_turn_id IS NULL`.pipe(
+                            Effect.andThen(
+                              Effect.sync(() =>
+                                threadPublisher.publish({ threadId: input.threadId }),
+                              ),
+                            ),
+                            Effect.ignore,
+                          ),
+                    ),
+                  );
+                }),
+              ),
             ),
             "Failed to compact thread",
           ),

@@ -12,8 +12,6 @@ import {
   AuthCreatePairingCredentialInput,
   AuthRevokeClientSessionInput,
   AuthRevokePairingLinkInput,
-  PROVIDER_SEND_TURN_MAX_FILE_BYTES,
-  PROVIDER_SEND_TURN_MAX_IMAGE_BYTES,
   SERVER_VOICE_TRANSCRIPTION_MAX_AUDIO_BYTES,
   ProviderConnectionId,
   ThreadId,
@@ -955,19 +953,16 @@ const binaryUploadEffectHandler = Effect.gen(function* () {
         { status: 400, headers: corsHeaders },
       );
     }
-    const maxBytes =
-      type === "image" ? PROVIDER_SEND_TURN_MAX_IMAGE_BYTES : PROVIDER_SEND_TURN_MAX_FILE_BYTES;
+    // No size cap: the body streams to disk and providers read the file by
+    // path. The declared length is the reservation, so it must be present.
     const declaredLength = Number(request.headers["content-length"] ?? "0");
-    if (Number.isFinite(declaredLength) && declaredLength > maxBytes) {
+    if (!Number.isSafeInteger(declaredLength) || declaredLength <= 0) {
       return HttpServerResponse.jsonUnsafe(
-        { error: "Request body too large." },
-        { status: 413, headers: corsHeaders },
+        { error: "Attachment upload needs a Content-Length." },
+        { status: 411, headers: corsHeaders },
       );
     }
-    const reservedBytes =
-      Number.isSafeInteger(declaredLength) && declaredLength > 0 && declaredLength <= maxBytes
-        ? declaredLength
-        : maxBytes;
+    const reservedBytes = declaredLength;
     const repository = yield* ManagedAttachmentRepository;
     const now = new Date().toISOString();
     const reservation = yield* reserveManagedAttachmentUpload({
@@ -980,22 +975,9 @@ const binaryUploadEffectHandler = Effect.gen(function* () {
       principal: attachmentPrincipal,
       repository,
     });
-    const bytes = yield* readEffectBinary(request, maxBytes).pipe(
-      Effect.tapError(() =>
-        repository
-          .cancelStaged({
-            attachmentId: reservation.attachmentId,
-            ownerKind: attachmentPrincipal.ownerKind,
-            ownerId: attachmentPrincipal.ownerId,
-            reason: "upload-body-failed",
-            requestedAt: new Date().toISOString(),
-          })
-          .pipe(Effect.ignore),
-      ),
-    );
     const attachment = yield* persistReservedManagedAttachment({
       reservation,
-      bytes,
+      bytes: NodeHttpServerRequest.toIncomingMessage(request),
       attachmentsDir: config.attachmentsDir,
       now: new Date().toISOString(),
       principal: attachmentPrincipal,

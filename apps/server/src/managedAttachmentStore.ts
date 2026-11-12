@@ -132,14 +132,15 @@ export function reserveManagedAttachmentUpload(input: {
 
 export function persistReservedManagedAttachment(input: {
   readonly reservation: ManagedAttachmentBlob;
-  readonly bytes: Uint8Array;
+  /** The whole body, or a stream of it (an upload is streamed to disk, never buffered). */
+  readonly bytes: Uint8Array | AsyncIterable<Uint8Array>;
   readonly attachmentsDir: string;
   readonly now: string;
   readonly principal: ManagedAttachmentPrincipal;
   readonly repository: ManagedAttachmentRepositoryShape;
 }): Effect.Effect<BinaryChatAttachment, Error> {
   return Effect.gen(function* () {
-    if (input.bytes.byteLength === 0 || input.bytes.byteLength > input.reservation.reservedBytes) {
+    const sizeMismatch = Effect.gen(function* () {
       yield* input.repository
         .cancelStaged({
           attachmentId: input.reservation.attachmentId,
@@ -155,6 +156,12 @@ export function persistReservedManagedAttachment(input: {
           code: "attachment_size_mismatch",
         }),
       );
+    });
+    if (
+      input.bytes instanceof Uint8Array &&
+      (input.bytes.byteLength === 0 || input.bytes.byteLength > input.reservation.reservedBytes)
+    ) {
+      return yield* sizeMismatch;
     }
     const finalPath = resolveAttachmentRelativePath({
       attachmentsDir: input.attachmentsDir,
@@ -170,7 +177,9 @@ export function persistReservedManagedAttachment(input: {
     }
     const stagingDir = path.join(input.attachmentsDir, ".staging");
     const temporaryPath = path.join(stagingDir, `${input.reservation.attachmentId}.part`);
-    const sha256 = createHash("sha256").update(input.bytes).digest("hex");
+    const hash = createHash("sha256");
+    let sizeBytes = 0;
+    let oversize = false;
 
     const writeResult = yield* Effect.exit(
       Effect.tryPromise({
@@ -180,10 +189,24 @@ export function persistReservedManagedAttachment(input: {
           ensurePrivateDirectorySync(path.dirname(finalPath));
           const handle = await fs.open(temporaryPath, "wx", 0o600);
           try {
-            await handle.writeFile(input.bytes);
+            const chunks: AsyncIterable<Uint8Array> | Iterable<Uint8Array> =
+              input.bytes instanceof Uint8Array ? [input.bytes] : input.bytes;
+            for await (const chunk of chunks) {
+              sizeBytes += chunk.byteLength;
+              if (sizeBytes > input.reservation.reservedBytes) {
+                oversize = true;
+                break;
+              }
+              hash.update(chunk);
+              await handle.write(chunk);
+            }
             await handle.sync();
           } finally {
             await handle.close();
+          }
+          if (oversize || sizeBytes === 0) {
+            await fs.unlink(temporaryPath).catch(() => undefined);
+            return;
           }
           await repairPrivateFile(temporaryPath);
           await fs.rename(temporaryPath, finalPath);
@@ -230,6 +253,10 @@ export function persistReservedManagedAttachment(input: {
       return yield* Effect.failCause(writeResult.cause);
     }
 
+    if (oversize || sizeBytes === 0) {
+      return yield* sizeMismatch;
+    }
+    const sha256 = hash.digest("hex");
     const stagingExpiresAt = new Date(
       Date.parse(input.now) + MANAGED_ATTACHMENT_STAGING_TTL_MS,
     ).toISOString();
@@ -238,7 +265,7 @@ export function persistReservedManagedAttachment(input: {
       ownerThreadId: input.reservation.ownerThreadId,
       ownerKind: input.principal.ownerKind,
       ownerId: input.principal.ownerId,
-      sizeBytes: input.bytes.byteLength,
+      sizeBytes,
       sha256,
       stagingExpiresAt,
       now: input.now,

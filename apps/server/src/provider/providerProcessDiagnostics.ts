@@ -2,6 +2,7 @@ import { execFile, type ChildProcess } from "node:child_process";
 import { promisify } from "node:util";
 import type { ProviderKind } from "@penkra/contracts";
 import { createLogger } from "../logger.ts";
+import { readProcessRss } from "../processTreeKiller.ts";
 
 const STDERR_TAIL_BYTES = 4096; // P15: one bounded 4 KB tail per provider process.
 const exec = promisify(execFile);
@@ -17,19 +18,21 @@ export function redactProviderProcessOutput(value: string): string {
 }
 
 async function readRss(pid: number): Promise<number> {
-  const windows = process.platform === "win32";
-  const { stdout } = windows
-    ? await exec("powershell.exe", [
-        "-NoProfile",
-        "-NonInteractive",
-        "-Command",
-        `(Get-Process -Id ${pid} -ErrorAction Stop).WorkingSet64`,
-      ])
-    : await exec("ps", ["-p", String(pid), "-o", "rss="]);
+  if (process.platform !== "win32") return readProcessRss(pid);
+  const { stdout } = await exec(
+    "powershell.exe",
+    [
+      "-NoProfile",
+      "-NonInteractive",
+      "-Command",
+      `(Get-Process -Id ${pid} -ErrorAction Stop).WorkingSet64`,
+    ],
+    { timeout: 1_000 },
+  );
   const value = Number(stdout.trim());
   if (!stdout.trim() || !Number.isFinite(value) || value < 0)
     throw new Error("Process RSS was unavailable.");
-  return value * (windows ? 1 : 1024);
+  return value;
 }
 
 export function makeProviderProcessDiagnostics(input: {

@@ -11,10 +11,11 @@ import { resolveProviderAttachmentPath } from "./providerAttachmentPaths.ts";
 function isProjectedFileAttachment(
   attachment: ChatAttachment,
   include: "all-files" | "non-pdf-files",
-  includeImage: ((attachment: ChatImageAttachment) => boolean) | undefined,
 ): attachment is ChatImageAttachment | ChatFileAttachment {
+  // Images go by path like every other file: the provider reads them with its
+  // own tools, so no attachment is ever inlined and size never limits a send.
   if (attachment.type === "image") {
-    return includeImage?.(attachment) ?? false;
+    return true;
   }
   if (attachment.type !== "file") {
     return false;
@@ -29,16 +30,15 @@ function quotePromptValue(value: string): string {
   return JSON.stringify(value);
 }
 
-// Produces a stable path-reference block for regular files and selected non-native image types.
+// Produces a stable path-reference block for every attached file and image.
 export function buildFileAttachmentsPromptBlock(input: {
   readonly attachments: ReadonlyArray<ChatAttachment> | undefined;
   readonly attachmentsDir: string;
   readonly include: "all-files" | "non-pdf-files";
-  readonly includeImage?: (attachment: ChatImageAttachment) => boolean;
 }): string | null {
   const lines: string[] = [];
   for (const attachment of input.attachments ?? []) {
-    if (!isProjectedFileAttachment(attachment, input.include, input.includeImage)) {
+    if (!isProjectedFileAttachment(attachment, input.include)) {
       continue;
     }
     const attachmentPath = resolveProviderAttachmentPath({
@@ -71,13 +71,11 @@ export function appendFileAttachmentsPromptBlock(input: {
   readonly attachments: ReadonlyArray<ChatAttachment> | undefined;
   readonly attachmentsDir: string;
   readonly include: "all-files" | "non-pdf-files";
-  readonly includeImage?: (attachment: ChatImageAttachment) => boolean;
 }): string | undefined {
   const fileBlock = buildFileAttachmentsPromptBlock({
     attachments: input.attachments,
     attachmentsDir: input.attachmentsDir,
     include: input.include,
-    ...(input.includeImage ? { includeImage: input.includeImage } : {}),
   });
   return fileBlock ? `${input.text ?? ""}${input.text ? "\n\n" : ""}${fileBlock}` : input.text;
 }

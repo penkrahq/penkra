@@ -282,7 +282,8 @@ describe("binaryUploadEffectRouteLayer", () => {
           expect(cookieResponse.status).toBe(403);
           expect(fs.readdirSync(attachmentsDir)).toEqual([]);
 
-          const oversizedStatus = await new Promise<number>((resolve, reject) => {
+          // No size cap: an upload only needs a declared length to reserve.
+          const unsizedStatus = await new Promise<number>((resolve, reject) => {
             const target = new URL(url);
             const request = http.request(
               {
@@ -292,7 +293,7 @@ describe("binaryUploadEffectRouteLayer", () => {
                 method: "POST",
                 headers: {
                   Authorization: "Bearer bearer-token",
-                  "Content-Length": String(10 * 1024 * 1024 + 1),
+                  "Transfer-Encoding": "chunked",
                 },
               },
               (response) => {
@@ -301,9 +302,9 @@ describe("binaryUploadEffectRouteLayer", () => {
               },
             );
             request.once("error", reject);
-            request.end();
+            request.end(Uint8Array.from([1]));
           });
-          expect(oversizedStatus).toBe(413);
+          expect(unsizedStatus).toBe(411);
           expect(fs.readdirSync(attachmentsDir)).toEqual([]);
 
           const bearerResponse = await fetch(url, {

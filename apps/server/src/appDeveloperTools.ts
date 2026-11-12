@@ -199,10 +199,10 @@ async function stopAppTestHost(
     return null;
   }
 
-  const tree = defaultProcessTreeKiller.capture(rootPid);
+  const tree = await defaultProcessTreeKiller.capture(rootPid);
   const signalErrors: string[] = [];
-  const signal = (signalName: "SIGTERM" | "SIGKILL", includeRootTree = true) => {
-    defaultProcessTreeKiller.signal({
+  const signal = async (signalName: "SIGTERM" | "SIGKILL", includeRootTree = true) => {
+    await defaultProcessTreeKiller.signal({
       rootPid,
       signal: signalName,
       tree,
@@ -213,15 +213,15 @@ async function stopAppTestHost(
     });
   };
 
-  signal("SIGTERM");
+  await signal("SIGTERM");
   const rootExited = await waitForExit(childExited, APP_TEST_HOST_STOP_TIMEOUT_MS);
-  const afterTerm = defaultProcessTreeKiller.inspect?.(tree);
+  const afterTerm = await defaultProcessTreeKiller.inspect?.(tree);
   if (!rootExited || !afterTerm?.verified || afterTerm.survivors.length > 0) {
-    signal("SIGKILL", !rootExited);
+    await signal("SIGKILL", !rootExited);
     await waitForExit(childExited, APP_TEST_HOST_STOP_TIMEOUT_MS);
   }
 
-  const finalInspection = defaultProcessTreeKiller.inspect?.(tree);
+  const finalInspection = await defaultProcessTreeKiller.inspect?.(tree);
   if (finalInspection?.verified && finalInspection.survivors.length === 0) return null;
   if (finalInspection && !finalInspection.verified) {
     return `descendant cleanup could not be verified${signalErrors.length ? ` (${signalErrors.join(", ")})` : ""}`;

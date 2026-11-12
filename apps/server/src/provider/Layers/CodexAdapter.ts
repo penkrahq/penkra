@@ -55,7 +55,6 @@ import {
 import { AgentGatewayCredentials } from "../../agentGateway/Services/AgentGatewayCredentials.ts";
 import { AgentGatewayToolBridge } from "../../agentGateway/Services/AgentGatewayToolBridge.ts";
 import { acquireAgentGatewaySessionLease } from "../../agentGateway/sessionLease.ts";
-import { loadProviderPromptImageBlocks } from "../promptAttachments.ts";
 import {
   codexGeneratedImageArtifact,
   extractCodexGeneratedImageReference,
@@ -1541,25 +1540,6 @@ const makeCodexAdapter = (options?: CodexAdapterLiveOptions) =>
       method: "turn/start" | "turn/steer",
     ): Effect.Effect<CodexAppServerSendTurnInput, ProviderAdapterRequestError> =>
       Effect.gen(function* () {
-        const imageBlocks = yield* loadProviderPromptImageBlocks({
-          attachments: input.attachments,
-          attachmentsDir: serverConfig.attachmentsDir,
-          provider: PROVIDER,
-          method,
-          readFile: (attachmentPath) => fileSystem.readFile(attachmentPath),
-          readErrorDetail: (cause) => toMessage(cause, "Failed to read attachment file."),
-          invalidAttachmentError: (_attachment, cause) =>
-            new ProviderAdapterRequestError({
-              provider: PROVIDER,
-              method,
-              detail: toMessage(cause, `${method} failed`),
-              cause,
-            }),
-        });
-        const nativeCodexAttachments = imageBlocks.map((attachment) => ({
-          type: "image" as const,
-          url: `data:${attachment.mimeType};base64,${attachment.data}`,
-        }));
         const composedInput = composeCodexInputWithFileAttachments({
           input: input.input,
           attachments: input.attachments,
@@ -1575,7 +1555,6 @@ const makeCodexAdapter = (options?: CodexAdapterLiveOptions) =>
           ...(input.skills !== undefined ? { skills: input.skills } : {}),
           ...(input.mentions !== undefined ? { mentions: input.mentions } : {}),
           ...codexModelSelectionOverrides(input.modelSelection),
-          ...(nativeCodexAttachments.length > 0 ? { attachments: nativeCodexAttachments } : {}),
         } satisfies CodexAppServerSendTurnInput;
       });
 

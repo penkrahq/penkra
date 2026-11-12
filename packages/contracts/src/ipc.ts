@@ -40,7 +40,10 @@ import type {
   ProjectWorkspaceChangeEvent,
   ProjectWriteFileResult,
 } from "./project";
-import type { FilesystemBrowseInput, FilesystemBrowseResult } from "./filesystem";
+import type {
+  FilesystemBrowseInput,
+  FilesystemBrowseResult,
+} from "./filesystem";
 import type {
   ServerConfig,
   ServerGetEnvironmentResult,
@@ -403,7 +406,9 @@ export interface DesktopAppInstallationBridge {
     appId: string;
     spaceId: string;
   }) => Promise<DesktopAppInstallationSnapshot>;
-  onState: (listener: (state: DesktopAppInstallationSnapshot) => void) => () => void;
+  onState: (
+    listener: (state: DesktopAppInstallationSnapshot) => void,
+  ) => () => void;
 }
 
 export interface DesktopRegistryAppSummary {
@@ -464,7 +469,11 @@ export interface DesktopRegistryAccountFeedback {
 }
 
 export interface DesktopAppRegistryBridge {
-  list: (input?: { query?: string; cursor?: string; limit?: number }) => Promise<{
+  list: (input?: {
+    query?: string;
+    cursor?: string;
+    limit?: number;
+  }) => Promise<{
     items: ReadonlyArray<DesktopRegistryAppSummary>;
     pageInfo: { nextCursor: string | null };
   }>;
@@ -476,7 +485,9 @@ export interface DesktopAppRegistryBridge {
     | { kind: "text"; contentType: string; text: string }
     | { kind: "image"; contentType: string; dataUrl: string }
   >;
-  getFeedback: (input: { appId: string }) => Promise<DesktopRegistryAccountFeedback>;
+  getFeedback: (input: {
+    appId: string;
+  }) => Promise<DesktopRegistryAccountFeedback>;
   setRating: (input: { appId: string; rating: number }) => Promise<{
     appId: string;
     rating: number;
@@ -547,7 +558,9 @@ export interface DesktopAppTabsBridge {
       folderTabs: CleanCoreFolderAppTabsResult;
     }) => void,
   ) => () => void;
-  list: (scope?: { folderId: string }) => Promise<ReadonlyArray<DesktopAppTabOpened>>;
+  list: (scope?: {
+    folderId: string;
+  }) => Promise<ReadonlyArray<DesktopAppTabOpened>>;
   consumeListingRequest: () => Promise<{ appId: string } | null>;
   open: (input: {
     /** Stable shell identity to retain when restoring a persisted App tab. */
@@ -568,16 +581,32 @@ export interface DesktopAppTabsBridge {
     bounds: { x: number; y: number; width: number; height: number };
   }) => Promise<void>;
   hide: (input: { tabId: string; animate?: boolean }) => Promise<void>;
-  trace: (input: { event: string; tabId?: string; details?: Record<string, unknown> }) => void;
+  trace: (input: {
+    event: string;
+    tabId?: string;
+    details?: Record<string, unknown>;
+  }) => void;
   overlayActive: (active: boolean) => void;
-  setContext: (input: { tabId: string; folderId: string; threadId: string }) => Promise<void>;
-  navigate: (input: { tabId: string; route: string; state?: unknown }) => Promise<void>;
+  setContext: (input: {
+    tabId: string;
+    folderId: string;
+    threadId: string;
+  }) => Promise<void>;
+  navigate: (input: {
+    tabId: string;
+    route: string;
+    state?: unknown;
+  }) => Promise<void>;
   close: (input: { tabId: string; folderId: string }) => Promise<void>;
-  onListingRequested: (listener: (input: { appId: string }) => void) => () => void;
+  onListingRequested: (
+    listener: (input: { appId: string }) => void,
+  ) => () => void;
   onOpened: (listener: (tab: DesktopAppTabOpened) => void) => () => void;
   onState: (listener: (tab: DesktopAppTabDescriptor) => void) => () => void;
   onClosed: (listener: (tab: DesktopAppTabClosed) => void) => () => void;
-  onPresentation: (listener: (presentation: DesktopAppTabPresentation) => void) => () => void;
+  onPresentation: (
+    listener: (presentation: DesktopAppTabPresentation) => void,
+  ) => () => void;
 }
 
 export interface DesktopResourceOpenInput {
@@ -725,6 +754,24 @@ export interface DesktopComposerDraftsBridge {
   deleteVoice: (id: string) => Promise<void>;
 }
 
+export type DesktopSystemPermissionKind =
+  | "accessibility"
+  | "screen-recording"
+  | "full-disk-access";
+export type DesktopSystemPermissionStatus =
+  | "granted"
+  | "denied"
+  | "not-determined"
+  | "unsupported";
+export interface DesktopSystemPermissions {
+  readonly accessibility: DesktopSystemPermissionStatus;
+  readonly screenRecording: DesktopSystemPermissionStatus;
+  /** Covers Desktop, Documents, Downloads and every other protected folder. */
+  readonly fullDiskAccess: DesktopSystemPermissionStatus;
+  /** What this macOS calls the Accessibility pane (macOS 27: "Device Control and Data Access"). */
+  readonly accessibilityPaneName: string;
+}
+
 export interface DesktopBridge {
   getWsUrl: () => string | null;
   /**
@@ -772,7 +819,9 @@ export interface DesktopBridge {
   };
   onMenuAction: (listener: (action: string) => void) => () => void;
   panelFocus?: {
-    onClosePanelTab: (listener: (input: { folderId: string }) => void) => () => void;
+    onClosePanelTab: (
+      listener: (input: { folderId: string }) => void,
+    ) => () => void;
   };
   /** Current `webContents` page zoom (1 = 100%). Used to keep macOS traffic-light gutter aligned. */
   getZoomFactor: () => number;
@@ -789,6 +838,12 @@ export interface DesktopBridge {
   media?: {
     /** Resolve the native OS grant before Chromium opens the audio device. */
     requestMicrophoneAccess: () => Promise<boolean>;
+  };
+  systemPermissions?: {
+    /** The real macOS grants Computer Use needs, read from the OS each call. */
+    get: () => Promise<DesktopSystemPermissions>;
+    /** Register Penkra in the pane's list if needed, then open that System Settings pane. */
+    open: (permission: DesktopSystemPermissionKind) => Promise<void>;
   };
   power?: {
     /** Report only this renderer's voice activity; server state owns thread work. */
@@ -821,9 +876,15 @@ export interface DesktopBridge {
     requestSignIn: () => Promise<void>;
     requestSignUp: () => Promise<void>;
     signOut: () => Promise<void>;
-    onCallbackStarted: (listener: (callback: DesktopAccountAuthCallback) => void) => () => void;
-    onAuthenticated: (listener: (user: DesktopAccountUser) => void) => () => void;
-    onUserUpdated: (listener: (user: DesktopAccountUser | null) => void) => () => void;
+    onCallbackStarted: (
+      listener: (callback: DesktopAccountAuthCallback) => void,
+    ) => () => void;
+    onAuthenticated: (
+      listener: (user: DesktopAccountUser) => void,
+    ) => () => void;
+    onUserUpdated: (
+      listener: (user: DesktopAccountUser | null) => void,
+    ) => () => void;
     onError: (listener: (error: DesktopAccountAuthError) => void) => () => void;
   };
   appInstallations?: DesktopAppInstallationBridge;
@@ -889,7 +950,10 @@ export type DesktopFolderThreadPosition =
 
 export type DesktopThreadApiRequest =
   | (DesktopThreadApiRequestBase & { method: "current.read" })
-  | (DesktopThreadApiRequestBase & { method: "list"; input: { cursor?: string } })
+  | (DesktopThreadApiRequestBase & {
+      method: "list";
+      input: { cursor?: string };
+    })
   | (DesktopThreadApiRequestBase & {
       method: "get";
       input: { threadId: string };
@@ -925,13 +989,23 @@ export interface NativeApi {
       onRequest: (request: import("./rpc").RemotePairingRequest | null) => void,
       onError: (error: Error) => void,
     ) => () => void;
-    answerPairing: (input: { requestId: string; allow: boolean }) => Promise<{ accepted: boolean }>;
+    answerPairing: (input: {
+      requestId: string;
+      allow: boolean;
+    }) => Promise<{ accepted: boolean }>;
     listDevices: () => Promise<{
       phones: ReadonlyArray<import("./rpc").RemotePhone>;
-      relay: "connecting" | "connected" | "rejected-sign-in" | "rejected-protocol";
+      relay:
+        | "connecting"
+        | "connected"
+        | "rejected-sign-in"
+        | "rejected-protocol";
     }>;
     removeDevice: (deviceId: string) => Promise<void>;
-    subscribeDevices: (onChange: () => void, onError: (error: Error) => void) => () => void;
+    subscribeDevices: (
+      onChange: () => void,
+      onError: (error: Error) => void,
+    ) => () => void;
   };
   dialogs: {
     pickFolder: () => Promise<string | null>;
@@ -951,8 +1025,12 @@ export interface NativeApi {
     confirm: (message: string) => Promise<boolean>;
   };
   folders: {
-    listDirectories: (input: ProjectListDirectoriesInput) => Promise<ProjectListDirectoriesResult>;
-    searchEntries: (input: ProjectSearchEntriesInput) => Promise<ProjectSearchEntriesResult>;
+    listDirectories: (
+      input: ProjectListDirectoriesInput,
+    ) => Promise<ProjectListDirectoriesResult>;
+    searchEntries: (
+      input: ProjectSearchEntriesInput,
+    ) => Promise<ProjectSearchEntriesResult>;
     searchLocalEntries: (
       input: ProjectSearchLocalEntriesInput,
     ) => Promise<ProjectSearchLocalEntriesResult>;
@@ -960,8 +1038,12 @@ export interface NativeApi {
     createLocalFilePreviewGrant: (
       input: ProjectCreateLocalFilePreviewGrantInput,
     ) => Promise<ProjectCreateLocalFilePreviewGrantResult>;
-    writeFile: (input: ProjectWriteFileInput) => Promise<ProjectWriteFileResult>;
-    onWorkspaceChange: (callback: (event: ProjectWorkspaceChangeEvent) => void) => () => void;
+    writeFile: (
+      input: ProjectWriteFileInput,
+    ) => Promise<ProjectWriteFileResult>;
+    onWorkspaceChange: (
+      callback: (event: ProjectWorkspaceChangeEvent) => void,
+    ) => () => void;
   };
   filesystem: {
     browse: (input: FilesystemBrowseInput) => Promise<FilesystemBrowseResult>;
@@ -981,22 +1063,30 @@ export interface NativeApi {
     getConfig: () => Promise<ServerConfig>;
     getEnvironment: () => Promise<ServerGetEnvironmentResult>;
     getSettings: () => Promise<ServerGetSettingsResult>;
-    updateSettings: (input: ServerUpdateSettingsInput) => Promise<ServerUpdateSettingsResult>;
+    updateSettings: (
+      input: ServerUpdateSettingsInput,
+    ) => Promise<ServerUpdateSettingsResult>;
     getSpaceNavigationState: () => Promise<ServerSpaceNavigationState>;
     updateSpaceNavigationState: (
       input: ServerUpdateSpaceNavigationStateInput,
     ) => Promise<ServerSpaceNavigationState>;
     getAuthSession: () => Promise<AuthSessionState>;
     bootstrapAuth: (input: AuthBootstrapInput) => Promise<AuthBootstrapResult>;
-    bootstrapBearerAuth: (input: AuthBootstrapInput) => Promise<AuthBearerBootstrapResult>;
+    bootstrapBearerAuth: (
+      input: AuthBootstrapInput,
+    ) => Promise<AuthBearerBootstrapResult>;
     issueAuthWebSocketToken: () => Promise<AuthWebSocketTokenResult>;
     createAuthPairingToken: (
       input?: AuthCreatePairingCredentialInput,
     ) => Promise<AuthPairingCredentialResult>;
     listAuthPairingLinks: () => Promise<ReadonlyArray<AuthPairingLink>>;
-    revokeAuthPairingLink: (input: AuthRevokePairingLinkInput) => Promise<{ revoked: boolean }>;
+    revokeAuthPairingLink: (
+      input: AuthRevokePairingLinkInput,
+    ) => Promise<{ revoked: boolean }>;
     listAuthClients: () => Promise<ReadonlyArray<AuthClientSession>>;
-    revokeAuthClient: (input: AuthRevokeClientSessionInput) => Promise<{ revoked: boolean }>;
+    revokeAuthClient: (
+      input: AuthRevokeClientSessionInput,
+    ) => Promise<{ revoked: boolean }>;
     revokeOtherAuthClients: () => Promise<{ revokedCount: number }>;
     logoutAuthSession: () => Promise<AuthLogoutResult>;
     refreshProviders: () => Promise<ServerRefreshProvidersResult>;
@@ -1008,8 +1098,12 @@ export interface NativeApi {
     ) => Promise<ServerVoiceTranscriptionResult>;
   };
   provider: {
-    getCatalog: (input: ProviderGetCatalogInput) => Promise<ProviderCatalogSnapshot>;
-    reloadCatalog: (input: ProviderCatalogScope) => Promise<ProviderCatalogSnapshot>;
+    getCatalog: (
+      input: ProviderGetCatalogInput,
+    ) => Promise<ProviderCatalogSnapshot>;
+    reloadCatalog: (
+      input: ProviderCatalogScope,
+    ) => Promise<ProviderCatalogSnapshot>;
     getComposerCapabilities: (
       input: ProviderGetComposerCapabilitiesInput,
     ) => Promise<ProviderComposerCapabilities>;
@@ -1017,11 +1111,15 @@ export interface NativeApi {
       input: ProviderGetCapabilityHealthInput,
     ) => Promise<ProviderGetCapabilityHealthResult>;
     compactThread: (input: ProviderCompactThreadInput) => Promise<void>;
-    listSkillsCatalog: (input: ProviderSkillsCatalogInput) => Promise<ProviderSkillsCatalogResult>;
+    listSkillsCatalog: (
+      input: ProviderSkillsCatalogInput,
+    ) => Promise<ProviderSkillsCatalogResult>;
     getConnections: (
       input?: ProviderConnectionsSnapshotInput,
     ) => Promise<ProviderConnectionsSnapshot>;
-    retryAuthConnection: (input: RetryProviderAuthConnectionInput) => Promise<void>;
+    retryAuthConnection: (
+      input: RetryProviderAuthConnectionInput,
+    ) => Promise<void>;
     createStaticConnection: (
       input: CreateStaticProviderConnectionInput,
     ) => Promise<ProviderConnection>;
@@ -1036,7 +1134,9 @@ export interface NativeApi {
     cancelConnectionLogin: (
       input: GetProviderConnectionLoginInput,
     ) => Promise<ProviderConnectionLoginSnapshot>;
-    terminateConnection: (input: TerminateProviderConnectionInput) => Promise<ProviderConnection>;
+    terminateConnection: (
+      input: TerminateProviderConnectionInput,
+    ) => Promise<ProviderConnection>;
   };
   cleanCore: {
     listArchivedNavigation: () => Promise<CleanCoreListArchivedNavigationResult>;
@@ -1045,14 +1145,24 @@ export interface NativeApi {
     ) => Promise<CleanCoreListArchivedThreadsResult>;
     restoreThread: (input: CleanCoreRestoreThreadInput) => Promise<void>;
     getNavigation: () => Promise<CleanCoreGetNavigationResult>;
-    getBootstrap: () => Promise<import("./cleanCore").CleanCoreGetBootstrapResult>;
+    getBootstrap: () => Promise<
+      import("./cleanCore").CleanCoreGetBootstrapResult
+    >;
     updateNavigation: (
       input: CleanCoreUpdateNavigationInput,
     ) => Promise<CleanCoreGetNavigationResult>;
-    getFolders: (input: CleanCoreGetFoldersInput) => Promise<CleanCoreGetFoldersResult>;
-    getThread: (input: CleanCoreGetThreadShellInput) => Promise<CleanCoreThreadSummary | null>;
-    sendMessage: (input: CleanCoreUserSendMessageInput) => Promise<CleanCoreSendAdmission>;
-    steerQueued: (input: CleanCoreQueuedMessageInput) => Promise<CleanCoreSendAdmission>;
+    getFolders: (
+      input: CleanCoreGetFoldersInput,
+    ) => Promise<CleanCoreGetFoldersResult>;
+    getThread: (
+      input: CleanCoreGetThreadShellInput,
+    ) => Promise<CleanCoreThreadSummary | null>;
+    sendMessage: (
+      input: CleanCoreUserSendMessageInput,
+    ) => Promise<CleanCoreSendAdmission>;
+    steerQueued: (
+      input: CleanCoreQueuedMessageInput,
+    ) => Promise<CleanCoreSendAdmission>;
     cancelQueuedMessage: (
       input: CleanCoreQueuedMessageInput,
     ) => Promise<CleanCoreQueuedMessageResult>;
@@ -1068,8 +1178,12 @@ export interface NativeApi {
     deleteSavedPrompt: (
       input: CleanCoreQueuedMessageInput,
     ) => Promise<CleanCoreQueuedMessageResult>;
-    getThreadRuntime: (input: CleanCoreThreadRuntimeInput) => Promise<CleanCoreThreadRuntime>;
-    interruptThread: (input: CleanCoreThreadRuntimeInput) => Promise<CleanCoreInterruptResult>;
+    getThreadRuntime: (
+      input: CleanCoreThreadRuntimeInput,
+    ) => Promise<CleanCoreThreadRuntime>;
+    interruptThread: (
+      input: CleanCoreThreadRuntimeInput,
+    ) => Promise<CleanCoreInterruptResult>;
     getThreadShell: (
       input: CleanCoreGetThreadShellInput,
     ) => Promise<import("./orchestration").OrchestrationThreadShell | null>;
@@ -1079,25 +1193,43 @@ export interface NativeApi {
     updateFolderAppTabs: (
       input: CleanCoreUpdateFolderAppTabsInput,
     ) => Promise<CleanCoreFolderAppTabsResult>;
-    createThread: (input: CleanCoreCreateThreadInput) => Promise<CleanCoreCreateThreadResponse>;
+    createThread: (
+      input: CleanCoreCreateThreadInput,
+    ) => Promise<CleanCoreCreateThreadResponse>;
     createAndSendThread: (
       input: CleanCoreCreateAndSendThreadInput,
     ) => Promise<CleanCoreCreateAndSendThreadResponse>;
-    searchThreads: (input: CleanCoreSearchThreadsInput) => Promise<CleanCoreSearchThreadsResult>;
-    listThreads: (input: CleanCoreListThreadsInput) => Promise<CleanCoreListThreadsResult>;
+    searchThreads: (
+      input: CleanCoreSearchThreadsInput,
+    ) => Promise<CleanCoreSearchThreadsResult>;
+    listThreads: (
+      input: CleanCoreListThreadsInput,
+    ) => Promise<CleanCoreListThreadsResult>;
     updateThread: (input: CleanCoreUpdateThreadInput) => Promise<void>;
 
     listThreadItemsPage: (
       input: CleanCoreListThreadItemsPageInput,
     ) => Promise<CleanCoreListThreadItemsPageResult>;
-    listTurnItems: (input: CleanCoreListTurnItemsInput) => Promise<CleanCoreListTurnItemsResult>;
-    getThreadDraft: (input: CleanCoreGetThreadDraftInput) => Promise<CleanCoreThreadDraft>;
-    setThreadDraft: (input: CleanCoreSetThreadDraftInput) => Promise<CleanCoreThreadDraft>;
+    listTurnItems: (
+      input: CleanCoreListTurnItemsInput,
+    ) => Promise<CleanCoreListTurnItemsResult>;
+    getThreadDraft: (
+      input: CleanCoreGetThreadDraftInput,
+    ) => Promise<CleanCoreThreadDraft>;
+    setThreadDraft: (
+      input: CleanCoreSetThreadDraftInput,
+    ) => Promise<CleanCoreThreadDraft>;
     subscribeThread: (input: CleanCoreSubscribeThreadInput) => Promise<void>;
     unsubscribeThread: (input: CleanCoreSubscribeThreadInput) => Promise<void>;
-    answerThreadQuestion: (input: CleanCoreAnswerThreadQuestionInput) => Promise<void>;
-    onSidebarChange: (callback: (change: CleanCoreSidebarChange) => void) => () => void;
-    onThreadChange: (callback: (change: CleanCoreThreadChange) => void) => () => void;
+    answerThreadQuestion: (
+      input: CleanCoreAnswerThreadQuestionInput,
+    ) => Promise<void>;
+    onSidebarChange: (
+      callback: (change: CleanCoreSidebarChange) => void,
+    ) => () => void;
+    onThreadChange: (
+      callback: (change: CleanCoreThreadChange) => void,
+    ) => () => void;
   };
   orchestration: {
     importThread: (

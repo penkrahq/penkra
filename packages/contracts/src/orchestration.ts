@@ -161,8 +161,6 @@ export type OrchestrationMessageSource = typeof OrchestrationMessageSource.Type;
 
 export const PROVIDER_SEND_TURN_MAX_INPUT_CHARS = 120_000;
 export const PROVIDER_SEND_TURN_MAX_ATTACHMENTS = 8;
-export const PROVIDER_SEND_TURN_MAX_IMAGE_BYTES = 10 * 1024 * 1024;
-export const PROVIDER_SEND_TURN_MAX_FILE_BYTES = 25 * 1024 * 1024;
 /**
  * Safety bounds for bulk/shell hydration and thread detail without an owned
  * turn page. Explicit turn pages retain their complete causal message/activity
@@ -191,7 +189,7 @@ export const ChatImageAttachment = Schema.Struct({
   id: ChatAttachmentId,
   name: TrimmedNonEmptyString.check(Schema.isMaxLength(255)),
   mimeType: TrimmedNonEmptyString.check(Schema.isMaxLength(100), Schema.isPattern(/^image\//i)),
-  sizeBytes: NonNegativeInt.check(Schema.isLessThanOrEqualTo(PROVIDER_SEND_TURN_MAX_IMAGE_BYTES)),
+  sizeBytes: NonNegativeInt,
 });
 export type ChatImageAttachment = typeof ChatImageAttachment.Type;
 
@@ -200,7 +198,7 @@ export const ChatFileAttachment = Schema.Struct({
   id: ChatAttachmentId,
   name: TrimmedNonEmptyString.check(Schema.isMaxLength(255)),
   mimeType: TrimmedNonEmptyString.check(Schema.isMaxLength(100)),
-  sizeBytes: NonNegativeInt.check(Schema.isLessThanOrEqualTo(PROVIDER_SEND_TURN_MAX_FILE_BYTES)),
+  sizeBytes: NonNegativeInt,
 });
 export type ChatFileAttachment = typeof ChatFileAttachment.Type;
 

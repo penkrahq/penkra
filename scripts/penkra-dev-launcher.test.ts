@@ -28,6 +28,7 @@ import {
   resolvePenkraDevLauncherCompileArgs,
 } from "./install-penkra-dev-app";
 import { resolvePenkraDevIconSource } from "./lib/macos-icon";
+import { parseCodesignIdentities } from "./lib/macos-dev-signing";
 import { APP_DATA_USAGE_DESCRIPTION, APPLE_EVENTS_USAGE_DESCRIPTION } from "./lib/macos-privacy";
 import { resolvePenkraDevWorkspaceConfigPath } from "./lib/penkra-dev-workspace";
 import { resolvePenkraDevInstanceDefinition } from "./lib/penkra-dev-instance";
@@ -388,6 +389,17 @@ describe("Penkra Dev launcher", () => {
       ),
     ).toBe("Apple Development: Penkra Developer (TEAM123)");
     expect(parseAppleDevelopmentIdentity("0 valid identities found")).toBeNull();
+  });
+
+  it("keeps one Apple Development certificate across keychain order changes", () => {
+    const listing = (lines: string[]) => `${lines.join("\n")}\n     ${lines.length} valid identities found`;
+    const a = '  1) AAAA "Apple Development: Penkra Developer (TEAMA)"';
+    const b = '  2) BBBB "Apple Development: Penkra Developer (TEAMB)"';
+    const pick = (output: string, pinned: string) =>
+      parseCodesignIdentities(output).filter((i) => i.name.includes("Apple Development:")).find((i) => i.sha1 === pinned)?.sha1;
+    expect(pick(listing([a, b]), "BBBB")).toBe("BBBB");
+    expect(pick(listing([b.replace("2)", "1)"), a.replace("1)", "2)")]), "BBBB")).toBe("BBBB");
+    expect(pick(listing([a]), "BBBB")).toBeUndefined();
   });
 
   it("explains intentional access to installed provider data", () => {

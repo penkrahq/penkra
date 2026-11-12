@@ -9,8 +9,6 @@ import {
   MessageId,
   type ModelSelection,
   PROVIDER_SEND_TURN_MAX_ATTACHMENTS,
-  PROVIDER_SEND_TURN_MAX_FILE_BYTES,
-  PROVIDER_SEND_TURN_MAX_IMAGE_BYTES,
   type ClaudeCodeEffort,
   type ProviderKind,
   type UploadChatAttachment,
@@ -37,12 +35,6 @@ const ATTACHMENT_CANCEL_BODY_MAX_BYTES = 512;
 
 export { cloneComposerImageAttachment };
 
-export const IMAGE_SIZE_LIMIT_LABEL = `${Math.round(
-  PROVIDER_SEND_TURN_MAX_IMAGE_BYTES / (1024 * 1024),
-)}MB`;
-export const FILE_SIZE_LIMIT_LABEL = `${Math.round(
-  PROVIDER_SEND_TURN_MAX_FILE_BYTES / (1024 * 1024),
-)}MB`;
 
 export interface ComposerImageBuildResult {
   images: ComposerImageAttachment[];
@@ -58,8 +50,6 @@ export interface ComposerFileBuildResult {
 function collectComposerAttachmentFiles(input: {
   files: readonly File[];
   existingAttachmentCount: number;
-  maxBytes: number;
-  sizeLimitLabel: string;
   acceptsFile: (file: File) => boolean;
   unsupportedFileError?: (file: File) => string | null;
 }): { files: File[]; error: string | null } {
@@ -70,10 +60,6 @@ function collectComposerAttachmentFiles(input: {
   for (const file of input.files) {
     if (!input.acceptsFile(file)) {
       error = input.unsupportedFileError?.(file) ?? error;
-      continue;
-    }
-    if (file.size > input.maxBytes) {
-      error = `'${file.name}' exceeds the ${input.sizeLimitLabel} attachment limit.`;
       continue;
     }
     if (nextAttachmentCount >= PROVIDER_SEND_TURN_MAX_ATTACHMENTS) {
@@ -96,8 +82,6 @@ export function buildComposerImageAttachmentsFromFiles(input: {
   const result = collectComposerAttachmentFiles({
     files: input.files,
     existingAttachmentCount: input.existingAttachmentCount,
-    maxBytes: PROVIDER_SEND_TURN_MAX_IMAGE_BYTES,
-    sizeLimitLabel: IMAGE_SIZE_LIMIT_LABEL,
     acceptsFile: (file) => file.type.startsWith("image/"),
     unsupportedFileError: (file) =>
       `Unsupported file type for '${file.name}'. Please attach image files only.`,
@@ -124,8 +108,6 @@ export function buildComposerFileAttachmentsFromFiles(input: {
   const result = collectComposerAttachmentFiles({
     files: input.files,
     existingAttachmentCount: input.existingAttachmentCount,
-    maxBytes: PROVIDER_SEND_TURN_MAX_FILE_BYTES,
-    sizeLimitLabel: FILE_SIZE_LIMIT_LABEL,
     acceptsFile: (file) => !file.type.startsWith("image/"),
   });
 

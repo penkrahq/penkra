@@ -19,6 +19,7 @@ import {
   BrowserWindow,
   clipboard,
   ClipboardItem,
+  desktopCapturer,
   dialog,
   ipcMain,
   Menu,
@@ -63,7 +64,10 @@ import {
 } from "electron-updater";
 
 import { FolderId } from "@penkra/contracts";
-import type { ContextMenuItem } from "@penkra/contracts";
+import type {
+  ContextMenuItem,
+  DesktopSystemPermissions,
+} from "@penkra/contracts";
 import { isKeyboardShortcutsHelpChord } from "@penkra/shared/browserShortcuts";
 import { getMacTrafficLightPosition } from "@penkra/shared/desktopChrome";
 import {
@@ -77,8 +81,14 @@ import { NetService } from "@penkra/shared/Net";
 import { POSSIBLE_MODEL_CATALOG } from "@penkra/shared/possibleModels";
 import { applyShellEnvironmentHydrationMarker } from "@penkra/shared/shell";
 import { ProcessLogFile } from "@penkra/shared/logging";
-import { ensureStaticSnapshot, findAsarArchivePath } from "@penkra/shared/staticSnapshot";
-import { BackendReadinessAbortedError, isBackendReadinessAborted } from "./backendReadiness";
+import {
+  ensureStaticSnapshot,
+  findAsarArchivePath,
+} from "@penkra/shared/staticSnapshot";
+import {
+  BackendReadinessAbortedError,
+  isBackendReadinessAborted,
+} from "./backendReadiness";
 import { queryAppPermission } from "./appPermissionQuery";
 import { requestAppIdentityToken } from "./appIdentityToken";
 import { requestAppAccountProfile } from "./appAccountProfile";
@@ -121,7 +131,10 @@ import {
   type BundleSignature,
 } from "./bundleSwapDetection";
 import { showDesktopConfirmDialog } from "./confirmDialog";
-import { normalizeDesktopSpacesMenuInput, shouldPromoteDesktopSpacesMenuState } from "./spacesMenu";
+import {
+  normalizeDesktopSpacesMenuInput,
+  shouldPromoteDesktopSpacesMenuState,
+} from "./spacesMenu";
 import {
   makeUpdateInstallPreparationCoordinator,
   type UpdateInstallPreparationAttempt,
@@ -155,7 +168,10 @@ import {
 } from "./resumableUpdateDownload";
 import { hardenElectronUpdater } from "./electronUpdaterSecurity";
 import { ServerListeningDetector } from "./serverListeningDetector";
-import { BackendStartupBlockDetector, type BackendStartupBlock } from "./backendStartupBlock";
+import {
+  BackendStartupBlockDetector,
+  type BackendStartupBlock,
+} from "./backendStartupBlock";
 import {
   BACKEND_MAX_CONSECUTIVE_START_FAILURES,
   BackendOutputTailDetector,
@@ -248,21 +264,40 @@ import {
   verifyUpdateArtifactIdentity,
   type UpdateArtifactIdentity,
 } from "./updateArtifactIdentity";
-import { buildGitHubReleasesPageUrl, resolveGitHubUpdateSource } from "./githubUpdateFeed";
-import { isArm64HostRunningIntelBuild, resolveDesktopRuntimeInfo } from "./runtimeArch";
+import {
+  buildGitHubReleasesPageUrl,
+  resolveGitHubUpdateSource,
+} from "./githubUpdateFeed";
+import {
+  isArm64HostRunningIntelBuild,
+  resolveDesktopRuntimeInfo,
+} from "./runtimeArch";
 import { createScopedBrowserSessionPartition } from "./browserSessionPolicy";
 import { createContextMenuSelection } from "./contextMenuSelection";
-import { normalizeAppContextMenuItems, type NormalizedAppContextMenuItem } from "./appContextMenu";
-import { AppCommandPipeServer, resolveAppCommandPipePath } from "./appCommandPipeServer";
-import { RemoteLinkRegistrationOwner, RemoteRegistrationError } from "./remoteLinkRegistration";
+import {
+  normalizeAppContextMenuItems,
+  type NormalizedAppContextMenuItem,
+} from "./appContextMenu";
+import {
+  AppCommandPipeServer,
+  resolveAppCommandPipePath,
+} from "./appCommandPipeServer";
+import {
+  RemoteLinkRegistrationOwner,
+  RemoteRegistrationError,
+} from "./remoteLinkRegistration";
 import { RemoteLifecycleHost } from "./remoteLifecycleHost";
 import { RemoteAccountCoordinator } from "./remoteAccountCoordinator";
 import { watchRemoteNetworkPath } from "./remoteNetworkPath";
+import { findStuckBackend, stopStuckBackend } from "./backendOwnerTakeover";
 import { RemoteAccessController } from "./remoteAccessController";
 import { registerRemoteAccessIpc } from "./remoteAccessIpc";
 import { AppTabObserver } from "./appTabObserver";
 import { BROWSER_APP_ID, isRequiredApp } from "./appDistributionPolicy";
-import { normalizeDesktopWsUrl, resolveDesktopWsUrlFromEnv } from "./desktopWsBridge";
+import {
+  normalizeDesktopWsUrl,
+  resolveDesktopWsUrlFromEnv,
+} from "./desktopWsBridge";
 import {
   repairBrowserProfileFromBridgeManifest,
   resolveDesktopAppDataBase,
@@ -270,9 +305,15 @@ import {
 } from "./desktopUserDataProfile";
 import { configurePenkraAccountAuth } from "./accountAuth";
 import { AppRegistryClient } from "./appRegistryClient";
-import { assertRegistryReleaseAllowed, parseRegistryTrustKeys } from "./appRegistryTrust";
+import {
+  assertRegistryReleaseAllowed,
+  parseRegistryTrustKeys,
+} from "./appRegistryTrust";
 import { createDesktopPrivilegedSchemes } from "./desktopProtocolSchemes";
-import { isBrokenPipeError, recordDesktopFatalError } from "./desktopProcessErrors";
+import {
+  isBrokenPipeError,
+  recordDesktopFatalError,
+} from "./desktopProcessErrors";
 import {
   createDesktopStaticProtocolResolver,
   resolveDesktopAppRoot,
@@ -296,7 +337,10 @@ import {
 import { DESKTOP_IPC_CHANNELS } from "./ipcChannels";
 import { ComposerDraftJournal } from "./composerDraftJournal";
 import { resolveVoiceQaAudioInput } from "./voiceQaAudioInput";
-import { startDesktopAppRuntime, type DesktopAppRuntime } from "./desktopAppRuntime";
+import {
+  startDesktopAppRuntime,
+  type DesktopAppRuntime,
+} from "./desktopAppRuntime";
 import {
   openDesktopSimulatorHostRuntime,
   type DesktopSimulatorHostRuntime,
@@ -315,8 +359,14 @@ import { AppStorageService } from "./appStorage";
 import { AppBrowserDownloadManager } from "./appBrowserDownloadManager";
 import { AppTabActivation } from "./appTabActivation";
 import { resolveBrowserUploadFile } from "./browserUploadFile";
-import { requestAppAccountData, subscribeAppAccountData } from "./appAccountData";
-import { APP_STANDARD_PERMISSIONS, isAppStandardPermissionName } from "./appStandardPermissions";
+import {
+  requestAppAccountData,
+  subscribeAppAccountData,
+} from "./appAccountData";
+import {
+  APP_STANDARD_PERMISSIONS,
+  isAppStandardPermissionName,
+} from "./appStandardPermissions";
 import {
   parseAppSettingKey,
   parseAppSettingTarget,
@@ -340,7 +390,11 @@ import {
   parseRegistryRatingRequest,
   parseRegistryReviewRequest,
 } from "./appRegistryIpc";
-import { installRegistryApp, rollbackRegistryApp, updateRegistryApp } from "./registryAppInstaller";
+import {
+  installRegistryApp,
+  rollbackRegistryApp,
+  updateRegistryApp,
+} from "./registryAppInstaller";
 import {
   reconcileAutomaticRegistryAppUpdates,
   type AutomaticRegistryAppUpdateReport,
@@ -367,7 +421,10 @@ import {
   parseSetAppTabContextRequest,
 } from "./appTabIpc";
 import { parseAppListingDeepLink } from "./appListingDeepLink";
-import { getInstalledAppPackage, type VerifiedAppPackageInput } from "./appInstallationState";
+import {
+  getInstalledAppPackage,
+  type VerifiedAppPackageInput,
+} from "./appInstallationState";
 import { resolveDevRemoteDebuggingPort } from "./devRemoteDebugging";
 
 // Capture the real archive identity before any explicit app.asar lookup. Static
@@ -403,7 +460,9 @@ const desktopFlavor = resolvePenkraDesktopFlavor({
 });
 const isDevelopment = desktopFlavor === "development";
 const isPackagedRuntime = app.isPackaged && !isDevelopment;
-const devRemoteDebuggingPort = isDevelopment ? resolveDevRemoteDebuggingPort(process.env) : null;
+const devRemoteDebuggingPort = isDevelopment
+  ? resolveDevRemoteDebuggingPort(process.env)
+  : null;
 if (devRemoteDebuggingPort) {
   // Chromium reads this switch before `ready`; a later application argument is
   // visible in process.argv but does not open the debugging endpoint.
@@ -415,31 +474,48 @@ const penkraAppDataBase = resolveDesktopAppDataBase({
   platform: desktopPlatform.platform,
 });
 const penkraRootPointerPath = resolvePenkraRootPointerPath(penkraAppDataBase);
-const penkraAccountServices = initializePenkraAccountServiceEnvironment(process.env);
+const penkraAccountServices = initializePenkraAccountServiceEnvironment(
+  process.env,
+);
 const penkraRuntime = resolvePenkraRuntime({
   isDevelopment,
   configuredRoot: process.env.PENKRA_ROOT,
   configuredApiUrl: penkraAccountServices.apiUrl,
-  persistedProductionRoot: isDevelopment ? null : readPenkraRootPointer(penkraRootPointerPath),
+  persistedProductionRoot: isDevelopment
+    ? null
+    : readPenkraRootPointer(penkraRootPointerPath),
 });
 const needsPenkraRootPicker = penkraRuntime.needsRootPicker;
 const PENKRA_ROOT = penkraRuntime.root;
-const PENKRA_PICKER_USER_DATA = Path.join(penkraAppDataBase, "Penkra", "picker-userdata");
+const PENKRA_PICKER_USER_DATA = Path.join(
+  penkraAppDataBase,
+  "Penkra",
+  "picker-userdata",
+);
 const PENKRA_API_URL = penkraRuntime.apiUrl;
 process.env.PENKRA_ROOT = PENKRA_ROOT;
 process.env.PENKRA_HOME = Path.join(PENKRA_ROOT, ".penkra");
-const developmentInstance = resolvePenkraDevInstance(process.env.PENKRA_DEV_INSTANCE_NUMBER);
-const desktopIdentity = penkraDesktopIdentity(desktopFlavor, developmentInstance);
+const developmentInstance = resolvePenkraDevInstance(
+  process.env.PENKRA_DEV_INSTANCE_NUMBER,
+);
+const desktopIdentity = penkraDesktopIdentity(
+  desktopFlavor,
+  developmentInstance,
+);
 const BASE_DIR =
   process.env.PENKRA_HOME?.trim() ||
   Path.join(OS.homedir(), desktopIdentity.defaultHomeDirectoryName);
 const STATE_DIR = Path.join(BASE_DIR, "userdata");
-const DESKTOP_WINDOW_STATE_PATH = Path.join(STATE_DIR, "desktop-window-state.json");
+const DESKTOP_WINDOW_STATE_PATH = Path.join(
+  STATE_DIR,
+  "desktop-window-state.json",
+);
 const DESKTOP_SCHEME = desktopIdentity.scheme;
 const ROOT_DIR = Path.resolve(__dirname, "../../..");
 const APP_DISPLAY_NAME = desktopIdentity.displayName;
 const APP_USER_MODEL_ID = desktopIdentity.bundleId;
-const desktopSmokeUserDataPath = process.env.PENKRA_DESKTOP_SMOKE_USER_DATA?.trim();
+const desktopSmokeUserDataPath =
+  process.env.PENKRA_DESKTOP_SMOKE_USER_DATA?.trim();
 const COMMIT_HASH_PATTERN = /^[0-9a-f]{7,40}$/i;
 const COMMIT_HASH_DISPLAY_LENGTH = 12;
 const LOG_DIR = Path.join(STATE_DIR, "logs");
@@ -458,11 +534,16 @@ if (desktopSmokeUserDataPath && Path.isAbsolute(desktopSmokeUserDataPath)) {
   // purpose-built test keychain; normal Dev and production launches use the real one.
   app.commandLine.appendSwitch("use-mock-keychain");
 }
-const voiceQaAudioInput = resolveVoiceQaAudioInput(process.env.PENKRA_VOICE_QA_WAV);
+const voiceQaAudioInput = resolveVoiceQaAudioInput(
+  process.env.PENKRA_VOICE_QA_WAV,
+);
 if (voiceQaAudioInput) {
   app.commandLine.appendSwitch("no-sandbox");
   app.commandLine.appendSwitch("use-fake-device-for-media-stream");
-  app.commandLine.appendSwitch("use-file-for-fake-audio-capture", voiceQaAudioInput);
+  app.commandLine.appendSwitch(
+    "use-file-for-fake-audio-capture",
+    voiceQaAudioInput,
+  );
 }
 const userDataPath =
   desktopSmokeUserDataPath && Path.isAbsolute(desktopSmokeUserDataPath)
@@ -496,7 +577,9 @@ const BACKEND_SHUTDOWN_TIMEOUT_MS = 10_000;
 // command durably. Ordinary app quit keeps the short shutdown budget below.
 const UPDATE_BACKEND_FORCE_KILL_DELAY_MS = 125_000;
 const UPDATE_BACKEND_SHUTDOWN_TIMEOUT_MS = 130_000;
-const BACKEND_MAX_OLD_SPACE_ENV_KEYS = ["PENKRA_BACKEND_MAX_OLD_SPACE_MB"] as const;
+const BACKEND_MAX_OLD_SPACE_ENV_KEYS = [
+  "PENKRA_BACKEND_MAX_OLD_SPACE_MB",
+] as const;
 const DESKTOP_UPDATE_ALLOW_PRERELEASE = false;
 const DESKTOP_MENU_ZOOM_FACTOR_STEP = Math.sqrt(1.2);
 const DESKTOP_MENU_MIN_ZOOM_FACTOR = 0.25;
@@ -519,7 +602,10 @@ const appTabPresentationEvents = new EventEmitter();
 function appTabRoutingWindows() {
   return appTabWindowFocusOrder.order(
     shellWindows()
-      .filter((window) => !window.isDestroyed() && !window.webContents.isLoadingMainFrame())
+      .filter(
+        (window) =>
+          !window.isDestroyed() && !window.webContents.isLoadingMainFrame(),
+      )
       .map((window) => {
         const snapshot = threadHomeWindow.snapshot(window.id);
         return {
@@ -528,17 +614,22 @@ function appTabRoutingWindows() {
           visible: window.isVisible(),
           minimized: window.isMinimized(),
           spaceId:
-            spacesMenuStateByShellRendererId.get(window.webContents.id)?.activeSpaceId ?? null,
+            spacesMenuStateByShellRendererId.get(window.webContents.id)
+              ?.activeSpaceId ?? null,
           folderId:
-            snapshot?.views.find((view) => view.threadId === snapshot.activeThreadId)?.folderId ??
-            null,
+            snapshot?.views.find(
+              (view) => view.threadId === snapshot.activeThreadId,
+            )?.folderId ?? null,
         };
       }),
   );
 }
 
 function routeAppTab(
-  descriptor: Pick<DesktopAppTabOpened, "threadId" | "folderId" | "spaceId" | "initiator">,
+  descriptor: Pick<
+    DesktopAppTabOpened,
+    "threadId" | "folderId" | "spaceId" | "initiator"
+  >,
 ) {
   return routeAppTabOpened({
     descriptor,
@@ -552,8 +643,12 @@ function appTabAgentPresentation(
 ): { state: "active" | "background" } {
   const tabs = desktopAppRuntime!.appTabs;
   const ownerId = tabs.ownerWindowId(tab.id);
-  const window = shellWindows().find((candidate) => candidate.webContents.id === ownerId);
-  const candidate = appTabRoutingWindows().find((entry) => entry.id === window?.id);
+  const window = shellWindows().find(
+    (candidate) => candidate.webContents.id === ownerId,
+  );
+  const candidate = appTabRoutingWindows().find(
+    (entry) => entry.id === window?.id,
+  );
   return {
     state:
       candidate &&
@@ -570,7 +665,9 @@ async function activateAppTabForAgent(
   signal: AbortSignal,
 ): Promise<unknown> {
   const route = routeAppTab({ ...tab, threadId, initiator: "agent" });
-  const window = shellWindows().find((candidate) => candidate.id === route.targetWindowId);
+  const window = shellWindows().find(
+    (candidate) => candidate.id === route.targetWindowId,
+  );
   if (!backendHttpUrl) throw new Error("The backend is not ready.");
   const folderTabs = await readDesktopFolderAppTabs(
     { url: backendHttpUrl, token: DESKTOP_BACKEND_SHUTDOWN_TOKEN },
@@ -579,14 +676,17 @@ async function activateAppTabForAgent(
   if (!folderTabs) throw new Error("The folder is not available.");
   if (!window) throw appTabFolderUnavailable(folderTabs.folderTitle);
   if (
-    desktopAppRuntime!.appTabs.ownerWindowId(tab.id) !== window.webContents.id ||
+    desktopAppRuntime!.appTabs.ownerWindowId(tab.id) !==
+      window.webContents.id ||
     !desktopAppRuntime!.appTabs.isVisible(tab.id)
   ) {
     await appTabActivation.request(
       tab.id,
       window.webContents.id,
       signal,
-      () => routeAppTab({ ...tab, threadId, initiator: "agent" }).targetWindowId === window.id,
+      () =>
+        routeAppTab({ ...tab, threadId, initiator: "agent" }).targetWindowId ===
+        window.id,
       (request) => {
         window.webContents.send(IPC.appTabs.activationRequested, {
           requestId: request.requestId,
@@ -598,20 +698,29 @@ async function activateAppTabForAgent(
   }
   signal.throwIfAborted();
   if (
-    desktopAppRuntime!.appTabs.ownerWindowId(tab.id) !== window.webContents.id ||
+    desktopAppRuntime!.appTabs.ownerWindowId(tab.id) !==
+      window.webContents.id ||
     !desktopAppRuntime!.appTabs.isVisible(tab.id)
   ) {
-    throw Object.assign(new Error("The tab lost presentation during activation."), {
-      code: "TAB_NOT_ACTIVE",
-      dispatched: false,
-    });
+    throw Object.assign(
+      new Error("The tab lost presentation during activation."),
+      {
+        code: "TAB_NOT_ACTIVE",
+        dispatched: false,
+      },
+    );
   }
   return { tabId: tab.id, state: "active", readyForInteraction: true };
 }
 
-function inheritThreadHome(creatorThreadId: string, childThreadId: string): void {
+function inheritThreadHome(
+  creatorThreadId: string,
+  childThreadId: string,
+): void {
   threadHomeWindow.inherit(creatorThreadId, childThreadId);
-  console.info(`[thread-home] inherit creator=${creatorThreadId} child=${childThreadId}`);
+  console.info(
+    `[thread-home] inherit creator=${creatorThreadId} child=${childThreadId}`,
+  );
 }
 
 async function runAgentThreadOperation<T>(
@@ -632,11 +741,17 @@ async function runAgentThreadOperation<T>(
 }
 let desktopAppRuntime: DesktopAppRuntime | null = null;
 
-function recordPanelInteraction(windowId: number, insidePanel: boolean, source: string): void {
+function recordPanelInteraction(
+  windowId: number,
+  insidePanel: boolean,
+  source: string,
+): void {
   const previous = panelFocusState.get(windowId);
   panelFocusState.recordInteraction(windowId, insidePanel);
   if (previous !== insidePanel) {
-    console.info(`[panel-focus] window=${windowId} focused=${insidePanel} source=${source}`);
+    console.info(
+      `[panel-focus] window=${windowId} focused=${insidePanel} source=${source}`,
+    );
   }
 }
 
@@ -651,7 +766,11 @@ function routePanelShortcut(
   console.info(
     `[panel-shortcut] window=${windowId} source=${sourceId} command=${command} panelFocused=${panelFocusState.get(windowId)}`,
   );
-  const effect = resolvePanelShortcutEffect(command, panelFocusState.get(windowId), folderId);
+  const effect = resolvePanelShortcutEffect(
+    command,
+    panelFocusState.get(windowId),
+    folderId,
+  );
   switch (effect.kind) {
     case "new-window":
       createWindow({ cloneFrom: window });
@@ -660,7 +779,9 @@ function routePanelShortcut(
       window.webContents.send(IPC.menuAction, "open-find");
       return;
     case "close-panel-tab":
-      window.webContents.send(IPC.panelFocus.closePanelTab, { folderId: effect.folderId });
+      window.webContents.send(IPC.panelFocus.closePanelTab, {
+        folderId: effect.folderId,
+      });
       return;
     case "none":
       return;
@@ -680,12 +801,16 @@ function panelOwnerForWebContents(contents: WebContents): {
     (() => {
       const hosted = tabs.hostedPageForWebContentsId(contents.id);
       return hosted
-        ? (tabs.list().find((candidate) => candidate.id === hosted.tabId) ?? null)
+        ? (tabs.list().find((candidate) => candidate.id === hosted.tabId) ??
+            null)
         : null;
     })();
   if (!tab) return null;
   const windowId = tabs.ownerWindowId(tab.id);
-  const window = windowId === null ? null : shellWindowRegistry.windowForWebContentsId(windowId);
+  const window =
+    windowId === null
+      ? null
+      : shellWindowRegistry.windowForWebContentsId(windowId);
   return window ? { window, tab } : null;
 }
 
@@ -707,7 +832,8 @@ function isShellRendererId(senderId: number): boolean {
 
 function requireShellWindowForSender(sender: WebContents): BrowserWindow {
   const window = shellWindowForSender(sender);
-  if (!window) throw new Error("Only a Penkra shell window can perform this action.");
+  if (!window)
+    throw new Error("Only a Penkra shell window can perform this action.");
   return window;
 }
 
@@ -734,8 +860,14 @@ async function commitAppTabOpened(descriptor: DesktopAppTabOpened) {
           appRoute: descriptor.route,
           ...(descriptor.state === undefined
             ? {}
-            : { appState: Schema.decodeUnknownSync(Schema.Json)(descriptor.state) }),
-          ...(descriptor.presentationTitle == null ? {} : { title: descriptor.presentationTitle }),
+            : {
+                appState: Schema.decodeUnknownSync(Schema.Json)(
+                  descriptor.state,
+                ),
+              }),
+          ...(descriptor.presentationTitle == null
+            ? {}
+            : { title: descriptor.presentationTitle }),
           lastVisibleAt: new Date().toISOString(),
         },
       },
@@ -782,7 +914,8 @@ function announceAgentThreadSelection(
   selectedThreadId: string,
 ): void {
   const ready = shellWindows().filter(
-    (window) => !window.isDestroyed() && !window.webContents.isLoadingMainFrame(),
+    (window) =>
+      !window.isDestroyed() && !window.webContents.isLoadingMainFrame(),
   );
   const targetId = threadHomeWindow.select(
     presentingThreadId,
@@ -792,7 +925,9 @@ function announceAgentThreadSelection(
   );
   const target = ready.find((window) => window.id === targetId);
   if (!target) {
-    console.info(`[thread-home] select-deferred folder=${folderId} thread=${selectedThreadId}`);
+    console.info(
+      `[thread-home] select-deferred folder=${folderId} thread=${selectedThreadId}`,
+    );
     return;
   }
   threadHomeWindow.agentNavigation(target.id, selectedThreadId);
@@ -811,16 +946,20 @@ function requireGrantedIdentityAudience(
     throw new Error("Identity token request must be an object.");
   }
   const audience = (input as Record<string, unknown>).audience;
-  if (typeof audience !== "string") throw new Error("Identity token audience is required.");
+  if (typeof audience !== "string")
+    throw new Error("Identity token audience is required.");
   const permission = queryAppPermission(
     runtime.installations.snapshot(),
     identity,
     "account-identity",
   );
   if (!permission.declared || permission.state !== "granted") {
-    throw Object.assign(new Error("account-identity is not granted for this App."), {
-      code: "PERMISSION_DENIED",
-    });
+    throw Object.assign(
+      new Error("account-identity is not granted for this App."),
+      {
+        code: "PERMISSION_DENIED",
+      },
+    );
   }
   const installed = getInstalledAppPackage(
     runtime.installations.snapshot(),
@@ -831,9 +970,12 @@ function requireGrantedIdentityAudience(
     (candidate) => candidate.name === "account-identity",
   );
   if (!declaration?.audience || audience !== declaration.audience) {
-    throw Object.assign(new Error("The requested identity audience is not declared by this App."), {
-      code: "AUDIENCE_NOT_DECLARED",
-    });
+    throw Object.assign(
+      new Error("The requested identity audience is not declared by this App."),
+      {
+        code: "AUDIENCE_NOT_DECLARED",
+      },
+    );
   }
   return audience;
 }
@@ -846,14 +988,24 @@ async function invokeAppStorageCall(
   const storage = appStorage;
   if (!storage) throw new Error("The App storage service is not ready.");
   const owner = { appId: identity.appId, spaceId: identity.spaceId };
-  const input = value && typeof value === "object" && !Array.isArray(value) ? value : {};
+  const input =
+    value && typeof value === "object" && !Array.isArray(value) ? value : {};
   switch (method) {
     case "writeFile":
-      return storage.writeFile(owner, input as Parameters<AppStorageService["writeFile"]>[1]);
+      return storage.writeFile(
+        owner,
+        input as Parameters<AppStorageService["writeFile"]>[1],
+      );
     case "remove":
-      return storage.remove(owner, input as Parameters<AppStorageService["remove"]>[1]);
+      return storage.remove(
+        owner,
+        input as Parameters<AppStorageService["remove"]>[1],
+      );
     case "list":
-      return storage.list(owner, input as Parameters<AppStorageService["list"]>[1]);
+      return storage.list(
+        owner,
+        input as Parameters<AppStorageService["list"]>[1],
+      );
     case "usage":
       return storage.usage(owner);
     default:
@@ -886,10 +1038,14 @@ async function requestAppThreadOperation(
   trustedCaller = false,
 ): Promise<unknown> {
   if (!identity.threadId) {
-    throw new Error("Only an App surface attached to a Thread can use the Thread API.");
+    throw new Error(
+      "Only an App surface attached to a Thread can use the Thread API.",
+    );
   }
   if (!identity.folderId) {
-    throw new Error("Only an App surface attached to a folder can use the Thread API.");
+    throw new Error(
+      "Only an App surface attached to a folder can use the Thread API.",
+    );
   }
   if (!identity.tabId) {
     throw new Error("Only an App tab can use the current Thread API.");
@@ -902,17 +1058,23 @@ async function requestAppThreadOperation(
       permissionName,
     );
     if (!permission.declared || permission.state !== "granted") {
-      throw Object.assign(new Error(`${permissionName} is not granted for this App.`), {
-        code: "PERMISSION_DENIED",
-      });
+      throw Object.assign(
+        new Error(`${permissionName} is not granted for this App.`),
+        {
+          code: "PERMISSION_DENIED",
+        },
+      );
     }
   }
   const base = {
     id: Crypto.randomUUID(),
     appId: identity.appId,
     appName:
-      getInstalledAppPackage(runtime.installations.snapshot(), identity.appId, identity.spaceId)
-        ?.name ?? identity.appId,
+      getInstalledAppPackage(
+        runtime.installations.snapshot(),
+        identity.appId,
+        identity.spaceId,
+      )?.name ?? identity.appId,
     spaceId: identity.spaceId,
     folderId: identity.folderId,
     tabId: identity.tabId,
@@ -929,7 +1091,11 @@ async function requestAppThreadOperation(
     if (cursor !== undefined && typeof cursor !== "string") {
       throw new Error("Folder list cursor must be a string.");
     }
-    request = { ...base, method, input: cursor === undefined ? {} : { cursor } };
+    request = {
+      ...base,
+      method,
+      input: cursor === undefined ? {} : { cursor },
+    };
   } else if (method === "send") {
     if (!value || typeof value !== "object" || Array.isArray(value)) {
       throw new Error("Thread send input must be an object.");
@@ -938,7 +1104,11 @@ async function requestAppThreadOperation(
     if (typeof input.composeId !== "string" || input.composeId.length === 0) {
       throw new Error("Thread send requires a composition receipt.");
     }
-    if (input.mode !== undefined && input.mode !== "queue" && input.mode !== "steer") {
+    if (
+      input.mode !== undefined &&
+      input.mode !== "queue" &&
+      input.mode !== "steer"
+    ) {
       throw new Error("Thread send mode must be queue or steer.");
     }
     request = {
@@ -962,7 +1132,11 @@ async function requestAppThreadOperation(
     const storage = appStorage;
     if (!storage) throw new Error("The App storage service is not ready.");
     const owner = { appId: identity.appId, spaceId: identity.spaceId };
-    const resolveAttachment = async (item: { path: string; name?: string; mimeType?: string }) => ({
+    const resolveAttachment = async (item: {
+      path: string;
+      name?: string;
+      mimeType?: string;
+    }) => ({
       path: await storage.resolveFile(owner, item.path),
       name: item.name?.trim() || Path.basename(item.path),
       mimeType: item.mimeType?.trim() || "application/octet-stream",
@@ -986,7 +1160,9 @@ async function requestAppThreadOperation(
     const skills = (input.skills ?? []).map((name) => {
       const skill = ownSkills.get(name);
       if (!skill) {
-        throw new Error(`Skill ${name} is not an enabled contribution from this App.`);
+        throw new Error(
+          `Skill ${name} is not an enabled contribution from this App.`,
+        );
       }
       return skill;
     });
@@ -996,7 +1172,9 @@ async function requestAppThreadOperation(
       input: {
         threadId: input.threadId,
         ...(input.text === undefined ? {} : { text: input.text }),
-        ...(input.documents === undefined ? {} : { documents: input.documents }),
+        ...(input.documents === undefined
+          ? {}
+          : { documents: input.documents }),
         ...(files.length === 0 ? {} : { files }),
         ...(images.length === 0 ? {} : { images }),
         ...(skills.length === 0 ? {} : { skills }),
@@ -1070,8 +1248,11 @@ async function requestAppThreadOperation(
     }
     const selectedThreadId =
       method === "select"
-        ? (request as Extract<typeof request, { method: "select" }>).input.threadId
-        : method === "create" && request.method === "create" && request.input.select === true
+        ? (request as Extract<typeof request, { method: "select" }>).input
+            .threadId
+        : method === "create" &&
+            request.method === "create" &&
+            request.input.select === true
           ? result && typeof result === "object"
             ? (result as { threadId?: string }).threadId
             : undefined
@@ -1079,7 +1260,11 @@ async function requestAppThreadOperation(
             ? (result as { selectedThreadId?: string | null }).selectedThreadId
             : undefined;
     if (selectedThreadId)
-      announceAgentThreadSelection(identity.threadId, identity.folderId, selectedThreadId);
+      announceAgentThreadSelection(
+        identity.threadId,
+        identity.folderId,
+        selectedThreadId,
+      );
     return result;
   } finally {
     if (!trustedCaller) {
@@ -1107,15 +1292,23 @@ function parseAppFolderPosition(
     return { type: position.type };
   }
   if (position.type === "before" || position.type === "after") {
-    if (typeof position.threadId !== "string" || position.threadId.length === 0) {
-      throw new Error(`folder ${position.type} position requires an anchor Thread ID.`);
+    if (
+      typeof position.threadId !== "string" ||
+      position.threadId.length === 0
+    ) {
+      throw new Error(
+        `folder ${position.type} position requires an anchor Thread ID.`,
+      );
     }
     return { type: position.type, threadId: position.threadId };
   }
   throw new Error("folder position type must be start, end, before, or after.");
 }
 
-function acceptThreadApiState(event: Electron.IpcMainEvent, input: unknown): void {
+function acceptThreadApiState(
+  event: Electron.IpcMainEvent,
+  input: unknown,
+): void {
   if (
     event.sender.isDestroyed() ||
     !shellWindowRegistry.hasWebContents(event.sender) ||
@@ -1150,9 +1343,12 @@ let unsubscribeSimulatorState: (() => void) | null = null;
 const appSimulatorTrackedRendererIds = new Set<number>();
 let appRegistryClient: AppRegistryClient | null = null;
 let developmentSideloadRegistry: DevelopmentAppSideloadRegistry | null = null;
-let requiredAppsPackage: (VerifiedAppPackageInput & { source: "registry" }) | null = null;
-let requiredAppsPackageLoad: Promise<VerifiedAppPackageInput & { source: "registry" }> | null =
-  null;
+let requiredAppsPackage:
+  | (VerifiedAppPackageInput & { source: "registry" })
+  | null = null;
+let requiredAppsPackageLoad: Promise<
+  VerifiedAppPackageInput & { source: "registry" }
+> | null = null;
 let requiredAppsPackageIsDevelopmentSource = false;
 let configuredAppBootstrapQueue: Promise<void> = Promise.resolve();
 let automaticAppUpdateTimer: ReturnType<typeof setTimeout> | null = null;
@@ -1172,12 +1368,19 @@ function renewRemoteRegistrationAfterSignIn(): void {
   const accountId = pendingRemoteSignInAccountId;
   if (!owner || !accountId) return;
   pendingRemoteSignInAccountId = null;
-  void owner.renewAfterSignIn(accountId, remoteRegistrationLifetime.signal).catch((error) => {
-    console.warn("[remote-link] Explicit sign-in registration renewal failed", {
-      code: error instanceof RemoteRegistrationError ? error.code : "internal",
-      status: error instanceof RemoteRegistrationError ? error.status : undefined,
+  void owner
+    .renewAfterSignIn(accountId, remoteRegistrationLifetime.signal)
+    .catch((error) => {
+      console.warn(
+        "[remote-link] Explicit sign-in registration renewal failed",
+        {
+          code:
+            error instanceof RemoteRegistrationError ? error.code : "internal",
+          status:
+            error instanceof RemoteRegistrationError ? error.status : undefined,
+        },
+      );
     });
-  });
 }
 const appAccountSubscriptions = new AppAccountSubscriptionStore();
 const runtimeV2FileHandles = new AppScopedFileHandleStore();
@@ -1199,7 +1402,9 @@ function revokeRuntimeV2FileScope(appId: string, spaceId: string): void {
       console.warn("[penkra-app] File-write scope disposal failed.", error);
     });
   try {
-    runtimeV2FileWatches.disposeDetached(runtimeV2FileWatches.detachScope(appId, spaceId));
+    runtimeV2FileWatches.disposeDetached(
+      runtimeV2FileWatches.detachScope(appId, spaceId),
+    );
   } catch (error) {
     console.warn("[penkra-app] File-watch scope disposal failed.", error);
   }
@@ -1226,7 +1431,10 @@ function retireAppGenerationAuthority(owner: {
   try {
     appAccountSubscriptions.disposeDetached(subscriptions);
   } catch (error) {
-    console.warn("[penkra-app] Account-subscription generation disposal failed.", error);
+    console.warn(
+      "[penkra-app] Account-subscription generation disposal failed.",
+      error,
+    );
   }
   void runtimeV2FileWrites.disposeDetached(writes).catch((error) => {
     console.warn("[penkra-app] File-write generation disposal failed.", error);
@@ -1255,7 +1463,10 @@ function retireAppTabAuthority(owner: {
   try {
     appAccountSubscriptions.disposeDetached(subscriptions);
   } catch (error) {
-    console.warn("[penkra-app] Account-subscription tab disposal failed.", error);
+    console.warn(
+      "[penkra-app] Account-subscription tab disposal failed.",
+      error,
+    );
   }
   try {
     runtimeV2SimulatorSurfaces.disposeDetached(simulatorSurface);
@@ -1266,14 +1477,17 @@ function retireAppTabAuthority(owner: {
     console.warn("[penkra-app] File-write tab disposal failed.", error);
   });
   void desktopSimulatorRuntime?.manager.closeTab(owner.tabId).catch((error) => {
-    console.warn(`[penkra-app] Simulator tab disposal failed: ${formatErrorMessage(error)}`);
+    console.warn(
+      `[penkra-app] Simulator tab disposal failed: ${formatErrorMessage(error)}`,
+    );
   });
 }
 const activeWorkPowerBlocker = new ActiveWorkPowerBlocker({
   blocker: powerSaveBlocker,
   onError: (message, error) =>
     safeConsoleError(`[desktop-power] ${message} ${formatErrorMessage(error)}`),
-  onStateChange: (state) => console.info("[desktop-power] Activity changed.", state),
+  onStateChange: (state) =>
+    console.info("[desktop-power] Activity changed.", state),
 });
 const desktopRunningWork = new DesktopRunningWorkClient({
   onWorking: (working) => {
@@ -1281,13 +1495,18 @@ const desktopRunningWork = new DesktopRunningWorkClient({
     appTabObserver?.setActiveTurnThreadIds(working);
   },
   onError: (error) =>
-    safeConsoleError(`[desktop-power] Running-work stream failed: ${formatErrorMessage(error)}`),
+    safeConsoleError(
+      `[desktop-power] Running-work stream failed: ${formatErrorMessage(error)}`,
+    ),
 });
 let spacesMenuState: DesktopSpacesMenuInput = {
   activeSpaceId: null,
   spaces: [],
 };
-const spacesMenuStateByShellRendererId = new Map<number, DesktopSpacesMenuInput>();
+const spacesMenuStateByShellRendererId = new Map<
+  number,
+  DesktopSpacesMenuInput
+>();
 let backendProcess: ChildProcess.ChildProcess | null = null;
 let backendPort = 0;
 
@@ -1296,7 +1515,9 @@ function scheduleAutomaticAppUpdateCheck(delayMs: number): void {
   automaticAppUpdateTimer = setTimeout(() => {
     automaticAppUpdateTimer = null;
     void bootstrapConfiguredAppsForSpaces().catch((error) => {
-      console.warn(`[penkra-app] Automatic App update check failed: ${formatErrorMessage(error)}`);
+      console.warn(
+        `[penkra-app] Automatic App update check failed: ${formatErrorMessage(error)}`,
+      );
     });
   }, delayMs);
 }
@@ -1393,13 +1614,17 @@ function bootstrapConfiguredAppsForSpaces(): Promise<void> {
   return result;
 }
 
-async function reconcileConfiguredRequiredApps(spaceIds: ReadonlyArray<string>): Promise<void> {
+async function reconcileConfiguredRequiredApps(
+  spaceIds: ReadonlyArray<string>,
+): Promise<void> {
   const runtime = desktopAppRuntime;
   const embedded =
     requiredAppsPackage ??
     (requiredAppsPackageLoad === null ? null : await requiredAppsPackageLoad);
   if (!runtime || !embedded) {
-    const error = new Error("The embedded required Apps package is unavailable.");
+    const error = new Error(
+      "The embedded required Apps package is unavailable.",
+    );
     handleFatalStartupError("required Apps", error);
     throw error;
   }
@@ -1413,7 +1638,9 @@ async function reconcileConfiguredRequiredApps(spaceIds: ReadonlyArray<string>):
       developmentSourcePackage: requiredAppsPackageIsDevelopmentSource,
       verifySideloadOwnership: async (installed) => {
         if (!appRegistryClient) {
-          throw new Error("The App registry is unavailable for sideload ownership recovery.");
+          throw new Error(
+            "The App registry is unavailable for sideload ownership recovery.",
+          );
         }
         const identity = await authorizeAppSideloadIdentity({
           manifest: installed.manifest,
@@ -1444,7 +1671,11 @@ async function openPenkraResource(input: {
   const runtime = desktopAppRuntime;
   if (!runtime) throw new Error("The App runtime is not ready.");
   if (input.tabId !== undefined)
-    await runtime.broker.resolveTabInFolder(input.tabId, input.spaceId, input.folderId);
+    await runtime.broker.resolveTabInFolder(
+      input.tabId,
+      input.spaceId,
+      input.folderId,
+    );
   if (input.url) {
     const url = new URL(input.url);
     if (url.protocol !== "http:" && url.protocol !== "https:") {
@@ -1481,7 +1712,8 @@ async function openPenkraResource(input: {
     };
   }
 
-  if (input.path === undefined) throw new Error("Resource open requires a path or URL.");
+  if (input.path === undefined)
+    throw new Error("Resource open requires a path or URL.");
   return openLocalAppResource({
     broker: runtime.broker,
     fileHandles: runtimeV2FileHandles,
@@ -1544,9 +1776,12 @@ async function showPenkraResourceContextMenu(input: {
   const choice = selectedId ? choices.get(selectedId) : undefined;
   if (!choice) return null;
   if (choice.destination === "app") {
-    if (!choice.requestedApp) throw new Error("The selected App destination is invalid.");
+    if (!choice.requestedApp)
+      throw new Error("The selected App destination is invalid.");
     const resource =
-      "url" in model.resource ? { url: model.resource.url } : { path: model.resource.path };
+      "url" in model.resource
+        ? { url: model.resource.url }
+        : { path: model.resource.path };
     return openPenkraResource({
       ...resource,
       requestedApp: choice.requestedApp,
@@ -1605,7 +1840,11 @@ let appTabIdleInterval: ReturnType<typeof setInterval> | null = null;
 let appTabIdleSweepInFlight: Promise<void> | null = null;
 const visibleAppTabs = new Map<string, string>();
 
-async function stampAppTabs(folderId: string, tabIds: string[], at: string): Promise<void> {
+async function stampAppTabs(
+  folderId: string,
+  tabIds: string[],
+  at: string,
+): Promise<void> {
   if (!backendHttpUrl) throw new Error("The backend is not ready.");
   await updateDesktopFolderAppTabs(
     { url: backendHttpUrl, token: DESKTOP_BACKEND_SHUTDOWN_TOKEN },
@@ -1628,22 +1867,24 @@ function recordAppTabVisibility(): void {
   );
   for (const [tabId, folderId] of next) {
     if (!visibleAppTabs.has(tabId))
-      void stampAppTabs(folderId, [tabId], new Date().toISOString()).catch((error) =>
-        console.error("[app-tab-visibility] Could not stamp selected tab", {
-          tabId,
-          folderId,
-          error,
-        }),
+      void stampAppTabs(folderId, [tabId], new Date().toISOString()).catch(
+        (error) =>
+          console.error("[app-tab-visibility] Could not stamp selected tab", {
+            tabId,
+            folderId,
+            error,
+          }),
       );
   }
   for (const [tabId, folderId] of visibleAppTabs) {
     if (!next.has(tabId))
-      void stampAppTabs(folderId, [tabId], new Date().toISOString()).catch((error) =>
-        console.error("[app-tab-visibility] Could not stamp hidden tab", {
-          tabId,
-          folderId,
-          error,
-        }),
+      void stampAppTabs(folderId, [tabId], new Date().toISOString()).catch(
+        (error) =>
+          console.error("[app-tab-visibility] Could not stamp hidden tab", {
+            tabId,
+            folderId,
+            error,
+          }),
       );
   }
   visibleAppTabs.clear();
@@ -1652,14 +1893,25 @@ function recordAppTabVisibility(): void {
 
 function startAppTabIdleRetention(): void {
   const sweep = () => {
-    if (isQuitting || appTabIdleSweepInFlight || !backendHttpUrl || !desktopAppRuntime) return;
+    if (
+      isQuitting ||
+      appTabIdleSweepInFlight ||
+      !backendHttpUrl ||
+      !desktopAppRuntime
+    )
+      return;
     const runtime = desktopAppRuntime;
-    const backend = { url: backendHttpUrl, token: DESKTOP_BACKEND_SHUTDOWN_TOKEN };
+    const backend = {
+      url: backendHttpUrl,
+      token: DESKTOP_BACKEND_SHUTDOWN_TOKEN,
+    };
     appTabIdleSweepInFlight = runAppTabIdleSweep(new Date().toISOString(), {
       readPage: (after) => listDesktopFolderAppTabs(backend, after),
-      isVisible: (tabId) => runtime.appTabs.has(tabId) && runtime.appTabs.isVisible(tabId),
+      isVisible: (tabId) =>
+        runtime.appTabs.has(tabId) && runtime.appTabs.isVisible(tabId),
       stamp: stampAppTabs,
-      close: (folderId, tabId, cutoff) => runtime.appTabs.closeIfIdle(tabId, folderId, cutoff),
+      close: (folderId, tabId, cutoff) =>
+        runtime.appTabs.closeIfIdle(tabId, folderId, cutoff),
     })
       .then((result) => console.info("[app-tab-idle-sweep]", result))
       .catch((error) => console.error("[app-tab-idle-sweep] Failed", error))
@@ -1668,7 +1920,10 @@ function startAppTabIdleRetention(): void {
       });
   };
   // P23: explicit operator-chosen initial delay and periodic retention schedule.
-  appTabIdleInitialTimer = setTimeout(sweep, APP_TAB_IDLE_SWEEP_INITIAL_DELAY_MS);
+  appTabIdleInitialTimer = setTimeout(
+    sweep,
+    APP_TAB_IDLE_SWEEP_INITIAL_DELAY_MS,
+  );
   appTabIdleInterval = setInterval(sweep, APP_TAB_IDLE_SWEEP_INTERVAL_MS);
 }
 // Latched before internal quit/relaunch paths so `before-quit` can distinguish
@@ -1684,7 +1939,10 @@ let restoreStdIoCapture: (() => void) | null = null;
 let unreadBackgroundNotificationCount = 0;
 let appTabObserver: AppTabObserver | null = null;
 let appHostedBrowserObserver: AppTabObserver | null = null;
-const handleHostedBeforeInput = (event: Electron.Event, input: Electron.Input): boolean => {
+const handleHostedBeforeInput = (
+  event: Electron.Event,
+  input: Electron.Input,
+): boolean => {
   if (
     isKeyboardShortcutsHelpChord(
       {
@@ -1711,13 +1969,19 @@ const handleHostedBeforeInput = (event: Electron.Event, input: Electron.Input): 
   return handleDesktopWindowZoomShortcut(event, input);
 };
 let appCommandPipeServer: AppCommandPipeServer | null = null;
-const appBrowserOwnerByTabId = new Map<string, { appId: string; spaceId: string }>();
+const appBrowserOwnerByTabId = new Map<
+  string,
+  { appId: string; spaceId: string }
+>();
 const configuredAppBrowserDownloadPartitions = new Set<string>();
 const appBrowserDownloadManagers = new Map<string, AppBrowserDownloadManager>();
 let configuredUpdaterCacheDirName: string | null = null;
 let appTabDiagnosticSequence = 0;
 
-function traceAppTab(event: string, details: Record<string, unknown> = {}): void {
+function traceAppTab(
+  event: string,
+  details: Record<string, unknown> = {},
+): void {
   console.info("[app-tab-diagnostic]", {
     ...details,
     sequence: ++appTabDiagnosticSequence,
@@ -1738,13 +2002,22 @@ function traceAppTabWindow(window: BrowserWindow, event: string): void {
     .executeJavaScript(
       "({ visibilityState: document.visibilityState, hasFocus: document.hasFocus() })",
     )
-    .then((rendererState: unknown) => traceAppTab(event, { ...details, rendererState }))
+    .then((rendererState: unknown) =>
+      traceAppTab(event, { ...details, rendererState }),
+    )
     .catch((error: unknown) => {
-      traceAppTab(event, { ...details, rendererStateError: formatErrorMessage(error) });
+      traceAppTab(event, {
+        ...details,
+        rendererStateError: formatErrorMessage(error),
+      });
     });
 }
 
-function resizeAppTabWindow(windowId: number, width: number, height: number): void {
+function resizeAppTabWindow(
+  windowId: number,
+  width: number,
+  height: number,
+): void {
   desktopAppRuntime?.appTabs.resizeWindow(windowId, width, height);
 }
 
@@ -1776,7 +2049,11 @@ async function releaseAppTabWindow(windowId: number): Promise<void> {
   await desktopAppRuntime?.appTabs.releaseWindowPresentation(windowId);
 }
 
-function configureAppBrowserDownloads(appTabId: string, appId: string, spaceId: string): void {
+function configureAppBrowserDownloads(
+  appTabId: string,
+  appId: string,
+  spaceId: string,
+): void {
   appBrowserOwnerByTabId.set(appTabId, { appId, spaceId });
   const partition = createScopedBrowserSessionPartition(appId, spaceId);
   if (configuredAppBrowserDownloadPartitions.has(partition)) return;
@@ -1790,7 +2067,12 @@ function configureAppBrowserDownloads(appTabId: string, appId: string, spaceId: 
       const tabs = desktopAppRuntime?.appTabs;
       if (!tabs) return;
       for (const [tabId, owner] of appBrowserOwnerByTabId) {
-        if (owner.appId !== appId || owner.spaceId !== spaceId || !tabs.has(tabId)) continue;
+        if (
+          owner.appId !== appId ||
+          owner.spaceId !== spaceId ||
+          !tabs.has(tabId)
+        )
+          continue;
         tabs.sendEvent(tabId, "browser.downloads.changed", change);
         if (legacy) tabs.sendEvent(tabId, "browser.download", legacy);
       }
@@ -1798,35 +2080,44 @@ function configureAppBrowserDownloads(appTabId: string, appId: string, spaceId: 
   );
   appBrowserDownloadManagers.set(partition, manager);
   configuredAppBrowserDownloadPartitions.add(partition);
-  session.fromPartition(partition).on("will-download", (_event, item, source) => {
-    if (!source) {
-      try {
-        if (manager.admitRetry(item)) return;
-      } catch (error) {
-        console.error("[app-browser-download] Could not resume download.", error);
+  session
+    .fromPartition(partition)
+    .on("will-download", (_event, item, source) => {
+      if (!source) {
+        try {
+          if (manager.admitRetry(item)) return;
+        } catch (error) {
+          console.error(
+            "[app-browser-download] Could not resume download.",
+            error,
+          );
+          item.cancel();
+          return;
+        }
+      }
+      const page = source
+        ? (desktopAppRuntime?.appTabs.hostedPageForWebContentsId(source.id) ??
+          null)
+        : null;
+      if (!page) return;
+      const ownerTabId = page.tabId;
+      const owner = appBrowserOwnerByTabId.get(ownerTabId);
+      const storage = appStorage;
+      const runtime = desktopAppRuntime;
+      if (!owner || !storage || !runtime?.appTabs.has(ownerTabId)) {
         item.cancel();
         return;
       }
-    }
-    const page = source
-      ? (desktopAppRuntime?.appTabs.hostedPageForWebContentsId(source.id) ?? null)
-      : null;
-    if (!page) return;
-    const ownerTabId = page.tabId;
-    const owner = appBrowserOwnerByTabId.get(ownerTabId);
-    const storage = appStorage;
-    const runtime = desktopAppRuntime;
-    if (!owner || !storage || !runtime?.appTabs.has(ownerTabId)) {
-      item.cancel();
-      return;
-    }
-    try {
-      manager.admit(item, page.pageId);
-    } catch (error) {
-      console.error("[app-browser-download] Could not start download.", error);
-      item.cancel();
-    }
-  });
+      try {
+        manager.admit(item, page.pageId);
+      } catch (error) {
+        console.error(
+          "[app-browser-download] Could not start download.",
+          error,
+        );
+        item.cancel();
+      }
+    });
 }
 
 async function showAppContextMenu(
@@ -1874,8 +2165,12 @@ function appContextMenuTemplate(
     const option: MenuItemConstructorOptions = {
       label: item.label,
       enabled: item.enabled,
-      ...(item.checked === undefined ? {} : { type: "checkbox", checked: item.checked }),
-      ...(item.accelerator === undefined ? {} : { accelerator: item.accelerator }),
+      ...(item.checked === undefined
+        ? {}
+        : { type: "checkbox", checked: item.checked }),
+      ...(item.accelerator === undefined
+        ? {}
+        : { accelerator: item.accelerator }),
       click: () => select(item.id),
     };
     if (item.destructive) {
@@ -1903,10 +2198,15 @@ async function runtimeV2FileEntry(
   size: number;
   modifiedAt: string;
 }> {
-  return appScopedFileEntry(handle, Path.relative(handle.rootPath, absolutePath));
+  return appScopedFileEntry(
+    handle,
+    Path.relative(handle.rootPath, absolutePath),
+  );
 }
 
-function parseRuntimeShellOpenExternalOptions(value: unknown): OpenExternalOptions | undefined {
+function parseRuntimeShellOpenExternalOptions(
+  value: unknown,
+): OpenExternalOptions | undefined {
   if (value === undefined) return undefined;
   if (!value || typeof value !== "object" || Array.isArray(value)) {
     throw new Error("Shell openExternal options must be an object.");
@@ -1914,11 +2214,13 @@ function parseRuntimeShellOpenExternalOptions(value: unknown): OpenExternalOptio
   const record = value as Record<string, unknown>;
   const options: OpenExternalOptions = {};
   if (record.activate !== undefined) {
-    if (typeof record.activate !== "boolean") throw new Error("activate must be a boolean.");
+    if (typeof record.activate !== "boolean")
+      throw new Error("activate must be a boolean.");
     options.activate = record.activate;
   }
   if (record.logUsage !== undefined) {
-    if (typeof record.logUsage !== "boolean") throw new Error("logUsage must be a boolean.");
+    if (typeof record.logUsage !== "boolean")
+      throw new Error("logUsage must be a boolean.");
     options.logUsage = record.logUsage;
   }
   return options;
@@ -1929,15 +2231,25 @@ function writeRuntimeShellShortcut(value: unknown): boolean {
     throw new Error("Shell shortcut input must be an object.");
   }
   const record = value as Record<string, unknown>;
-  if (typeof record.shortcutPath !== "string") throw new Error("Shortcut path must be a string.");
-  const rawOptions = record.options === undefined ? record.operationOrOptions : record.options;
-  if (!rawOptions || typeof rawOptions !== "object" || Array.isArray(rawOptions)) {
+  if (typeof record.shortcutPath !== "string")
+    throw new Error("Shortcut path must be a string.");
+  const rawOptions =
+    record.options === undefined ? record.operationOrOptions : record.options;
+  if (
+    !rawOptions ||
+    typeof rawOptions !== "object" ||
+    Array.isArray(rawOptions)
+  ) {
     throw new Error("Shortcut details must be an object.");
   }
   const options = rawOptions as ShortcutDetails;
-  if (typeof options.target !== "string") throw new Error("Shortcut target must be a string.");
-  if (record.options === undefined) return shell.writeShortcutLink(record.shortcutPath, options);
-  if (!["create", "update", "replace"].includes(String(record.operationOrOptions))) {
+  if (typeof options.target !== "string")
+    throw new Error("Shortcut target must be a string.");
+  if (record.options === undefined)
+    return shell.writeShortcutLink(record.shortcutPath, options);
+  if (
+    !["create", "update", "replace"].includes(String(record.operationOrOptions))
+  ) {
     throw new Error("Shortcut operation is invalid.");
   }
   return shell.writeShortcutLink(
@@ -1953,13 +2265,21 @@ async function uploadAppBrowserFiles(input: {
   spaceId: string;
   value: unknown;
 }): Promise<{ uploaded: number }> {
-  if (!input.value || typeof input.value !== "object" || Array.isArray(input.value)) {
+  if (
+    !input.value ||
+    typeof input.value !== "object" ||
+    Array.isArray(input.value)
+  ) {
     throw new Error("Browser upload input is required.");
   }
   const record = input.value as Record<string, unknown>;
   if (typeof record.pageId !== "string" || !record.pageId)
     throw new Error("Browser upload pageId is required.");
-  if (typeof record.selector !== "string" || !record.selector || record.selector.length > 1_000)
+  if (
+    typeof record.selector !== "string" ||
+    !record.selector ||
+    record.selector.length > 1_000
+  )
     throw new Error("Browser upload selector is required.");
   if (
     !Array.isArray(record.paths) ||
@@ -2019,7 +2339,11 @@ function runtimeV2SimulatorViewport(
         stopFrames: null,
         generation,
       });
-      desktopAppRuntime?.appTabs.sendEvent(owner.tabId, "simulator.surface", bounds);
+      desktopAppRuntime?.appTabs.sendEvent(
+        owner.tabId,
+        "simulator.surface",
+        bounds,
+      );
       if (!bounds || bounds.width === 0 || bounds.height === 0) return;
       if (manager.getState(owner).phase !== "ready") return;
       const subscription = await manager.subscribeFrames(
@@ -2050,7 +2374,8 @@ async function authorizeRuntimeV2SimulatorSetup(
   const runtimeInfo = request.runtimeId
     ? (await simulatorRuntime.manager.listRuntimes()).find(
         (candidate) =>
-          candidate.id === request.runtimeId && candidate.platform === request.platform,
+          candidate.id === request.runtimeId &&
+          candidate.platform === request.platform,
       )
     : null;
   const platformName = request.platform === "ios" ? "iOS Simulator" : "Android";
@@ -2101,7 +2426,9 @@ function sanitizeLogValue(value: string): string {
 
 function writeDesktopLogHeader(message: string): void {
   if (!desktopLogSink) return;
-  desktopLogSink.write(`[${logTimestamp()}] [${logScope("desktop")}] ${message}\n`);
+  desktopLogSink.write(
+    `[${logTimestamp()}] [${logScope("desktop")}] ${message}\n`,
+  );
 }
 
 function safeConsoleError(...args: Parameters<typeof console.error>): void {
@@ -2127,7 +2454,10 @@ function describeExternalUrlForLog(externalUrl: string): string {
 }
 
 function describeExternalOpenFailure(error: unknown): string {
-  return sanitizeLogValue(formatErrorMessage(error)).replace(/https?:\/\/\S+/gi, "[url]");
+  return sanitizeLogValue(formatErrorMessage(error)).replace(
+    /https?:\/\/\S+/gi,
+    "[url]",
+  );
 }
 
 function getSafeExternalUrl(rawUrl: unknown): string | null {
@@ -2167,7 +2497,9 @@ function getDesktopWindowState(window: BrowserWindow): {
   };
 }
 
-function emitDesktopWindowState(window: BrowserWindow | null = resolveShellWindow()): void {
+function emitDesktopWindowState(
+  window: BrowserWindow | null = resolveShellWindow(),
+): void {
   if (!window || window.isDestroyed()) return;
   window.webContents.send(IPC.windowState, getDesktopWindowState(window));
 }
@@ -2181,7 +2513,10 @@ function isSaveFileInput(input: unknown): input is {
     return false;
   }
   const record = input as Record<string, unknown>;
-  if (typeof record.defaultFilename !== "string" || record.defaultFilename.trim().length === 0) {
+  if (
+    typeof record.defaultFilename !== "string" ||
+    record.defaultFilename.trim().length === 0
+  ) {
     return false;
   }
   if (typeof record.contents !== "string") {
@@ -2199,7 +2534,9 @@ function isSaveFileInput(input: unknown): input is {
     return (
       typeof filterRecord.name === "string" &&
       Array.isArray(filterRecord.extensions) &&
-      filterRecord.extensions.every((extension) => typeof extension === "string")
+      filterRecord.extensions.every(
+        (extension) => typeof extension === "string",
+      )
     );
   });
 }
@@ -2217,7 +2554,9 @@ async function reserveBackendEndpoint(reason: string): Promise<void> {
   backendHttpUrl = `http://127.0.0.1:${backendPort}`;
   backendWsUrl = `ws://127.0.0.1:${backendPort}/?token=${encodeURIComponent(backendAuthToken)}`;
   process.env.PENKRA_DESKTOP_WS_URL = backendWsUrl;
-  writeDesktopLogHeader(`${reason} resolved backend endpoint port=${backendPort}`);
+  writeDesktopLogHeader(
+    `${reason} resolved backend endpoint port=${backendPort}`,
+  );
 }
 
 async function waitForBackendWindowReady(): Promise<"listening"> {
@@ -2258,7 +2597,10 @@ function writeDesktopStreamChunk(
   if (!desktopLogSink) return;
   const buffer = Buffer.isBuffer(chunk)
     ? chunk
-    : Buffer.from(String(chunk), typeof chunk === "string" ? encoding : undefined);
+    : Buffer.from(
+        String(chunk),
+        typeof chunk === "string" ? encoding : undefined,
+      );
   desktopLogSink.write(`[${logTimestamp()}] [${logScope(streamName)}] `);
   desktopLogSink.write(buffer);
   if (buffer.length === 0 || buffer[buffer.length - 1] !== 0x0a) {
@@ -2275,13 +2617,17 @@ function installStdIoCapture(): void {
   const originalStderrWrite = process.stderr.write.bind(process.stderr);
 
   const patchWrite =
-    (streamName: "stdout" | "stderr", originalWrite: typeof process.stdout.write) =>
+    (
+      streamName: "stdout" | "stderr",
+      originalWrite: typeof process.stdout.write,
+    ) =>
     (
       chunk: string | Uint8Array,
       encodingOrCallback?: BufferEncoding | ((error?: Error | null) => void),
       callback?: (error?: Error | null) => void,
     ): boolean => {
-      const encoding = typeof encodingOrCallback === "string" ? encodingOrCallback : undefined;
+      const encoding =
+        typeof encodingOrCallback === "string" ? encodingOrCallback : undefined;
       writeDesktopStreamChunk(streamName, chunk, encoding);
       if (typeof encodingOrCallback === "function") {
         return originalWrite(chunk, encodingOrCallback);
@@ -2306,7 +2652,9 @@ function installStdIoCapture(): void {
 }
 
 function initializeLogging(): void {
-  desktopLogSink = new ProcessLogFile(Path.join(LOG_DIR, DESKTOP_LOG_FILE_NAME));
+  desktopLogSink = new ProcessLogFile(
+    Path.join(LOG_DIR, DESKTOP_LOG_FILE_NAME),
+  );
   installStdIoCapture();
   writeDesktopLogHeader(`runtime log capture enabled logDir=${LOG_DIR}`);
 }
@@ -2364,7 +2712,8 @@ let activeUpdateInstallHandoff: UpdateInstallHandoffExpectation | null = null;
 const pendingUpdateCacheClearQueue = new PendingUpdateCacheClearQueue();
 
 function resolveUpdaterErrorContext(): DesktopUpdateErrorContext {
-  if (isUpdaterInstallPreparing || isUpdaterQuitAndInstallInFlight) return "install";
+  if (isUpdaterInstallPreparing || isUpdaterQuitAndInstallInFlight)
+    return "install";
   if (updateDownloadInFlight) return "download";
   if (updateCheckInFlight) return "check";
   return updateState.errorContext;
@@ -2408,7 +2757,11 @@ function recordInstallMarkerFailure(
     );
     return Math.max(1, updateState.installFailureCount + 1);
   }
-  const result = recordInstallMarkerFailureSync(getUpdateInstallMarkerPath(), expected, nowIso);
+  const result = recordInstallMarkerFailureSync(
+    getUpdateInstallMarkerPath(),
+    expected,
+    nowIso,
+  );
   if (result.status === "missing" || result.status === "invalid") {
     console.error(
       `[desktop-updater] Could not record durable install failure: marker is ${result.status}${result.status === "invalid" ? ` (${result.error})` : ""}.`,
@@ -2443,7 +2796,10 @@ function armInstallWatchdog(): void {
     }
     const failedHandoff = activeUpdateInstallHandoff;
     clearUpdaterInstallInFlightAfterError();
-    const consecutiveFailures = recordInstallMarkerFailure(new Date().toISOString(), failedHandoff);
+    const consecutiveFailures = recordInstallMarkerFailure(
+      new Date().toISOString(),
+      failedHandoff,
+    );
     setUpdateState({
       ...reduceDesktopUpdateStateOnInstallFailure(
         updateState,
@@ -2467,7 +2823,9 @@ function armInstallWatchdog(): void {
   }, AUTO_UPDATE_INSTALL_WATCHDOG_MS);
 }
 
-protocol.registerSchemesAsPrivileged([...createDesktopPrivilegedSchemes(desktopIdentity)]);
+protocol.registerSchemesAsPrivileged([
+  ...createDesktopPrivilegedSchemes(desktopIdentity),
+]);
 
 function resolveAppRoot(): string {
   return resolveDesktopAppRoot({
@@ -2638,7 +2996,8 @@ async function handleDesktopMigrationRecovery(): Promise<DesktopMigrationRecover
       if (canInstallUpdate) {
         choices.push({
           label: "Update Penkra and restart",
-          detail: "install the newest Penkra release, which may already contain the fix",
+          detail:
+            "install the newest Penkra release, which may already contain the fix",
           decision: "install-update",
         });
       }
@@ -2655,7 +3014,9 @@ async function handleDesktopMigrationRecovery(): Promise<DesktopMigrationRecover
         decision: "quit",
       });
 
-      const options = formatRecoveryOptionList(choices.map((choice) => choice.detail));
+      const options = formatRecoveryOptionList(
+        choices.map((choice) => choice.detail),
+      );
       const result = await dialog.showMessageBox({
         type: previousFailure === null ? "warning" : "error",
         title:
@@ -2739,7 +3100,9 @@ class BundleChangedDuringStartupError extends Error {
     baseline: BundleSignature | null;
     current: BundleSignature | null;
   }) {
-    super("The packaged application changed while its static assets were being prepared.");
+    super(
+      "The packaged application changed while its static assets were being prepared.",
+    );
     this.name = "BundleChangedDuringStartupError";
     this.bundlePath = input.bundlePath;
     this.baseline = input.baseline;
@@ -2773,7 +3136,8 @@ function computeServedStaticRoot(): ServedStaticRoot | null {
     return { dir: sourceDir, snapshotted: false };
   }
   const startupArchiveSignature =
-    startupBundleIdentity && Path.resolve(startupBundleIdentity.path) === Path.resolve(archivePath)
+    startupBundleIdentity &&
+    Path.resolve(startupBundleIdentity.path) === Path.resolve(archivePath)
       ? startupBundleIdentity.signature
       : undefined;
   if (startupArchiveSignature === null) {
@@ -2783,7 +3147,8 @@ function computeServedStaticRoot(): ServedStaticRoot | null {
       current: readBundleSignature(archivePath),
     });
   }
-  const archiveSignature = startupArchiveSignature ?? readBundleSignature(archivePath);
+  const archiveSignature =
+    startupArchiveSignature ?? readBundleSignature(archivePath);
   if (!archiveSignature) {
     return { dir: sourceDir, snapshotted: false };
   }
@@ -2839,12 +3204,19 @@ function computeServedStaticRoot(): ServedStaticRoot | null {
 function handleFatalStartupError(stage: string, error: unknown): void {
   const message = formatErrorMessage(error);
   const detail =
-    error instanceof Error && typeof error.stack === "string" ? `\n${error.stack}` : "";
-  writeDesktopLogHeader(`fatal startup error stage=${stage} message=${message}`);
+    error instanceof Error && typeof error.stack === "string"
+      ? `\n${error.stack}`
+      : "";
+  writeDesktopLogHeader(
+    `fatal startup error stage=${stage} message=${message}`,
+  );
   console.error(`[desktop] fatal startup error (${stage})`, error);
   if (!isQuitting) {
     isQuitting = true;
-    dialog.showErrorBox("Penkra failed to start", `Stage: ${stage}\n${message}${detail}`);
+    dialog.showErrorBox(
+      "Penkra failed to start",
+      `Stage: ${stage}\n${message}${detail}`,
+    );
   }
   if (desktopPlatform.processLifecycle.backendShutdown === "windows-control") {
     requestGracefulAppQuit(`fatal startup (${stage})`);
@@ -2870,7 +3242,8 @@ function markDevelopmentDesktopReady(): void {
 }
 
 function registerDesktopProtocol(): void {
-  if ((isDevelopment && !desktopSmokeUserDataPath) || desktopProtocolRegistered) return;
+  if ((isDevelopment && !desktopSmokeUserDataPath) || desktopProtocolRegistered)
+    return;
 
   // An unreadable first observation cannot be replaced by a later baseline:
   // Electron may already hold the header for the generation that disappeared.
@@ -2942,14 +3315,18 @@ function setWindowZoomFactor(zoomFactor: number): void {
     Math.max(DESKTOP_MENU_MIN_ZOOM_FACTOR, zoomFactor),
   );
   window.webContents.setZoomFactor(nextZoomFactor);
-  desktopAppRuntime?.appTabs.setZoomFactor(nextZoomFactor, window.webContents.id);
+  desktopAppRuntime?.appTabs.setZoomFactor(
+    nextZoomFactor,
+    window.webContents.id,
+  );
   sendDesktopZoomFactor(window.webContents);
 }
 
 function applyDesktopWindowZoomAction(
   action: Exclude<ReturnType<typeof resolveDesktopWindowZoomAction>, null>,
 ): void {
-  const currentZoomFactor = resolveMenuTargetWindow()?.webContents.getZoomFactor();
+  const currentZoomFactor =
+    resolveMenuTargetWindow()?.webContents.getZoomFactor();
   if (!currentZoomFactor) return;
   if (action === "reset") {
     setWindowZoomFactor(1);
@@ -2957,12 +3334,20 @@ function applyDesktopWindowZoomAction(
   }
   setWindowZoomFactor(
     currentZoomFactor *
-      (action === "zoomIn" ? DESKTOP_MENU_ZOOM_FACTOR_STEP : 1 / DESKTOP_MENU_ZOOM_FACTOR_STEP),
+      (action === "zoomIn"
+        ? DESKTOP_MENU_ZOOM_FACTOR_STEP
+        : 1 / DESKTOP_MENU_ZOOM_FACTOR_STEP),
   );
 }
 
-function handleDesktopWindowZoomShortcut(event: Electron.Event, input: Electron.Input): boolean {
-  const action = resolveDesktopWindowZoomAction(desktopPlatform.platform, input);
+function handleDesktopWindowZoomShortcut(
+  event: Electron.Event,
+  input: Electron.Input,
+): boolean {
+  const action = resolveDesktopWindowZoomAction(
+    desktopPlatform.platform,
+    input,
+  );
   if (!action) return false;
 
   event.preventDefault();
@@ -2970,12 +3355,15 @@ function handleDesktopWindowZoomShortcut(event: Electron.Event, input: Electron.
   return true;
 }
 
-function attachDesktopWindowShortcuts(webContents: Electron.WebContents): () => void {
+function attachDesktopWindowShortcuts(
+  webContents: Electron.WebContents,
+): () => void {
   const beforeInputEvent = (event: Electron.Event, input: Electron.Input) => {
     handleDesktopWindowZoomShortcut(event, input);
   };
   webContents.on("before-input-event", beforeInputEvent);
-  return () => webContents.removeListener("before-input-event", beforeInputEvent);
+  return () =>
+    webContents.removeListener("before-input-event", beforeInputEvent);
 }
 
 function resetWindowZoomFromMenu(): void {
@@ -2991,11 +3379,15 @@ function adjustWindowZoomFromMenu(multiplier: number): void {
 // A configured app-update.yml (or the mock-updates flag) is the prerequisite for any
 // auto-update activity; centralized so the menu and the enable check stay in lockstep.
 function hasConfiguredUpdateFeed(): boolean {
-  return readAppUpdateYml() !== null || Boolean(process.env.PENKRA_DESKTOP_MOCK_UPDATES);
+  return (
+    readAppUpdateYml() !== null ||
+    Boolean(process.env.PENKRA_DESKTOP_MOCK_UPDATES)
+  );
 }
 
 function resolveAutoUpdateDisabledReason(): string | null {
-  if (desktopPlatform.updater.disabledReason) return desktopPlatform.updater.disabledReason;
+  if (desktopPlatform.updater.disabledReason)
+    return desktopPlatform.updater.disabledReason;
   return getAutoUpdateDisabledReason({
     isDevelopment,
     isPackaged: app.isPackaged,
@@ -3009,7 +3401,9 @@ function resolveAutoUpdateDisabledReason(): string | null {
 function handleCheckForUpdatesMenuClick(): void {
   const disabledReason = resolveAutoUpdateDisabledReason();
   if (disabledReason) {
-    console.info("[desktop-updater] Manual update check requested, but updates are disabled.");
+    console.info(
+      "[desktop-updater] Manual update check requested, but updates are disabled.",
+    );
     void dialog.showMessageBox({
       type: "info",
       title: "Updates unavailable",
@@ -3036,7 +3430,10 @@ async function checkForUpdatesFromMenu(): Promise<void> {
       message: `Penkra ${updateState.currentVersion} is currently the newest version available.`,
       buttons: ["OK"],
     });
-  } else if (updateState.status === "downloading" || updateState.status === "available") {
+  } else if (
+    updateState.status === "downloading" ||
+    updateState.status === "available"
+  ) {
     void dialog.showMessageBox({
       type: "info",
       title: "Update found",
@@ -3047,7 +3444,8 @@ async function checkForUpdatesFromMenu(): Promise<void> {
     void dialog.showMessageBox({
       type: "info",
       title: "Update ready",
-      message: "Click Update in the sidebar when you’re ready to restart and install it.",
+      message:
+        "Click Update in the sidebar when you’re ready to restart and install it.",
       buttons: ["OK"],
     });
   } else if (updateState.status === "error") {
@@ -3055,7 +3453,9 @@ async function checkForUpdatesFromMenu(): Promise<void> {
       type: "warning",
       title: "Update check failed",
       message: "Could not check for updates.",
-      detail: updateState.message ?? "An unknown error occurred. Please try again later.",
+      detail:
+        updateState.message ??
+        "An unknown error occurred. Please try again later.",
       buttons: ["OK"],
     });
   }
@@ -3069,7 +3469,10 @@ function configureApplicationMenu(): void {
   const acceleratorProps = (
     accelerator: MenuItemConstructorOptions["accelerator"],
   ): Pick<MenuItemConstructorOptions, "accelerator"> => {
-    const resolved = resolveDesktopMenuAccelerator(desktopPlatform.platform, accelerator);
+    const resolved = resolveDesktopMenuAccelerator(
+      desktopPlatform.platform,
+      accelerator,
+    );
     return resolved ? { accelerator: resolved } : {};
   };
   // Native zoom roles target whichever WebContents has focus. Penkra presents its
@@ -3148,7 +3551,12 @@ function configureApplicationMenu(): void {
               { type: "separator" as const },
             ]),
         ...(desktopPlatform.platform === "darwin"
-          ? [{ label: "Close Window", click: () => resolveMenuTargetWindow()?.close() }]
+          ? [
+              {
+                label: "Close Window",
+                click: () => resolveMenuTargetWindow()?.close(),
+              },
+            ]
           : [{ role: "quit" as const }]),
       ],
     },
@@ -3211,7 +3619,9 @@ function configureApplicationMenu(): void {
       submenu: [
         {
           label: "Keyboard Shortcuts",
-          ...(keyboardShortcutsAccelerator ? { accelerator: keyboardShortcutsAccelerator } : {}),
+          ...(keyboardShortcutsAccelerator
+            ? { accelerator: keyboardShortcutsAccelerator }
+            : {}),
           click: () => dispatchMenuAction("show-shortcuts"),
         },
         { type: "separator" },
@@ -3271,7 +3681,10 @@ function isMainWindowForeground(window: BrowserWindow | null): boolean {
 }
 
 function incrementUnreadNotificationBadge(): void {
-  unreadBackgroundNotificationCount = Math.min(unreadBackgroundNotificationCount + 1, 99);
+  unreadBackgroundNotificationCount = Math.min(
+    unreadBackgroundNotificationCount + 1,
+    99,
+  );
   syncUnreadNotificationBadge();
 }
 
@@ -3296,7 +3709,10 @@ function focusMainWindow(options: { stealAppFocus?: boolean } = {}): void {
   if (!targetWindow.isVisible()) {
     targetWindow.show();
   }
-  if (desktopPlatform.application.activateBeforeFocus && options.stealAppFocus === true) {
+  if (
+    desktopPlatform.application.activateBeforeFocus &&
+    options.stealAppFocus === true
+  ) {
     // BrowserWindow.focus() alone does not activate a macOS app while another
     // application owns focus.
     app.show();
@@ -3314,7 +3730,8 @@ function showDesktopNotification(input: {
 }): boolean {
   const title = typeof input.title === "string" ? input.title.trim() : "";
   const body = typeof input.body === "string" ? input.body.trim() : "";
-  const threadId = typeof input.threadId === "string" ? input.threadId.trim() : "";
+  const threadId =
+    typeof input.threadId === "string" ? input.threadId.trim() : "";
   if (title.length === 0 || !Notification.isSupported()) {
     return false;
   }
@@ -3338,7 +3755,10 @@ function showDesktopNotification(input: {
       return;
     }
     if (threadId.length > 0) {
-      targetWindow.webContents.send(IPC.menuAction, `notification-open-thread:${threadId}`);
+      targetWindow.webContents.send(
+        IPC.menuAction,
+        `notification-open-thread:${threadId}`,
+      );
     }
   });
 
@@ -3361,7 +3781,8 @@ function resolveUserDataPath(): string {
 }
 
 function repairBrowserProfileBeforeElectronReady(userDataPath: string): void {
-  const browserProfileRepair = repairBrowserProfileFromBridgeManifest(userDataPath);
+  const browserProfileRepair =
+    repairBrowserProfileFromBridgeManifest(userDataPath);
   if (browserProfileRepair.status === "repaired") {
     console.info("[desktop] Completed Penkra browser profile bridge repair", {
       sourcePath: browserProfileRepair.sourcePath,
@@ -3369,11 +3790,14 @@ function repairBrowserProfileBeforeElectronReady(userDataPath: string): void {
       copiedEntries: browserProfileRepair.copiedEntries,
     });
   } else if (browserProfileRepair.status === "repair-failed") {
-    console.warn("[desktop] Failed to complete Penkra browser profile bridge repair", {
-      sourcePath: browserProfileRepair.sourcePath,
-      targetPath: browserProfileRepair.targetPath,
-      error: browserProfileRepair.error,
-    });
+    console.warn(
+      "[desktop] Failed to complete Penkra browser profile bridge repair",
+      {
+        sourcePath: browserProfileRepair.sourcePath,
+        targetPath: browserProfileRepair.targetPath,
+        error: browserProfileRepair.error,
+      },
+    );
   }
 }
 
@@ -3416,7 +3840,10 @@ function applyLegacyMacDockIcon(): void {
 
 function readLaunchVersionRecordContents(): string | null {
   try {
-    return FS.readFileSync(resolveLaunchVersionRecordPath(app.getPath("userData")), "utf8");
+    return FS.readFileSync(
+      resolveLaunchVersionRecordPath(app.getPath("userData")),
+      "utf8",
+    );
   } catch {
     // No prior record (fresh profile) or an unreadable file.
     return null;
@@ -3449,7 +3876,9 @@ function refreshMacIconCacheOnVersionChange(): void {
   }
 
   const currentVersion = app.getVersion();
-  const previousVersion = parseLastLaunchVersion(readLaunchVersionRecordContents());
+  const previousVersion = parseLastLaunchVersion(
+    readLaunchVersionRecordContents(),
+  );
   if (!shouldRefreshIconCache(previousVersion, currentVersion)) {
     return;
   }
@@ -3459,7 +3888,10 @@ function refreshMacIconCacheOnVersionChange(): void {
   // instead of spawning lsregister each time.
   persistLastLaunchVersion(currentVersion);
 
-  const bundlePath = resolveMacAppBundlePath(process.execPath, desktopPlatform.platform);
+  const bundlePath = resolveMacAppBundlePath(
+    process.execPath,
+    desktopPlatform.platform,
+  );
   if (!bundlePath || !FS.existsSync(LSREGISTER_PATH)) {
     return;
   }
@@ -3480,7 +3912,10 @@ function refreshMacIconCacheOnVersionChange(): void {
   });
   child.unref();
   child.once("error", (error) => {
-    console.warn("[desktop] Failed to refresh macOS icon cache after update", error);
+    console.warn(
+      "[desktop] Failed to refresh macOS icon cache after update",
+      error,
+    );
   });
   child.once("exit", (code) => {
     console.info(
@@ -3516,13 +3951,18 @@ function captureStartupBundleIdentity(): BundleIdentity | null {
   return { path: bundlePath, signature: readBundleSignature(bundlePath) };
 }
 
-function restartAfterStartupBundleSwap(error: BundleChangedDuringStartupError): void {
+function restartAfterStartupBundleSwap(
+  error: BundleChangedDuringStartupError,
+): void {
   const baselineSize = error.baseline?.size ?? "unreadable";
   const currentSize = error.current?.size ?? "unreadable";
   writeDesktopLogHeader(
     `bundle changed during startup path=${error.bundlePath} size=${baselineSize}->${currentSize}`,
   );
-  console.warn("[desktop] Packaged application changed during startup; restarting", error);
+  console.warn(
+    "[desktop] Packaged application changed during startup; restarting",
+    error,
+  );
 
   void dialog
     .showMessageBox({
@@ -3556,7 +3996,8 @@ function startBundleSwapWatcher(): void {
     return;
   }
   let baseline =
-    startupBundleIdentity && Path.resolve(startupBundleIdentity.path) === Path.resolve(bundlePath)
+    startupBundleIdentity &&
+    Path.resolve(startupBundleIdentity.path) === Path.resolve(bundlePath)
       ? (startupBundleIdentity.signature ?? readBundleSignature(bundlePath))
       : readBundleSignature(bundlePath);
   if (!baseline) {
@@ -3631,7 +4072,9 @@ function scheduleUpdatePoll(): void {
 
 function isExplicitUpdateCheckReason(reason: string): boolean {
   return (
-    reason === "menu" || reason === "renderer" || reason === UPDATE_CHECK_REASON_MIGRATION_RECOVERY
+    reason === "menu" ||
+    reason === "renderer" ||
+    reason === UPDATE_CHECK_REASON_MIGRATION_RECOVERY
   );
 }
 
@@ -3648,8 +4091,13 @@ function shouldEnableAutoUpdates(): boolean {
   return resolveAutoUpdateDisabledReason() === null;
 }
 
-function isKnownUpdateVersionNewer(version: string | null | undefined): boolean {
-  return typeof version === "string" && isUpdateVersionNewer(app.getVersion(), version);
+function isKnownUpdateVersionNewer(
+  version: string | null | undefined,
+): boolean {
+  return (
+    typeof version === "string" &&
+    isUpdateVersionNewer(app.getVersion(), version)
+  );
 }
 
 function getUpdaterCachePathArgs(): {
@@ -3673,13 +4121,17 @@ function getPendingUpdateCacheDir(): string | null {
 }
 
 function clearLegacyUpdaterZipAfterVerifiedInstall(): void {
-  const legacyZipPath = resolveElectronUpdaterLegacyZipPath(getUpdaterCachePathArgs());
+  const legacyZipPath = resolveElectronUpdaterLegacyZipPath(
+    getUpdaterCachePathArgs(),
+  );
   if (!legacyZipPath) {
     return;
   }
   try {
     FS.rmSync(legacyZipPath, { force: true });
-    console.info("[desktop-updater] Cleared legacy top-level update.zip after verified install.");
+    console.info(
+      "[desktop-updater] Cleared legacy top-level update.zip after verified install.",
+    );
   } catch (error) {
     console.warn(
       `[desktop-updater] Failed to clear legacy top-level update.zip: ${formatErrorMessage(error)}`,
@@ -3688,7 +4140,9 @@ function clearLegacyUpdaterZipAfterVerifiedInstall(): void {
 }
 
 function quarantineInstallMarker(reason: string): void {
-  console.warn(`[desktop-updater] Discarding update install marker (${reason}).`);
+  console.warn(
+    `[desktop-updater] Discarding update install marker (${reason}).`,
+  );
   try {
     clearInstallMarker(getUpdateInstallMarkerPath());
   } catch (error) {
@@ -3784,9 +4238,13 @@ async function clearPendingUpdateCache(reason: string): Promise<void> {
 // Terminal updater events can arrive before downloadUpdate() settles; defer cache deletion
 // until the updater has released its in-flight download bookkeeping.
 function clearPendingUpdateCacheWhenSafe(reason: string): void {
-  pendingUpdateCacheClearQueue.request(reason, updateDownloadInFlight, (safeReason) => {
-    void clearPendingUpdateCache(safeReason);
-  });
+  pendingUpdateCacheClearQueue.request(
+    reason,
+    updateDownloadInFlight,
+    (safeReason) => {
+      void clearPendingUpdateCache(safeReason);
+    },
+  );
 }
 
 function clearUpdateBackgroundBlurTimer(): void {
@@ -3875,7 +4333,9 @@ function armUpdateDownloadStallTimer(reason: string): void {
       return;
     }
 
-    const error = new Error(getDownloadStallTimeoutMessage(AUTO_UPDATE_DOWNLOAD_STALL_TIMEOUT_MS));
+    const error = new Error(
+      getDownloadStallTimeoutMessage(AUTO_UPDATE_DOWNLOAD_STALL_TIMEOUT_MS),
+    );
     console.error(`[desktop-updater] ${error.message} (${reason}).`);
     armStalledDownloadCancellationSuppression();
     rejectUpdateDownloadStall?.(error);
@@ -3884,18 +4344,24 @@ function armUpdateDownloadStallTimer(reason: string): void {
   updateDownloadStallTimer.unref();
 }
 
-function updateDownloadStallTimerOnProgress(progress: DownloadProgressSample): void {
+function updateDownloadStallTimerOnProgress(
+  progress: DownloadProgressSample,
+): void {
   if (!updateDownloadInFlight) {
     return;
   }
-  if (!hasDownloadProgressAdvanced(lastUpdateDownloadProgressSample, progress)) {
+  if (
+    !hasDownloadProgressAdvanced(lastUpdateDownloadProgressSample, progress)
+  ) {
     return;
   }
   lastUpdateDownloadProgressSample = {
     percent: progress.percent ?? null,
     transferred: progress.transferred ?? null,
   };
-  armUpdateDownloadStallTimer(`download progress ${Math.floor(progress.percent ?? 0)}%`);
+  armUpdateDownloadStallTimer(
+    `download progress ${Math.floor(progress.percent ?? 0)}%`,
+  );
 }
 
 function isDesktopAppForegrounded(): boolean {
@@ -3962,7 +4428,13 @@ function beginActiveUpdateCheck(): () => void {
 }
 
 async function checkForUpdates(reason: string): Promise<void> {
-  if (isQuitting || isUpdaterInstallPreparing || !updaterConfigured || updateCheckInFlight) return;
+  if (
+    isQuitting ||
+    isUpdaterInstallPreparing ||
+    !updaterConfigured ||
+    updateCheckInFlight
+  )
+    return;
   if (automaticUpdateActivitySuppressed) {
     if (!isExplicitUpdateCheckReason(reason)) {
       console.info(
@@ -3988,7 +4460,9 @@ async function checkForUpdates(reason: string): Promise<void> {
   }
   updateCheckInFlight = true;
   const finishCheck = beginActiveUpdateCheck();
-  setUpdateState(reduceDesktopUpdateStateOnCheckStart(updateState, new Date().toISOString()));
+  setUpdateState(
+    reduceDesktopUpdateStateOnCheckStart(updateState, new Date().toISOString()),
+  );
   armUpdateCheckTimeout(reason);
   console.info(`[desktop-updater] Checking for updates (${reason})...`);
 
@@ -3998,7 +4472,11 @@ async function checkForUpdates(reason: string): Promise<void> {
     clearUpdateCheckTimeoutTimer();
     const message = error instanceof Error ? error.message : String(error);
     setUpdateState(
-      reduceDesktopUpdateStateOnCheckFailure(updateState, message, new Date().toISOString()),
+      reduceDesktopUpdateStateOnCheckFailure(
+        updateState,
+        message,
+        new Date().toISOString(),
+      ),
     );
     console.error(`[desktop-updater] Failed to check for updates: ${message}`);
   } finally {
@@ -4021,12 +4499,20 @@ async function downloadAvailableUpdate(): Promise<{
     await checkForUpdates("renderer");
     return { accepted: true, completed: false };
   }
-  if (!updaterConfigured || updateDownloadInFlight || updateState.status !== "available") {
+  if (
+    !updaterConfigured ||
+    updateDownloadInFlight ||
+    updateState.status !== "available"
+  ) {
     return { accepted: false, completed: false };
   }
   if (!isKnownUpdateVersionNewer(updateState.availableVersion)) {
-    await clearPendingUpdateCache("available version is not newer than current app");
-    setUpdateState(reduceDesktopUpdateStateOnNoUpdate(updateState, new Date().toISOString()));
+    await clearPendingUpdateCache(
+      "available version is not newer than current app",
+    );
+    setUpdateState(
+      reduceDesktopUpdateStateOnNoUpdate(updateState, new Date().toISOString()),
+    );
     console.info(
       `[desktop-updater] Ignoring stale available update ${updateState.availableVersion ?? "unknown"} for current ${app.getVersion()}.`,
     );
@@ -4075,7 +4561,9 @@ async function downloadAvailableUpdate(): Promise<{
     };
   } catch (error: unknown) {
     const message = error instanceof Error ? error.message : String(error);
-    setUpdateState(reduceDesktopUpdateStateOnDownloadFailure(updateState, message));
+    setUpdateState(
+      reduceDesktopUpdateStateOnDownloadFailure(updateState, message),
+    );
     console.error(`[desktop-updater] Failed to download update: ${message}`);
     return { accepted: true, completed: false };
   } finally {
@@ -4087,7 +4575,10 @@ async function downloadAvailableUpdate(): Promise<{
       const settled = await Promise.race([
         updaterDownloadSettledPromise.then(() => true),
         new Promise<false>((resolve) => {
-          setTimeout(() => resolve(false), AUTO_UPDATE_DOWNLOAD_SETTLE_TIMEOUT_MS).unref();
+          setTimeout(
+            () => resolve(false),
+            AUTO_UPDATE_DOWNLOAD_SETTLE_TIMEOUT_MS,
+          ).unref();
         }),
       ]);
     }
@@ -4097,7 +4588,8 @@ async function downloadAvailableUpdate(): Promise<{
     rejectUpdateDownloadStall = null;
     lastUpdateDownloadProgressSample = null;
     updateDownloadInFlight = false;
-    const pendingCacheClearReason = pendingUpdateCacheClearQueue.consumeAfterDownload();
+    const pendingCacheClearReason =
+      pendingUpdateCacheClearQueue.consumeAfterDownload();
     if (pendingCacheClearReason) {
       await clearPendingUpdateCache(pendingCacheClearReason);
     }
@@ -4113,7 +4605,9 @@ function prepareAvailableUpdateInBackground(reason: string): void {
   const preparation = downloadAvailableUpdate()
     .then((result) => {
       if (result.accepted && result.completed) {
-        console.info(`[desktop-updater] Background update download completed (${reason}).`);
+        console.info(
+          `[desktop-updater] Background update download completed (${reason}).`,
+        );
       }
     })
     .catch((error) => {
@@ -4152,9 +4646,14 @@ function canInstallUpdateFromRecovery(): boolean {
  * available". Resolves to a message to show in the next prompt when the update
  * could not be installed, or to null once the install handoff has started.
  */
-async function installLatestUpdateForMigrationRecovery(): Promise<string | null> {
+async function installLatestUpdateForMigrationRecovery(): Promise<
+  string | null
+> {
   if (!updaterConfigured) {
-    return resolveAutoUpdateDisabledReason() ?? "Automatic updates are not available.";
+    return (
+      resolveAutoUpdateDisabledReason() ??
+      "Automatic updates are not available."
+    );
   }
 
   if (updateState.status !== "downloaded") {
@@ -4216,10 +4715,15 @@ async function runDownloadedUpdateInstall(
   accepted: boolean;
   completed: boolean;
 }> {
-  const versionToInstall = updateState.downloadedVersion ?? updateState.availableVersion;
+  const versionToInstall =
+    updateState.downloadedVersion ?? updateState.availableVersion;
   if (!versionToInstall || !isKnownUpdateVersionNewer(versionToInstall)) {
-    await clearPendingUpdateCache("downloaded version is not newer than current app");
-    setUpdateState(reduceDesktopUpdateStateOnNoUpdate(updateState, new Date().toISOString()));
+    await clearPendingUpdateCache(
+      "downloaded version is not newer than current app",
+    );
+    setUpdateState(
+      reduceDesktopUpdateStateOnNoUpdate(updateState, new Date().toISOString()),
+    );
     console.info(
       `[desktop-updater] Ignoring stale downloaded update ${versionToInstall ?? "unknown"} for current ${app.getVersion()}.`,
     );
@@ -4232,9 +4736,14 @@ async function runDownloadedUpdateInstall(
       : null;
   if (!artifact || !(await verifyUpdateArtifactIdentity(artifact))) {
     downloadedUpdateArtifact = null;
-    await clearPendingUpdateCache("downloaded artifact identity is missing or changed");
-    const message = "The downloaded update could not be reverified. Download it again.";
-    setUpdateState(reduceDesktopUpdateStateOnDownloadFailure(updateState, message));
+    await clearPendingUpdateCache(
+      "downloaded artifact identity is missing or changed",
+    );
+    const message =
+      "The downloaded update could not be reverified. Download it again.";
+    setUpdateState(
+      reduceDesktopUpdateStateOnDownloadFailure(updateState, message),
+    );
     console.error(`[desktop-updater] Refusing install handoff: ${message}`);
     return { accepted: false, completed: false };
   }
@@ -4275,7 +4784,9 @@ async function runDownloadedUpdateInstall(
     if (!(await verifyUpdateArtifactIdentity(artifact))) {
       artifactInvalidated = true;
       downloadedUpdateArtifact = null;
-      await clearPendingUpdateCache("downloaded artifact changed during install preparation");
+      await clearPendingUpdateCache(
+        "downloaded artifact changed during install preparation",
+      );
       throw new Error(
         "The downloaded update changed during install preparation. Download it again.",
       );
@@ -4284,7 +4795,9 @@ async function runDownloadedUpdateInstall(
     writeInstallMarker(markerPath, marker);
     markerWritten = true;
     if (!markInstallHandoffSync(markerPath, handoffExpectation)) {
-      throw new Error("Durable update install marker changed before install handoff.");
+      throw new Error(
+        "Durable update install marker changed before install handoff.",
+      );
     }
     activeUpdateInstallHandoff = handoffExpectation;
     isUpdaterQuitAndInstallInFlight = true;
@@ -4339,12 +4852,18 @@ async function installDownloadedUpdate(): Promise<{
   }
 }
 
-async function recordDownloadedUpdateIdentity(info: UpdateDownloadedEvent): Promise<void> {
+async function recordDownloadedUpdateIdentity(
+  info: UpdateDownloadedEvent,
+): Promise<void> {
   clearUpdateDownloadStallTimer();
   if (!isUpdateVersionNewer(app.getVersion(), info.version)) {
     downloadedUpdateArtifact = null;
-    clearPendingUpdateCacheWhenSafe("downloaded version is not newer than current app");
-    setUpdateState(reduceDesktopUpdateStateOnNoUpdate(updateState, new Date().toISOString()));
+    clearPendingUpdateCacheWhenSafe(
+      "downloaded version is not newer than current app",
+    );
+    setUpdateState(
+      reduceDesktopUpdateStateOnNoUpdate(updateState, new Date().toISOString()),
+    );
     console.info(
       `[desktop-updater] Ignoring downloaded non-newer update ${info.version}; current version is ${app.getVersion()}.`,
     );
@@ -4355,12 +4874,21 @@ async function recordDownloadedUpdateIdentity(info: UpdateDownloadedEvent): Prom
     const identity = await fingerprintUpdateArtifact(info.downloadedFile);
     if (!isUpdateVersionNewer(app.getVersion(), info.version)) {
       downloadedUpdateArtifact = null;
-      clearPendingUpdateCacheWhenSafe("downloaded version became stale during fingerprinting");
-      setUpdateState(reduceDesktopUpdateStateOnNoUpdate(updateState, new Date().toISOString()));
+      clearPendingUpdateCacheWhenSafe(
+        "downloaded version became stale during fingerprinting",
+      );
+      setUpdateState(
+        reduceDesktopUpdateStateOnNoUpdate(
+          updateState,
+          new Date().toISOString(),
+        ),
+      );
       return;
     }
     downloadedUpdateArtifact = { version: info.version, identity };
-    setUpdateState(reduceDesktopUpdateStateOnDownloadComplete(updateState, info.version));
+    setUpdateState(
+      reduceDesktopUpdateStateOnDownloadComplete(updateState, info.version),
+    );
     console.info(
       `[desktop-updater] Update downloaded and fingerprinted: ${info.version} (${identity.size} bytes, sha512=${identity.sha512.slice(0, 16)}…).`,
     );
@@ -4368,17 +4896,24 @@ async function recordDownloadedUpdateIdentity(info: UpdateDownloadedEvent): Prom
     downloadedUpdateArtifact = null;
     clearPendingUpdateCacheWhenSafe("downloaded artifact fingerprint failed");
     const message = `The downloaded update could not be verified: ${formatErrorMessage(error)}`;
-    setUpdateState(reduceDesktopUpdateStateOnDownloadFailure(updateState, message));
+    setUpdateState(
+      reduceDesktopUpdateStateOnDownloadFailure(updateState, message),
+    );
     console.error(`[desktop-updater] ${message}`);
   }
 }
 
 function configureAutoUpdater(): void {
   const appUpdateYml = readAppUpdateYml();
-  configuredUpdaterCacheDirName = resolveElectronUpdaterCacheDirName(appUpdateYml, app.getName());
+  configuredUpdaterCacheDirName = resolveElectronUpdaterCacheDirName(
+    appUpdateYml,
+    app.getName(),
+  );
   const githubUpdateSource = resolveGitHubUpdateSource(appUpdateYml);
   const releaseUrl =
-    githubUpdateSource === null ? null : buildGitHubReleasesPageUrl(githubUpdateSource);
+    githubUpdateSource === null
+      ? null
+      : buildGitHubReleasesPageUrl(githubUpdateSource);
   const enabled = shouldEnableAutoUpdates();
   setUpdateState({
     ...createInitialDesktopUpdateState(app.getVersion(), desktopRuntimeInfo),
@@ -4420,7 +4955,11 @@ function configureAutoUpdater(): void {
   // download transfer with a stall-aware, resumable one and installs a real idle
   // timeout, so an intermittent stall becomes a brief reconnect-and-resume
   // instead of a multi-minute freeze. Independent of the zip-validation fix.
-  if (!installResumableUpdateDownloader(autoUpdater as unknown as ResumableDownloaderTarget)) {
+  if (
+    !installResumableUpdateDownloader(
+      autoUpdater as unknown as ResumableDownloaderTarget,
+    )
+  ) {
     console.warn(
       "[desktop-updater] Could not install resumable update downloader; falling back to default transfer.",
     );
@@ -4440,8 +4979,15 @@ function configureAutoUpdater(): void {
     clearUpdateCheckTimeoutTimer();
     downloadedUpdateArtifact = null;
     if (!isUpdateVersionNewer(app.getVersion(), info.version)) {
-      void clearPendingUpdateCache("available version is not newer than current app");
-      setUpdateState(reduceDesktopUpdateStateOnNoUpdate(updateState, new Date().toISOString()));
+      void clearPendingUpdateCache(
+        "available version is not newer than current app",
+      );
+      setUpdateState(
+        reduceDesktopUpdateStateOnNoUpdate(
+          updateState,
+          new Date().toISOString(),
+        ),
+      );
       lastLoggedDownloadMilestone = -1;
       console.info(
         `[desktop-updater] Ignoring non-newer update ${info.version}; current version is ${app.getVersion()}.`,
@@ -4463,7 +5009,9 @@ function configureAutoUpdater(): void {
     clearUpdateCheckTimeoutTimer();
     downloadedUpdateArtifact = null;
     void clearPendingUpdateCache("no newer update available");
-    setUpdateState(reduceDesktopUpdateStateOnNoUpdate(updateState, new Date().toISOString()));
+    setUpdateState(
+      reduceDesktopUpdateStateOnNoUpdate(updateState, new Date().toISOString()),
+    );
     lastLoggedDownloadMilestone = -1;
     console.info("[desktop-updater] No updates available.");
   });
@@ -4479,7 +5027,9 @@ function configureAutoUpdater(): void {
       })
     ) {
       consumeStalledDownloadCancellationSuppression();
-      console.warn("[desktop-updater] Ignored expected cancellation after stalled download.");
+      console.warn(
+        "[desktop-updater] Ignored expected cancellation after stalled download.",
+      );
       return;
     }
     const failedHandoff = activeUpdateInstallHandoff;
@@ -4504,7 +5054,9 @@ function configureAutoUpdater(): void {
         checkedAt: new Date().toISOString(),
         downloadPercent: null,
         errorContext,
-        canRetry: updateState.availableVersion !== null || updateState.downloadedVersion !== null,
+        canRetry:
+          updateState.availableVersion !== null ||
+          updateState.downloadedVersion !== null,
         installFailureCount,
       });
     }
@@ -4517,7 +5069,12 @@ function configureAutoUpdater(): void {
       shouldBroadcastDownloadProgress(updateState, progress.percent) ||
       updateState.message !== null
     ) {
-      setUpdateState(reduceDesktopUpdateStateOnDownloadProgress(updateState, progress.percent));
+      setUpdateState(
+        reduceDesktopUpdateStateOnDownloadProgress(
+          updateState,
+          progress.percent,
+        ),
+      );
     }
     const milestone = percent - (percent % 10);
     if (milestone > lastLoggedDownloadMilestone) {
@@ -4529,7 +5086,8 @@ function configureAutoUpdater(): void {
     const task = recordDownloadedUpdateIdentity(info);
     downloadedUpdateIdentityTask = task;
     const clearTask = () => {
-      if (downloadedUpdateIdentityTask === task) downloadedUpdateIdentityTask = null;
+      if (downloadedUpdateIdentityTask === task)
+        downloadedUpdateIdentityTask = null;
     };
     void task.then(clearTask, clearTask);
   });
@@ -4574,7 +5132,9 @@ function backendEnv(): NodeJS.ProcessEnv {
       ...(appCommandPipeServer?.backendEnvironment ?? {}),
       // Point the backend's HTTP static route at the same swap-immune snapshot the
       // penkra:// protocol serves, so both surfaces survive app.asar being replaced.
-      ...(servedStaticRoot?.snapshotted ? { PENKRA_STATIC_DIR: servedStaticRoot.dir } : {}),
+      ...(servedStaticRoot?.snapshotted
+        ? { PENKRA_STATIC_DIR: servedStaticRoot.dir }
+        : {}),
       PENKRA_MODE: "desktop",
       PENKRA_APP_VERSION: app.getVersion(),
       PENKRA_NO_BROWSER: "1",
@@ -4586,6 +5146,9 @@ function backendEnv(): NodeJS.ProcessEnv {
       PENKRA_APP_TEST_ELECTRON: process.execPath,
       PENKRA_APP_TEST_HOST: Path.join(__dirname, "entry.js"),
       PENKRA_APP_TEST_PACKAGED: app.isPackaged ? "1" : "0",
+      ...(resolveComputerHelperPath()
+        ? { PENKRA_COMPUTER_HELPER: resolveComputerHelperPath()! }
+        : {}),
     },
     process.pid,
   );
@@ -4598,7 +5161,10 @@ function backendEnv(): NodeJS.ProcessEnv {
   // Written explicitly in both directions: an inherited marker must never suppress a
   // probe when our own hydration failed and the child's PATH is the raw launch one.
   return stripPackagedDiagnosticsQaEnvironment(
-    applyShellEnvironmentHydrationMarker(env, shellEnvironmentSync.pathHydrated),
+    applyShellEnvironmentHydrationMarker(
+      env,
+      shellEnvironmentSync.pathHydrated,
+    ),
     app.isPackaged,
   );
 }
@@ -4675,7 +5241,9 @@ async function openDesktopLogDirectory(): Promise<void> {
       throw new Error(errorMessage);
     }
   } catch (error) {
-    safeConsoleError(`[desktop] failed to open log directory: ${formatErrorMessage(error)}`);
+    safeConsoleError(
+      `[desktop] failed to open log directory: ${formatErrorMessage(error)}`,
+    );
   }
 }
 
@@ -4704,7 +5272,9 @@ async function presentFatalDatabaseBlock(
       await openDesktopLogDirectory();
       continue;
     }
-    requestGracefulAppQuit(unsafeRuntime ? "unsafe SQLite runtime" : "database corruption");
+    requestGracefulAppQuit(
+      unsafeRuntime ? "unsafe SQLite runtime" : "database corruption",
+    );
     return;
   }
 }
@@ -4738,7 +5308,10 @@ function presentBackendStartupGiveUp(reason: string): void {
       if (result.response === 0) {
         // A user-driven retry is a fresh lifecycle start, not another crash cycle.
         backendLifecycleDialogInFlight = null;
-        await restartBackendAfterCrash("manual retry after backend startup failure", "lifecycle");
+        await restartBackendAfterCrash(
+          "manual retry after backend startup failure",
+          "lifecycle",
+        );
         return;
       }
 
@@ -4757,7 +5330,10 @@ function handleBackendStartupBlock(block: BackendStartupBlock): void {
   if (isQuitting || backendLifecycleDialogInFlight) return;
 
   const task = (async () => {
-    if (block.kind === "database-corrupt" || block.kind === "unsafe-sqlite-runtime") {
+    if (
+      block.kind === "database-corrupt" ||
+      block.kind === "unsafe-sqlite-runtime"
+    ) {
       await presentFatalDatabaseBlock(block.kind);
       return;
     }
@@ -4783,6 +5359,27 @@ function handleBackendStartupBlock(block: BackendStartupBlock): void {
       return;
     }
 
+    const helperName = "penkra-network-path-monitor";
+    const helper = [
+      Path.join(__dirname, "../resources/native", helperName),
+      Path.join(__dirname, "../prod-resources/native", helperName),
+      Path.join(process.resourcesPath, "native", helperName),
+    ].find((candidate) => FS.existsSync(candidate));
+    const takeoverOptions =
+      isPackagedRuntime &&
+      process.platform === "darwin" &&
+      helper &&
+      block.ownerPid !== null
+        ? {
+            stateDir: STATE_DIR,
+            executable: process.execPath,
+            helper,
+            ownerPid: block.ownerPid,
+          }
+        : null;
+    const stuckOwner = takeoverOptions
+      ? await findStuckBackend(takeoverOptions)
+      : null;
     const processDetail =
       block.ownerPid === null
         ? "Another Penkra server is already using this database."
@@ -4791,17 +5388,38 @@ function handleBackendStartupBlock(block: BackendStartupBlock): void {
       type: "warning",
       title: "Penkra is already running elsewhere",
       message: "Your local Penkra data is in use by another process.",
-      detail: `${processDetail}\n\nStop the other Penkra app or development server, then try again. Your data has not been changed.`,
-      buttons: ["Try again", "Quit"],
+      detail: stuckOwner
+        ? `${processDetail}\n\nIt is not responding. You can stop it and continue. Your data has not been changed.`
+        : `${processDetail}\n\nStop the other Penkra app or development server, then try again. Your data has not been changed.`,
+      buttons: stuckOwner
+        ? ["Stop it and continue", "Try again", "Quit"]
+        : ["Try again", "Quit"],
       defaultId: 0,
-      cancelId: 1,
+      cancelId: stuckOwner ? 2 : 1,
       noLink: true,
     });
-    if (result.response === 0) {
+    if (stuckOwner && takeoverOptions && result.response === 0) {
+      const stopped = await stopStuckBackend(takeoverOptions, stuckOwner);
+      if (!stopped) {
+        await dialog.showMessageBox({
+          type: "warning",
+          message: "Penkra could not safely stop the other server.",
+          buttons: ["OK"],
+        });
+      }
+      backendLifecycleDialogInFlight = null;
+      await restartBackendAfterCrash(
+        "database lifecycle lock takeover",
+        "lifecycle",
+      );
+    } else if (result.response === (stuckOwner ? 1 : 0)) {
       // Let a fast failed retry present the block again instead of racing this
       // dialog task's finalizer and leaving the window inert.
       backendLifecycleDialogInFlight = null;
-      await restartBackendAfterCrash("database lifecycle lock retry", "lifecycle");
+      await restartBackendAfterCrash(
+        "database lifecycle lock retry",
+        "lifecycle",
+      );
     } else {
       requestGracefulAppQuit("database lifecycle lock");
     }
@@ -4854,7 +5472,9 @@ function startBackend(trigger: BackendStartTrigger = "lifecycle"): void {
   // the backend after an unrelated failure — a given-up update install, say —
   // must not hand it a database the user is being asked how to repair.
   if (desktopStartupBlockedForMigrationRecovery) {
-    writeDesktopLogHeader("backend start suppressed while migration recovery is pending");
+    writeDesktopLogHeader(
+      "backend start suppressed while migration recovery is pending",
+    );
     return;
   }
 
@@ -4868,22 +5488,28 @@ function startBackend(trigger: BackendStartTrigger = "lifecycle"): void {
     return;
   }
 
-  const child = ChildProcess.spawn(process.execPath, [...backendNodeArgs(), backendEntry], {
-    cwd: resolveBackendCwd(),
-    // In Electron main, process.execPath points to the Electron binary.
-    // Run the child in Node mode so this backend process does not become a GUI app instance.
-    env: {
-      ...backendEnv(),
-      ELECTRON_RUN_AS_NODE: "1",
-      PENKRA_SERVER_ENTRY: backendEntry,
+  const child = ChildProcess.spawn(
+    process.execPath,
+    [...backendNodeArgs(), backendEntry],
+    {
+      cwd: resolveBackendCwd(),
+      // In Electron main, process.execPath points to the Electron binary.
+      // Run the child in Node mode so this backend process does not become a GUI app instance.
+      env: {
+        ...backendEnv(),
+        ELECTRON_RUN_AS_NODE: "1",
+        PENKRA_SERVER_ENTRY: backendEntry,
+      },
+      // Keep output piped in every environment so startup blockers and readiness
+      // are observable even when packaged log setup is unavailable.
+      stdio: ["ignore", "pipe", "pipe", "pipe", "ipc"],
     },
-    // Keep output piped in every environment so startup blockers and readiness
-    // are observable even when packaged log setup is unavailable.
-    stdio: ["ignore", "pipe", "pipe", "pipe"],
-  });
+  );
   const credentialPipe = child.stdio[3];
   if (credentialPipe && "end" in credentialPipe) {
-    credentialPipe.on("error", () => writeDesktopLogHeader("renderer credential pipe failed"));
+    credentialPipe.on("error", () =>
+      writeDesktopLogHeader("renderer credential pipe failed"),
+    );
     credentialPipe.end(backendRendererToken);
   }
   const listeningDetector = new ServerListeningDetector();
@@ -5009,14 +5635,19 @@ async function stopBackendAndWaitForExit(options?: {
   readonly timeoutMs?: number;
 }): Promise<void> {
   const timeoutMs = options?.timeoutMs ?? BACKEND_SHUTDOWN_TIMEOUT_MS;
-  const requestedForceKillDelayMs = options?.forceKillDelayMs ?? BACKEND_FORCE_KILL_DELAY_MS;
+  const requestedForceKillDelayMs =
+    options?.forceKillDelayMs ?? BACKEND_FORCE_KILL_DELAY_MS;
   const child = takeBackendProcessForShutdown();
   if (!child) return;
   const backendChild = child;
-  if (backendChild.exitCode !== null || backendChild.signalCode !== null) return;
+  if (backendChild.exitCode !== null || backendChild.signalCode !== null)
+    return;
 
   if (desktopPlatform.processLifecycle.backendShutdown === "windows-control") {
-    const forceKillDelayMs = Math.min(requestedForceKillDelayMs, Math.max(0, timeoutMs - 500));
+    const forceKillDelayMs = Math.min(
+      requestedForceKillDelayMs,
+      Math.max(0, timeoutMs - 500),
+    );
     try {
       const result = await stopWindowsBackendAndWait({
         child: backendChild,
@@ -5027,13 +5658,19 @@ async function stopBackendAndWaitForExit(options?: {
       });
       requireWindowsBackendExit(result);
     } catch (error) {
-      backendProcess = retainLiveBackendAfterShutdownFailure(backendProcess, backendChild);
+      backendProcess = retainLiveBackendAfterShutdownFailure(
+        backendProcess,
+        backendChild,
+      );
       throw error;
     }
     return;
   }
 
-  const forceKillDelayMs = Math.min(requestedForceKillDelayMs, Math.max(0, timeoutMs - 500));
+  const forceKillDelayMs = Math.min(
+    requestedForceKillDelayMs,
+    Math.max(0, timeoutMs - 500),
+  );
   try {
     await stopPosixBackendAndWait({
       child: backendChild,
@@ -5043,12 +5680,17 @@ async function stopBackendAndWaitForExit(options?: {
       timeoutMs,
     });
   } catch (error) {
-    backendProcess = retainLiveBackendAfterShutdownFailure(backendProcess, backendChild);
+    backendProcess = retainLiveBackendAfterShutdownFailure(
+      backendProcess,
+      backendChild,
+    );
     throw error;
   }
 }
 
-async function disposeAppCommandPipeServerForShutdown(reason: string): Promise<void> {
+async function disposeAppCommandPipeServerForShutdown(
+  reason: string,
+): Promise<void> {
   remoteRegistrationLifetime.abort();
   await remoteNetworkFinished;
   remoteNetworkFinished = null;
@@ -5084,7 +5726,8 @@ async function stopAppRuntimeAndBackend(backendShutdownOptions?: {
       folders.set(tab.folderId, ids);
     }
     const at = new Date().toISOString();
-    for (const [folderId, tabIds] of folders) await stampAppTabs(folderId, tabIds, at);
+    for (const [folderId, tabIds] of folders)
+      await stampAppTabs(folderId, tabIds, at);
   } catch (error) {
     failures.push(error);
   }
@@ -5129,7 +5772,10 @@ async function stopAppRuntimeAndBackend(backendShutdownOptions?: {
     failures.push(error);
   }
   if (failures.length > 0) {
-    throw new AggregateError(failures, "Desktop services did not shut down cleanly.");
+    throw new AggregateError(
+      failures,
+      "Desktop services did not shut down cleanly.",
+    );
   }
 }
 
@@ -5146,7 +5792,8 @@ async function shutdownDesktopRuntime(
   }
 
   isQuitting = true;
-  for (const manager of appBrowserDownloadManagers.values()) manager.prepareForQuit();
+  for (const manager of appBrowserDownloadManagers.values())
+    manager.prepareForQuit();
   writeDesktopLogHeader(`${reason} shutdown start`);
   const shutdown = runAfterDesktopShutdown(
     stopAppRuntimeAndBackend(backendShutdownOptions),
@@ -5181,18 +5828,20 @@ function requestGracefulAppQuit(reason: string): void {
     return;
   }
 
-  void runAfterDesktopShutdown(shutdownDesktopRuntime(reason), () => app.quit()).catch(
-    (error: unknown) => {
-      const message = formatErrorMessage(error);
-      writeDesktopLogHeader(`${reason} shutdown failed message=${message}`);
-      console.warn(`[desktop] Shutdown failed during ${reason}: ${message}`);
-      app.exit(1);
-    },
-  );
+  void runAfterDesktopShutdown(shutdownDesktopRuntime(reason), () =>
+    app.quit(),
+  ).catch((error: unknown) => {
+    const message = formatErrorMessage(error);
+    writeDesktopLogHeader(`${reason} shutdown failed message=${message}`);
+    console.warn(`[desktop] Shutdown failed during ${reason}: ${message}`);
+    app.exit(1);
+  });
 }
 
 function registerIpcHandlers(): void {
-  const storageSnapshotPath = resolvePenkraStorageSnapshotPath(app.getPath("userData"));
+  const storageSnapshotPath = resolvePenkraStorageSnapshotPath(
+    app.getPath("userData"),
+  );
 
   ipcMain.removeAllListeners(IPC.panelFocus.shellInteraction);
   ipcMain.on(IPC.panelFocus.shellInteraction, (event, insidePanel: unknown) => {
@@ -5205,7 +5854,8 @@ function registerIpcHandlers(): void {
   ipcMain.removeAllListeners(IPC.panelFocus.resolveShellShortcut);
   ipcMain.on(IPC.panelFocus.resolveShellShortcut, (event, input: unknown) => {
     const window = shellWindowForSender(event.sender);
-    if (!window || !input || typeof input !== "object" || Array.isArray(input)) return;
+    if (!window || !input || typeof input !== "object" || Array.isArray(input))
+      return;
     const { command, insidePanel, folderId } = input as Record<string, unknown>;
     if (
       (command !== "new-window" && command !== "find" && command !== "close") ||
@@ -5223,22 +5873,42 @@ function registerIpcHandlers(): void {
   });
 
   const requireMainRenderer = (event: Electron.IpcMainInvokeEvent): void => {
-    if (event.sender.isDestroyed() || !shellWindowRegistry.hasWebContents(event.sender)) {
-      throw new Error("Composer drafts are available only to the Penkra shell.");
+    if (
+      event.sender.isDestroyed() ||
+      !shellWindowRegistry.hasWebContents(event.sender)
+    ) {
+      throw new Error(
+        "Composer drafts are available only to the Penkra shell.",
+      );
     }
   };
   ipcMain.removeListener(IPC.threadApiState, acceptThreadApiState);
   ipcMain.on(IPC.threadApiState, acceptThreadApiState);
   ipcMain.removeAllListeners(IPC.threadHomeView);
   ipcMain.on(IPC.threadHomeView, (event, input: unknown) => {
-    if (!shellWindowRegistry.hasWebContents(event.sender) || !input || typeof input !== "object")
+    if (
+      !shellWindowRegistry.hasWebContents(event.sender) ||
+      !input ||
+      typeof input !== "object"
+    )
       return;
-    const { views, activeThreadId } = input as { views?: unknown; activeThreadId?: unknown };
-    if (!Array.isArray(views) || typeof activeThreadId !== "string" || views.length > 16) return;
+    const { views, activeThreadId } = input as {
+      views?: unknown;
+      activeThreadId?: unknown;
+    };
+    if (
+      !Array.isArray(views) ||
+      typeof activeThreadId !== "string" ||
+      views.length > 16
+    )
+      return;
     const validViews: Array<{ threadId: string; folderId: string }> = [];
     for (const view of views) {
       if (!view || typeof view !== "object") return;
-      const { threadId, folderId } = view as { threadId?: unknown; folderId?: unknown };
+      const { threadId, folderId } = view as {
+        threadId?: unknown;
+        folderId?: unknown;
+      };
       if (typeof threadId !== "string" || typeof folderId !== "string") return;
       validViews.push({ threadId, folderId });
     }
@@ -5251,10 +5921,14 @@ function registerIpcHandlers(): void {
       window?.isFocused() ?? false,
     );
     for (const view of validViews) {
-      const selectedThreadId = threadHomeWindow.consumeThreadSelection(view.folderId);
+      const selectedThreadId = threadHomeWindow.consumeThreadSelection(
+        view.folderId,
+      );
       if (selectedThreadId && selectedThreadId !== activeThreadId) {
         threadHomeWindow.agentNavigation(window!.id, selectedThreadId);
-        window!.webContents.send(IPC.threadHomeSelect, { threadId: selectedThreadId });
+        window!.webContents.send(IPC.threadHomeSelect, {
+          threadId: selectedThreadId,
+        });
       }
     }
     console.info(
@@ -5268,43 +5942,63 @@ function registerIpcHandlers(): void {
   });
   ipcMain.removeAllListeners(IPC.threadHomeAgentNavigation);
   ipcMain.on(IPC.threadHomeAgentNavigation, (event, input: unknown) => {
-    if (!shellWindowRegistry.hasWebContents(event.sender) || !input || typeof input !== "object")
+    if (
+      !shellWindowRegistry.hasWebContents(event.sender) ||
+      !input ||
+      typeof input !== "object"
+    )
       return;
     const threadId = (input as { threadId?: unknown }).threadId;
     if (typeof threadId !== "string" || threadId.length === 0) return;
-    threadHomeWindow.agentNavigation(shellWindowForSender(event.sender)!.id, threadId);
-    console.info(`[thread-home] agent-navigation window=${event.sender.id} thread=${threadId}`);
+    threadHomeWindow.agentNavigation(
+      shellWindowForSender(event.sender)!.id,
+      threadId,
+    );
+    console.info(
+      `[thread-home] agent-navigation window=${event.sender.id} thread=${threadId}`,
+    );
   });
   ipcMain.removeAllListeners(IPC.threadHomeSend);
   ipcMain.on(IPC.threadHomeSend, (event, input: unknown) => {
-    if (!shellWindowRegistry.hasWebContents(event.sender) || !input || typeof input !== "object")
+    if (
+      !shellWindowRegistry.hasWebContents(event.sender) ||
+      !input ||
+      typeof input !== "object"
+    )
       return;
     const threadId = (input as { threadId?: unknown }).threadId;
     if (typeof threadId !== "string") return;
     threadHomeWindow.send(shellWindowForSender(event.sender)!.id, threadId);
-    console.info(`[thread-home] send window=${event.sender.id} thread=${threadId}`);
+    console.info(
+      `[thread-home] send window=${event.sender.id} thread=${threadId}`,
+    );
   });
-  for (const channel of Object.values(IPC.composerDrafts)) ipcMain.removeHandler(channel);
-  ipcMain.handle(IPC.composerDrafts.writeAsset, async (event, input: unknown) => {
-    requireMainRenderer(event);
-    if (!input || typeof input !== "object") throw new Error("Invalid composer asset.");
-    const candidate = input as Record<string, unknown>;
-    if (
-      typeof candidate.id !== "string" ||
-      typeof candidate.draftId !== "string" ||
-      typeof candidate.name !== "string" ||
-      typeof candidate.mimeType !== "string"
-    ) {
-      throw new Error("Invalid composer asset metadata.");
-    }
-    return composerDraftJournal.writeAsset({
-      id: candidate.id,
-      draftId: candidate.draftId,
-      name: candidate.name,
-      mimeType: candidate.mimeType,
-      bytes: composerBytesFromIpc(candidate.bytes),
-    });
-  });
+  for (const channel of Object.values(IPC.composerDrafts))
+    ipcMain.removeHandler(channel);
+  ipcMain.handle(
+    IPC.composerDrafts.writeAsset,
+    async (event, input: unknown) => {
+      requireMainRenderer(event);
+      if (!input || typeof input !== "object")
+        throw new Error("Invalid composer asset.");
+      const candidate = input as Record<string, unknown>;
+      if (
+        typeof candidate.id !== "string" ||
+        typeof candidate.draftId !== "string" ||
+        typeof candidate.name !== "string" ||
+        typeof candidate.mimeType !== "string"
+      ) {
+        throw new Error("Invalid composer asset metadata.");
+      }
+      return composerDraftJournal.writeAsset({
+        id: candidate.id,
+        draftId: candidate.draftId,
+        name: candidate.name,
+        mimeType: candidate.mimeType,
+        bytes: composerBytesFromIpc(candidate.bytes),
+      });
+    },
+  );
   ipcMain.handle(IPC.composerDrafts.readAsset, async (event, id: unknown) => {
     requireMainRenderer(event);
     if (typeof id !== "string") throw new Error("Invalid composer asset id.");
@@ -5315,40 +6009,56 @@ function registerIpcHandlers(): void {
     if (typeof id !== "string") throw new Error("Invalid composer asset id.");
     await composerDraftJournal.deleteAsset(id);
   });
-  ipcMain.handle(IPC.composerDrafts.createVoice, async (event, input: unknown) => {
-    requireMainRenderer(event);
-    if (!input || typeof input !== "object") throw new Error("Invalid voice draft.");
-    const job = input as Parameters<typeof composerDraftJournal.createVoice>[0];
-    if (
-      typeof job.id !== "string" ||
-      typeof job.threadId !== "string" ||
-      typeof job.cwd !== "string" ||
-      typeof job.sampleRateHz !== "number" ||
-      typeof job.createdAt !== "string" ||
-      typeof job.updatedAt !== "string"
-    ) {
-      throw new Error("Invalid voice draft metadata.");
-    }
-    await composerDraftJournal.createVoice(job);
-  });
-  ipcMain.handle(IPC.composerDrafts.appendVoice, async (event, input: unknown) => {
-    requireMainRenderer(event);
-    if (!input || typeof input !== "object") throw new Error("Invalid voice draft batch.");
-    const candidate = input as Record<string, unknown>;
-    if (typeof candidate.id !== "string" || typeof candidate.sequence !== "number") {
-      throw new Error("Invalid voice draft batch metadata.");
-    }
-    return composerDraftJournal.appendVoice({
-      id: candidate.id,
-      sequence: candidate.sequence,
-      bytes: composerBytesFromIpc(candidate.bytes),
-    });
-  });
-  ipcMain.handle(IPC.composerDrafts.completeVoice, async (event, id: unknown) => {
-    requireMainRenderer(event);
-    if (typeof id !== "string") throw new Error("Invalid voice draft id.");
-    return composerDraftJournal.completeVoice(id);
-  });
+  ipcMain.handle(
+    IPC.composerDrafts.createVoice,
+    async (event, input: unknown) => {
+      requireMainRenderer(event);
+      if (!input || typeof input !== "object")
+        throw new Error("Invalid voice draft.");
+      const job = input as Parameters<
+        typeof composerDraftJournal.createVoice
+      >[0];
+      if (
+        typeof job.id !== "string" ||
+        typeof job.threadId !== "string" ||
+        typeof job.cwd !== "string" ||
+        typeof job.sampleRateHz !== "number" ||
+        typeof job.createdAt !== "string" ||
+        typeof job.updatedAt !== "string"
+      ) {
+        throw new Error("Invalid voice draft metadata.");
+      }
+      await composerDraftJournal.createVoice(job);
+    },
+  );
+  ipcMain.handle(
+    IPC.composerDrafts.appendVoice,
+    async (event, input: unknown) => {
+      requireMainRenderer(event);
+      if (!input || typeof input !== "object")
+        throw new Error("Invalid voice draft batch.");
+      const candidate = input as Record<string, unknown>;
+      if (
+        typeof candidate.id !== "string" ||
+        typeof candidate.sequence !== "number"
+      ) {
+        throw new Error("Invalid voice draft batch metadata.");
+      }
+      return composerDraftJournal.appendVoice({
+        id: candidate.id,
+        sequence: candidate.sequence,
+        bytes: composerBytesFromIpc(candidate.bytes),
+      });
+    },
+  );
+  ipcMain.handle(
+    IPC.composerDrafts.completeVoice,
+    async (event, id: unknown) => {
+      requireMainRenderer(event);
+      if (typeof id !== "string") throw new Error("Invalid voice draft id.");
+      return composerDraftJournal.completeVoice(id);
+    },
+  );
   ipcMain.handle(IPC.composerDrafts.listVoices, async (event) => {
     requireMainRenderer(event);
     return composerDraftJournal.listVoices();
@@ -5377,18 +6087,22 @@ function registerIpcHandlers(): void {
   const requireAppRenderer = (senderId: number) => {
     const runtime = desktopAppRuntime;
     const identity = runtime?.rendererIdentity(senderId);
-    if (!runtime || !identity) throw new Error("This renderer is not a registered Penkra App.");
+    if (!runtime || !identity)
+      throw new Error("This renderer is not a registered Penkra App.");
     return { runtime, identity };
   };
 
   ipcMain.removeHandler(IPC.appRuntime.call);
   ipcMain.handle(IPC.appRuntime.call, async (event, input: unknown) => {
-    const { runtime, identity: rendererIdentity } = requireAppRenderer(event.sender.id);
+    const { runtime, identity: rendererIdentity } = requireAppRenderer(
+      event.sender.id,
+    );
     if (!input || typeof input !== "object" || Array.isArray(input)) {
       throw new Error("Invalid App runtime call.");
     }
     const { method, input: value } = input as Record<string, unknown>;
-    if (typeof method !== "string") throw new Error("Invalid App runtime method.");
+    if (typeof method !== "string")
+      throw new Error("Invalid App runtime method.");
     const tabId = rendererIdentity.tabId;
     const folderId = rendererIdentity.folderId;
     const threadId = rendererIdentity.threadId;
@@ -5444,7 +6158,10 @@ function registerIpcHandlers(): void {
           });
         }
         const options: Electron.OpenDialogOptions = {
-          properties: kind === "directory" ? ["openDirectory", "createDirectory"] : ["openFile"],
+          properties:
+            kind === "directory"
+              ? ["openDirectory", "createDirectory"]
+              : ["openFile"],
         };
         const result = pickerOwner
           ? await dialog.showOpenDialog(pickerOwner, options)
@@ -5476,7 +6193,10 @@ function registerIpcHandlers(): void {
             folderId: identity.folderId,
             tabId,
             rendererId,
-            origin: runtime.identities.resolveOrigin(identity.appId, identity.spaceId),
+            origin: runtime.identities.resolveOrigin(
+              identity.appId,
+              identity.spaceId,
+            ),
           },
           path,
           { handleId: handle.id },
@@ -5490,20 +6210,35 @@ function registerIpcHandlers(): void {
             folderId: identity.folderId,
             tabId,
             rendererId,
-            origin: runtime.identities.resolveOrigin(identity.appId, identity.spaceId),
+            origin: runtime.identities.resolveOrigin(
+              identity.appId,
+              identity.spaceId,
+            ),
           },
           value,
         );
         return;
       }
       case "files.revoke": {
-        const handle = runtimeV2FileHandles.resolve(identity.appId, identity.spaceId, value);
+        const handle = runtimeV2FileHandles.resolve(
+          identity.appId,
+          identity.spaceId,
+          value,
+        );
         runtimeV2FileHandles.revoke(identity.appId, identity.spaceId, value);
         runtime.blobUrls.disposeDetached(
-          runtime.blobUrls.detachHandle(identity.appId, identity.spaceId, handle.id),
+          runtime.blobUrls.detachHandle(
+            identity.appId,
+            identity.spaceId,
+            handle.id,
+          ),
         );
         await runtimeV2FileWrites.disposeDetached(
-          runtimeV2FileWrites.detachHandle(identity.appId, identity.spaceId, handle.id),
+          runtimeV2FileWrites.detachHandle(
+            identity.appId,
+            identity.spaceId,
+            handle.id,
+          ),
         );
         return;
       }
@@ -5526,23 +6261,30 @@ function registerIpcHandlers(): void {
         method === "files.createDirectory"
           ? resolveWritableAppScopedPath(handle, record.relativePath)
           : runtimeV2FilePath(handle, record.relativePath));
-        if (method === "files.stat") return runtimeV2FileEntry(handle, absolutePath);
+        if (method === "files.stat")
+          return runtimeV2FileEntry(handle, absolutePath);
         if (method === "files.listDirectory") {
           const entries = await FS.promises.readdir(absolutePath, {
             withFileTypes: true,
           });
           const resolved = await Promise.allSettled(
-            entries.map((entry) => runtimeV2FileEntry(handle, Path.join(absolutePath, entry.name))),
+            entries.map((entry) =>
+              runtimeV2FileEntry(handle, Path.join(absolutePath, entry.name)),
+            ),
           );
-          return resolved.flatMap((entry) => (entry.status === "fulfilled" ? [entry.value] : []));
+          return resolved.flatMap((entry) =>
+            entry.status === "fulfilled" ? [entry.value] : [],
+          );
         }
         if (method === "files.readText") {
           const stat = await FS.promises.stat(absolutePath);
-          if (stat.size > 16 * 1024 * 1024) throw new Error("Text file exceeds the 16 MB limit.");
+          if (stat.size > 16 * 1024 * 1024)
+            throw new Error("Text file exceeds the 16 MB limit.");
           return FS.promises.readFile(absolutePath, "utf8");
         }
         if (method === "files.writeText") {
-          if (typeof record.source !== "string") throw new Error("File contents must be text.");
+          if (typeof record.source !== "string")
+            throw new Error("File contents must be text.");
           if (Buffer.byteLength(record.source) > 16 * 1024 * 1024) {
             throw new Error("Text file exceeds the 16 MB limit.");
           }
@@ -5595,10 +6337,15 @@ function registerIpcHandlers(): void {
           identity.spaceId,
           record.handleId,
         );
-        const absolutePath = await runtimeV2FilePath(handle, record.relativePath);
+        const absolutePath = await runtimeV2FilePath(
+          handle,
+          record.relativePath,
+        );
         const stat = await FS.promises.stat(absolutePath);
         const offset =
-          typeof record.offset === "number" && Number.isInteger(record.offset) && record.offset >= 0
+          typeof record.offset === "number" &&
+          Number.isInteger(record.offset) &&
+          record.offset >= 0
             ? record.offset
             : 0;
         const length =
@@ -5610,8 +6357,15 @@ function registerIpcHandlers(): void {
             : 1024 * 1024;
         const file = await FS.promises.open(absolutePath, "r");
         try {
-          const buffer = Buffer.alloc(Math.max(0, Math.min(length, stat.size - offset)));
-          const { bytesRead } = await file.read(buffer, 0, buffer.length, offset);
+          const buffer = Buffer.alloc(
+            Math.max(0, Math.min(length, stat.size - offset)),
+          );
+          const { bytesRead } = await file.read(
+            buffer,
+            0,
+            buffer.length,
+            offset,
+          );
           return {
             bytes: new Uint8Array(buffer.subarray(0, bytesRead)),
             totalBytes: stat.size,
@@ -5631,7 +6385,10 @@ function registerIpcHandlers(): void {
           identity.spaceId,
           record.handleId,
         );
-        const destinationPath = await resolveWritableAppScopedPath(handle, record.relativePath);
+        const destinationPath = await resolveWritableAppScopedPath(
+          handle,
+          record.relativePath,
+        );
         return runtimeV2FileWrites.begin(
           {
             appId: identity.appId,
@@ -5683,7 +6440,8 @@ function registerIpcHandlers(): void {
           tabId,
           rendererId,
         };
-        if (method === "files.commitWrite") await runtimeV2FileWrites.commit(owner, writeId);
+        if (method === "files.commitWrite")
+          await runtimeV2FileWrites.commit(owner, writeId);
         else await runtimeV2FileWrites.abort(owner, writeId);
         return;
       }
@@ -5742,7 +6500,10 @@ function registerIpcHandlers(): void {
             end: (error) => {
               controllerSubscriptions.take(key, owner);
               controller.abort(new Error("App subscription ended."));
-              send({ type: "end", ...(error ? { error: { message: error.message } } : {}) });
+              send({
+                type: "end",
+                ...(error ? { error: { message: error.message } } : {}),
+              });
             },
           });
         } catch (error) {
@@ -5756,7 +6517,8 @@ function registerIpcHandlers(): void {
         if (!value || typeof value !== "object" || Array.isArray(value))
           throw new Error("Invalid controller subscription stop.");
         const id = (value as Record<string, unknown>).id;
-        if (typeof id !== "string") throw new Error("Invalid controller subscription id.");
+        if (typeof id !== "string")
+          throw new Error("Invalid controller subscription id.");
         controllerSubscriptions
           .take(`${rendererId}:${id}`, { ...identity, rendererId })
           ?.abort(new Error("App subscription stopped."));
@@ -5788,7 +6550,8 @@ function registerIpcHandlers(): void {
           throw new Error("Shell openExternal input must be an object.");
         }
         const request = value as Record<string, unknown>;
-        if (typeof request.url !== "string") throw new Error("Shell URL must be a string.");
+        if (typeof request.url !== "string")
+          throw new Error("Shell URL must be a string.");
         await shell.openExternal(
           request.url,
           parseRuntimeShellOpenExternalOptions(request.options),
@@ -5796,18 +6559,22 @@ function registerIpcHandlers(): void {
         return;
       }
       case "shell.openPath":
-        if (typeof value !== "string") throw new Error("Shell path must be a string.");
+        if (typeof value !== "string")
+          throw new Error("Shell path must be a string.");
         return shell.openPath(value);
       case "shell.showItemInFolder":
-        if (typeof value !== "string") throw new Error("Shell path must be a string.");
+        if (typeof value !== "string")
+          throw new Error("Shell path must be a string.");
         shell.showItemInFolder(value);
         return;
       case "shell.trashItem":
-        if (typeof value !== "string") throw new Error("Shell path must be a string.");
+        if (typeof value !== "string")
+          throw new Error("Shell path must be a string.");
         await shell.trashItem(value);
         return;
       case "shell.readShortcutLink":
-        if (typeof value !== "string") throw new Error("Shortcut path must be a string.");
+        if (typeof value !== "string")
+          throw new Error("Shortcut path must be a string.");
         return shell.readShortcutLink(value);
       case "shell.writeShortcutLink":
         return writeRuntimeShellShortcut(value);
@@ -5816,13 +6583,17 @@ function registerIpcHandlers(): void {
           throw new Error("Resource open input must be an object.");
         }
         const record = value as Record<string, unknown>;
-        if (record.with !== "system") throw new Error("Only the system handler is supported.");
+        if (record.with !== "system")
+          throw new Error("Only the system handler is supported.");
         const handle = runtimeV2FileHandles.resolve(
           identity.appId,
           identity.spaceId,
           record.handleId,
         );
-        const absolutePath = await runtimeV2FilePath(handle, record.relativePath);
+        const absolutePath = await runtimeV2FilePath(
+          handle,
+          record.relativePath,
+        );
         const error = await shell.openPath(absolutePath);
         if (error) throw new Error(error);
         return;
@@ -5836,9 +6607,12 @@ function registerIpcHandlers(): void {
           "network-fetch",
         );
         if (!permission.declared || permission.state !== "granted") {
-          throw Object.assign(new Error("network-fetch is not granted for this App."), {
-            code: "PERMISSION_DENIED",
-          });
+          throw Object.assign(
+            new Error("network-fetch is not granted for this App."),
+            {
+              code: "PERMISSION_DENIED",
+            },
+          );
         }
         if (!value || typeof value !== "object" || Array.isArray(value)) {
           throw new Error("Transfer input must be an object.");
@@ -5850,7 +6624,10 @@ function registerIpcHandlers(): void {
           folderId: identity.folderId,
           tabId,
           rendererId,
-          origin: runtime.identities.resolveOrigin(identity.appId, identity.spaceId),
+          origin: runtime.identities.resolveOrigin(
+            identity.appId,
+            identity.spaceId,
+          ),
         };
         if (method === "transfer.begin") {
           return runtime.transfers.begin(
@@ -5861,8 +6638,14 @@ function registerIpcHandlers(): void {
         const storage = appStorage;
         if (!storage) throw new Error("The App storage service is not ready.");
         if (method === "transfer.send") {
-          if (!input.from || typeof input.from !== "object" || Array.isArray(input.from)) {
-            throw new Error("Transfer source must be a file handle or App storage path.");
+          if (
+            !input.from ||
+            typeof input.from !== "object" ||
+            Array.isArray(input.from)
+          ) {
+            throw new Error(
+              "Transfer source must be a file handle or App storage path.",
+            );
           }
           const from = input.from as Record<string, unknown>;
           let sourcePath: string;
@@ -5876,7 +6659,9 @@ function registerIpcHandlers(): void {
           } else if (typeof from.storage === "string") {
             sourcePath = await storage.resolveFile(identity, from.storage);
           } else {
-            throw new Error("Transfer source must be a file handle or App storage path.");
+            throw new Error(
+              "Transfer source must be a file handle or App storage path.",
+            );
           }
           return runtime.transfers.send(
             owner,
@@ -5884,8 +6669,14 @@ function registerIpcHandlers(): void {
             { path: sourcePath },
           );
         }
-        if (!input.to || typeof input.to !== "object" || Array.isArray(input.to)) {
-          throw new Error("Transfer destination must be a file handle or App storage path.");
+        if (
+          !input.to ||
+          typeof input.to !== "object" ||
+          Array.isArray(input.to)
+        ) {
+          throw new Error(
+            "Transfer destination must be a file handle or App storage path.",
+          );
         }
         const to = input.to as Record<string, unknown>;
         if (typeof to.storage === "string") {
@@ -5895,7 +6686,8 @@ function registerIpcHandlers(): void {
             input as Parameters<DesktopAppRuntime["transfers"]["receive"]>[1],
             {
               path,
-              assertFreeSpace: (bytes) => storage.assertFreeSpace(identity, bytes),
+              assertFreeSpace: (bytes) =>
+                storage.assertFreeSpace(identity, bytes),
             },
           );
         }
@@ -5905,59 +6697,86 @@ function registerIpcHandlers(): void {
             identity.spaceId,
             to.handleId,
           );
-          const path = await resolveWritableAppScopedPath(handle, to.relativePath);
+          const path = await resolveWritableAppScopedPath(
+            handle,
+            to.relativePath,
+          );
           return runtime.transfers.receive(
             owner,
             input as Parameters<DesktopAppRuntime["transfers"]["receive"]>[1],
             { path },
           );
         }
-        throw new Error("Transfer destination must be a file handle or App storage path.");
+        throw new Error(
+          "Transfer destination must be a file handle or App storage path.",
+        );
       }
       case "models.listPossible":
         return POSSIBLE_MODEL_CATALOG;
       default:
-        throw Object.assign(new Error(`App runtime method ${method} is unavailable.`), {
-          code: "METHOD_NOT_SUPPORTED",
-        });
+        throw Object.assign(
+          new Error(`App runtime method ${method} is unavailable.`),
+          {
+            code: "METHOD_NOT_SUPPORTED",
+          },
+        );
     }
   });
 
   ipcMain.removeHandler(IPC.appRuntime.tabSetRoute);
   ipcMain.handle(IPC.appRuntime.tabSetRoute, async (event, input: unknown) => {
     const { runtime, identity } = requireAppRenderer(event.sender.id);
-    if (!identity.tabId) throw new Error("This App renderer is not attached to a tab.");
-    await runtime.appTabs.setRoute(identity.tabId, parseAppTabRouteRequest(input));
+    if (!identity.tabId)
+      throw new Error("This App renderer is not attached to a tab.");
+    await runtime.appTabs.setRoute(
+      identity.tabId,
+      parseAppTabRouteRequest(input),
+    );
   });
   ipcMain.removeHandler(IPC.appRuntime.tabSetPresentation);
-  ipcMain.handle(IPC.appRuntime.tabSetPresentation, async (event, input: unknown) => {
-    const { runtime, identity } = requireAppRenderer(event.sender.id);
-    if (!identity.tabId) throw new Error("This App renderer is not attached to a tab.");
-    await runtime.appTabs.setPresentation(identity.tabId, parseAppTabPresentationRequest(input));
-  });
+  ipcMain.handle(
+    IPC.appRuntime.tabSetPresentation,
+    async (event, input: unknown) => {
+      const { runtime, identity } = requireAppRenderer(event.sender.id);
+      if (!identity.tabId)
+        throw new Error("This App renderer is not attached to a tab.");
+      await runtime.appTabs.setPresentation(
+        identity.tabId,
+        parseAppTabPresentationRequest(input),
+      );
+    },
+  );
   ipcMain.removeHandler(IPC.appRuntime.tabResetPresentation);
   ipcMain.handle(IPC.appRuntime.tabResetPresentation, async (event) => {
     const { runtime, identity } = requireAppRenderer(event.sender.id);
-    if (!identity.tabId) throw new Error("This App renderer is not attached to a tab.");
+    if (!identity.tabId)
+      throw new Error("This App renderer is not attached to a tab.");
     await runtime.appTabs.resetPresentation(identity.tabId);
   });
   ipcMain.removeHandler(IPC.appRuntime.tabOpenSibling);
-  ipcMain.handle(IPC.appRuntime.tabOpenSibling, async (event, input: unknown) => {
-    const { runtime } = requireAppRenderer(event.sender.id);
-    const navigation = input === undefined ? { route: "/" } : parseAppTabRouteRequest(input);
-    const threadId = runtime.appTabs
-      .list()
-      .find((tab) => tab.rendererId === event.sender.id)?.threadId;
-    return runtime.appTabs.openSiblingFromRenderer(
-      event.sender.id,
-      navigation,
-      threadId && activeAgentPresentationThreads.has(threadId) ? "agent" : "user",
-    );
-  });
+  ipcMain.handle(
+    IPC.appRuntime.tabOpenSibling,
+    async (event, input: unknown) => {
+      const { runtime } = requireAppRenderer(event.sender.id);
+      const navigation =
+        input === undefined ? { route: "/" } : parseAppTabRouteRequest(input);
+      const threadId = runtime.appTabs
+        .list()
+        .find((tab) => tab.rendererId === event.sender.id)?.threadId;
+      return runtime.appTabs.openSiblingFromRenderer(
+        event.sender.id,
+        navigation,
+        threadId && activeAgentPresentationThreads.has(threadId)
+          ? "agent"
+          : "user",
+      );
+    },
+  );
   ipcMain.removeHandler(IPC.appRuntime.tabGetContext);
   ipcMain.handle(IPC.appRuntime.tabGetContext, async (event) => {
     const { identity } = requireAppRenderer(event.sender.id);
-    if (!identity.threadId) throw new Error("This App renderer is not attached to a thread.");
+    if (!identity.threadId)
+      throw new Error("This App renderer is not attached to a thread.");
     return {
       folderId: identity.folderId,
       threadId: identity.threadId,
@@ -5966,60 +6785,84 @@ function registerIpcHandlers(): void {
   });
 
   ipcMain.removeHandler(IPC.appRuntime.permissionQuery);
-  ipcMain.handle(IPC.appRuntime.permissionQuery, async (event, input: unknown) => {
-    const { runtime, identity } = requireAppRenderer(event.sender.id);
-    return queryAppPermission(runtime.installations.snapshot(), identity, input);
-  });
+  ipcMain.handle(
+    IPC.appRuntime.permissionQuery,
+    async (event, input: unknown) => {
+      const { runtime, identity } = requireAppRenderer(event.sender.id);
+      return queryAppPermission(
+        runtime.installations.snapshot(),
+        identity,
+        input,
+      );
+    },
+  );
   ipcMain.removeHandler(IPC.appRuntime.permissionRequest);
-  ipcMain.handle(IPC.appRuntime.permissionRequest, async (event, input: unknown) => {
-    const { runtime, identity } = requireAppRenderer(event.sender.id);
-    const current = queryAppPermission(runtime.installations.snapshot(), identity, input);
-    if (!current.declared) throw new Error(`${String(input)} is not declared by this App.`);
-    if (current.required)
-      throw new Error(`${current.name} is required and cannot be requested at runtime.`);
-    if (current.state === "granted") return current;
-    await runtime.installations.requestOptionalPermission({
-      appId: identity.appId,
-      spaceId: identity.spaceId,
-      permission: current.name,
-      confirm: async ({ appName, reason }) => {
-        const options: Electron.MessageBoxOptions = {
-          type: "question",
-          buttons: ["Allow", "Not now"],
-          defaultId: 0,
-          cancelId: 1,
-          noLink: true,
-          title: `${appName} permission`,
-          message: `${appName} would like permission to ${reason.replace(/[.\s]+$/, "").toLowerCase()}.`,
-          detail: "You can revoke this permission later in Penkra Settings.",
-        };
-        const targetWindow = resolveShellWindow();
-        const result = targetWindow
-          ? await dialog.showMessageBox(targetWindow, options)
-          : await dialog.showMessageBox(options);
-        return result.response === 0;
-      },
-    });
-    return queryAppPermission(runtime.installations.snapshot(), identity, current.name);
-  });
+  ipcMain.handle(
+    IPC.appRuntime.permissionRequest,
+    async (event, input: unknown) => {
+      const { runtime, identity } = requireAppRenderer(event.sender.id);
+      const current = queryAppPermission(
+        runtime.installations.snapshot(),
+        identity,
+        input,
+      );
+      if (!current.declared)
+        throw new Error(`${String(input)} is not declared by this App.`);
+      if (current.required)
+        throw new Error(
+          `${current.name} is required and cannot be requested at runtime.`,
+        );
+      if (current.state === "granted") return current;
+      await runtime.installations.requestOptionalPermission({
+        appId: identity.appId,
+        spaceId: identity.spaceId,
+        permission: current.name,
+        confirm: async ({ appName, reason }) => {
+          const options: Electron.MessageBoxOptions = {
+            type: "question",
+            buttons: ["Allow", "Not now"],
+            defaultId: 0,
+            cancelId: 1,
+            noLink: true,
+            title: `${appName} permission`,
+            message: `${appName} would like permission to ${reason.replace(/[.\s]+$/, "").toLowerCase()}.`,
+            detail: "You can revoke this permission later in Penkra Settings.",
+          };
+          const targetWindow = resolveShellWindow();
+          const result = targetWindow
+            ? await dialog.showMessageBox(targetWindow, options)
+            : await dialog.showMessageBox(options);
+          return result.response === 0;
+        },
+      });
+      return queryAppPermission(
+        runtime.installations.snapshot(),
+        identity,
+        current.name,
+      );
+    },
+  );
   ipcMain.removeHandler(IPC.appRuntime.identityGet);
   ipcMain.handle(IPC.appRuntime.identityGet, async (event) => {
     const { runtime, identity } = requireAppRenderer(event.sender.id);
     return runtime.identities.resolve(identity.appId, identity.spaceId);
   });
   ipcMain.removeHandler(IPC.appRuntime.identityGetToken);
-  ipcMain.handle(IPC.appRuntime.identityGetToken, async (event, input: unknown) => {
-    const { runtime, identity } = requireAppRenderer(event.sender.id);
-    const audience = requireGrantedIdentityAudience(runtime, identity, input);
-    return requestAppIdentityToken({
-      fetch: fetchPenkraAccount,
-      apiUrl: penkraAccountServices.apiUrl,
-      appId: identity.appId,
-      spaceId: identity.spaceId,
-      audience,
-      cookie: getPenkraAccountCookie(),
-    });
-  });
+  ipcMain.handle(
+    IPC.appRuntime.identityGetToken,
+    async (event, input: unknown) => {
+      const { runtime, identity } = requireAppRenderer(event.sender.id);
+      const audience = requireGrantedIdentityAudience(runtime, identity, input);
+      return requestAppIdentityToken({
+        fetch: fetchPenkraAccount,
+        apiUrl: penkraAccountServices.apiUrl,
+        appId: identity.appId,
+        spaceId: identity.spaceId,
+        audience,
+        cookie: getPenkraAccountCookie(),
+      });
+    },
+  );
   ipcMain.removeHandler(IPC.appRuntime.accountProfileGet);
   ipcMain.handle(IPC.appRuntime.accountProfileGet, async (event) => {
     const { runtime, identity } = requireAppRenderer(event.sender.id);
@@ -6030,7 +6873,9 @@ function registerIpcHandlers(): void {
     );
     if (!permission.declared || permission.state !== "granted") {
       throw Object.assign(
-        new Error("account-profile is not granted for this App in the current Space."),
+        new Error(
+          "account-profile is not granted for this App in the current Space.",
+        ),
         { code: "PERMISSION_DENIED" },
       );
     }
@@ -6041,219 +6886,246 @@ function registerIpcHandlers(): void {
     });
   });
   ipcMain.removeHandler(IPC.appRuntime.accountDataRequest);
-  ipcMain.handle(IPC.appRuntime.accountDataRequest, async (event, input: unknown) => {
-    const { runtime, identity } = requireAppRenderer(event.sender.id);
-    const permission = queryAppPermission(
-      runtime.installations.snapshot(),
-      identity,
-      "account-data",
-    );
-    if (!permission.declared || permission.state !== "granted") {
-      throw Object.assign(
-        new Error("account-data is not granted for this App in the current Space."),
-        { code: "PERMISSION_DENIED" },
+  ipcMain.handle(
+    IPC.appRuntime.accountDataRequest,
+    async (event, input: unknown) => {
+      const { runtime, identity } = requireAppRenderer(event.sender.id);
+      const permission = queryAppPermission(
+        runtime.installations.snapshot(),
+        identity,
+        "account-data",
       );
-    }
-    if (!input || typeof input !== "object" || Array.isArray(input)) {
-      throw new Error("Account-data request must be an object.");
-    }
-    const startedAt = performance.now();
-    try {
-      return await requestAppAccountData({
-        fetch: fetchPenkraAccount,
+      if (!permission.declared || permission.state !== "granted") {
+        throw Object.assign(
+          new Error(
+            "account-data is not granted for this App in the current Space.",
+          ),
+          { code: "PERMISSION_DENIED" },
+        );
+      }
+      if (!input || typeof input !== "object" || Array.isArray(input)) {
+        throw new Error("Account-data request must be an object.");
+      }
+      const startedAt = performance.now();
+      try {
+        return await requestAppAccountData({
+          fetch: fetchPenkraAccount,
+          apiUrl: penkraAccountServices.apiUrl,
+          appId: identity.appId,
+          cookie: getPenkraAccountCookie(),
+          request: input as import("./appAccountData").AppAccountDataRequest,
+        });
+      } finally {
+        void runtime.diagnostics
+          .record({
+            kind: "permission-used",
+            appId: identity.appId,
+            spaceId: identity.spaceId,
+            operation: "account-data-request",
+            durationMs: Math.round(performance.now() - startedAt),
+          })
+          .catch(() => undefined);
+      }
+    },
+  );
+  ipcMain.removeHandler(IPC.appRuntime.accountDataSubscribeStart);
+  ipcMain.handle(
+    IPC.appRuntime.accountDataSubscribeStart,
+    async (event, input: unknown) => {
+      const { runtime, identity } = requireAppRenderer(event.sender.id);
+      const permission = queryAppPermission(
+        runtime.installations.snapshot(),
+        identity,
+        "account-data",
+      );
+      if (!permission.declared || permission.state !== "granted") {
+        throw Object.assign(
+          new Error(
+            "account-data is not granted for this App in the current Space.",
+          ),
+          { code: "PERMISSION_DENIED" },
+        );
+      }
+      const channel =
+        input && typeof input === "object" && !Array.isArray(input)
+          ? (input as { channel?: unknown }).channel
+          : undefined;
+      const metadata =
+        input && typeof input === "object" && !Array.isArray(input)
+          ? (input as { metadata?: unknown }).metadata
+          : undefined;
+      if (typeof channel !== "string")
+        throw new Error("Account-data channel must be a string.");
+      const subscriptionId = Crypto.randomUUID();
+      const senderId = event.sender.id;
+      const subscription = await subscribeAppAccountData({
         apiUrl: penkraAccountServices.apiUrl,
         appId: identity.appId,
         cookie: getPenkraAccountCookie(),
-        request: input as import("./appAccountData").AppAccountDataRequest,
+        channel,
+        ...(metadata && typeof metadata === "object" && !Array.isArray(metadata)
+          ? { metadata: metadata as Record<string, string | number | boolean> }
+          : {}),
+        onEvent: (accountEvent) => {
+          const target = webContents.fromId(senderId);
+          if (!target || target.isDestroyed()) return;
+          target.send(IPC.appRuntime.accountDataEvent, {
+            subscriptionId,
+            event: accountEvent,
+          });
+        },
+        onConnectionStateChange: (connectionState) => {
+          const target = webContents.fromId(senderId);
+          if (!target || target.isDestroyed()) return;
+          target.send(IPC.appRuntime.accountDataEvent, {
+            subscriptionId,
+            connectionState,
+          });
+        },
       });
-    } finally {
-      void runtime.diagnostics
-        .record({
-          kind: "permission-used",
-          appId: identity.appId,
-          spaceId: identity.spaceId,
-          operation: "account-data-request",
-          durationMs: Math.round(performance.now() - startedAt),
-        })
-        .catch(() => undefined);
-    }
-  });
-  ipcMain.removeHandler(IPC.appRuntime.accountDataSubscribeStart);
-  ipcMain.handle(IPC.appRuntime.accountDataSubscribeStart, async (event, input: unknown) => {
-    const { runtime, identity } = requireAppRenderer(event.sender.id);
-    const permission = queryAppPermission(
-      runtime.installations.snapshot(),
-      identity,
-      "account-data",
-    );
-    if (!permission.declared || permission.state !== "granted") {
-      throw Object.assign(
-        new Error("account-data is not granted for this App in the current Space."),
-        { code: "PERMISSION_DENIED" },
-      );
-    }
-    const channel =
-      input && typeof input === "object" && !Array.isArray(input)
-        ? (input as { channel?: unknown }).channel
-        : undefined;
-    const metadata =
-      input && typeof input === "object" && !Array.isArray(input)
-        ? (input as { metadata?: unknown }).metadata
-        : undefined;
-    if (typeof channel !== "string") throw new Error("Account-data channel must be a string.");
-    const subscriptionId = Crypto.randomUUID();
-    const senderId = event.sender.id;
-    const subscription = await subscribeAppAccountData({
-      apiUrl: penkraAccountServices.apiUrl,
-      appId: identity.appId,
-      cookie: getPenkraAccountCookie(),
-      channel,
-      ...(metadata && typeof metadata === "object" && !Array.isArray(metadata)
-        ? { metadata: metadata as Record<string, string | number | boolean> }
-        : {}),
-      onEvent: (accountEvent) => {
-        const target = webContents.fromId(senderId);
-        if (!target || target.isDestroyed()) return;
-        target.send(IPC.appRuntime.accountDataEvent, {
-          subscriptionId,
-          event: accountEvent,
+      appAccountSubscriptions.set(subscriptionId, {
+        owner: { kind: "web-contents", webContentsId: senderId },
+        stop: subscription.stop,
+      });
+      event.sender.once("destroyed", () => {
+        const active = appAccountSubscriptions.take(subscriptionId, {
+          kind: "web-contents",
+          webContentsId: senderId,
         });
-      },
-      onConnectionStateChange: (connectionState) => {
-        const target = webContents.fromId(senderId);
-        if (!target || target.isDestroyed()) return;
-        target.send(IPC.appRuntime.accountDataEvent, {
-          subscriptionId,
-          connectionState,
-        });
-      },
-    });
-    appAccountSubscriptions.set(subscriptionId, {
-      owner: { kind: "web-contents", webContentsId: senderId },
-      stop: subscription.stop,
-    });
-    event.sender.once("destroyed", () => {
+        if (!active) return;
+        active.stop();
+      });
+      return subscriptionId;
+    },
+  );
+  ipcMain.removeHandler(IPC.appRuntime.accountDataSubscribeStop);
+  ipcMain.handle(
+    IPC.appRuntime.accountDataSubscribeStop,
+    async (event, input: unknown) => {
+      const subscriptionId =
+        input && typeof input === "object" && !Array.isArray(input)
+          ? (input as { subscriptionId?: unknown }).subscriptionId
+          : undefined;
+      if (typeof subscriptionId !== "string") {
+        throw new Error("Account-data subscription ID must be a string.");
+      }
       const active = appAccountSubscriptions.take(subscriptionId, {
         kind: "web-contents",
-        webContentsId: senderId,
+        webContentsId: event.sender.id,
       });
       if (!active) return;
       active.stop();
-    });
-    return subscriptionId;
-  });
-  ipcMain.removeHandler(IPC.appRuntime.accountDataSubscribeStop);
-  ipcMain.handle(IPC.appRuntime.accountDataSubscribeStop, async (event, input: unknown) => {
-    const subscriptionId =
-      input && typeof input === "object" && !Array.isArray(input)
-        ? (input as { subscriptionId?: unknown }).subscriptionId
-        : undefined;
-    if (typeof subscriptionId !== "string") {
-      throw new Error("Account-data subscription ID must be a string.");
-    }
-    const active = appAccountSubscriptions.take(subscriptionId, {
-      kind: "web-contents",
-      webContentsId: event.sender.id,
-    });
-    if (!active) return;
-    active.stop();
-  });
+    },
+  );
   ipcMain.removeHandler(IPC.appRuntime.simulatorCall);
-  ipcMain.handle(IPC.appRuntime.simulatorCall, async (event, input: unknown) => {
-    const { runtime, identity } = requireAppRenderer(event.sender.id);
-    if (!identity.tabId) throw new Error("Only an interactive App tab can host a simulator.");
-    const simulatorRuntime = desktopSimulatorRuntime;
-    if (!simulatorRuntime) throw new Error("The Simulator host service is not ready.");
-    const permission = queryAppPermission(
-      runtime.installations.snapshot(),
-      identity,
-      "simulator-session",
-    );
-    if (!permission.declared || permission.state !== "granted") {
-      throw Object.assign(
-        new Error("simulator-session is not granted for this App in the current Space."),
-        { code: "PERMISSION_DENIED" },
+  ipcMain.handle(
+    IPC.appRuntime.simulatorCall,
+    async (event, input: unknown) => {
+      const { runtime, identity } = requireAppRenderer(event.sender.id);
+      if (!identity.tabId)
+        throw new Error("Only an interactive App tab can host a simulator.");
+      const simulatorRuntime = desktopSimulatorRuntime;
+      if (!simulatorRuntime)
+        throw new Error("The Simulator host service is not ready.");
+      const permission = queryAppPermission(
+        runtime.installations.snapshot(),
+        identity,
+        "simulator-session",
       );
-    }
-    if (!input || typeof input !== "object" || Array.isArray(input)) {
-      throw new Error("Simulator call must be an object.");
-    }
-    const { method, input: value } = input as Record<string, unknown>;
-    if (typeof method !== "string") throw new Error("Simulator call method is required.");
-    const owner = {
-      appId: identity.appId,
-      spaceId: identity.spaceId,
-      tabId: identity.tabId,
-    };
-    if (!appSimulatorTrackedRendererIds.has(event.sender.id)) {
-      appSimulatorTrackedRendererIds.add(event.sender.id);
-      event.sender.once("destroyed", () => {
-        appSimulatorTrackedRendererIds.delete(event.sender.id);
-        runtimeV2SimulatorSurfaces.get(owner.tabId)?.stopFrames?.();
-        runtimeV2SimulatorSurfaces.delete(owner.tabId);
-        void desktopSimulatorRuntime?.manager.closeTab(owner.tabId).catch((error) => {
-          console.warn(
-            `[penkra-app] Simulator cleanup failed after renderer exit: ${formatErrorMessage(error)}`,
-          );
+      if (!permission.declared || permission.state !== "granted") {
+        throw Object.assign(
+          new Error(
+            "simulator-session is not granted for this App in the current Space.",
+          ),
+          { code: "PERMISSION_DENIED" },
+        );
+      }
+      if (!input || typeof input !== "object" || Array.isArray(input)) {
+        throw new Error("Simulator call must be an object.");
+      }
+      const { method, input: value } = input as Record<string, unknown>;
+      if (typeof method !== "string")
+        throw new Error("Simulator call method is required.");
+      const owner = {
+        appId: identity.appId,
+        spaceId: identity.spaceId,
+        tabId: identity.tabId,
+      };
+      if (!appSimulatorTrackedRendererIds.has(event.sender.id)) {
+        appSimulatorTrackedRendererIds.add(event.sender.id);
+        event.sender.once("destroyed", () => {
+          appSimulatorTrackedRendererIds.delete(event.sender.id);
+          runtimeV2SimulatorSurfaces.get(owner.tabId)?.stopFrames?.();
+          runtimeV2SimulatorSurfaces.delete(owner.tabId);
+          void desktopSimulatorRuntime?.manager
+            .closeTab(owner.tabId)
+            .catch((error) => {
+              console.warn(
+                `[penkra-app] Simulator cleanup failed after renderer exit: ${formatErrorMessage(error)}`,
+              );
+            });
         });
-      });
-    }
-    const startedAt = performance.now();
-    try {
-      return await invokeSimulatorCall({
-        manager: simulatorRuntime.manager,
-        owner,
-        method,
-        value,
-        viewport: runtimeV2SimulatorViewport(simulatorRuntime.manager),
-        authorizeSetup: async (request) => {
-          const runtimeInfo = request.runtimeId
-            ? (await simulatorRuntime.manager.listRuntimes()).find(
-                (candidate) =>
-                  candidate.id === request.runtimeId && candidate.platform === request.platform,
-              )
-            : null;
-          const platformName = request.platform === "ios" ? "iOS Simulator" : "Android";
-          const setupName = runtimeInfo?.name ?? `${platformName} support`;
-          const options: Electron.MessageBoxOptions = {
-            type: "question",
-            buttons: ["Install", "Cancel"],
-            defaultId: 0,
-            cancelId: 1,
-            noLink: true,
-            title: "Install simulator support",
-            message: `Install ${setupName}?`,
-            detail:
-              `Penkra will run ${
-                request.platform === "ios"
-                  ? "Xcode for Apple platform files, or npm for the pinned Appium/XCUITest automation pair when it is missing"
-                  : "the official Android SDK Manager"
-              }. ` +
-              "This downloads platform files and uses additional disk space. Penkra does not accept license terms automatically, and you can cancel while the installer is running.",
-          };
-          const targetWindow = resolveShellWindow();
-          const result = targetWindow
-            ? await dialog.showMessageBox(targetWindow, options)
-            : await dialog.showMessageBox(options);
-          return result.response === 0;
-        },
-      });
-    } finally {
-      void runtime.diagnostics
-        .record({
-          kind: "permission-used",
-          appId: identity.appId,
-          spaceId: identity.spaceId,
-          operation: `simulator-${method}`,
-          durationMs: Math.round(performance.now() - startedAt),
-        })
-        .catch(() => undefined);
-    }
-  });
+      }
+      const startedAt = performance.now();
+      try {
+        return await invokeSimulatorCall({
+          manager: simulatorRuntime.manager,
+          owner,
+          method,
+          value,
+          viewport: runtimeV2SimulatorViewport(simulatorRuntime.manager),
+          authorizeSetup: async (request) => {
+            const runtimeInfo = request.runtimeId
+              ? (await simulatorRuntime.manager.listRuntimes()).find(
+                  (candidate) =>
+                    candidate.id === request.runtimeId &&
+                    candidate.platform === request.platform,
+                )
+              : null;
+            const platformName =
+              request.platform === "ios" ? "iOS Simulator" : "Android";
+            const setupName = runtimeInfo?.name ?? `${platformName} support`;
+            const options: Electron.MessageBoxOptions = {
+              type: "question",
+              buttons: ["Install", "Cancel"],
+              defaultId: 0,
+              cancelId: 1,
+              noLink: true,
+              title: "Install simulator support",
+              message: `Install ${setupName}?`,
+              detail:
+                `Penkra will run ${
+                  request.platform === "ios"
+                    ? "Xcode for Apple platform files, or npm for the pinned Appium/XCUITest automation pair when it is missing"
+                    : "the official Android SDK Manager"
+                }. ` +
+                "This downloads platform files and uses additional disk space. Penkra does not accept license terms automatically, and you can cancel while the installer is running.",
+            };
+            const targetWindow = resolveShellWindow();
+            const result = targetWindow
+              ? await dialog.showMessageBox(targetWindow, options)
+              : await dialog.showMessageBox(options);
+            return result.response === 0;
+          },
+        });
+      } finally {
+        void runtime.diagnostics
+          .record({
+            kind: "permission-used",
+            appId: identity.appId,
+            spaceId: identity.spaceId,
+            operation: `simulator-${method}`,
+            durationMs: Math.round(performance.now() - startedAt),
+          })
+          .catch(() => undefined);
+      }
+    },
+  );
   ipcMain.removeHandler(IPC.appRuntime.settingGet);
   ipcMain.handle(IPC.appRuntime.settingGet, async (event, key: unknown) => {
     const { runtime, identity } = requireAppRenderer(event.sender.id);
-    if (typeof key !== "string") throw new Error("Setting key must be a string.");
+    if (typeof key !== "string")
+      throw new Error("Setting key must be a string.");
     return runtime.installations.getSetting({ ...identity, key });
   });
   ipcMain.removeHandler(IPC.appRuntime.settingSet);
@@ -6262,19 +7134,22 @@ function registerIpcHandlers(): void {
     if (!input || typeof input !== "object" || Array.isArray(input))
       throw new Error("Setting input must be an object.");
     const { key, value } = input as Record<string, unknown>;
-    if (typeof key !== "string") throw new Error("Setting key must be a string.");
+    if (typeof key !== "string")
+      throw new Error("Setting key must be a string.");
     await runtime.installations.setSetting({ ...identity, key, value });
   });
   ipcMain.removeHandler(IPC.appRuntime.settingReset);
   ipcMain.handle(IPC.appRuntime.settingReset, async (event, key: unknown) => {
     const { runtime, identity } = requireAppRenderer(event.sender.id);
-    if (typeof key !== "string") throw new Error("Setting key must be a string.");
+    if (typeof key !== "string")
+      throw new Error("Setting key must be a string.");
     await runtime.installations.resetSetting({ ...identity, key });
   });
   ipcMain.removeHandler(IPC.appRuntime.secretGet);
   ipcMain.handle(IPC.appRuntime.secretGet, async (event, name: unknown) => {
     const { runtime, identity } = requireAppRenderer(event.sender.id);
-    if (typeof name !== "string") throw new Error("Secret name must be a string.");
+    if (typeof name !== "string")
+      throw new Error("Secret name must be a string.");
     return runtime.vault.getSecret(identity.appId, identity.spaceId, name);
   });
   ipcMain.removeHandler(IPC.appRuntime.secretSet);
@@ -6285,18 +7160,25 @@ function registerIpcHandlers(): void {
     const { name, value } = input as Record<string, unknown>;
     if (typeof name !== "string" || typeof value !== "string")
       throw new Error("Secret name and value must be strings.");
-    await runtime.vault.setSecret(identity.appId, identity.spaceId, name, value);
+    await runtime.vault.setSecret(
+      identity.appId,
+      identity.spaceId,
+      name,
+      value,
+    );
   });
   ipcMain.removeHandler(IPC.appRuntime.secretDelete);
   ipcMain.handle(IPC.appRuntime.secretDelete, async (event, name: unknown) => {
     const { runtime, identity } = requireAppRenderer(event.sender.id);
-    if (typeof name !== "string") throw new Error("Secret name must be a string.");
+    if (typeof name !== "string")
+      throw new Error("Secret name must be a string.");
     await runtime.vault.deleteSecret(identity.appId, identity.spaceId, name);
   });
   ipcMain.removeHandler(IPC.appRuntime.browserCall);
   ipcMain.handle(IPC.appRuntime.browserCall, async (event, input: unknown) => {
     const { runtime, identity } = requireAppRenderer(event.sender.id);
-    if (!identity.tabId) throw new Error("Only an interactive App tab can host browser pages.");
+    if (!identity.tabId)
+      throw new Error("Only an interactive App tab can host browser pages.");
     const permission = queryAppPermission(
       runtime.installations.snapshot(),
       identity,
@@ -6304,7 +7186,9 @@ function registerIpcHandlers(): void {
     );
     if (!permission.declared || permission.state !== "granted") {
       throw Object.assign(
-        new Error("browser-session is not granted for this App in the current Space."),
+        new Error(
+          "browser-session is not granted for this App in the current Space.",
+        ),
         { code: "PERMISSION_DENIED" },
       );
     }
@@ -6312,16 +7196,23 @@ function registerIpcHandlers(): void {
       throw new Error("Browser call must be an object.");
     }
     const { method, input: value } = input as Record<string, unknown>;
-    if (typeof method !== "string") throw new Error("Browser call method is required.");
-    if (!identity.tabId) throw new Error("This App renderer is not attached to a tab.");
-    configureAppBrowserDownloads(identity.tabId, identity.appId, identity.spaceId);
+    if (typeof method !== "string")
+      throw new Error("Browser call method is required.");
+    if (!identity.tabId)
+      throw new Error("This App renderer is not attached to a tab.");
+    configureAppBrowserDownloads(
+      identity.tabId,
+      identity.appId,
+      identity.spaceId,
+    );
     const downloads = appBrowserDownloadManagers.get(
       createScopedBrowserSessionPartition(identity.appId, identity.spaceId),
     )!;
     const tabs = runtime.appTabs;
     const state = () => tabs.hostedPageState(identity.tabId!);
     const pageId = () => {
-      if (typeof value !== "string" || !value) throw new Error("Browser page ID is required.");
+      if (typeof value !== "string" || !value)
+        throw new Error("Browser page ID is required.");
       return value;
     };
     switch (method) {
@@ -6336,7 +7227,8 @@ function registerIpcHandlers(): void {
       case "downloads.retry":
       case "downloads.open":
       case "downloads.showInFinder": {
-        if (typeof value !== "string" || !value) throw new Error("Download ID is required.");
+        if (typeof value !== "string" || !value)
+          throw new Error("Download ID is required.");
         if (method === "downloads.pause") downloads.pause(value);
         else if (method === "downloads.resume") downloads.resume(value);
         else if (method === "downloads.cancel") downloads.cancel(value);
@@ -6391,8 +7283,13 @@ function registerIpcHandlers(): void {
           throw new Error("Browser extension action input is required.");
         }
         const record = value as Record<string, unknown>;
-        if (typeof record.extensionId !== "string" || typeof record.pageId !== "string") {
-          throw new Error("Browser extension action requires extensionId and pageId.");
+        if (
+          typeof record.extensionId !== "string" ||
+          typeof record.pageId !== "string"
+        ) {
+          throw new Error(
+            "Browser extension action requires extensionId and pageId.",
+          );
         }
         await tabs.openHostedPageExtensionAction({
           tabId: identity.tabId,
@@ -6402,14 +7299,18 @@ function registerIpcHandlers(): void {
         return;
       }
       case "setToolbarHeight":
-        if (typeof value !== "number") throw new Error("Toolbar height must be a number.");
+        if (typeof value !== "number")
+          throw new Error("Toolbar height must be a number.");
         tabs.setHostedPageTop(identity.tabId, value);
         return;
       case "find": {
         if (!value || typeof value !== "object" || Array.isArray(value))
           throw new Error("Browser find input is required.");
         const record = value as Record<string, unknown>;
-        if (typeof record.pageId !== "string" || typeof record.text !== "string")
+        if (
+          typeof record.pageId !== "string" ||
+          typeof record.text !== "string"
+        )
           throw new Error("Browser find requires pageId and text.");
         const action = record.action;
         if (
@@ -6439,10 +7340,15 @@ function registerIpcHandlers(): void {
         if (!value || typeof value !== "object" || Array.isArray(value))
           throw new Error("Browser evaluate input is required.");
         const record = value as Record<string, unknown>;
-        if (typeof record.pageId !== "string" || typeof record.expression !== "string")
+        if (
+          typeof record.pageId !== "string" ||
+          typeof record.expression !== "string"
+        )
           throw new Error("Browser evaluate requires pageId and expression.");
         if (Buffer.byteLength(record.expression) > 100_000)
-          throw new Error("Browser expressions may contain at most 100,000 bytes.");
+          throw new Error(
+            "Browser expressions may contain at most 100,000 bytes.",
+          );
         const response = await tabs.executeHostedPageCdp({
           tabId: identity.tabId,
           pageId: record.pageId,
@@ -6462,7 +7368,9 @@ function registerIpcHandlers(): void {
               })
             : {};
         if (result.exceptionDetails)
-          throw new Error(result.result?.description ?? "Browser evaluation failed.");
+          throw new Error(
+            result.result?.description ?? "Browser evaluation failed.",
+          );
         return result.result?.value ?? null;
       }
       case "upload":
@@ -6486,7 +7394,9 @@ function registerIpcHandlers(): void {
     );
     if (!permission.declared || permission.state !== "granted") {
       throw Object.assign(
-        new Error("network-fetch is not granted for this App in the current Space."),
+        new Error(
+          "network-fetch is not granted for this App in the current Space.",
+        ),
         { code: "PERMISSION_DENIED" },
       );
     }
@@ -6494,7 +7404,9 @@ function registerIpcHandlers(): void {
       throw new Error("Network request must be an object.");
     const startedAt = performance.now();
     try {
-      return await mediatedAppFetch(input as import("./appNetworkFetch").AppNetworkFetchRequest);
+      return await mediatedAppFetch(
+        input as import("./appNetworkFetch").AppNetworkFetchRequest,
+      );
     } finally {
       void runtime.diagnostics
         .record({
@@ -6508,15 +7420,19 @@ function registerIpcHandlers(): void {
     }
   });
   ipcMain.removeHandler(IPC.appRuntime.storageCall);
-  ipcMain.handle(IPC.appRuntime.storageCall, async (event, request: unknown) => {
-    const { runtime, identity } = requireAppRenderer(event.sender.id);
-    if (!request || typeof request !== "object" || Array.isArray(request)) {
-      throw new Error("Storage call must be an object.");
-    }
-    const record = request as { method?: unknown; input?: unknown };
-    if (typeof record.method !== "string") throw new Error("Storage method is required.");
-    return invokeAppStorageCall(identity, record.method, record.input);
-  });
+  ipcMain.handle(
+    IPC.appRuntime.storageCall,
+    async (event, request: unknown) => {
+      const { runtime, identity } = requireAppRenderer(event.sender.id);
+      if (!request || typeof request !== "object" || Array.isArray(request)) {
+        throw new Error("Storage call must be an object.");
+      }
+      const record = request as { method?: unknown; input?: unknown };
+      if (typeof record.method !== "string")
+        throw new Error("Storage method is required.");
+      return invokeAppStorageCall(identity, record.method, record.input);
+    },
+  );
   ipcMain.removeHandler(IPC.appRuntime.threadCall);
   ipcMain.handle(IPC.appRuntime.threadCall, async (event, request: unknown) => {
     const { runtime, identity } = requireAppRenderer(event.sender.id);
@@ -6540,13 +7456,21 @@ function registerIpcHandlers(): void {
     if (typeof method !== "string" || !supportedMethods.has(method)) {
       throw new Error("Unsupported Thread operation.");
     }
-    return requestAppThreadOperation(runtime, identity, method as AppThreadOperationMethod, input);
+    return requestAppThreadOperation(
+      runtime,
+      identity,
+      method as AppThreadOperationMethod,
+      input,
+    );
   });
   const requireAppInstallations = (senderId: number) => {
     const service = desktopAppRuntime?.installations;
     if (!service) throw new Error("The App installation service is not ready.");
     const isShellRenderer = isShellRendererId(senderId);
-    if (!isShellRenderer && !desktopAppRuntime?.canManageInstallations(senderId)) {
+    if (
+      !isShellRenderer &&
+      !desktopAppRuntime?.canManageInstallations(senderId)
+    ) {
       throw new Error("This renderer cannot manage App installations.");
     }
     return {
@@ -6560,84 +7484,123 @@ function registerIpcHandlers(): void {
     if (channel !== IPC.appInstallations.state) ipcMain.removeHandler(channel);
   }
   ipcMain.handle(IPC.appInstallations.getState, async (event) => {
-    const { service, currentSpaceId } = requireAppInstallations(event.sender.id);
+    const { service, currentSpaceId } = requireAppInstallations(
+      event.sender.id,
+    );
     return toDesktopAppInstallationSnapshot(
       service.snapshot(),
       currentSpaceId,
       permissionReviewUpdatesForSpace(currentSpaceId),
     );
   });
-  ipcMain.handle(IPC.appInstallations.setEnabled, async (event, input: unknown) => {
-    const { service, currentSpaceId } = requireAppInstallations(event.sender.id);
-    const request = parseSetAppEnabledRequest(input);
-    const state = await service.setEnabled(request);
-    if (!request.enabled) revokeRuntimeV2FileScope(request.appId, request.spaceId);
-    return toDesktopAppInstallationSnapshot(
-      state,
-      currentSpaceId,
-      permissionReviewUpdatesForSpace(currentSpaceId),
-    );
-  });
-  ipcMain.handle(IPC.appInstallations.setPermission, async (event, input: unknown) => {
-    const { service, currentSpaceId } = requireAppInstallations(event.sender.id);
-    const request = parseSetAppPermissionRequest(input);
-    return toDesktopAppInstallationSnapshot(
-      await (isAppStandardPermissionName(request.permission)
-        ? service.setRuntimePermission({
-            ...request,
-            permission: request.permission,
-          })
-        : service.setPermission(request)),
-      currentSpaceId,
-      permissionReviewUpdatesForSpace(currentSpaceId),
-    );
-  });
-  ipcMain.handle(IPC.appInstallations.getSettings, async (event, input: unknown) => {
-    const { service } = requireAppInstallations(event.sender.id);
-    return toDesktopAppSettings(service.listSettings(parseAppSettingTarget(input)));
-  });
-  ipcMain.handle(IPC.appInstallations.setSetting, async (event, input: unknown) => {
-    const { service } = requireAppInstallations(event.sender.id);
-    const request = parseAppSettingValue(input);
-    await service.setSetting(request);
-    return toDesktopAppSettings(service.listSettings(request));
-  });
-  ipcMain.handle(IPC.appInstallations.resetSetting, async (event, input: unknown) => {
-    const { service } = requireAppInstallations(event.sender.id);
-    const request = parseAppSettingKey(input);
-    await service.resetSetting(request);
-    return toDesktopAppSettings(service.listSettings(request));
-  });
-  ipcMain.handle(IPC.appInstallations.setSkillEnabled, async (event, input: unknown) => {
-    const { service, currentSpaceId } = requireAppInstallations(event.sender.id);
-    return toDesktopAppInstallationSnapshot(
-      await service.setSkillEnabled(parseSetAppSkillEnabledRequest(input)),
-      currentSpaceId,
-      permissionReviewUpdatesForSpace(currentSpaceId),
-    );
-  });
-  ipcMain.handle(IPC.appInstallations.uninstall, async (event, input: unknown) => {
-    const { service, currentSpaceId } = requireAppInstallations(event.sender.id);
-    const request = parseUninstallAppRequest(input);
-    const state = await service.uninstall(request);
-    revokeRuntimeV2FileScope(request.appId, request.spaceId);
-    return toDesktopAppInstallationSnapshot(
-      state,
-      currentSpaceId,
-      permissionReviewUpdatesForSpace(currentSpaceId),
-    );
-  });
-  ipcMain.handle(IPC.appInstallations.removeData, async (event, input: unknown) => {
-    const { service, currentSpaceId } = requireAppInstallations(event.sender.id);
-    const request = parseRemoveAppDataRequest(input);
-    const state = await service.removeData(request);
-    revokeRuntimeV2FileScope(request.appId, request.spaceId);
-    return toDesktopAppInstallationSnapshot(
-      state,
-      currentSpaceId,
-      permissionReviewUpdatesForSpace(currentSpaceId),
-    );
-  });
+  ipcMain.handle(
+    IPC.appInstallations.setEnabled,
+    async (event, input: unknown) => {
+      const { service, currentSpaceId } = requireAppInstallations(
+        event.sender.id,
+      );
+      const request = parseSetAppEnabledRequest(input);
+      const state = await service.setEnabled(request);
+      if (!request.enabled)
+        revokeRuntimeV2FileScope(request.appId, request.spaceId);
+      return toDesktopAppInstallationSnapshot(
+        state,
+        currentSpaceId,
+        permissionReviewUpdatesForSpace(currentSpaceId),
+      );
+    },
+  );
+  ipcMain.handle(
+    IPC.appInstallations.setPermission,
+    async (event, input: unknown) => {
+      const { service, currentSpaceId } = requireAppInstallations(
+        event.sender.id,
+      );
+      const request = parseSetAppPermissionRequest(input);
+      return toDesktopAppInstallationSnapshot(
+        await (isAppStandardPermissionName(request.permission)
+          ? service.setRuntimePermission({
+              ...request,
+              permission: request.permission,
+            })
+          : service.setPermission(request)),
+        currentSpaceId,
+        permissionReviewUpdatesForSpace(currentSpaceId),
+      );
+    },
+  );
+  ipcMain.handle(
+    IPC.appInstallations.getSettings,
+    async (event, input: unknown) => {
+      const { service } = requireAppInstallations(event.sender.id);
+      return toDesktopAppSettings(
+        service.listSettings(parseAppSettingTarget(input)),
+      );
+    },
+  );
+  ipcMain.handle(
+    IPC.appInstallations.setSetting,
+    async (event, input: unknown) => {
+      const { service } = requireAppInstallations(event.sender.id);
+      const request = parseAppSettingValue(input);
+      await service.setSetting(request);
+      return toDesktopAppSettings(service.listSettings(request));
+    },
+  );
+  ipcMain.handle(
+    IPC.appInstallations.resetSetting,
+    async (event, input: unknown) => {
+      const { service } = requireAppInstallations(event.sender.id);
+      const request = parseAppSettingKey(input);
+      await service.resetSetting(request);
+      return toDesktopAppSettings(service.listSettings(request));
+    },
+  );
+  ipcMain.handle(
+    IPC.appInstallations.setSkillEnabled,
+    async (event, input: unknown) => {
+      const { service, currentSpaceId } = requireAppInstallations(
+        event.sender.id,
+      );
+      return toDesktopAppInstallationSnapshot(
+        await service.setSkillEnabled(parseSetAppSkillEnabledRequest(input)),
+        currentSpaceId,
+        permissionReviewUpdatesForSpace(currentSpaceId),
+      );
+    },
+  );
+  ipcMain.handle(
+    IPC.appInstallations.uninstall,
+    async (event, input: unknown) => {
+      const { service, currentSpaceId } = requireAppInstallations(
+        event.sender.id,
+      );
+      const request = parseUninstallAppRequest(input);
+      const state = await service.uninstall(request);
+      revokeRuntimeV2FileScope(request.appId, request.spaceId);
+      return toDesktopAppInstallationSnapshot(
+        state,
+        currentSpaceId,
+        permissionReviewUpdatesForSpace(currentSpaceId),
+      );
+    },
+  );
+  ipcMain.handle(
+    IPC.appInstallations.removeData,
+    async (event, input: unknown) => {
+      const { service, currentSpaceId } = requireAppInstallations(
+        event.sender.id,
+      );
+      const request = parseRemoveAppDataRequest(input);
+      const state = await service.removeData(request);
+      revokeRuntimeV2FileScope(request.appId, request.spaceId);
+      return toDesktopAppInstallationSnapshot(
+        state,
+        currentSpaceId,
+        permissionReviewUpdatesForSpace(currentSpaceId),
+      );
+    },
+  );
 
   const requireAppsRegistry = (senderId: number) => {
     if (!desktopAppRuntime?.canManageInstallations(senderId)) {
@@ -6646,73 +7609,83 @@ function registerIpcHandlers(): void {
     if (!appRegistryClient) throw new Error("The App registry is not ready.");
     return appRegistryClient;
   };
-  ipcMain.handle(IPC.appInstallations.installRegistry, async (event, input: unknown) => {
-    const request = parseInstallRegistryAppRequest(input);
-    const registry = requireAppsRegistry(event.sender.id);
-    const runtime = desktopAppRuntime;
-    if (!runtime) throw new Error("The App runtime is not ready.");
-    const currentSpaceId = runtime.installationSpaceId(event.sender.id);
-    if (!currentSpaceId || currentSpaceId !== request.spaceId) {
-      throw new Error("Apps can only be installed into the current Space.");
-    }
-    const state = await installRegistryApp({
-      request,
-      hostVersion: app.getVersion(),
-      registry,
-      packages: runtime.packages,
-      installations: runtime.installations,
-    });
-    return toDesktopAppInstallationSnapshot(
-      state,
-      currentSpaceId,
-      permissionReviewUpdatesForSpace(currentSpaceId),
-    );
-  });
-  ipcMain.handle(IPC.appInstallations.updateRegistry, async (event, input: unknown) => {
-    const request = parseUpdateRegistryAppRequest(input);
-    const registry = requireAppsRegistry(event.sender.id);
-    const runtime = desktopAppRuntime;
-    if (!runtime) throw new Error("The App runtime is not ready.");
-    const currentSpaceId = runtime.installationSpaceId(event.sender.id);
-    if (!currentSpaceId || currentSpaceId !== request.spaceId) {
-      throw new Error("Apps can only be updated in the current Space.");
-    }
-    const state = await updateRegistryApp({
-      request,
-      hostVersion: app.getVersion(),
-      registry,
-      packages: runtime.packages,
-      installations: runtime.installations,
-    });
-    return toDesktopAppInstallationSnapshot(
-      state,
-      currentSpaceId,
-      permissionReviewUpdatesForSpace(currentSpaceId),
-    );
-  });
-  ipcMain.handle(IPC.appInstallations.rollbackRegistry, async (event, input: unknown) => {
-    const request = parseRollbackRegistryAppRequest(input);
-    const registry = requireAppsRegistry(event.sender.id);
-    const runtime = desktopAppRuntime;
-    if (!runtime) throw new Error("The App runtime is not ready.");
-    const currentSpaceId = runtime.installationSpaceId(event.sender.id);
-    if (!currentSpaceId || currentSpaceId !== request.spaceId) {
-      throw new Error("Apps can only be rolled back in the current Space.");
-    }
-    const state = await rollbackRegistryApp({
-      request,
-      hostVersion: app.getVersion(),
-      registry,
-      packages: runtime.packages,
-      installations: runtime.installations,
-    });
-    return toDesktopAppInstallationSnapshot(
-      state,
-      currentSpaceId,
-      permissionReviewUpdatesForSpace(currentSpaceId),
-    );
-  });
-  for (const channel of Object.values(IPC.appRegistry)) ipcMain.removeHandler(channel);
+  ipcMain.handle(
+    IPC.appInstallations.installRegistry,
+    async (event, input: unknown) => {
+      const request = parseInstallRegistryAppRequest(input);
+      const registry = requireAppsRegistry(event.sender.id);
+      const runtime = desktopAppRuntime;
+      if (!runtime) throw new Error("The App runtime is not ready.");
+      const currentSpaceId = runtime.installationSpaceId(event.sender.id);
+      if (!currentSpaceId || currentSpaceId !== request.spaceId) {
+        throw new Error("Apps can only be installed into the current Space.");
+      }
+      const state = await installRegistryApp({
+        request,
+        hostVersion: app.getVersion(),
+        registry,
+        packages: runtime.packages,
+        installations: runtime.installations,
+      });
+      return toDesktopAppInstallationSnapshot(
+        state,
+        currentSpaceId,
+        permissionReviewUpdatesForSpace(currentSpaceId),
+      );
+    },
+  );
+  ipcMain.handle(
+    IPC.appInstallations.updateRegistry,
+    async (event, input: unknown) => {
+      const request = parseUpdateRegistryAppRequest(input);
+      const registry = requireAppsRegistry(event.sender.id);
+      const runtime = desktopAppRuntime;
+      if (!runtime) throw new Error("The App runtime is not ready.");
+      const currentSpaceId = runtime.installationSpaceId(event.sender.id);
+      if (!currentSpaceId || currentSpaceId !== request.spaceId) {
+        throw new Error("Apps can only be updated in the current Space.");
+      }
+      const state = await updateRegistryApp({
+        request,
+        hostVersion: app.getVersion(),
+        registry,
+        packages: runtime.packages,
+        installations: runtime.installations,
+      });
+      return toDesktopAppInstallationSnapshot(
+        state,
+        currentSpaceId,
+        permissionReviewUpdatesForSpace(currentSpaceId),
+      );
+    },
+  );
+  ipcMain.handle(
+    IPC.appInstallations.rollbackRegistry,
+    async (event, input: unknown) => {
+      const request = parseRollbackRegistryAppRequest(input);
+      const registry = requireAppsRegistry(event.sender.id);
+      const runtime = desktopAppRuntime;
+      if (!runtime) throw new Error("The App runtime is not ready.");
+      const currentSpaceId = runtime.installationSpaceId(event.sender.id);
+      if (!currentSpaceId || currentSpaceId !== request.spaceId) {
+        throw new Error("Apps can only be rolled back in the current Space.");
+      }
+      const state = await rollbackRegistryApp({
+        request,
+        hostVersion: app.getVersion(),
+        registry,
+        packages: runtime.packages,
+        installations: runtime.installations,
+      });
+      return toDesktopAppInstallationSnapshot(
+        state,
+        currentSpaceId,
+        permissionReviewUpdatesForSpace(currentSpaceId),
+      );
+    },
+  );
+  for (const channel of Object.values(IPC.appRegistry))
+    ipcMain.removeHandler(channel);
   ipcMain.handle(IPC.appRegistry.list, async (event, input: unknown) =>
     requireAppsRegistry(event.sender.id).list(parseRegistryListRequest(input)),
   );
@@ -6720,16 +7693,24 @@ function registerIpcHandlers(): void {
     requireAppsRegistry(event.sender.id).get(parseRegistryGetRequest(input)),
   );
   ipcMain.handle(IPC.appRegistry.getArtifact, async (event, input: unknown) =>
-    requireAppsRegistry(event.sender.id).getArtifact(parseRegistryArtifactRequest(input)),
+    requireAppsRegistry(event.sender.id).getArtifact(
+      parseRegistryArtifactRequest(input),
+    ),
   );
   ipcMain.handle(IPC.appRegistry.getFeedback, async (event, input: unknown) =>
-    requireAppsRegistry(event.sender.id).getFeedback(parseRegistryFeedbackRequest(input)),
+    requireAppsRegistry(event.sender.id).getFeedback(
+      parseRegistryFeedbackRequest(input),
+    ),
   );
   ipcMain.handle(IPC.appRegistry.setRating, async (event, input: unknown) =>
-    requireAppsRegistry(event.sender.id).setRating(parseRegistryRatingRequest(input)),
+    requireAppsRegistry(event.sender.id).setRating(
+      parseRegistryRatingRequest(input),
+    ),
   );
   ipcMain.handle(IPC.appRegistry.setReview, async (event, input: unknown) =>
-    requireAppsRegistry(event.sender.id).setReview(parseRegistryReviewRequest(input)),
+    requireAppsRegistry(event.sender.id).setReview(
+      parseRegistryReviewRequest(input),
+    ),
   );
 
   const requireShellAppTabs = (senderId: number) => {
@@ -6754,8 +7735,17 @@ function registerIpcHandlers(): void {
   ipcMain.on(IPC.appTabs.trace, (event, input: unknown) => {
     if (!isShellRendererId(event.sender.id)) return;
     if (!input || typeof input !== "object" || Array.isArray(input)) return;
-    const { event: traceEvent, tabId, details } = input as Record<string, unknown>;
-    if (typeof traceEvent !== "string" || !traceEvent || traceEvent.length > 120) return;
+    const {
+      event: traceEvent,
+      tabId,
+      details,
+    } = input as Record<string, unknown>;
+    if (
+      typeof traceEvent !== "string" ||
+      !traceEvent ||
+      traceEvent.length > 120
+    )
+      return;
     if (tabId !== undefined && typeof tabId !== "string") return;
     if (
       details !== undefined &&
@@ -6768,10 +7758,16 @@ function registerIpcHandlers(): void {
       ...(typeof tabId === "string" ? { tabId } : {}),
     });
   });
-  ipcMain.handle(IPC.appTabs.claimActivation, async (event, requestId: unknown) => {
-    requireShellAppTabs(event.sender.id);
-    return typeof requestId === "string" && appTabActivation.claim(requestId, event.sender.id);
-  });
+  ipcMain.handle(
+    IPC.appTabs.claimActivation,
+    async (event, requestId: unknown) => {
+      requireShellAppTabs(event.sender.id);
+      return (
+        typeof requestId === "string" &&
+        appTabActivation.claim(requestId, event.sender.id)
+      );
+    },
+  );
   ipcMain.handle(
     IPC.appTabs.failActivation,
     async (event, requestId: unknown, message: unknown) => {
@@ -6805,7 +7801,8 @@ function registerIpcHandlers(): void {
         .list()
         .some(
           (tab) =>
-            tab.rendererId === event.sender.id && activeAgentPresentationThreads.has(tab.threadId),
+            tab.rendererId === event.sender.id &&
+            activeAgentPresentationThreads.has(tab.threadId),
         )
         ? "agent"
         : "user",
@@ -6828,8 +7825,14 @@ function registerIpcHandlers(): void {
   });
   ipcMain.handle(IPC.appTabs.present, async (event, input: unknown) => {
     if (!input || typeof input !== "object" || Array.isArray(input)) return;
-    const { tabId, folderId, threadId, animate, animationStartedAtEpochMs, bounds } =
-      input as Record<string, unknown>;
+    const {
+      tabId,
+      folderId,
+      threadId,
+      animate,
+      animationStartedAtEpochMs,
+      bounds,
+    } = input as Record<string, unknown>;
     if (
       typeof tabId !== "string" ||
       typeof folderId !== "string" ||
@@ -6909,7 +7912,10 @@ function registerIpcHandlers(): void {
       input.folderId.length === 0
     )
       throw new Error("Closing an App tab requires its folder id.");
-    if (tabs.has(tabId) && tabs.list().find((tab) => tab.id === tabId)?.folderId !== input.folderId)
+    if (
+      tabs.has(tabId) &&
+      tabs.list().find((tab) => tab.id === tabId)?.folderId !== input.folderId
+    )
       throw new Error("The App tab belongs to a different folder.");
     if (!backendHttpUrl) throw new Error("The backend is not ready.");
     await tabs.close(tabId, input.folderId);
@@ -6923,7 +7929,9 @@ function registerIpcHandlers(): void {
   };
   const requireOpenWithStore = (senderId: number) => {
     if (!isShellRendererId(senderId)) {
-      throw new Error("Only the Penkra shell can manage Open With preferences.");
+      throw new Error(
+        "Only the Penkra shell can manage Open With preferences.",
+      );
     }
     if (!desktopAppRuntime) throw new Error("The App runtime is not ready.");
     return desktopAppRuntime.openWith;
@@ -6942,10 +7950,16 @@ function registerIpcHandlers(): void {
     ) {
       throw new Error("Open With intent is invalid.");
     }
-    if (record.extension !== undefined && typeof record.extension !== "string") {
+    if (
+      record.extension !== undefined &&
+      typeof record.extension !== "string"
+    ) {
       throw new Error("Open With extension must be a string.");
     }
-    if (record.appId !== null && (typeof record.appId !== "string" || !record.appId.trim())) {
+    if (
+      record.appId !== null &&
+      (typeof record.appId !== "string" || !record.appId.trim())
+    ) {
       throw new Error("Open With appId must be a non-empty string or null.");
     }
     const store = requireOpenWithStore(event.sender.id);
@@ -7001,7 +8015,9 @@ function registerIpcHandlers(): void {
     }
     // The backend port is reserved at runtime, so preload asks main for the
     // live URL instead of trusting build-time or inherited renderer env.
-    const wsUrl = normalizeDesktopWsUrl(backendWsUrl) ?? resolveDesktopWsUrlFromEnv(process.env);
+    const wsUrl =
+      normalizeDesktopWsUrl(backendWsUrl) ??
+      resolveDesktopWsUrlFromEnv(process.env);
     if (wsUrl && backendRendererToken) {
       const rendererUrl = new URL(wsUrl);
       rendererUrl.searchParams.set("rendererToken", backendRendererToken);
@@ -7036,7 +8052,9 @@ function registerIpcHandlers(): void {
     const owner = shellWindowForSender(event.sender) ?? resolveShellWindow();
     const options = {
       properties: ["openFile"] as Array<"openFile">,
-      filters: [{ name: "Images", extensions: ["png", "jpg", "jpeg", "webp", "gif"] }],
+      filters: [
+        { name: "Images", extensions: ["png", "jpg", "jpeg", "webp", "gif"] },
+      ],
     };
     const result = owner
       ? await dialog.showOpenDialog(owner, options)
@@ -7099,7 +8117,10 @@ function registerIpcHandlers(): void {
     }
 
     const owner = shellWindowForSender(event.sender) ?? resolveShellWindow();
-    return showDesktopConfirmDialog(input as Parameters<typeof showDesktopConfirmDialog>[0], owner);
+    return showDesktopConfirmDialog(
+      input as Parameters<typeof showDesktopConfirmDialog>[0],
+      owner,
+    );
   });
 
   ipcMain.removeHandler(IPC.setTheme);
@@ -7122,15 +8143,20 @@ function registerIpcHandlers(): void {
     );
   });
   ipcMain.removeHandler(IPC.setAppTypography);
-  ipcMain.handle(IPC.setAppTypography, async (event, rawTypography: unknown) => {
-    if (!isShellRendererId(event.sender.id)) {
-      throw new Error("Only the Penkra shell can set the App Typography contract.");
-    }
-    if (!desktopAppRuntime) throw new Error("The App runtime is not ready.");
-    await desktopAppRuntime.appTabs.applyTypography(
-      renderDesktopAppTypographyCss(parseDesktopAppTypography(rawTypography)),
-    );
-  });
+  ipcMain.handle(
+    IPC.setAppTypography,
+    async (event, rawTypography: unknown) => {
+      if (!isShellRendererId(event.sender.id)) {
+        throw new Error(
+          "Only the Penkra shell can set the App Typography contract.",
+        );
+      }
+      if (!desktopAppRuntime) throw new Error("The App runtime is not ready.");
+      await desktopAppRuntime.appTabs.applyTypography(
+        renderDesktopAppTypographyCss(parseDesktopAppTypography(rawTypography)),
+      );
+    },
+  );
 
   ipcMain.removeHandler(IPC.setSpacesMenu);
   ipcMain.handle(IPC.setSpacesMenu, async (event, input: unknown) => {
@@ -7155,7 +8181,11 @@ function registerIpcHandlers(): void {
   ipcMain.removeHandler(IPC.contextMenu);
   ipcMain.handle(
     IPC.contextMenu,
-    async (event, items: ContextMenuItem[], position?: { x: number; y: number }) =>
+    async (
+      event,
+      items: ContextMenuItem[],
+      position?: { x: number; y: number },
+    ) =>
       showAppContextMenu(items, position, shellWindowForSender(event.sender)),
   );
 
@@ -7201,7 +8231,8 @@ function registerIpcHandlers(): void {
     if ((path === undefined) === (url === undefined)) {
       throw new Error("Resource open requires exactly one path or URL.");
     }
-    const requestedApp = typeof record.requestedApp === "string" ? record.requestedApp : undefined;
+    const requestedApp =
+      typeof record.requestedApp === "string" ? record.requestedApp : undefined;
     if (
       record.tabId !== undefined &&
       (typeof record.tabId !== "string" || record.tabId.length === 0)
@@ -7235,7 +8266,9 @@ function registerIpcHandlers(): void {
       typeof record.folderId !== "string" ||
       typeof record.threadId !== "string"
     ) {
-      throw new Error("Resource context menu requires Space, folder, and Thread IDs.");
+      throw new Error(
+        "Resource context menu requires Space, folder, and Thread IDs.",
+      );
     }
     const position = record.position;
     if (!position || typeof position !== "object" || Array.isArray(position)) {
@@ -7248,12 +8281,16 @@ function registerIpcHandlers(): void {
       typeof point.y !== "number" ||
       !Number.isFinite(point.y)
     ) {
-      throw new Error("Resource context menu position must contain finite coordinates.");
+      throw new Error(
+        "Resource context menu position must contain finite coordinates.",
+      );
     }
     const path = typeof record.path === "string" ? record.path : undefined;
     const url = typeof record.url === "string" ? record.url : undefined;
     if ((path === undefined) === (url === undefined)) {
-      throw new Error("Resource context menu requires exactly one path or URL.");
+      throw new Error(
+        "Resource context menu requires exactly one path or URL.",
+      );
     }
     return showPenkraResourceContextMenu({
       ...(path ? { path } : { url: url! }),
@@ -7266,31 +8303,36 @@ function registerIpcHandlers(): void {
   });
 
   ipcMain.removeHandler(IPC.clipboardWriteImage);
-  ipcMain.handle(IPC.clipboardWriteImage, async (_event, rawDataUrl: unknown) => {
-    if (typeof rawDataUrl !== "string") {
-      return false;
-    }
-    if (rawDataUrl.length > MAX_CLIPBOARD_IMAGE_DATA_URL_LENGTH) {
-      return false;
-    }
+  ipcMain.handle(
+    IPC.clipboardWriteImage,
+    async (_event, rawDataUrl: unknown) => {
+      if (typeof rawDataUrl !== "string") {
+        return false;
+      }
+      if (rawDataUrl.length > MAX_CLIPBOARD_IMAGE_DATA_URL_LENGTH) {
+        return false;
+      }
 
-    const dataUrl = rawDataUrl.trim();
-    if (!dataUrl.startsWith("data:image/png;base64,")) {
-      return false;
-    }
+      const dataUrl = rawDataUrl.trim();
+      if (!dataUrl.startsWith("data:image/png;base64,")) {
+        return false;
+      }
 
-    const image = nativeImage.createFromDataURL(dataUrl);
-    if (image.isEmpty()) {
-      return false;
-    }
+      const image = nativeImage.createFromDataURL(dataUrl);
+      if (image.isEmpty()) {
+        return false;
+      }
 
-    await clipboard.write([
-      new ClipboardItem({
-        "image/png": new Blob([Uint8Array.from(image.toPNG())], { type: "image/png" }),
-      }),
-    ]);
-    return true;
-  });
+      await clipboard.write([
+        new ClipboardItem({
+          "image/png": new Blob([Uint8Array.from(image.toPNG())], {
+            type: "image/png",
+          }),
+        }),
+      ]);
+      return true;
+    },
+  );
 
   ipcMain.removeHandler(IPC.showInFolder);
   ipcMain.handle(IPC.showInFolder, async (_event, rawPath: unknown) => {
@@ -7319,13 +8361,15 @@ function registerIpcHandlers(): void {
 
   ipcMain.removeHandler(IPC.windowMinimize);
   ipcMain.handle(IPC.windowMinimize, async (event) => {
-    const window = BrowserWindow.fromWebContents(event.sender) ?? resolveShellWindow();
+    const window =
+      BrowserWindow.fromWebContents(event.sender) ?? resolveShellWindow();
     window?.minimize();
   });
 
   ipcMain.removeHandler(IPC.windowToggleMaximize);
   ipcMain.handle(IPC.windowToggleMaximize, async (event) => {
-    const window = BrowserWindow.fromWebContents(event.sender) ?? resolveShellWindow();
+    const window =
+      BrowserWindow.fromWebContents(event.sender) ?? resolveShellWindow();
     if (!window) {
       return { isMaximized: false, isFullscreen: false };
     }
@@ -7341,14 +8385,18 @@ function registerIpcHandlers(): void {
 
   ipcMain.removeHandler(IPC.windowClose);
   ipcMain.handle(IPC.windowClose, async (event) => {
-    const window = BrowserWindow.fromWebContents(event.sender) ?? resolveShellWindow();
+    const window =
+      BrowserWindow.fromWebContents(event.sender) ?? resolveShellWindow();
     window?.close();
   });
 
   ipcMain.removeHandler(IPC.windowGetState);
   ipcMain.handle(IPC.windowGetState, async (event) => {
-    const window = BrowserWindow.fromWebContents(event.sender) ?? resolveShellWindow();
-    return window ? getDesktopWindowState(window) : { isMaximized: false, isFullscreen: false };
+    const window =
+      BrowserWindow.fromWebContents(event.sender) ?? resolveShellWindow();
+    return window
+      ? getDesktopWindowState(window)
+      : { isMaximized: false, isFullscreen: false };
   });
 
   ipcMain.removeHandler(IPC.updateGetState);
@@ -7388,7 +8436,9 @@ function registerIpcHandlers(): void {
   });
 
   ipcMain.removeHandler(IPC.notificationsIsSupported);
-  ipcMain.handle(IPC.notificationsIsSupported, async () => Notification.isSupported());
+  ipcMain.handle(IPC.notificationsIsSupported, async () =>
+    Notification.isSupported(),
+  );
 
   ipcMain.removeHandler(IPC.notificationsShow);
   ipcMain.handle(
@@ -7409,16 +8459,23 @@ function registerIpcHandlers(): void {
         title: typeof input?.title === "string" ? input.title : "",
         body: typeof input?.body === "string" ? input.body : "",
         silent: input?.silent === true,
-        ...(typeof input?.threadId === "string" ? { threadId: input.threadId } : {}),
+        ...(typeof input?.threadId === "string"
+          ? { threadId: input.threadId }
+          : {}),
       }),
   );
 
   ipcMain.removeHandler(IPC.mediaRequestMicrophoneAccess);
   ipcMain.handle(IPC.mediaRequestMicrophoneAccess, async (event) => {
-    if (event.sender.isDestroyed() || !shellWindowRegistry.hasWebContents(event.sender)) {
+    if (
+      event.sender.isDestroyed() ||
+      !shellWindowRegistry.hasWebContents(event.sender)
+    ) {
       return false;
     }
-    if (desktopPlatform.browserPermissions.microphone !== "macos-system-prompt") {
+    if (
+      desktopPlatform.browserPermissions.microphone !== "macos-system-prompt"
+    ) {
       return true;
     }
     const status = systemPreferences.getMediaAccessStatus("microphone");
@@ -7431,17 +8488,76 @@ function registerIpcHandlers(): void {
     );
     return allowed;
   });
+  // Computer Use permissions (P57 step 5): read the real grants, never just a list entry.
+  ipcMain.removeHandler(IPC.systemPermissionsGet);
+  ipcMain.handle(IPC.systemPermissionsGet, (event) => {
+    if (
+      event.sender.isDestroyed() ||
+      !shellWindowRegistry.hasWebContents(event.sender)
+    ) {
+      throw new Error("Untrusted sender.");
+    }
+    return readSystemPermissions();
+  });
+  ipcMain.removeHandler(IPC.systemPermissionsOpen);
+  ipcMain.handle(
+    IPC.systemPermissionsOpen,
+    async (event, permission: unknown) => {
+      if (
+        event.sender.isDestroyed() ||
+        !shellWindowRegistry.hasWebContents(event.sender)
+      ) {
+        throw new Error("Untrusted sender.");
+      }
+      if (process.platform !== "darwin") return;
+      if (permission === "accessibility") {
+        // Asking once is what adds Penkra to the pane's list; without it Penkra never appears.
+        systemPreferences.isTrustedAccessibilityClient(true);
+        await shell.openExternal(
+          "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility",
+        );
+        return;
+      }
+      if (permission === "screen-recording") {
+        // A capture request is what adds Penkra to the Screen Recording list.
+        if (systemPreferences.getMediaAccessStatus("screen") !== "granted") {
+          await desktopCapturer
+            .getSources({
+              types: ["screen"],
+              thumbnailSize: { width: 1, height: 1 },
+            })
+            .catch(() => undefined);
+        }
+        await shell.openExternal(
+          "x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture",
+        );
+        return;
+      }
+      if (permission === "full-disk-access") {
+        await shell.openExternal(
+          "x-apple.systempreferences:com.apple.preference.security?Privacy_AllFiles",
+        );
+        return;
+      }
+      throw new Error("Unknown system permission.");
+    },
+  );
   ipcMain.removeHandler(IPC.powerSetVoiceActive);
   ipcMain.handle(IPC.powerSetVoiceActive, (event, input: unknown) => {
-    if (event.sender.isDestroyed() || !shellWindowRegistry.hasWebContents(event.sender)) {
+    if (
+      event.sender.isDestroyed() ||
+      !shellWindowRegistry.hasWebContents(event.sender)
+    ) {
       return;
     }
-    if (typeof input !== "boolean") throw new Error("Invalid voice power state.");
+    if (typeof input !== "boolean")
+      throw new Error("Invalid voice power state.");
     activeWorkPowerBlocker.setVoice(event.sender.id, input);
   });
   registerDesktopVoiceTranscriptionHandler({
     getBackendWsUrl: () =>
-      normalizeDesktopWsUrl(backendWsUrl) ?? resolveDesktopWsUrlFromEnv(process.env),
+      normalizeDesktopWsUrl(backendWsUrl) ??
+      resolveDesktopWsUrlFromEnv(process.env),
   });
 }
 
@@ -7498,9 +8614,15 @@ function createAdditionalWindow(): BrowserWindow {
   return createWindow({ cloneFrom: resolveShellWindow() });
 }
 
-function createWindow(options: { cloneFrom?: BrowserWindow | null } = {}): BrowserWindow {
-  const cloneFrom = shellWindowRegistry.has(options.cloneFrom) ? options.cloneFrom : null;
-  const savedWindowState = cloneFrom ? null : readDesktopWindowState(DESKTOP_WINDOW_STATE_PATH);
+function createWindow(
+  options: { cloneFrom?: BrowserWindow | null } = {},
+): BrowserWindow {
+  const cloneFrom = shellWindowRegistry.has(options.cloneFrom)
+    ? options.cloneFrom
+    : null;
+  const savedWindowState = cloneFrom
+    ? null
+    : readDesktopWindowState(DESKTOP_WINDOW_STATE_PATH);
   const primaryDisplay = screen.getPrimaryDisplay();
   const clonedBounds = cloneFrom
     ? (() => {
@@ -7580,7 +8702,9 @@ function createWindow(options: { cloneFrom?: BrowserWindow | null } = {}): Brows
     appTabWindowFocusOrder.focus(window.id);
     threadHomeWindow.focus(window.id);
     traceAppTabWindow(window, "shell-window-focus");
-    const windowSpaces = spacesMenuStateByShellRendererId.get(window.webContents.id);
+    const windowSpaces = spacesMenuStateByShellRendererId.get(
+      window.webContents.id,
+    );
     if (windowSpaces) {
       spacesMenuState = windowSpaces;
       configureApplicationMenu();
@@ -7654,7 +8778,9 @@ function createWindow(options: { cloneFrom?: BrowserWindow | null } = {}): Brows
           "({ location: location.href, isSecureContext, hasMediaDevices: typeof navigator.mediaDevices !== 'undefined', hasGetUserMedia: typeof navigator.mediaDevices?.getUserMedia === 'function' })",
         )
         .then((capabilities) => {
-          console.info(`[desktop-smoke] renderer-capabilities ${JSON.stringify(capabilities)}`);
+          console.info(
+            `[desktop-smoke] renderer-capabilities ${JSON.stringify(capabilities)}`,
+          );
         });
     }
   });
@@ -7666,22 +8792,37 @@ function createWindow(options: { cloneFrom?: BrowserWindow | null } = {}): Brows
     resizeAppTabWindow(
       rendererOwnerId,
       Math.max(1, nextBounds.width - (outerBounds.width - contentBounds.width)),
-      Math.max(1, nextBounds.height - (outerBounds.height - contentBounds.height)),
+      Math.max(
+        1,
+        nextBounds.height - (outerBounds.height - contentBounds.height),
+      ),
     );
   });
   window.on("resize", () => {
     const contentBounds = window.getContentBounds();
-    resizeAppTabWindow(rendererOwnerId, contentBounds.width, contentBounds.height);
+    resizeAppTabWindow(
+      rendererOwnerId,
+      contentBounds.width,
+      contentBounds.height,
+    );
     setImmediate(() => {
       if (window.isDestroyed()) return;
       const committedBounds = window.getContentBounds();
-      resizeAppTabWindow(rendererOwnerId, committedBounds.width, committedBounds.height);
+      resizeAppTabWindow(
+        rendererOwnerId,
+        committedBounds.width,
+        committedBounds.height,
+      );
       emitDesktopWindowState(window);
     });
   });
   window.on("resized", () => {
     const contentBounds = window.getContentBounds();
-    resizeAppTabWindow(rendererOwnerId, contentBounds.width, contentBounds.height);
+    resizeAppTabWindow(
+      rendererOwnerId,
+      contentBounds.width,
+      contentBounds.height,
+    );
   });
   window.on("hide", () => {
     traceAppTabWindow(window, "shell-window-hide");
@@ -7698,22 +8839,38 @@ function createWindow(options: { cloneFrom?: BrowserWindow | null } = {}): Brows
   window.on("maximize", () => {
     emitDesktopWindowState(window);
     const contentBounds = window.getContentBounds();
-    resizeAppTabWindow(rendererOwnerId, contentBounds.width, contentBounds.height);
+    resizeAppTabWindow(
+      rendererOwnerId,
+      contentBounds.width,
+      contentBounds.height,
+    );
   });
   window.on("unmaximize", () => {
     emitDesktopWindowState(window);
     const contentBounds = window.getContentBounds();
-    resizeAppTabWindow(rendererOwnerId, contentBounds.width, contentBounds.height);
+    resizeAppTabWindow(
+      rendererOwnerId,
+      contentBounds.width,
+      contentBounds.height,
+    );
   });
   window.on("enter-full-screen", () => {
     emitDesktopWindowState(window);
     const contentBounds = window.getContentBounds();
-    resizeAppTabWindow(rendererOwnerId, contentBounds.width, contentBounds.height);
+    resizeAppTabWindow(
+      rendererOwnerId,
+      contentBounds.width,
+      contentBounds.height,
+    );
   });
   window.on("leave-full-screen", () => {
     emitDesktopWindowState(window);
     const contentBounds = window.getContentBounds();
-    resizeAppTabWindow(rendererOwnerId, contentBounds.width, contentBounds.height);
+    resizeAppTabWindow(
+      rendererOwnerId,
+      contentBounds.width,
+      contentBounds.height,
+    );
   });
   window.on("close", (event) => {
     try {
@@ -7723,7 +8880,9 @@ function createWindow(options: { cloneFrom?: BrowserWindow | null } = {}): Brows
         isMaximized: window.isMaximized(),
       });
     } catch (error) {
-      console.warn(`[desktop] Failed to persist window state: ${formatErrorMessage(error)}`);
+      console.warn(
+        `[desktop] Failed to persist window state: ${formatErrorMessage(error)}`,
+      );
     }
 
     const isFinalShellWindow = shellWindows().length <= 1;
@@ -7742,18 +8901,24 @@ function createWindow(options: { cloneFrom?: BrowserWindow | null } = {}): Brows
 
   if (isDevelopment && process.env.VITE_DEV_SERVER_URL) {
     void window.loadURL(
-      cloneFrom?.webContents.getURL() || (process.env.VITE_DEV_SERVER_URL as string),
+      cloneFrom?.webContents.getURL() ||
+        (process.env.VITE_DEV_SERVER_URL as string),
     );
     window.webContents.openDevTools({ mode: "detach" });
   } else {
-    void window.loadURL(cloneFrom?.webContents.getURL() || desktopIdentity.entryUrl);
+    void window.loadURL(
+      cloneFrom?.webContents.getURL() || desktopIdentity.entryUrl,
+    );
   }
 
-  window.webContents.on("did-start-navigation", (_event, _url, isInPlace, isMainFrame) => {
-    if (!isInPlace && isMainFrame) {
-      activeWorkPowerBlocker.releaseOwner(rendererOwnerId);
-    }
-  });
+  window.webContents.on(
+    "did-start-navigation",
+    (_event, _url, isInPlace, isMainFrame) => {
+      if (!isInPlace && isMainFrame) {
+        activeWorkPowerBlocker.releaseOwner(rendererOwnerId);
+      }
+    },
+  );
 
   window.on("closed", () => {
     appTabWindowFocusOrder.close(window.id);
@@ -7918,32 +9083,103 @@ function configureMediaPermissions(): void {
         ),
     );
 
-    targetSession.setPermissionRequestHandler((webContents, permission, callback, details) => {
-      if (
-        permission !== "media" ||
-        !isTrustedMediaPermissionRequest(webContents, trustedRequester(webContents), details)
-      ) {
-        callback(false);
-        return;
-      }
+    targetSession.setPermissionRequestHandler(
+      (webContents, permission, callback, details) => {
+        if (
+          permission !== "media" ||
+          !isTrustedMediaPermissionRequest(
+            webContents,
+            trustedRequester(webContents),
+            details,
+          )
+        ) {
+          callback(false);
+          return;
+        }
 
-      if (desktopPlatform.browserPermissions.microphone === "macos-system-prompt") {
-        const status = systemPreferences.getMediaAccessStatus("microphone");
-        void resolveMicrophonePermissionRequest({
-          status,
-          askForAccess: () => systemPreferences.askForMediaAccess("microphone"),
-        }).then((allowed) => {
-          console.info(
-            `[desktop-media] Microphone permission request status=${status} allowed=${String(allowed)}.`,
-          );
-          callback(allowed);
-        });
-        return;
-      }
+        if (
+          desktopPlatform.browserPermissions.microphone ===
+          "macos-system-prompt"
+        ) {
+          const status = systemPreferences.getMediaAccessStatus("microphone");
+          void resolveMicrophonePermissionRequest({
+            status,
+            askForAccess: () =>
+              systemPreferences.askForMediaAccess("microphone"),
+          }).then((allowed) => {
+            console.info(
+              `[desktop-media] Microphone permission request status=${status} allowed=${String(allowed)}.`,
+            );
+            callback(allowed);
+          });
+          return;
+        }
 
-      callback(true);
-    });
+        callback(true);
+      },
+    );
   }
+}
+
+/** P57: Penkra's Computer Use driver, shipped inside Penkra.app so macOS grants stay Penkra's. */
+function resolveComputerHelperPath(): string | null {
+  if (process.platform !== "darwin") return null;
+  const candidates = [
+    Path.join(__dirname, "../resources/native", "penkra-computer"),
+    Path.join(__dirname, "../prod-resources/native", "penkra-computer"),
+    Path.join(process.resourcesPath, "native", "penkra-computer"),
+  ];
+  return candidates.find((candidate) => FS.existsSync(candidate)) ?? null;
+}
+
+// Listing these folders needs Full Disk Access and never prompts. The user's TCC database is
+// not a usable probe: on macOS 27 it reads as missing without the grant.
+const FULL_DISK_ACCESS_PROBES = [
+  ["Library", "Safari"],
+  ["Library", "Mail"],
+  ["Library", "Messages"],
+  ["Library", "Containers", "com.apple.Safari"],
+] as const;
+
+function hasFullDiskAccess(): boolean {
+  return FULL_DISK_ACCESS_PROBES.some((segments) => {
+    try {
+      FS.readdirSync(Path.join(OS.homedir(), ...segments));
+      return true;
+    } catch {
+      return false;
+    }
+  });
+}
+
+function readSystemPermissions(): DesktopSystemPermissions {
+  if (process.platform !== "darwin") {
+    return {
+      accessibility: "unsupported",
+      screenRecording: "unsupported",
+      fullDiskAccess: "unsupported",
+      accessibilityPaneName: "Accessibility",
+    };
+  }
+  const screenStatus = systemPreferences.getMediaAccessStatus("screen");
+  const major = Number.parseInt(
+    process.getSystemVersion().split(".")[0] ?? "0",
+    10,
+  );
+  return {
+    accessibility: systemPreferences.isTrustedAccessibilityClient(false)
+      ? "granted"
+      : "denied",
+    screenRecording:
+      screenStatus === "granted"
+        ? "granted"
+        : screenStatus === "not-determined"
+          ? "not-determined"
+          : "denied",
+    fullDiskAccess: hasFullDiskAccess() ? "granted" : "denied",
+    accessibilityPaneName:
+      major >= 27 ? "Device Control and Data Access" : "Accessibility",
+  };
 }
 
 // Override Electron's userData path before the `ready` event so that
@@ -7954,7 +9190,8 @@ if (hasSingleInstanceLock) {
     contents.on("before-mouse-event", (_mouseEvent, input) => {
       if (input.type !== "mouseDown") return;
       const owner = panelOwnerForWebContents(contents);
-      if (owner?.tab) recordPanelInteraction(owner.window.id, true, "app-mouse");
+      if (owner?.tab)
+        recordPanelInteraction(owner.window.id, true, "app-mouse");
     });
     contents.on("before-input-event", (event, input) => {
       if (input.type !== "keyDown") return;
@@ -7977,7 +9214,12 @@ if (hasSingleInstanceLock) {
         // chords still resolve their focused DOM region before main routes them.
         contents.send(IPC.panelFocus.shellShortcut, command);
       } else {
-        routePanelShortcut(owner.window, command, owner.tab.folderId, contents.id);
+        routePanelShortcut(
+          owner.window,
+          command,
+          owner.tab.folderId,
+          contents.id,
+        );
       }
     });
   });
@@ -7990,11 +9232,13 @@ if (hasSingleInstanceLock) {
     desktopFlavor,
     developmentInstance,
     getWindow: () => resolveShellWindow(),
-    broadcast: (channel, ...args) => shellWindowRegistry.broadcast(channel, ...args),
+    broadcast: (channel, ...args) =>
+      shellWindowRegistry.broadcast(channel, ...args),
     isShellRenderer: (sender) => shellWindowRegistry.hasWebContents(sender),
     ipcMain,
     registerAsDefaultProtocolClient: !desktopSmokeUserDataPath,
-    inspectInitialProtocolUrlFromArgv: desktopPlatform.deepLinks.inspectInitialArgv,
+    inspectInitialProtocolUrlFromArgv:
+      desktopPlatform.deepLinks.inspectInitialArgv,
     websiteOrigin: penkraAccountServices.websiteOrigin,
     onAuthenticationStarted: () => {
       pendingRemoteSignInAccountId = null;
@@ -8005,7 +9249,10 @@ if (hasSingleInstanceLock) {
       pendingRemoteSignInAccountId = accountId;
       renewRemoteRegistrationAfterSignIn();
       void remoteAccountCoordinator?.afterSignIn(accountId).catch((error) => {
-        console.error("[remote-link] Account lifecycle transition failed", error);
+        console.error(
+          "[remote-link] Account lifecycle transition failed",
+          error,
+        );
       });
     },
     onBeforeAccountChange: async () => {
@@ -8028,7 +9275,8 @@ if (hasSingleInstanceLock) {
     fetch: accountAuthRuntime.fetch,
     getAccountId: accountAuthRuntime.getAccountId,
     trustedRegistryKeys: parseRegistryTrustKeys(
-      process.env.PENKRA_REGISTRY_TRUSTED_KEYS ?? __PENKRA_REGISTRY_TRUSTED_KEYS__,
+      process.env.PENKRA_REGISTRY_TRUSTED_KEYS ??
+        __PENKRA_REGISTRY_TRUSTED_KEYS__,
     ),
     policyCachePath: Path.join(STATE_DIR, "registry-app-policy.jws"),
     receiptQueuePath: Path.join(STATE_DIR, "registry-install-receipts.json"),
@@ -8047,7 +9295,10 @@ if (!hasSingleInstanceLock) {
     requestAppListing(request);
   });
   app.on("second-instance", (_event, commandLine) => {
-    const request = commandLine.toReversed().map(parseAppListingDeepLink).find(Boolean);
+    const request = commandLine
+      .toReversed()
+      .map(parseAppListingDeepLink)
+      .find(Boolean);
     if (request) requestAppListing(request);
     focusMainWindow({ stealAppFocus: true });
   });
@@ -8063,7 +9314,8 @@ function requestAppListing(request: { appId: string }): void {
 
 if (desktopPlatform.deepLinks.inspectInitialArgv) {
   pendingAppListingRequest ??=
-    process.argv.toReversed().map(parseAppListingDeepLink).find(Boolean) ?? null;
+    process.argv.toReversed().map(parseAppListingDeepLink).find(Boolean) ??
+    null;
 }
 
 async function bootstrap(): Promise<void> {
@@ -8104,11 +9356,14 @@ async function bootstrap(): Promise<void> {
     ipcMain,
     onBeforeInput: handleHostedBeforeInput,
     getAccountId: getPenkraAccountId,
-    eraseAppStorage: (appId, spaceId) => appStorage?.erase({ appId, spaceId }) ?? Promise.resolve(),
+    eraseAppStorage: (appId, spaceId) =>
+      appStorage?.erase({ appId, spaceId }) ?? Promise.resolve(),
     requestStandardPermissions: async (request) => {
       const targetWindow = resolveShellWindow();
       if (!targetWindow) return false;
-      const labels = request.permissions.map((permission) => APP_STANDARD_PERMISSIONS[permission]);
+      const labels = request.permissions.map(
+        (permission) => APP_STANDARD_PERMISSIONS[permission],
+      );
       const result = await dialog.showMessageBox(targetWindow, {
         type: "question",
         title: `${request.appName} permission`,
@@ -8133,9 +9388,12 @@ async function bootstrap(): Promise<void> {
           "account-data",
         );
         if (!permission.declared || permission.state !== "granted") {
-          throw Object.assign(new Error("account-data is not granted for this App."), {
-            code: "PERMISSION_DENIED",
-          });
+          throw Object.assign(
+            new Error("account-data is not granted for this App."),
+            {
+              code: "PERMISSION_DENIED",
+            },
+          );
         }
         if (!input || typeof input !== "object" || Array.isArray(input)) {
           throw new Error("Account-data request must be an object.");
@@ -8155,9 +9413,12 @@ async function bootstrap(): Promise<void> {
           "account-profile",
         );
         if (!permission.declared || permission.state !== "granted") {
-          throw Object.assign(new Error("account-profile is not granted for this App."), {
-            code: "PERMISSION_DENIED",
-          });
+          throw Object.assign(
+            new Error("account-profile is not granted for this App."),
+            {
+              code: "PERMISSION_DENIED",
+            },
+          );
         }
         return requestAppAccountProfile({
           fetch: fetchPenkraAccount,
@@ -8166,7 +9427,11 @@ async function bootstrap(): Promise<void> {
         });
       }
       if (method === "identity.getToken") {
-        const audience = requireGrantedIdentityAudience(runtime, identity, input);
+        const audience = requireGrantedIdentityAudience(
+          runtime,
+          identity,
+          input,
+        );
         return requestAppIdentityToken({
           fetch: fetchPenkraAccount,
           apiUrl: penkraAccountServices.apiUrl,
@@ -8180,9 +9445,12 @@ async function bootstrap(): Promise<void> {
         return POSSIBLE_MODEL_CATALOG;
       }
       if (!method.startsWith("installations.") || appId !== "com.penkra.apps") {
-        throw Object.assign(new Error(`App controller service ${method} is unavailable.`), {
-          code: "METHOD_NOT_SUPPORTED",
-        });
+        throw Object.assign(
+          new Error(`App controller service ${method} is unavailable.`),
+          {
+            code: "METHOD_NOT_SUPPORTED",
+          },
+        );
       }
       const installationSnapshot = () =>
         toDesktopAppInstallationSnapshot(
@@ -8194,10 +9462,13 @@ async function bootstrap(): Promise<void> {
         case "installations.getState":
           return installationSnapshot();
         case "installations.installRegistry": {
-          if (!appRegistryClient) throw new Error("The App registry is not ready.");
+          if (!appRegistryClient)
+            throw new Error("The App registry is not ready.");
           const request = parseInstallRegistryAppRequest(input);
           if (request.spaceId !== spaceId)
-            throw new Error("Apps can only be installed into the current Space.");
+            throw new Error(
+              "Apps can only be installed into the current Space.",
+            );
           await installRegistryApp({
             request,
             hostVersion: app.getVersion(),
@@ -8208,7 +9479,8 @@ async function bootstrap(): Promise<void> {
           return installationSnapshot();
         }
         case "installations.updateRegistry": {
-          if (!appRegistryClient) throw new Error("The App registry is not ready.");
+          if (!appRegistryClient)
+            throw new Error("The App registry is not ready.");
           const request = parseUpdateRegistryAppRequest(input);
           if (request.spaceId !== spaceId)
             throw new Error("Apps can only be updated in the current Space.");
@@ -8231,21 +9503,28 @@ async function bootstrap(): Promise<void> {
         case "installations.uninstall": {
           const request = parseUninstallAppRequest(input);
           if (request.spaceId !== spaceId)
-            throw new Error("Apps can only be uninstalled from the current Space.");
+            throw new Error(
+              "Apps can only be uninstalled from the current Space.",
+            );
           await runtime.installations.uninstall(request);
           return installationSnapshot();
         }
         case "installations.removeData": {
           const request = parseRemoveAppDataRequest(input);
           if (request.spaceId !== spaceId)
-            throw new Error("App data can only be removed from the current Space.");
+            throw new Error(
+              "App data can only be removed from the current Space.",
+            );
           await runtime.installations.removeData(request);
           return installationSnapshot();
         }
         default:
-          throw Object.assign(new Error(`App controller service ${method} is unavailable.`), {
-            code: "METHOD_NOT_SUPPORTED",
-          });
+          throw Object.assign(
+            new Error(`App controller service ${method} is unavailable.`),
+            {
+              code: "METHOD_NOT_SUPPORTED",
+            },
+          );
       }
     },
     onBeforeTabOpened: commitAppTabOpened,
@@ -8263,7 +9542,11 @@ async function bootstrap(): Promise<void> {
             appRoute: descriptor.route,
             ...(descriptor.state === undefined
               ? {}
-              : { appState: Schema.decodeUnknownSync(Schema.Json)(descriptor.state) }),
+              : {
+                  appState: Schema.decodeUnknownSync(Schema.Json)(
+                    descriptor.state,
+                  ),
+                }),
           },
         },
       );
@@ -8298,11 +9581,17 @@ async function bootstrap(): Promise<void> {
             : { inactiveBefore: descriptor.inactiveBefore }),
         },
       };
-      const backend = { url: backendHttpUrl, token: DESKTOP_BACKEND_SHUTDOWN_TOKEN };
+      const backend = {
+        url: backendHttpUrl,
+        token: DESKTOP_BACKEND_SHUTDOWN_TOKEN,
+      };
       const result = descriptor.authorize
         ? await updateDesktopFolderAppTabs(backend, write, descriptor.authorize)
         : await updateDesktopFolderAppTabs(backend, write);
-      return result !== null && !result.tabs.panes.some((pane) => pane.id === descriptor.id);
+      return (
+        result !== null &&
+        !result.tabs.panes.some((pane) => pane.id === descriptor.id)
+      );
     },
     onTabState: (descriptor) => {
       announceAppTabState(descriptor);
@@ -8329,7 +9618,8 @@ async function bootstrap(): Promise<void> {
     assertAppAllowed: async (installedApp) => {
       const release = installedApp.registryRelease;
       if (!release) return;
-      if (!appRegistryClient) throw new Error("The App registry security policy is unavailable.");
+      if (!appRegistryClient)
+        throw new Error("The App registry security policy is unavailable.");
       const policy = await appRegistryClient.getSecurityPolicy();
       assertRegistryReleaseAllowed(policy, {
         appId: release.appId,
@@ -8353,7 +9643,8 @@ async function bootstrap(): Promise<void> {
         : `Required Apps source is unavailable. Set ${REQUIRED_APPS_SOURCE_PATH_ENV} to the Apps package directory.`,
     );
   }
-  requiredAppsPackageIsDevelopmentSource = isDevelopment && requiredAppsSource.kind === "directory";
+  requiredAppsPackageIsDevelopmentSource =
+    isDevelopment && requiredAppsSource.kind === "directory";
   requiredAppsPackageLoad = loadRequiredAppsPackage({
     runtime: desktopAppRuntime,
     source: requiredAppsSource,
@@ -8384,15 +9675,17 @@ async function bootstrap(): Promise<void> {
       `[penkra-app] Quarantined corrupt Simulator state at ${desktopSimulatorRuntime.recovery.quarantinedPath}: ${desktopSimulatorRuntime.recovery.error.message}`,
     );
   }
-  unsubscribeSimulatorState = desktopSimulatorRuntime.manager.subscribe((owner, state) => {
-    const runtime = desktopAppRuntime;
-    if (!runtime) return;
-    try {
-      runtime.appTabs.sendEvent(owner.tabId, "simulator.state", state);
-    } catch {
-      // The tab may have closed between the state transition and delivery.
-    }
-  });
+  unsubscribeSimulatorState = desktopSimulatorRuntime.manager.subscribe(
+    (owner, state) => {
+      const runtime = desktopAppRuntime;
+      if (!runtime) return;
+      try {
+        runtime.appTabs.sendEvent(owner.tabId, "simulator.state", state);
+      } catch {
+        // The tab may have closed between the state transition and delivery.
+      }
+    },
+  );
   if (desktopAppRuntime.safeStartRecovery) {
     console.error(
       `[penkra-app] Quarantined corrupt installation state at ${desktopAppRuntime.safeStartRecovery.quarantinedPath}: ${desktopAppRuntime.safeStartRecovery.error.message}`,
@@ -8426,7 +9719,9 @@ async function bootstrap(): Promise<void> {
     runtime: desktopAppRuntime,
     authorize: async ({ package: candidate }) => {
       if (!appRegistryClient) {
-        throw new Error("The App registry is unavailable for sideload ownership verification.");
+        throw new Error(
+          "The App registry is unavailable for sideload ownership verification.",
+        );
       }
       return authorizeAppSideloadIdentity({
         manifest: candidate.manifest,
@@ -8453,7 +9748,10 @@ async function bootstrap(): Promise<void> {
           failure: appRuntimeFailureDto(appRuntimeFailure(error)),
         })
         .catch((diagnosticError) => {
-          console.error("[penkra-app] Could not record sideload rebuild failure.", diagnosticError);
+          console.error(
+            "[penkra-app] Could not record sideload rebuild failure.",
+            diagnosticError,
+          );
         });
     },
   });
@@ -8475,7 +9773,9 @@ async function bootstrap(): Promise<void> {
         .list()
         .find((candidate) => candidate.id === tabId);
       if (!descriptor) {
-        throw Object.assign(new Error(`App tab ${tabId} is gone.`), { code: "TAB_GONE" });
+        throw Object.assign(new Error(`App tab ${tabId} is gone.`), {
+          code: "TAB_GONE",
+        });
       }
       try {
         const initialRoute = routeAppTab({ ...descriptor, initiator: "agent" });
@@ -8495,15 +9795,24 @@ async function bootstrap(): Promise<void> {
             if (route.targetWindowId === null && unavailableFolder)
               throw appTabFolderUnavailable(unavailableFolder.folderTitle);
             if (surfaceId === undefined)
-              return appTabAgentPresentation(descriptor, descriptor.threadId).state === "active";
+              return (
+                appTabAgentPresentation(descriptor, descriptor.threadId)
+                  .state === "active"
+              );
             if (surfaceId === null) return false;
-            const window = shellWindowRegistry.windowForWebContentsId(surfaceId);
-            const candidate = appTabRoutingWindows().find((entry) => entry.id === window?.id);
+            const window =
+              shellWindowRegistry.windowForWebContentsId(surfaceId);
+            const candidate = appTabRoutingWindows().find(
+              (entry) => entry.id === window?.id,
+            );
             return (
               !!window &&
               !window.isDestroyed() &&
               !!candidate &&
-              canUseAppTabWindow(candidate, { ...descriptor, initiator: "agent" }) &&
+              canUseAppTabWindow(candidate, {
+                ...descriptor,
+                initiator: "agent",
+              }) &&
               desktopAppRuntime!.appTabs.ownerWindowId(tabId) === surfaceId &&
               desktopAppRuntime!.appTabs.isVisible(tabId)
             );
@@ -8523,7 +9832,8 @@ async function bootstrap(): Promise<void> {
               }
             };
           },
-          canDeliverPointerInput: () => desktopAppRuntime!.appTabs.canDeliverPointerInput(tabId),
+          canDeliverPointerInput: () =>
+            desktopAppRuntime!.appTabs.canDeliverPointerInput(tabId),
         };
       } catch (error) {
         throw Object.assign(
@@ -8540,7 +9850,10 @@ async function bootstrap(): Promise<void> {
         paths.map((path) =>
           resolveBrowserUploadFile(
             path,
-            appStorage!.root({ appId: descriptor.appId, spaceId: descriptor.spaceId }),
+            appStorage!.root({
+              appId: descriptor.appId,
+              spaceId: descriptor.spaceId,
+            }),
           ),
         ),
       );
@@ -8573,10 +9886,15 @@ async function bootstrap(): Promise<void> {
   });
   remoteAccountCoordinator = new RemoteAccountCoordinator({
     accountServiceUrl: penkraAccountServices.apiUrl,
-    readAccess: (accountId) => desktopAppRuntime!.remoteLinkCredentialVault.getAccess(accountId),
+    readAccess: (accountId) =>
+      desktopAppRuntime!.remoteLinkCredentialVault.getAccess(accountId),
     writeAccess: (accountId, accessOn) =>
-      desktopAppRuntime!.remoteLinkCredentialVault.setAccess(accountId, accessOn),
-    transition: (event, snapshot) => remoteLifecycleHost!.transition(event, snapshot),
+      desktopAppRuntime!.remoteLinkCredentialVault.setAccess(
+        accountId,
+        accessOn,
+      ),
+    transition: (event, snapshot) =>
+      remoteLifecycleHost!.transition(event, snapshot),
   });
   powerMonitor.on("suspend", () => {
     void remoteAccountCoordinator?.setSuspended(true).catch((error) => {
@@ -8593,22 +9911,29 @@ async function bootstrap(): Promise<void> {
     signal: remoteRegistrationLifetime.signal,
     onPath: () => {
       void remoteAccountCoordinator?.networkPathChanged().catch((error) => {
-        console.error("[remote-link] Failed to apply network path transition.", error);
+        console.error(
+          "[remote-link] Failed to apply network path transition.",
+          error,
+        );
       });
     },
-    onError: (error) => console.error("[remote-link] Network path monitor failed.", error),
+    onError: (error) =>
+      console.error("[remote-link] Network path monitor failed.", error),
   });
   const remoteAccess = new RemoteAccessController({
     account: getPenkraAccountId,
-    register: (accountId, signal) => remoteRegistrationOwner!.ensure(accountId, signal),
-    setAccess: (accountId, enabled) => remoteAccountCoordinator!.setAccess(accountId, enabled),
+    register: (accountId, signal) =>
+      remoteRegistrationOwner!.ensure(accountId, signal),
+    setAccess: (accountId, enabled) =>
+      remoteAccountCoordinator!.setAccess(accountId, enabled),
     signal: remoteRegistrationLifetime.signal,
   });
   registerRemoteAccessIpc({
     ipc: ipcMain,
     isShell: (sender) => isShellRendererId(sender.id),
     account: getPenkraAccountId,
-    readAccess: (accountId) => desktopAppRuntime!.remoteLinkCredentialVault.getAccess(accountId),
+    readAccess: (accountId) =>
+      desktopAppRuntime!.remoteLinkCredentialVault.getAccess(accountId),
     controller: remoteAccess,
   });
   appCommandPipeServer = new AppCommandPipeServer({
@@ -8633,7 +9958,8 @@ async function bootstrap(): Promise<void> {
     observer: appTabObserver,
     observationSurface: (threadId, folderId) => {
       const ready = shellWindows().filter(
-        (window) => !window.isDestroyed() && !window.webContents.isLoadingMainFrame(),
+        (window) =>
+          !window.isDestroyed() && !window.webContents.isLoadingMainFrame(),
       );
       const id = threadHomeWindow.presentingWindow(
         threadId,
@@ -8646,9 +9972,11 @@ async function bootstrap(): Promise<void> {
     presentation: appTabAgentPresentation,
     providerCredentialVault: desktopAppRuntime.providerCredentialVault,
     remoteCredentials: async (action, params, signal) => {
-      if (!desktopAppRuntime) throw new Error("RemoteLink credentials are unavailable.");
+      if (!desktopAppRuntime)
+        throw new Error("RemoteLink credentials are unavailable.");
       const accountId = await getPenkraAccountId();
-      if (!accountId) throw new Error("Sign in to Penkra before enabling iPhone access.");
+      if (!accountId)
+        throw new Error("Sign in to Penkra before enabling iPhone access.");
       const vault = desktopAppRuntime.remoteLinkCredentialVault;
       switch (action) {
         case "read":
@@ -8664,7 +9992,10 @@ async function bootstrap(): Promise<void> {
         case "register": {
           if (params.accountId !== accountId || !remoteRegistrationOwner)
             throw new Error("Invalid RemoteLink registration.");
-          const credentials = await remoteRegistrationOwner.ensure(accountId, signal);
+          const credentials = await remoteRegistrationOwner.ensure(
+            accountId,
+            signal,
+          );
           return { accountId, credentials };
         }
       }
@@ -8686,13 +10017,23 @@ async function bootstrap(): Promise<void> {
     registry: appRegistryClient,
     open: openPenkraResource,
     sideload: async ({ sourcePath, spaceId }) => {
-      if (!developmentSideloadRegistry) throw new Error("App sideloading is unavailable.");
+      if (!developmentSideloadRegistry)
+        throw new Error("App sideloading is unavailable.");
       const targetSpaceId =
-        spaceId ?? spacesMenuState.activeSpaceId ?? spacesMenuState.spaces[0]?.id ?? null;
-      if (!targetSpaceId || !spacesMenuState.spaces.some((space) => space.id === targetSpaceId)) {
+        spaceId ??
+        spacesMenuState.activeSpaceId ??
+        spacesMenuState.spaces[0]?.id ??
+        null;
+      if (
+        !targetSpaceId ||
+        !spacesMenuState.spaces.some((space) => space.id === targetSpaceId)
+      ) {
         throw new Error("The requested Space is unavailable.");
       }
-      const result = await developmentSideloadRegistry.register(sourcePath, targetSpaceId);
+      const result = await developmentSideloadRegistry.register(
+        sourcePath,
+        targetSpaceId,
+      );
       console.info(
         `[penkra-app] Local sideload ${result.status} in Space ${result.spaceId}: ${result.sourcePath}`,
       );
@@ -8722,10 +10063,15 @@ async function bootstrap(): Promise<void> {
         writeDesktopLogHeader(
           `bootstrap backend readiness warning message=${formatErrorMessage(error)}`,
         );
-        console.warn("[desktop] backend readiness wait failed during dev bootstrap", error);
+        console.warn(
+          "[desktop] backend readiness wait failed during dev bootstrap",
+          error,
+        );
         if (!mainWindow) {
           mainWindow = createWindow();
-          writeDesktopLogHeader("bootstrap main window created after readiness warning");
+          writeDesktopLogHeader(
+            "bootstrap main window created after readiness warning",
+          );
         }
         markDevelopmentDesktopReady();
       });
@@ -8748,9 +10094,14 @@ app.on("before-quit", (event) => {
     try {
       if (
         !activeUpdateInstallHandoff ||
-        !markInstallHandoffSync(getUpdateInstallMarkerPath(), activeUpdateInstallHandoff)
+        !markInstallHandoffSync(
+          getUpdateInstallMarkerPath(),
+          activeUpdateInstallHandoff,
+        )
       ) {
-        throw new Error("Durable update install handoff no longer matches the active attempt.");
+        throw new Error(
+          "Durable update install handoff no longer matches the active attempt.",
+        );
       }
     } catch (error) {
       event.preventDefault();
@@ -8775,7 +10126,8 @@ app.on("before-quit", (event) => {
       return;
     }
     writeDesktopLogHeader("before-quit allowing updater quit-and-install");
-    for (const manager of appBrowserDownloadManagers.values()) manager.prepareForQuit();
+    for (const manager of appBrowserDownloadManagers.values())
+      manager.prepareForQuit();
     return;
   }
 
@@ -8842,7 +10194,10 @@ if (hasSingleInstanceLock) {
               if (isBackendReadinessAborted(error)) {
                 return;
               }
-              console.warn("[desktop] backend readiness wait failed during dev activate", error);
+              console.warn(
+                "[desktop] backend readiness wait failed during dev activate",
+                error,
+              );
             })
             .finally(() => {
               if (!mainWindow) {

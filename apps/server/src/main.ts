@@ -365,6 +365,12 @@ const makeServerProgram = (input: CliInput) => {
             }),
           ),
           Effect.tap(() =>
+            Effect.sync(() => {
+              const watchdog = setTimeout(() => process.exit(1), 4_000);
+              watchdog.unref();
+            }),
+          ),
+          Effect.tap(() =>
             Effect.logWarning("desktop parent disconnected; shutting down the backend cleanly"),
           ),
         );

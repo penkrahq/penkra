@@ -9,6 +9,7 @@ import { INLINE_TOOL_RESULT_BYTES } from "@penkra/shared/toolResults";
 import { parse, printParseErrorCode, type ParseError } from "jsonc-parser";
 
 import { ensureOpenCodeImageTransformPlugin } from "./openCodeImageTransformPlugin.ts";
+import { PENKRA_COMPUTER_MCP_NAME, resolvePenkraComputerMcpServer } from "./penkraComputerMcp.ts";
 
 const GLOBAL_CONFIG_FILES = ["config.json", "opencode.json", "opencode.jsonc"] as const;
 const RESERVED_MCP_SERVER_NAME = "penkra";
@@ -46,6 +47,15 @@ export async function loadOpenCodeConfigContent(homeDir: string): Promise<string
     Object.assign(shared, config.mcp);
   }
   delete shared[RESERVED_MCP_SERVER_NAME];
+  const computer = resolvePenkraComputerMcpServer();
+  if (computer) {
+    shared[PENKRA_COMPUTER_MCP_NAME] = {
+      type: "local",
+      command: [computer.command, ...computer.args],
+      environment: { ...computer.env },
+      enabled: true,
+    };
+  } else delete shared[PENKRA_COMPUTER_MCP_NAME];
   const pluginPath = await ensureOpenCodeImageTransformPlugin(homeDir);
   return JSON.stringify({
     ...(Object.keys(shared).length > 0 ? { mcp: shared } : {}),

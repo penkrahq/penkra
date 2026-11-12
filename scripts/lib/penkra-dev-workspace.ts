@@ -24,11 +24,15 @@ export interface PenkraDevWorkspace {
   readonly appsRoot: string;
 }
 
-export function resolvePenkraDevWorkspaceConfigPath(homeDirectory = homedir()): string {
+export function resolvePenkraDevWorkspaceConfigPath(
+  homeDirectory = homedir(),
+): string {
   return join(homeDirectory, "Penkra_Dev", ".launcher", "workspace.json");
 }
 
-export function validatePenkraDevWorkspace(input: PenkraDevWorkspace): PenkraDevWorkspace {
+export function validatePenkraDevWorkspace(
+  input: PenkraDevWorkspace,
+): PenkraDevWorkspace {
   const workspace = {
     desktopRoot: resolve(input.desktopRoot),
     backendRoot: resolve(input.backendRoot),
@@ -43,7 +47,9 @@ export function validatePenkraDevWorkspace(input: PenkraDevWorkspace): PenkraDev
   ];
   const missingPath = requiredPaths.find((path) => !existsSync(path));
   if (missingPath) {
-    throw new Error(`Penkra Dev workspace is missing a required path: ${missingPath}`);
+    throw new Error(
+      `Penkra Dev workspace is missing a required path: ${missingPath}`,
+    );
   }
   return workspace;
 }
@@ -72,7 +78,9 @@ export function readPenkraDevWorkspace(
     !("appsRoot" in parsed) ||
     typeof parsed.appsRoot !== "string"
   ) {
-    throw new Error(`Penkra Dev workspace configuration is invalid at ${configPath}.`);
+    throw new Error(
+      `Penkra Dev workspace configuration is invalid at ${configPath}.`,
+    );
   }
   return validatePenkraDevWorkspace(parsed as PenkraDevWorkspace);
 }
@@ -100,19 +108,31 @@ function normalizeGitRemote(remote: string): string {
     .replace(/\.git$/u, "");
 }
 
-function repositoryMatchesOrigin(repositoryRoot: string, expectedOrigin: string): boolean {
-  const result = spawnSync("git", ["remote", "get-url", "origin"], {
+function repositoryMatchesOrigin(
+  repositoryRoot: string,
+  expectedOrigin: string,
+): boolean {
+  // The system git: a stale Homebrew git earlier on PATH can fail to run at all.
+  const git = existsSync("/usr/bin/git") ? "/usr/bin/git" : "git";
+  const result = spawnSync(git, ["remote", "get-url", "origin"], {
     cwd: repositoryRoot,
     encoding: "utf8",
   });
-  return result.status === 0 && normalizeGitRemote(result.stdout) === expectedOrigin;
+  return (
+    result.status === 0 && normalizeGitRemote(result.stdout) === expectedOrigin
+  );
 }
 
-function validateRepositoryPath(repositoryRoot: string, requiredRelativePath: string): string {
+function validateRepositoryPath(
+  repositoryRoot: string,
+  requiredRelativePath: string,
+): string {
   const resolvedRoot = resolve(repositoryRoot);
   const requiredPath = join(resolvedRoot, requiredRelativePath);
   if (!existsSync(requiredPath)) {
-    throw new Error(`Penkra Dev workspace is missing a required path: ${requiredPath}`);
+    throw new Error(
+      `Penkra Dev workspace is missing a required path: ${requiredPath}`,
+    );
   }
   return resolvedRoot;
 }
@@ -127,12 +147,17 @@ export function discoverPenkraBackendRoot(input: {
     return validateRepositoryPath(configured, join("ops", "dev-workspace.mjs"));
   }
 
-  const workspaceParent = resolve(input.workspaceParent ?? dirname(input.desktopRoot));
+  const workspaceParent = resolve(
+    input.workspaceParent ?? dirname(input.desktopRoot),
+  );
   for (const entry of readdirSync(workspaceParent, { withFileTypes: true })) {
     if (!entry.isDirectory()) continue;
     const candidate = join(workspaceParent, entry.name);
     if (repositoryMatchesOrigin(candidate, BACKEND_ORIGIN)) {
-      return validateRepositoryPath(candidate, join("ops", "dev-workspace.mjs"));
+      return validateRepositoryPath(
+        candidate,
+        join("ops", "dev-workspace.mjs"),
+      );
     }
   }
   throw new Error(
@@ -151,7 +176,9 @@ export function discoverPenkraWebsiteRoot(input: {
     return validateRepositoryPath(configured, "next.config.ts");
   }
 
-  const workspaceParent = resolve(input.workspaceParent ?? dirname(input.desktopRoot));
+  const workspaceParent = resolve(
+    input.workspaceParent ?? dirname(input.desktopRoot),
+  );
   for (const entry of readdirSync(workspaceParent, { withFileTypes: true })) {
     if (!entry.isDirectory()) continue;
     const candidate = join(workspaceParent, entry.name);
@@ -170,9 +197,12 @@ export function discoverPenkraAppsRoot(input: {
   readonly workspaceParent?: string;
 }): string {
   const configured = input.configuredAppsRoot?.trim();
-  if (configured) return validateRepositoryPath(configured, join("apps", "penkra-app.json"));
+  if (configured)
+    return validateRepositoryPath(configured, join("apps", "penkra-app.json"));
 
-  const workspaceParent = resolve(input.workspaceParent ?? dirname(input.desktopRoot));
+  const workspaceParent = resolve(
+    input.workspaceParent ?? dirname(input.desktopRoot),
+  );
   for (const entry of readdirSync(workspaceParent, { withFileTypes: true })) {
     if (!entry.isDirectory()) continue;
     const candidate = join(workspaceParent, entry.name);

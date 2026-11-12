@@ -12,9 +12,7 @@ const DEFAULT_FORCE_EXIT_MS = 1_500;
 const DEFAULT_POLL_MS = 25;
 const DEFAULT_CAPTURE_RETRY_ATTEMPTS = 3;
 const DEFAULT_CAPTURE_RETRY_MS = 25;
-// Each descendant inspection shells out to a synchronous `ps`, so it must not run
-// once per poll: that put ~120 blocking scans on the event loop per teardown, and
-// the session reaper runs teardowns on a timer with no user present.
+// Avoid repeatedly scanning the process table while waiting for descendants.
 const DEFAULT_INSPECT_INTERVAL_MS = 250;
 
 export interface SupervisedProcessTeardownInput {
@@ -174,10 +172,83 @@ export async function teardownProviderProcessTree(
   // sending TERM, while the root still owns its descendants and a later
   // complete snapshot can prove their identities. Partial captures are unioned
   // so no evidence collected by an earlier attempt is discarded.
-  let tree = deps.processTreeKiller.capture(input.rootPid);
+  const captureUntilRootExit = () =>
+    Promise.race([
+      Promise.resolve(deps.processTreeKiller.capture(input.rootPid)),
+      input.rootExited.then(
+        () => ({ descendants: [], captureComplete: false }) satisfies CapturedProcessTree,
+        () => new Promise<CapturedProcessTree>(() => undefined),
+      ),
+    ]);
+  const initialCapture = deps.processTreeKiller.capture(input.rootPid);
+  let rootTermSent = false;
+  let tree: CapturedProcessTree;
+  if (initialCapture instanceof Promise) {
+    // Do not hold up the root's termination on a process-table scan. Retain any
+    // descendants the in-flight scan does find and finish their cleanup apart
+    // from the thread's replacement path.
+    tree = { descendants: [], captureComplete: false };
+    void initialCapture
+      .then(async (captured) => {
+        if (captured.descendants.length === 0) return;
+        const descendantSignal = rootExited ? "SIGKILL" : "SIGTERM";
+        await deps.processTreeKiller.signal({
+          rootPid: input.rootPid,
+          signal: descendantSignal,
+          tree: captured,
+          includeRootTree: false,
+          onError: (error) => console.warn("Provider descendant cleanup failed", error),
+        });
+        if (descendantSignal === "SIGTERM") {
+          await input.rootExited;
+          await deps.processTreeKiller.signal({
+            rootPid: input.rootPid,
+            signal: "SIGKILL",
+            tree: captured,
+            includeRootTree: false,
+            onError: (error) => console.warn("Provider descendant cleanup failed", error),
+          });
+        }
+        let attempts = 0;
+        const retry = () => {
+          const timer = setTimeout(() => {
+            void (async () => {
+              const inspection = await deps.processTreeKiller.inspect?.(captured);
+              if (inspection?.verified && inspection.survivors.length === 0) return;
+              if (inspection?.verified) {
+                await deps.processTreeKiller.signal({
+                  rootPid: input.rootPid,
+                  signal: "SIGKILL",
+                  tree: captured,
+                  includeRootTree: false,
+                  onError: (error) => console.warn("Provider descendant cleanup failed", error),
+                });
+              }
+              if (++attempts < 60) retry();
+            })().catch((error) => console.warn("Provider descendant cleanup failed", error));
+          }, 1_000);
+          timer.unref();
+        };
+        retry();
+      })
+      .catch((error) => console.warn("Provider descendant capture failed", error));
+    await Promise.resolve();
+    if (!rootExited) {
+      await deps.processTreeKiller.signal({
+        rootPid: input.rootPid,
+        signal: "SIGTERM",
+        tree,
+        includeRootTree: true,
+        onError: (error) => signalErrors.push(error),
+      });
+    }
+    rootTermSent = true;
+  } else {
+    tree = initialCapture;
+  }
   for (
     let attempt = 1;
-    tree.captureComplete === false && attempt < DEFAULT_CAPTURE_RETRY_ATTEMPTS;
+    !rootTermSent && tree.captureComplete === false && attempt < DEFAULT_CAPTURE_RETRY_ATTEMPTS;
     attempt += 1
   ) {
     await Promise.resolve();
@@ -185,11 +256,14 @@ export async function teardownProviderProcessTree(
     await deps.sleep(DEFAULT_CAPTURE_RETRY_MS);
     await Promise.resolve();
     if (rootExited) break;
-    tree = mergeCapturedTrees(tree, deps.processTreeKiller.capture(input.rootPid));
+    tree = mergeCapturedTrees(tree, await captureUntilRootExit());
   }
 
-  const signal = (killSignal: TerminalKillSignal, includeRootTree: boolean): void => {
-    deps.processTreeKiller.signal({
+  const signal = async (
+    killSignal: TerminalKillSignal,
+    includeRootTree: boolean,
+  ): Promise<void> => {
+    await deps.processTreeKiller.signal({
       rootPid: input.rootPid,
       signal: killSignal,
       tree,
@@ -201,10 +275,27 @@ export async function teardownProviderProcessTree(
   // An empty incomplete capture means descendant state is unknown, not verified
   // empty. Releasing ownership on it could let a replacement start while a
   // reparented descendant from the old provider is still running.
-  const inspectDescendants = (): ReadonlyArray<CapturedProcess> | null => {
+  const inspectDescendants = async (): Promise<ReadonlyArray<CapturedProcess> | null> => {
     const inspection =
-      tree.captureComplete === false ? undefined : deps.processTreeKiller.inspect?.(tree);
+      tree.captureComplete === false ? undefined : await deps.processTreeKiller.inspect?.(tree);
     return inspection?.verified === true ? inspection.survivors : null;
+  };
+
+  const finishKnownDescendantsInBackground = () => {
+    if (tree.descendants.length === 0) return;
+    let attempts = 0;
+    const retry = () => {
+      const timer = setTimeout(() => {
+        void (async () => {
+          const inspection = await deps.processTreeKiller.inspect?.(tree);
+          if (inspection?.verified && inspection.survivors.length === 0) return;
+          if (inspection?.verified) await signal("SIGKILL", false);
+          if (++attempts < 60) retry();
+        })().catch((error) => console.warn("Provider descendant cleanup failed", error));
+      }, 1_000);
+      timer.unref();
+    };
+    retry();
   };
 
   const waitForExitProof = async (timeoutMs: number) => {
@@ -225,7 +316,14 @@ export async function teardownProviderProcessTree(
       const sinceLastInspect = lastInspectedAt === null ? null : deps.now() - lastInspectedAt;
       if (rootExited && (sinceLastInspect === null || sinceLastInspect >= inspectIntervalMs)) {
         lastInspectedAt = deps.now();
-        remainingDescendants = inspectDescendants();
+        remainingDescendants = await inspectDescendants();
+        if (remainingDescendants === null) {
+          console.warn("Provider root exited; descendant scan unavailable", {
+            rootPid: input.rootPid,
+          });
+          finishKnownDescendantsInBackground();
+          return { proven: true as const, remainingDescendants: null };
+        }
         if (remainingDescendants !== null && remainingDescendants.length === 0) {
           return { proven: true as const, remainingDescendants };
         }
@@ -237,14 +335,19 @@ export async function teardownProviderProcessTree(
     // The final inspection can itself prove exit if the last descendant ended
     // after the last throttled scan. It still requires the root's exit and a
     // verified, complete descendant capture.
-    remainingDescendants = inspectDescendants();
+    remainingDescendants = await inspectDescendants();
+    if (rootExited && remainingDescendants === null) {
+      console.warn("Provider root exited; descendant scan unavailable", { rootPid: input.rootPid });
+      finishKnownDescendantsInBackground();
+      return { proven: true as const, remainingDescendants: null };
+    }
     if (rootExited && remainingDescendants !== null && remainingDescendants.length === 0) {
       return { proven: true as const, remainingDescendants };
     }
     return { proven: false as const, remainingDescendants };
   };
 
-  signal("SIGTERM", true);
+  if (!rootTermSent) await signal("SIGTERM", !rootExited);
   const graceful = await waitForExitProof(
     positiveDuration(input.termGraceMs, DEFAULT_TERM_GRACE_MS),
   );
@@ -254,7 +357,7 @@ export async function teardownProviderProcessTree(
 
   // A root can exit while descendants ignore TERM and become reparented. Preserve the captured
   // identities and force only those descendants rather than re-signalling a potentially reused PID.
-  signal("SIGKILL", !rootExited);
+  await signal("SIGKILL", !rootExited);
   const forced = await waitForExitProof(positiveDuration(input.forceExitMs, DEFAULT_FORCE_EXIT_MS));
   if (forced.proven) {
     return { escalated: true, signalErrors };

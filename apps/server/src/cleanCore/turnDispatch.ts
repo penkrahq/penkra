@@ -160,6 +160,12 @@ export const TurnDispatchLive = Layer.effect(
                   threshold,
                 });
                 if (usage.usedTokens > threshold) {
+                  // Compaction runs before the turn exists, so no turn.started
+                  // marks the thread busy. Mark it running now so the sidebar
+                  // keeps its Working spinner; turn.started takes over next.
+                  yield* sql`UPDATE threads SET state='running',updated_at=${new Date().toISOString()}
+                    WHERE id=${threadId} AND state<>'running'`;
+                  publisher.publish({ threadId });
                   yield* provider.compactThread({ threadId }).pipe(
                     Effect.catch((cause) =>
                       Effect.gen(function* () {

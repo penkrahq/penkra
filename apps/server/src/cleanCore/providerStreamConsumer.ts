@@ -1,3 +1,4 @@
+import { releasePenkraComputerLease } from "../provider/penkraComputerMcp.ts";
 import { ProviderAuthCircuits } from "../provider/providerAuthCircuit.ts";
 import { classifyProviderAuthFailure } from "../provider/providerAuthFailure.ts";
 import { renameThread } from "./threadStore.ts";
@@ -138,6 +139,7 @@ const writeProviderEvent = (event: CleanCoreProviderEvent) =>
         return [event.threadId];
       }
       case "turn.ended": {
+        releasePenkraComputerLease(event.threadId);
         const sql = yield* SqlClient.SqlClient;
         const [turn] = yield* sql<{
           warning: string | null;

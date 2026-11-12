@@ -55,5 +55,16 @@ def check():
     print('database preflight relaunch result check passed')
 
 
+def check_designated_requirement():
+    def fake(args, env=None, gate=True):
+        team = 'DEVTEAM' if 'candidate' in args[-1] else 'Q3DX82J2GK'
+        return SimpleNamespace(returncode=0, stdout='designated => anchor apple generic and certificate leaf[subject.OU] = ' + team + '\n')
+    with patch.object(helper, 'cmd', fake):
+        assert helper.designated_requirement('/x/candidate.app') != helper.designated_requirement('/x/installed.app')
+        assert helper.designated_requirement('/x/installed.app').endswith('Q3DX82J2GK')
+    print('designated requirement check passed')
+
+
 if __name__ == '__main__':
     check()
+    check_designated_requirement()

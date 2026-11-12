@@ -1,3 +1,4 @@
+import { PENKRA_COMPUTER_MCP_NAME, resolvePenkraComputerMcpServer } from "./provider/penkraComputerMcp.ts";
 import { type ChildProcess, type ChildProcessWithoutNullStreams, spawn } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { EventEmitter } from "node:events";
@@ -821,16 +822,39 @@ export function classifyCodexStderrRecord(
   };
 }
 
-export function buildCodexThreadMcpConfig(connection: {
-  readonly url: string;
-  readonly bearerToken: string;
-}) {
+export function buildCodexThreadMcpConfig(
+  connection: {
+    readonly url: string;
+    readonly bearerToken: string;
+  },
+  threadId?: string,
+) {
   return {
     "mcp_servers.penkra": {
       url: connection.url,
       http_headers: { Authorization: `Bearer ${connection.bearerToken}` },
     },
+    ...buildCodexComputerMcpConfig(threadId),
   };
+}
+
+const OPENAI_COMPUTER_USE_PLUGIN = "computer-use@openai-bundled";
+
+/** P57: Penkra's shared Computer Use server, offered to every Codex thread. */
+export function buildCodexComputerMcpConfig(threadId?: string) {
+  const computer = resolvePenkraComputerMcpServer(threadId ? { threadId } : {});
+  return computer
+    ? {
+        [`mcp_servers.${PENKRA_COMPUTER_MCP_NAME}`]: {
+          command: computer.command,
+          args: [...computer.args],
+          env: { ...computer.env },
+        },
+        // Penkra's threads use the shared server only; OpenAI's bundled plugin stays on for the
+        // user's own Codex, so it is switched off per session rather than in ~/.codex.
+        [`plugins.${OPENAI_COMPUTER_USE_PLUGIN}.enabled`]: false,
+      }
+    : {};
 }
 
 export function resumeCodexThreadWithoutHistoryReplay(input: {
@@ -1188,12 +1212,12 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
         : undefined;
       const selectedWindow = windows?.maximum;
       const sessionOverrides = {
-        ...(gatewaySessionLease || selectedWindow !== undefined
+        ...(gatewaySessionLease || selectedWindow !== undefined || resolvePenkraComputerMcpServer()
           ? {
               config: {
                 ...(gatewaySessionLease
-                  ? buildCodexThreadMcpConfig(gatewaySessionLease.connection)
-                  : {}),
+                  ? buildCodexThreadMcpConfig(gatewaySessionLease.connection, threadId)
+                  : buildCodexComputerMcpConfig(threadId)),
                 ...(selectedWindow !== undefined ? { model_context_window: selectedWindow } : {}),
               },
             }

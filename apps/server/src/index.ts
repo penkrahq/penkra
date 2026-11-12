@@ -12,6 +12,12 @@ import { NetService } from "@penkra/shared/Net";
 import { FetchHttpClient } from "effect/http";
 import { initializeRendererCredential } from "./rendererCredential";
 
+// Bound shutdown even if a provider finalizer never completes.
+process.once("SIGTERM", () => {
+  const watchdog = setTimeout(() => process.exit(143), 9_000);
+  watchdog.unref();
+});
+
 const RuntimeLayer = Layer.empty.pipe(
   Layer.provideMerge(CliConfig.layer),
   Layer.provideMerge(ServerLive),

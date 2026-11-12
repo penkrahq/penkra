@@ -1,3 +1,4 @@
+import { createReadStream } from "node:fs";
 import { Option } from "effect";
 import { randomUUID } from "node:crypto";
 import fs from "node:fs/promises";
@@ -10,8 +11,6 @@ import {
   MessageId,
   ThreadId,
   TurnId,
-  PROVIDER_SEND_TURN_MAX_FILE_BYTES,
-  PROVIDER_SEND_TURN_MAX_IMAGE_BYTES,
 } from "@penkra/contracts";
 import { Effect } from "effect";
 
@@ -88,22 +87,26 @@ export function presentFile(input: {
     const source = yield* Effect.tryPromise({
       try: async () => {
         const info = await fs.stat(file.path);
-        if (!info.isFile() || info.size === 0 || info.size > PROVIDER_SEND_TURN_MAX_FILE_BYTES) {
-          throw new ToolInputError("Choose a nonempty regular file within the file size limit.");
+        if (!info.isFile() || info.size === 0) {
+          throw new ToolInputError("Choose a nonempty regular file.");
         }
-        const bytes = await fs.readFile(file.path);
-        if (bytes.byteLength === 0 || bytes.byteLength > PROVIDER_SEND_TURN_MAX_FILE_BYTES) {
-          throw new ToolInputError("File size changed while it was being read.");
+        // Only the header is read up front (to recognize images); the file
+        // itself streams into storage, so its size never limits showing it.
+        const handle = await fs.open(file.path, "r");
+        try {
+          const header = Buffer.alloc(Math.min(info.size, 64));
+          await handle.read(header, 0, header.length, 0);
+          return { header, size: info.size, path: file.path, name: path.basename(file.path) };
+        } finally {
+          await handle.close();
         }
-        return { bytes, name: path.basename(file.path) };
       },
       catch: (error) => new ToolInputError(`Cannot show file: ${errorText(error)}`),
     });
     const imageMimeType = IMAGE_TYPES.get(path.extname(source.name).toLowerCase());
     const image =
       imageMimeType !== undefined &&
-      source.bytes.byteLength <= PROVIDER_SEND_TURN_MAX_IMAGE_BYTES &&
-      isMatchingImage(source.bytes, imageMimeType);
+      isMatchingImage(source.header, imageMimeType);
     const type = image ? "image" : "file";
     const mimeType = image
       ? imageMimeType!
@@ -116,14 +119,14 @@ export function presentFile(input: {
       threadId: input.threadId,
       name: source.name,
       mimeType,
-      reservedBytes: source.bytes.byteLength,
+      reservedBytes: source.size,
       now,
       principal,
       repository: input.repository,
     });
     const attachment = yield* persistReservedManagedAttachment({
       reservation,
-      bytes: source.bytes,
+      bytes: createReadStream(source.path),
       attachmentsDir: input.attachmentsDir,
       now,
       principal,
@@ -159,7 +162,7 @@ export function presentFile(input: {
         attachmentId: attachment.id,
         name: source.name,
         mimeType,
-        sizeBytes: source.bytes.byteLength,
+        sizeBytes: attachment.sizeBytes,
         type,
         ...(input.presentationId === undefined
           ? {}

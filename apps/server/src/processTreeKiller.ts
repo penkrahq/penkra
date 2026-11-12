@@ -2,7 +2,7 @@
 // Purpose: Captures and terminates child process trees without losing reparented children.
 // Layer: Shared process infrastructure utility
 // Depends on: node child_process, process signals, and tree-kill.
-import { spawnSync } from "node:child_process";
+import { spawn } from "node:child_process";
 
 import treeKill from "tree-kill";
 
@@ -11,7 +11,6 @@ const PROCESS_TREE_SCAN_TIMEOUT_MS = 1_000;
 // length (Electron helpers alone run to kilobytes per line); an undersized cap
 // makes snapshot failure routine on busy machines.
 const PROCESS_TREE_SCAN_MAX_BUFFER_BYTES = 8_388_608;
-const PROCESS_COMMAND_SCAN_MAX_BUFFER_BYTES = 8_388_608;
 const POSIX_TREE_WALK_MAX_VISITED = 256;
 
 export type ProcessChildrenMap = Map<number, Array<CapturedProcess>>;
@@ -37,20 +36,24 @@ export interface CapturedProcessTreeInspection {
 export type TerminalKillSignal = "SIGTERM" | "SIGKILL";
 
 export interface ProcessTreeKiller {
-  capture(rootPid: number): CapturedProcessTree;
-  inspect?(tree: CapturedProcessTree): CapturedProcessTreeInspection;
+  capture(rootPid: number): CapturedProcessTree | Promise<CapturedProcessTree>;
+  inspect?(
+    tree: CapturedProcessTree,
+  ): CapturedProcessTreeInspection | Promise<CapturedProcessTreeInspection>;
   signal(input: {
     rootPid: number;
     signal: TerminalKillSignal;
     tree: CapturedProcessTree;
     includeRootTree?: boolean | undefined;
     onError: (error: Error, context: { pid: number; source: "tree-kill" | "captured" }) => void;
-  }): void;
+  }): unknown;
 }
 
 export interface ProcessTreeKillerDependencies {
-  captureChildrenMap: () => ProcessChildrenMap | null;
-  readCurrentCommands: (pids: readonly number[]) => ProcessCommandMap | null;
+  captureChildrenMap: () => ProcessChildrenMap | null | Promise<ProcessChildrenMap | null>;
+  readCurrentCommands: (
+    pids: readonly number[],
+  ) => ProcessCommandMap | null | Promise<ProcessCommandMap | null>;
   signalPid: (pid: number, signal: TerminalKillSignal) => Error | null;
   signalTree: (
     rootPid: number,
@@ -113,35 +116,92 @@ export function collectDescendantProcesses(
   return descendants;
 }
 
-function captureProcessChildrenMapSync(): ProcessChildrenMap | null {
-  try {
-    const result = spawnSync("ps", ["-eo", "pid=,ppid=,command="], {
-      encoding: "utf8",
-      maxBuffer: PROCESS_TREE_SCAN_MAX_BUFFER_BYTES,
-      timeout: PROCESS_TREE_SCAN_TIMEOUT_MS,
+// One bounded process-table scan is shared by concurrent callers. A stalled
+// child is not replaced until it exits, preventing an accumulation of ps jobs.
+type ProcessSnapshot = { children: ProcessChildrenMap; rss: Map<number, number> };
+let activeScan: Promise<ProcessSnapshot | null> | undefined;
+let cachedScan: { at: number; value: ProcessSnapshot } | undefined;
+function captureProcessSnapshot(fresh = false): Promise<ProcessSnapshot | null> {
+  if (!fresh && cachedScan && Date.now() - cachedScan.at < 250)
+    return Promise.resolve(cachedScan.value);
+  if (activeScan) return activeScan;
+  activeScan = new Promise((resolve) => {
+    let child: ReturnType<typeof spawn>;
+    try {
+      child = spawn("ps", ["-eo", "pid=,ppid=,rss=,command="], {
+        stdio: ["ignore", "pipe", "ignore"],
+      });
+    } catch {
+      queueMicrotask(() => {
+        activeScan = undefined;
+      });
+      resolve(null);
+      return;
+    }
+    let text = "";
+    let finished = false;
+    const finish = (value: ProcessSnapshot | null) => {
+      if (finished) return;
+      finished = true;
+      clearTimeout(timer);
+      if (value) cachedScan = { at: Date.now(), value };
+      resolve(value);
+    };
+    const timer = setTimeout(() => {
+      finish(null);
+      child.kill("SIGKILL");
+    }, PROCESS_TREE_SCAN_TIMEOUT_MS);
+    child.stdout!.setEncoding("utf8");
+    child.stdout!.on("data", (chunk: string) => {
+      if (finished) return;
+      text += chunk;
+      if (Buffer.byteLength(text) > PROCESS_TREE_SCAN_MAX_BUFFER_BYTES) {
+        finish(null);
+        child.kill("SIGKILL");
+      }
     });
-    if (result.error || result.status !== 0) return null;
-    return parseProcessChildrenMap(result.stdout);
-  } catch {
-    return null;
-  }
+    child.on("error", () => {
+      finish(null);
+      activeScan = undefined;
+    });
+    child.on("close", (code) => {
+      if (code === 0 && !finished) {
+        const rss = new Map<number, number>();
+        const lines: string[] = [];
+        for (const line of text.split(/\r?\n/u)) {
+          const match = /^\s*(\d+)\s+(\d+)\s+(\d+)\s+(.*\S)\s*$/u.exec(line);
+          if (!match) continue;
+          rss.set(Number(match[1]), Number(match[3]) * 1024);
+          lines.push(`${match[1]} ${match[2]} ${match[4]}`);
+        }
+        finish({ children: parseProcessChildrenMap(lines.join("\n")), rss });
+      } else finish(null);
+      activeScan = undefined;
+    });
+  });
+  return activeScan;
 }
 
-function readCurrentCommands(pids: readonly number[]): ProcessCommandMap | null {
-  const uniquePids = [...new Set(pids.filter((pid) => Number.isInteger(pid) && pid > 0))];
-  if (uniquePids.length === 0) return new Map();
-  try {
-    const result = spawnSync("ps", ["-p", uniquePids.join(","), "-o", "pid=,command="], {
-      encoding: "utf8",
-      maxBuffer: PROCESS_COMMAND_SCAN_MAX_BUFFER_BYTES,
-      timeout: PROCESS_TREE_SCAN_TIMEOUT_MS,
-    });
-    if (result.error) return null;
-    if (result.status !== 0) return new Map();
-    return parseProcessCommandMap(result.stdout);
-  } catch {
-    return null;
-  }
+async function captureProcessChildrenMap(): Promise<ProcessChildrenMap | null> {
+  return (await captureProcessSnapshot())?.children ?? null;
+}
+
+export async function readProcessRss(pid: number): Promise<number> {
+  const snapshot = await captureProcessSnapshot();
+  const value = snapshot?.rss.get(pid);
+  if (value === undefined) throw new Error("Process RSS was unavailable.");
+  return value;
+}
+
+async function readCurrentCommands(pids: readonly number[]): Promise<ProcessCommandMap | null> {
+  if (pids.length === 0) return new Map();
+  const table = (await captureProcessSnapshot(true))?.children;
+  if (!table) return null;
+  const wanted = new Set(pids);
+  const commands: ProcessCommandMap = new Map();
+  for (const children of table.values())
+    for (const child of children) if (wanted.has(child.pid)) commands.set(child.pid, child.command);
+  return commands;
 }
 
 function signalPid(pid: number, signal: TerminalKillSignal): Error | null {
@@ -168,13 +228,17 @@ function shouldSignalCapturedProcess(
   return currentCommands?.get(process.pid) === process.command;
 }
 
-function capturedProcessesForSignal(
+async function capturedProcessesForSignal(
   descendants: readonly CapturedProcess[],
   signal: TerminalKillSignal,
-  readCommands: (pids: readonly number[]) => ProcessCommandMap | null,
-): CapturedProcess[] {
+  readCommands: (
+    pids: readonly number[],
+  ) => ProcessCommandMap | null | Promise<ProcessCommandMap | null>,
+): Promise<CapturedProcess[]> {
   const currentCommands =
-    signal === "SIGKILL" ? readCommands(descendants.map((descendant) => descendant.pid)) : null;
+    signal === "SIGKILL"
+      ? await readCommands(descendants.map((descendant) => descendant.pid))
+      : null;
   return descendants.filter((descendant) =>
     shouldSignalCapturedProcess(descendant, signal, currentCommands),
   );
@@ -185,7 +249,7 @@ export function createProcessTreeKiller(
   dependencies: Partial<ProcessTreeKillerDependencies> = {},
 ): ProcessTreeKiller {
   const deps: ProcessTreeKillerDependencies = {
-    captureChildrenMap: captureProcessChildrenMapSync,
+    captureChildrenMap: captureProcessChildrenMap,
     readCurrentCommands,
     signalPid,
     signalTree: treeKill,
@@ -193,7 +257,7 @@ export function createProcessTreeKiller(
   };
 
   return {
-    capture: (rootPid) => {
+    capture: async (rootPid) => {
       if (!Number.isInteger(rootPid) || rootPid <= 0) {
         return { descendants: [], captureComplete: false };
       }
@@ -201,18 +265,18 @@ export function createProcessTreeKiller(
         // tree-kill delegates to taskkill /T on Windows, which owns descendant traversal.
         return { descendants: [], captureComplete: true };
       }
-      const childrenByParentPid = deps.captureChildrenMap();
+      const childrenByParentPid = await deps.captureChildrenMap();
       if (!childrenByParentPid) return { descendants: [], captureComplete: false };
       return {
         descendants: collectDescendantProcesses(rootPid, childrenByParentPid),
         captureComplete: true,
       };
     },
-    inspect: (tree) => {
+    inspect: async (tree) => {
       if (tree.descendants.length === 0) {
         return { verified: true, survivors: [] };
       }
-      const currentCommands = deps.readCurrentCommands(
+      const currentCommands = await deps.readCurrentCommands(
         tree.descendants.map((descendant) => descendant.pid),
       );
       if (currentCommands === null) {
@@ -225,10 +289,16 @@ export function createProcessTreeKiller(
         ),
       };
     },
-    signal: ({ rootPid, signal, tree, includeRootTree = true, onError }) => {
+    signal: async ({ rootPid, signal, tree, includeRootTree = true, onError }) => {
+      // Do not wait on a fresh descendant scan before signalling a live root:
+      // it could exit and its PID could be reused while the scan is pending.
+      if (includeRootTree && globalThis.process.platform !== "win32") {
+        const error = deps.signalPid(rootPid, signal);
+        if (error) onError(error, { pid: rootPid, source: "tree-kill" });
+      }
       // Signal captured descendants directly as well as through tree-kill. If
       // the PTY root exits, those children may be reparented before escalation.
-      const capturedProcesses = capturedProcessesForSignal(
+      const capturedProcesses = await capturedProcessesForSignal(
         tree.descendants,
         signal,
         deps.readCurrentCommands,
@@ -240,11 +310,11 @@ export function createProcessTreeKiller(
         }
       }
       if (includeRootTree) {
-        deps.signalTree(rootPid, signal, (err) => {
-          if (err) {
-            onError(err, { pid: rootPid, source: "tree-kill" });
-          }
-        });
+        if (globalThis.process.platform === "win32") {
+          deps.signalTree(rootPid, signal, (err) => {
+            if (err) onError(err, { pid: rootPid, source: "tree-kill" });
+          });
+        }
       }
     },
   };

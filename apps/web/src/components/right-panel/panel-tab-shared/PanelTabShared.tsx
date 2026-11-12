@@ -1,7 +1,29 @@
 import { IconFileText, IconX } from "@tabler/icons-react";
-import { forwardRef, type ButtonHTMLAttributes, type ReactNode, useState } from "react";
+import {
+  forwardRef,
+  type ButtonHTMLAttributes,
+  type ReactNode,
+  useLayoutEffect,
+  useRef,
+  useState,
+} from "react";
 
 import { cn } from "~/lib/utils";
+
+// The last pointer position in the window. When a closed tab disappears and its neighbour
+// slides under a still pointer, no pointerenter fires and Chromium may not re-check :hover,
+// so each tab asks what is under this point after every render (P21).
+let lastPointer: { x: number; y: number } | null = null;
+const PANEL_TABS_MOVED = "penkra:panel-tabs-moved";
+if (typeof window !== "undefined") {
+  window.addEventListener(
+    "pointermove",
+    (event) => {
+      lastPointer = { x: event.clientX, y: event.clientY };
+    },
+    { passive: true, capture: true },
+  );
+}
 
 export interface PanelTabSharedProps extends ButtonHTMLAttributes<HTMLButtonElement> {
   active?: boolean;
@@ -15,6 +37,19 @@ export const PanelTabShared = forwardRef<HTMLButtonElement, PanelTabSharedProps>
     ref,
   ) {
     const [hovered, setHovered] = useState(false);
+    const rootRef = useRef<HTMLDivElement>(null);
+    // A tab can be skipped by a memoized parent render, so a closing tab also announces that
+    // the strip moved, and every tab re-checks after the next frame.
+    useLayoutEffect(() => {
+      const recheck = () => {
+        if (!lastPointer || !rootRef.current) return;
+        const under = document.elementFromPoint(lastPointer.x, lastPointer.y);
+        const isUnder = under !== null && rootRef.current.contains(under);
+        setHovered((current) => (current === isUnder ? current : isUnder));
+      };
+      window.addEventListener(PANEL_TABS_MOVED, recheck);
+      return () => window.removeEventListener(PANEL_TABS_MOVED, recheck);
+    }, []);
     const [closePressed, setClosePressed] = useState(false);
     const [closeFocused, setCloseFocused] = useState(false);
     const showClose = Boolean(onClose) && (hovered || closePressed || closeFocused);
@@ -22,14 +57,15 @@ export const PanelTabShared = forwardRef<HTMLButtonElement, PanelTabSharedProps>
     return (
       <div
         data-pencil-component="nyAGp"
+        ref={rootRef}
+        onPointerEnter={() => setHovered(true)}
+        onPointerLeave={() => setHovered(false)}
         className={cn(
           "relative h-8 rounded-lg font-sans text-[length:var(--app-font-size-ui-lg,13px)] text-[var(--color-text-foreground-secondary)] transition-colors select-none hover:bg-[var(--color-background-button-secondary-hover)] hover:text-[var(--color-text-foreground)] [-webkit-app-region:no-drag]",
           active &&
             "bg-[var(--color-background-button-secondary)] text-[var(--color-text-foreground)]",
           className,
         )}
-        onPointerEnter={() => setHovered(true)}
-        onPointerLeave={() => setHovered(false)}
       >
         <button
           aria-selected={active}
@@ -60,6 +96,7 @@ export const PanelTabShared = forwardRef<HTMLButtonElement, PanelTabSharedProps>
               event.stopPropagation();
               setClosePressed(false);
               onClose();
+              requestAnimationFrame(() => window.dispatchEvent(new Event(PANEL_TABS_MOVED)));
             }}
             onBlur={() => setCloseFocused(false)}
             onFocus={() => setCloseFocused(true)}

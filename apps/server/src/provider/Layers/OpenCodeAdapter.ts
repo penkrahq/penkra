@@ -88,7 +88,6 @@ import {
   openCodeRuntimeErrorDetail,
   parseOpenCodeModelSlug,
   runOpenCodeSdk,
-  toOpenCodeFileParts,
   toOpenCodeQuestionAnswers,
   type OpenCodeServerConnection,
 } from "../opencodeRuntime.ts";
@@ -3135,15 +3134,7 @@ export function makeOpenCodeAdapterLive(options?: OpenCodeAdapterLiveOptions) {
             attachmentsDir: serverConfig.attachmentsDir,
             include: "all-files",
           })?.trim() ?? "";
-        const fileParts = toOpenCodeFileParts({
-          attachments: input.attachments,
-          resolveAttachmentPath: (attachment) =>
-            resolveProviderAttachmentPath({
-              attachmentsDir: serverConfig.attachmentsDir,
-              attachment,
-            }),
-        });
-        if ((!text || text.length === 0) && fileParts.length === 0) {
+        if (!text || text.length === 0) {
           return yield* new ProviderAdapterValidationError({
             provider,
             operation: "sendTurn",
@@ -3211,7 +3202,6 @@ export function makeOpenCodeAdapterLive(options?: OpenCodeAdapterLiveOptions) {
             ...(context.activeVariant ? { variant: context.activeVariant } : {}),
             parts: [
               ...(providerText ? [{ type: "text" as const, text: providerText }] : []),
-              ...fileParts,
             ],
           },
         }).pipe(

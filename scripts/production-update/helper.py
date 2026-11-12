@@ -51,6 +51,9 @@ def cmd(args,env=None,gate=True):
 
 def version(app):
     with (app/'Contents/Info.plist').open('rb') as f: return plistlib.load(f)['CFBundleShortVersionString']
+def designated_requirement(app):
+    out=cmd(['/usr/bin/codesign','--display','--requirements','-',str(app)]).stdout
+    return next((l.split('=>',1)[1].strip() for l in out.splitlines() if l.startswith('designated =>')),None)
 def sha(path): return cmd(['/usr/bin/shasum','-a','256',str(path)]).stdout.split()[0]
 def size(path): return path.stat().st_size
 def verify_db(path,app=None):
@@ -874,6 +877,9 @@ def main():
         sign=cmd(['/usr/bin/codesign','--display','--verbose=4',str(C)]).stdout
         if 'Authority=Developer ID Application:' not in sign: raise RuntimeError('Developer ID missing')
         cmd(['/usr/sbin/spctl','--assess','--type','execute','-v',str(C)],gate=False)
+        # macOS keys Screen Recording, Accessibility and every other grant to this requirement (P58).
+        if designated_requirement(C)!=designated_requirement(P):
+            raise RuntimeError('candidate designated requirement differs from the installed one; installing it would drop every macOS permission')
         oldversion=version(P); note('installed version '+oldversion)
         note('bundle stat sizes candidate='+str(size(C))+' installed='+str(size(P)))
         for label,app in (('candidate',C),('installed',P)):

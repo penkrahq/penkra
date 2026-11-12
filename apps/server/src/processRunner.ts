@@ -1,4 +1,4 @@
-import { type ChildProcess as ChildProcessHandle, spawn, spawnSync } from "node:child_process";
+import { type ChildProcess as ChildProcessHandle, spawn } from "node:child_process";
 import { prepareWindowsSafeProcess } from "@penkra/shared/windowsProcess";
 
 export interface ProcessRunOptions {
@@ -93,7 +93,11 @@ function processAbortError(): Error {
 function killChild(child: ChildProcessHandle, signal: NodeJS.Signals = "SIGTERM"): void {
   if (process.platform === "win32" && child.pid !== undefined) {
     try {
-      spawnSync("taskkill", ["/pid", String(child.pid), "/T", "/F"], { stdio: "ignore" });
+      const killer = spawn("taskkill", ["/pid", String(child.pid), "/T", "/F"], {
+        stdio: "ignore",
+      });
+      killer.on("error", () => child.kill(signal));
+      killer.unref();
       return;
     } catch {
       // fallback to direct kill
