@@ -9,7 +9,7 @@ type AccessState = { signedIn: boolean; enabled: boolean };
 type DeviceState = { phones: ReadonlyArray<RemotePhone>; relay: RelayStatus["kind"] };
 
 export function SettingsIphoneContainer() {
-  const { accountAuth, authState } = useDesktopAccountAuthState();
+  const { authState } = useDesktopAccountAuthState();
   const bridge = window.desktopBridge?.remoteAccess;
   const [access, setAccess] = useState<AccessState | null>(null);
   const [accessError, setAccessError] = useState(false);
@@ -149,7 +149,6 @@ export function SettingsIphoneContainer() {
       deviceError={deviceError}
       onRemove={(id) => void remove(id)}
       relay={{ kind: devices?.relay ?? "connecting" }}
-      onSignInAgain={() => void accountAuth?.requestSignIn()}
       onCheckForUpdates={() => void window.desktopBridge?.checkForUpdates()}
     />
   );

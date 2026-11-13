@@ -10,7 +10,6 @@ const meta = {
   args: {
     onAccessChange: () => {},
     onRemove: () => {},
-    onSignInAgain: () => {},
     onCheckForUpdates: () => {},
     relay: { kind: "connected" },
   },
@@ -46,9 +45,6 @@ export const Off: Story = { args: { signedIn: true, accessOn: false, phones: [] 
 export const SignedOut: Story = { args: { signedIn: false, accessOn: false, phones: [] } };
 export const Connecting: Story = {
   args: { signedIn: true, accessOn: true, phones: [], relay: { kind: "connecting" } },
-};
-export const SignInRejected: Story = {
-  args: { signedIn: true, accessOn: true, phones: [], relay: { kind: "rejected-sign-in" } },
 };
 export const VersionRejected: Story = {
   args: { signedIn: true, accessOn: true, phones: [], relay: { kind: "rejected-protocol" } },

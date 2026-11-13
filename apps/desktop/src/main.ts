@@ -1362,25 +1362,40 @@ let remoteAccountCoordinator: RemoteAccountCoordinator | null = null;
 let remoteNetworkFinished: Promise<void> | null = null;
 let remoteLifecycleBackend: ChildProcess.ChildProcess | null = null;
 let pendingRemoteSignInAccountId: string | null = null;
+let lastRelayRefusalRenewalAt = 0;
 const remoteRegistrationLifetime = new AbortController();
-function renewRemoteRegistrationAfterSignIn(): void {
+/**
+ * The relay knows this Mac by a device key minted from the account sign-in. Mint a fresh one
+ * (the backend rotates it in place) and restart the phone link on it. Returns false when the
+ * account session itself is gone and only a browser sign-in can help.
+ */
+async function renewRemoteLink(accountId: string, reason: string): Promise<boolean> {
   const owner = remoteRegistrationOwner;
-  const accountId = pendingRemoteSignInAccountId;
-  if (!owner || !accountId) return;
-  pendingRemoteSignInAccountId = null;
-  void owner
-    .renewAfterSignIn(accountId, remoteRegistrationLifetime.signal)
-    .catch((error) => {
-      console.warn(
-        "[remote-link] Explicit sign-in registration renewal failed",
-        {
-          code:
-            error instanceof RemoteRegistrationError ? error.code : "internal",
-          status:
-            error instanceof RemoteRegistrationError ? error.status : undefined,
-        },
-      );
+  if (!owner) return false;
+  try {
+    await owner.renewAfterSignIn(accountId, remoteRegistrationLifetime.signal);
+    console.info("[remote-link] Device key renewed.", { reason });
+  } catch (error) {
+    console.warn("[remote-link] Device key renewal failed.", {
+      reason,
+      code: error instanceof RemoteRegistrationError ? error.code : "internal",
+      status: error instanceof RemoteRegistrationError ? error.status : undefined,
     });
+    return false;
+  }
+  await remoteAccountCoordinator?.afterSignIn(accountId);
+  return true;
+}
+function renewRemoteRegistrationAfterSignIn(): void {
+  const accountId = pendingRemoteSignInAccountId;
+  if (!remoteRegistrationOwner || !accountId) return;
+  pendingRemoteSignInAccountId = null;
+  void renewRemoteLink(accountId, "sign-in").then(async (renewed) => {
+    // Unregistered Macs still need the account published.
+    if (!renewed) await remoteAccountCoordinator?.afterSignIn(accountId);
+  }).catch((error) => {
+    console.error("[remote-link] Account lifecycle transition failed", error);
+  });
 }
 const appAccountSubscriptions = new AppAccountSubscriptionStore();
 const runtimeV2FileHandles = new AppScopedFileHandleStore();
@@ -9248,12 +9263,6 @@ if (hasSingleInstanceLock) {
       remoteRegistrationOwner?.invalidate();
       pendingRemoteSignInAccountId = accountId;
       renewRemoteRegistrationAfterSignIn();
-      void remoteAccountCoordinator?.afterSignIn(accountId).catch((error) => {
-        console.error(
-          "[remote-link] Account lifecycle transition failed",
-          error,
-        );
-      });
     },
     onBeforeAccountChange: async () => {
       pendingRemoteSignInAccountId = null;
@@ -9877,7 +9886,6 @@ async function bootstrap(): Promise<void> {
       appVersion: app.getVersion(),
     },
   });
-  renewRemoteRegistrationAfterSignIn();
   remoteLifecycleHost = new RemoteLifecycleHost({
     accountServiceUrl: penkraAccountServices.apiUrl,
     accountId: null,
@@ -9907,6 +9915,10 @@ async function bootstrap(): Promise<void> {
     });
   });
   await remoteAccountCoordinator.initialize(getPenkraAccountId);
+  // A rejected device key otherwise lasts until someone signs in again; renew it every launch.
+  void getPenkraAccountId().then((accountId) =>
+    accountId ? renewRemoteLink(accountId, "launch") : false,
+  ).catch(() => undefined);
   remoteNetworkFinished = watchRemoteNetworkPath({
     signal: remoteRegistrationLifetime.signal,
     onPath: () => {
@@ -9992,6 +10004,15 @@ async function bootstrap(): Promise<void> {
         case "register": {
           if (params.accountId !== accountId || !remoteRegistrationOwner)
             throw new Error("Invalid RemoteLink registration.");
+          if (params.renew === true) {
+            // The relay refused the key. Not awaited: the restart closes the caller's work.
+            // At most once a minute, so a relay that keeps refusing cannot loop.
+            if (Date.now() - lastRelayRefusalRenewalAt >= 60_000) {
+              lastRelayRefusalRenewalAt = Date.now();
+              void renewRemoteLink(accountId, "relay-refused");
+            }
+            return { accountId, credentials: null };
+          }
           const credentials = await remoteRegistrationOwner.ensure(
             accountId,
             signal,

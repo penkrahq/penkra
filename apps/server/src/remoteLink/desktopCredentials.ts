@@ -112,6 +112,10 @@ export class DesktopRemoteCredentials {
   async register(accountId: string, signal?: AbortSignal): Promise<RemoteCredentialSnapshot> {
     return this.snapshot(await this.request("register", { accountId }, signal));
   }
+  /** The relay refused this Mac's device key: desktop mints a new one and restarts the link. */
+  async renew(accountId: string, signal?: AbortSignal): Promise<void> {
+    await this.request("register", { accountId, renew: true }, signal);
+  }
   async remove(identityPrivateKey: string, signal?: AbortSignal) {
     await this.request("remove", { identityPrivateKey }, signal);
   }

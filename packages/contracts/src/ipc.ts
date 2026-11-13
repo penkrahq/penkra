@@ -998,7 +998,6 @@ export interface NativeApi {
       relay:
         | "connecting"
         | "connected"
-        | "rejected-sign-in"
         | "rejected-protocol";
     }>;
     removeDevice: (deviceId: string) => Promise<void>;

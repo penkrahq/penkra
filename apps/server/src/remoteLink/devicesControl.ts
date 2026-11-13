@@ -15,7 +15,6 @@ export interface RemoteDevicesOwner {
 export type RemoteRelayStatus =
   | "connecting"
   | "connected"
-  | "rejected-sign-in"
   | "rejected-protocol";
 
 /** Exposes only the current account's owner, never its keys or session tokens. */

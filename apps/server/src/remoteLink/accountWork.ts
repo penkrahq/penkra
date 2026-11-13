@@ -142,12 +142,17 @@ export function makeRemoteAccountWork(input: {
                 input.observeSocket(event);
               },
               observeReconnect: (state) => {
-                if (state.state === "rejected")
-                  deviceOwner.setStatus(
-                    state.reason === "authentication-rejected"
-                      ? "rejected-sign-in"
-                      : "rejected-protocol",
-                  );
+                if (state.state === "rejected" && state.reason === "authentication-rejected") {
+                  // A refused device key is renewed by desktop, which then restarts this work.
+                  deviceOwner.setStatus("connecting");
+                  void input.credentials
+                    .renew(snapshot.accountId, ownerSignal)
+                    .catch((error) => {
+                      if (!ownerSignal.aborted) {
+                        try { input.observeFailure(error); } catch { /* Diagnostics only. */ }
+                      }
+                    });
+                } else if (state.state === "rejected") deviceOwner.setStatus("rejected-protocol");
                 else if (state.state === "connecting" || state.state === "waiting")
                   deviceOwner.setStatus("connecting");
                 input.observeReconnect(state);

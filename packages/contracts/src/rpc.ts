@@ -259,7 +259,7 @@ export const WsRemoteListDevicesRpc = Rpc.make(WS_METHODS.remoteListDevices, {
   payload: Schema.Struct({}),
   success: Schema.Struct({
     phones: Schema.Array(RemotePhone),
-    relay: Schema.Literals(["connecting", "connected", "rejected-sign-in", "rejected-protocol"]),
+    relay: Schema.Literals(["connecting", "connected", "rejected-protocol"]),
   }),
   error: WsRpcError,
 });

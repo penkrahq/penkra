@@ -1,6 +1,6 @@
 {
   "name": "@penkra/contracts",
-  "version": "0.14.12",
+  "version": "0.14.13",
   "private": true,
   "files": [
     "dist"

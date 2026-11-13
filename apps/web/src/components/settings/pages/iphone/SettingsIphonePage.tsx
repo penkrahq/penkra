@@ -24,7 +24,6 @@ export interface PairedIphone {
 export type RelayStatus =
   | { readonly kind: "connected" }
   | { readonly kind: "connecting" }
-  | { readonly kind: "rejected-sign-in" }
   | { readonly kind: "rejected-protocol" };
 
 export function SettingsIphonePage(props: {
@@ -40,8 +39,6 @@ export function SettingsIphonePage(props: {
   readonly onRemove: (deviceId: string) => void;
   /** Shown under the switch while access is on. */
   readonly relay: RelayStatus;
-  /** "Sign in again" for `rejected-sign-in` (opens the existing account sign-in). */
-  readonly onSignInAgain: () => void;
   /** "Check for updates" for a protocol rejection (the existing desktop updater). */
   readonly onCheckForUpdates: () => void;
 }) {
@@ -60,7 +57,6 @@ export function SettingsIphonePage(props: {
             on ? (
               <RelayStatusLine
                 relay={props.relay}
-                onSignInAgain={props.onSignInAgain}
                 onCheckForUpdates={props.onCheckForUpdates}
               />
             ) : undefined
@@ -121,7 +117,6 @@ function lastConnectedLabel(iso: string): string {
 
 function RelayStatusLine(props: {
   relay: RelayStatus;
-  onSignInAgain: () => void;
   onCheckForUpdates: () => void;
 }) {
   const dot = (color: string) => (
@@ -138,19 +133,6 @@ function RelayStatusLine(props: {
       return (
         <span className="inline-flex items-center gap-1.5">
           {dot("bg-muted-foreground/50")}Connecting…
-        </span>
-      );
-    case "rejected-sign-in":
-      return (
-        <span className="inline-flex flex-wrap items-center gap-1.5">
-          {dot("bg-amber-500")}Your Penkra sign-in on this Mac needs renewing.
-          <button
-            type="button"
-            className="text-[var(--color-text-foreground)] underline-offset-2 hover:underline"
-            onClick={props.onSignInAgain}
-          >
-            Sign in again
-          </button>
         </span>
       );
     case "rejected-protocol":
