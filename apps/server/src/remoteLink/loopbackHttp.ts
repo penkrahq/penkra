@@ -40,6 +40,7 @@ export function openLoopbackHttp(input: {
   readonly method: "GET" | "POST";
   readonly path: string;
   readonly contentType?: string;
+  readonly contentLength?: number;
   readonly signal?: AbortSignal;
 }): LoopbackHttpTransfer {
   let origin: URL;
@@ -53,6 +54,7 @@ export function openLoopbackHttp(input: {
   const headers = {
     authorization: `Bearer ${input.credential}`,
     ...(input.contentType === undefined ? {} : { "content-type": input.contentType }),
+    ...(input.contentLength === undefined ? {} : { "content-length": String(input.contentLength) }),
   };
   let request: ReturnType<typeof httpRequest>;
   try {

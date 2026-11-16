@@ -107,6 +107,7 @@ export class RemoteHttpBridge {
         method: envelope.method,
         path: envelope.path,
         ...(envelope.contentType === undefined ? {} : { contentType: envelope.contentType }),
+        ...(envelope.contentLength === undefined ? {} : { contentLength: envelope.contentLength }),
         signal: this.input.channel.signal,
       });
     } catch (error) {

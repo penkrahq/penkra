@@ -83,7 +83,7 @@ const readPage = (input: PageInput, outline: boolean) =>
         updated_at AS "updatedAt"
       FROM thread_items
       WHERE thread_id = ${input.threadId}
-        ${outline ? sql`AND source_id <> 'context-window:latest' AND (kind IN ('user','question','turn') OR turn_id IS NULL)` : sql``}
+        ${outline ? sql`AND source_id <> 'context-window:latest' AND (kind IN ('user','question','turn') OR turn_id IS NULL OR json_extract(data,'$.kind') = 'media.presented')` : sql``}
         AND (${before} IS NULL OR seq < ${before})
       ORDER BY seq DESC
       LIMIT ${limit}

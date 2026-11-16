@@ -16,6 +16,8 @@ const Envelope = Schema.Union([
     method: Schema.Literals(["GET", "POST"]),
     path: Schema.String,
     contentType: Schema.optional(Schema.String),
+    // Uploads declare their size: the attachment route reserves it and refuses without one.
+    contentLength: Schema.optional(Schema.Int.check(Schema.isGreaterThanOrEqualTo(0))),
   }),
   Schema.Struct({
     t: Schema.Literal("http.res"),
