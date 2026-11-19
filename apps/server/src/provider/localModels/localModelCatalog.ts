@@ -9,12 +9,17 @@ export interface LocalModelEntry {
   readonly repo: string;
   readonly revision: string;
   readonly downloadGb: number;
-  /** Total system memory needed to run at the context cap without swapping. */
+  /** Total system memory needed to run at the default context window without swapping. */
   readonly minMemoryGb: number;
-  /** Max prompt tokens sent; keeps prefill under the macOS GPU watchdog. */
+  /** The model's native context window: the top of the context window slider. */
   readonly contextTokens: number;
-  /** A larger cap for Macs with this much memory, where the model has been tested at it. */
-  readonly largeMemory?: { readonly minMemoryGb: number; readonly contextTokens: number };
+  /**
+   * The slider's default: the largest window tested on a Mac without swapping or
+   * the GPU watchdog (FINDINGS.md). Larger windows read slowly and may need more memory.
+   */
+  readonly defaultContextTokens: number;
+  /** A larger default for Macs with this much memory, where the model has been tested at it. */
+  readonly largeMemory?: { readonly minMemoryGb: number; readonly defaultContextTokens: number };
   readonly maxOutputTokens: number;
   /** Thinking past this many characters is cut off and the turn answered directly. */
   readonly thinkingBudgetChars: number;
@@ -29,7 +34,8 @@ export const LOCAL_MODEL_CATALOG: readonly LocalModelEntry[] = [
     revision: "main",
     downloadGb: 3,
     minMemoryGb: 8,
-    contextTokens: 32_768,
+    contextTokens: 262_144,
+    defaultContextTokens: 32_768,
     maxOutputTokens: 16_384,
     thinkingBudgetChars: 4_000,
     note: "Fastest. Good for small edits and questions.",
@@ -41,7 +47,8 @@ export const LOCAL_MODEL_CATALOG: readonly LocalModelEntry[] = [
     revision: "main",
     downloadGb: 5.5,
     minMemoryGb: 16,
-    contextTokens: 65_536,
+    contextTokens: 262_144,
+    defaultContextTokens: 65_536,
     maxOutputTokens: 16_384,
     thinkingBudgetChars: 8_000,
     note: "Best balance of speed and quality.",
@@ -53,7 +60,8 @@ export const LOCAL_MODEL_CATALOG: readonly LocalModelEntry[] = [
     revision: "main",
     downloadGb: 5.1,
     minMemoryGb: 16,
-    contextTokens: 65_536,
+    contextTokens: 262_144,
+    defaultContextTokens: 65_536,
     maxOutputTokens: 16_384,
     thinkingBudgetChars: 8_000,
     note: "Tuned for coding agents. Slower than Qwen3.5 9B.",
@@ -65,9 +73,10 @@ export const LOCAL_MODEL_CATALOG: readonly LocalModelEntry[] = [
     revision: "main",
     downloadGb: 19.5,
     minMemoryGb: 32,
-    contextTokens: 65_536,
+    contextTokens: 262_144,
+    defaultContextTokens: 65_536,
     // Read 112k tokens correctly in 11 min at 31 GB peak (FINDINGS.md).
-    largeMemory: { minMemoryGb: 48, contextTokens: 131_072 },
+    largeMemory: { minMemoryGb: 48, defaultContextTokens: 131_072 },
     maxOutputTokens: 16_384,
     thinkingBudgetChars: 12_000,
     note: "Strongest. Large download.",
@@ -91,11 +100,11 @@ export function localModelAvailability(
   };
 }
 
-/** The entry as it applies to this Mac: the larger context cap when it has the memory for it. */
+/** The entry as it applies to this Mac: the larger default window when it has the memory for it. */
 export function localModelForMachine(entry: LocalModelEntry, totalMemoryBytes: number): LocalModelEntry {
   const machineGb = Math.round(totalMemoryBytes / 1024 ** 3);
   return entry.largeMemory && machineGb >= entry.largeMemory.minMemoryGb
-    ? { ...entry, contextTokens: entry.largeMemory.contextTokens }
+    ? { ...entry, defaultContextTokens: entry.largeMemory.defaultContextTokens }
     : entry;
 }
 

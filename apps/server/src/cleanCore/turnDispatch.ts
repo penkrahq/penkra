@@ -148,10 +148,13 @@ export const TurnDispatchLive = Layer.effect(
                   options && "workingContextWindow" in options
                     ? options.workingContextWindow
                     : undefined;
-                // Models with their own stops (on-device models) are honored as listed.
-                const ownStop = model?.contextWindowOptions?.find(
-                  (item) => item.value === (selectedThreshold ?? legacy),
-                );
+                // Models with their own stops (on-device models) are honored as
+                // listed, and with nothing chosen they use their own default.
+                const ownStops = model?.contextWindowOptions ?? [];
+                const requested = selectedThreshold ?? legacy;
+                const ownStop =
+                  ownStops.find((item) => item.value === requested) ??
+                  (requested === undefined && model?.local ? ownStops.find((item) => item.isDefault) : undefined);
                 const threshold = ownStop
                   ? Number(ownStop.value)
                   : maximum > 0

@@ -22,6 +22,7 @@ import {
 } from "./managedAttachmentCleanup";
 import { ThreadReads } from "./cleanCore/ThreadReads";
 import { settleRunningThreadsOnStartup } from "./cleanCore/providerStreamConsumer.ts";
+import { resumeThreadsCutOffByRestart } from "./cleanCore/resumeThread.ts";
 import { ThreadPublisher } from "./cleanCore/ThreadPublisher.ts";
 import { ProviderService, type ProviderServiceShape } from "./provider/Services/ProviderService";
 import { ServerLifecycleEvents } from "./serverLifecycleEvents";
@@ -69,17 +70,26 @@ export class ServerLifecycleError extends Schema.TaggedError<ServerLifecycleErro
   },
 ) {}
 
-/** Cut off interrupted work and attach runtime observers before accepting commands. */
+/**
+ * Cut off interrupted work and attach runtime observers before accepting
+ * commands. Returns the threads the restart cut off, to resume once ready.
+ */
 export function startServerRuntimeSubscriptions(input: {
   readonly threadPublisher: typeof ThreadPublisher.Service;
   readonly subscriptionsScope: Scope.Closeable;
   readonly startedAt: string;
 }) {
   return Effect.gen(function* () {
+    let cutOff: ReadonlyArray<string> = [];
     yield* runStartupStage(
       "clean-core.startup-cutoff",
-      settleRunningThreadsOnStartup(input.threadPublisher, input.startedAt),
+      settleRunningThreadsOnStartup(input.threadPublisher, input.startedAt).pipe(
+        Effect.map((ids) => {
+          cutOff = ids;
+        }),
+      ),
     );
+    return cutOff;
   });
 }
 
@@ -203,7 +213,7 @@ export const createEffectServer = Effect.fn(function* (
   // releasing SQLite and provider services. Keep the finalizer as an idempotent
   // fallback for startup failures and abrupt parent disconnects.
   yield* Effect.addFinalizer(() => shutdown);
-  yield* startServerRuntimeSubscriptions({
+  const cutOffByRestart = yield* startServerRuntimeSubscriptions({
     threadPublisher,
     subscriptionsScope,
     startedAt: new Date().toISOString(),
@@ -211,6 +221,8 @@ export const createEffectServer = Effect.fn(function* (
   yield* readiness.markOrchestrationSubscriptionsReady;
   yield* readiness.markTerminalSubscriptionsReady;
   yield* runtimeStartup.markCommandReady;
+  // Commands are accepted now, so the cut-off threads can continue.
+  yield* resumeThreadsCutOffByRestart(cutOffByRestart).pipe(Effect.forkIn(subscriptionsScope));
 
   yield* lifecycleEvents.publish({
     type: "welcome",

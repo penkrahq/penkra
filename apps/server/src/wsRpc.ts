@@ -3,7 +3,7 @@ import { LocalModels } from "./provider/Services/LocalModels.ts";
 import { localModelIdFromSlug, toLocalModelListings } from "./provider/localModels/localOpenCodeConfig.ts";
 import { randomUUID, timingSafeEqual } from "node:crypto";
 import { ProviderAuthCircuits } from "./provider/providerAuthCircuit.ts";
-import { PLAY_TURN_RECOVERY_PROMPT } from "./cleanCore/sendMessage.ts";
+import { resumeThread } from "./cleanCore/resumeThread.ts";
 import { getNavigation, updateNavigation } from "./cleanCore/navigation";
 import { getBootstrap } from "./cleanCore/bootstrap";
 import { getFolderAppTabs, updateFolderAppTabs } from "./cleanCore/folderAppTabs.ts";
@@ -523,35 +523,14 @@ const makeWsRpcHandlersLayer = () =>
                     taskId: update.taskId,
                   });
                   return;
-                case "resume": {
-                  const row = yield* findThread(update.threadId);
-                  if (row === null)
-                    return yield* Effect.fail(new Error("The thread does not exist."));
-                  const sender = yield* ThreadSender;
-                  yield* sender.send({
+                case "resume":
+                  yield* resumeThread({
                     threadId: update.threadId,
-                    message: {
-                      messageId: update.messageId,
-                      text: PLAY_TURN_RECOVERY_PROMPT,
-                      attachments: [],
-                      origin: { _tag: "recovery" as const },
-                      queuedAt: update.updatedAt,
-                    },
-                    dispatchMode: "queue",
-                    modelSelection: Schema.decodeUnknownSync(ModelSelection)({
-                      provider: row.provider,
-                      model: row.model,
-                      ...(row.modelOptions === null
-                        ? {}
-                        : { options: JSON.parse(row.modelOptions) }),
-                    }),
-                    connectionId: row.connectionId,
-                    ...(update.runtimeMode === undefined
-                      ? {}
-                      : { runtimeMode: update.runtimeMode }),
+                    messageId: update.messageId,
+                    updatedAt: update.updatedAt,
+                    ...(update.runtimeMode === undefined ? {} : { runtimeMode: update.runtimeMode }),
                   });
                   return;
-                }
                 case "rename":
                 case "archive":
                 case "delete":

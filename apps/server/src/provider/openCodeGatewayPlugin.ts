@@ -1,6 +1,7 @@
 // The one native host tool is derived from its canonical contract.
 import type { McpToolDefinition } from "../agentGateway/protocol.ts";
 import { MCP_DEFAULT_PROTOCOL_VERSION } from "../agentGateway/protocol.ts";
+import { PENKRA_MCP_SERVER_INSTRUCTIONS_MARKER } from "../agentGateway/harnessPolicy.ts";
 import { randomUUID } from "node:crypto";
 import { mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
@@ -54,6 +55,8 @@ export const PenkraGateway=async()=>({
   tool:{${tool}},
   'experimental.chat.system.transform':async(input,output)=>{
     if(input.sessionID===undefined)return;
+    // OpenCode can run this hook more than once for one prompt; add the block once.
+    if(output.system.some(part=>typeof part==='string'&&part.includes(${JSON.stringify(PENKRA_MCP_SERVER_INSTRUCTIONS_MARKER)})))return;
     const result=await request('initialize',{protocolVersion:${JSON.stringify(MCP_DEFAULT_PROTOCOL_VERSION)}},input);
     if(typeof result?.instructions!=='string')throw new Error('Penkra gateway returned no tool instructions.');
     output.system.push(result.instructions);

@@ -7,6 +7,12 @@ interface TestTurnCommand {
 }
 import { makeAgentGatewaySessionRegistry } from "./AgentGatewaySessionRegistry.ts";
 import { openCodeGatewayPluginSource } from "../../provider/openCodeGatewayPlugin.ts";
+import { mkdtemp, writeFile } from "node:fs/promises";
+import os from "node:os";
+import path from "node:path";
+import { pathToFileURL } from "node:url";
+import { expect, vi } from "vitest";
+import { PENKRA_EXEC_COMMAND_NAME } from "../hostToolContract.ts";
 type OrchestrationCommand = TestTurnCommand;
 import * as NodeSqliteClient from "../../persistence/NodeSqliteClient.ts";
 import { ThreadPublisherLive } from "../../cleanCore/ThreadPublisher.ts";
@@ -1291,4 +1297,35 @@ describe("AgentGateway", () => {
   
 
   
+});
+
+const stubTool = "const tool=Object.assign((d)=>d,{schema:{string:()=>({min:()=>({describe:()=>({})})})}});";
+
+async function loadPlugin() {
+  const source = openCodeGatewayPluginSource([
+    { name: PENKRA_EXEC_COMMAND_NAME, description: "Run a Penkra command.", inputSchema: { type: "object" } },
+  ] as never).replace("import {tool} from '@opencode-ai/plugin';", stubTool);
+  const dir = await mkdtemp(path.join(os.tmpdir(), "penkra-gateway-plugin-"));
+  const file = path.join(dir, "plugin.mjs");
+  await writeFile(file, source);
+  const module = (await import(pathToFileURL(file).href)) as { PenkraGateway: () => Promise<Record<string, unknown>> };
+  return module.PenkraGateway();
+}
+
+describe("OpenCode gateway plugin system hook", () => {
+  it("adds the command server instructions once when OpenCode runs the hook twice", async () => {
+    const instructions = `${PENKRA_MCP_SERVER_INSTRUCTIONS_MARKER}\n\nUse penkra_exec_command.`;
+    const fetch = vi.fn(async () => new Response(JSON.stringify({ result: { instructions } })));
+    vi.stubGlobal("fetch", fetch);
+    vi.stubEnv("PENKRA_GATEWAY_URL", "http://127.0.0.1:1/gateway");
+    const hooks = await loadPlugin();
+    vi.unstubAllEnvs();
+    const transform = hooks["experimental.chat.system.transform"] as (input: unknown, output: { system: string[] }) => Promise<void>;
+    const output = { system: ["You are an assistant."] };
+    await transform({ sessionID: "s1" }, output);
+    await transform({ sessionID: "s1" }, output);
+    expect(output.system.filter((part) => part.includes(PENKRA_MCP_SERVER_INSTRUCTIONS_MARKER))).toHaveLength(1);
+    expect(fetch).toHaveBeenCalledTimes(1);
+    vi.unstubAllGlobals();
+  });
 });

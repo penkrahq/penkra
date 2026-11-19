@@ -15,6 +15,7 @@ const entry: LocalModelEntry = {
   downloadGb: 0,
   minMemoryGb: 1,
   contextTokens: 1000,
+  defaultContextTokens: 1000,
   maxOutputTokens: 100,
   thinkingBudgetChars: 1000,
   note: "",

@@ -418,6 +418,7 @@ export const applyProviderDeltaRun = (
 /**
  * Startup rule (2.3): no runtime survives a restart, so every thread still in
  * `running` is cut off. Each becomes `idle` and gets the same cut-off notice.
+ * Returns the threads cut off, which then continue on their own (resumeThread).
  * Idempotent: a second run at the same `at` changes nothing and adds no notice.
  */
 export const settleRunningThreadsOnStartup = (publisher: ThreadPublisher, at: string) =>
@@ -427,12 +428,13 @@ export const settleRunningThreadsOnStartup = (publisher: ThreadPublisher, at: st
       SELECT id FROM threads WHERE state = 'running'
     `;
     yield* failSendingMessagesOnStartup(publisher, at, PROVIDER_CUTOFF_NOTICE);
-    if (rows.length === 0) return;
+    if (rows.length === 0) return [];
     yield* applyProviderEvent(publisher, {
       type: "provider.exited",
       threadIds: rows.map((row) => row.id),
       at,
     });
+    return rows.map((row) => row.id);
   });
 
 /** The single production consumer: no second projection, persisted pump or swallowed write. */

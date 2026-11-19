@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import { LOCAL_MODEL_CATALOG, findLocalModel, localModelAvailability, localModelForMachine } from "./localModelCatalog.ts";
+import { localContextWindowOptions } from "./localOpenCodeConfig.ts";
 
 const GB = 1024 ** 3;
 
@@ -24,14 +25,23 @@ describe("localModelAvailability", () => {
 });
 
 describe("localModelForMachine", () => {
-  it("gives Ornith 35B a 128K cap only on Macs with 48 GB or more", () => {
+  it("defaults Ornith 35B to 128K only on Macs with 48 GB or more", () => {
     const entry = findLocalModel("ornith-1.5-35b-a3b")!;
-    expect(localModelForMachine(entry, 32 * GB).contextTokens).toBe(65_536);
-    expect(localModelForMachine(entry, 64 * GB).contextTokens).toBe(131_072);
+    expect(localModelForMachine(entry, 32 * GB).defaultContextTokens).toBe(65_536);
+    expect(localModelForMachine(entry, 64 * GB).defaultContextTokens).toBe(131_072);
+    expect(localModelForMachine(entry, 64 * GB).contextTokens).toBe(262_144);
   });
 
-  it("leaves models without a larger cap unchanged", () => {
+  it("leaves models without a larger default unchanged", () => {
     const entry = findLocalModel("qwen3.5-9b")!;
     expect(localModelForMachine(entry, 128 * GB)).toBe(entry);
+  });
+});
+
+describe("localContextWindowOptions", () => {
+  it("runs from 8K to the native window, defaulting to the tested one", () => {
+    const options = localContextWindowOptions(262_144, 65_536);
+    expect(options.map((o) => o.label)).toEqual(["8K", "16K", "32K", "64K", "128K", "256K"]);
+    expect(options.find((o) => o.isDefault)?.label).toBe("64K");
   });
 });

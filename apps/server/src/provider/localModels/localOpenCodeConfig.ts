@@ -44,8 +44,8 @@ export function localModelDescriptors(listings: readonly LocalModelListing[]): P
     upstreamProviderId: LOCAL_OPENCODE_PROVIDER_ID,
     upstreamProviderName: "This Mac",
     ...(index === 0 ? { isDefault: true as const } : {}),
-    contextWindowOptions: localContextWindowOptions(listing.entry.contextTokens),
-    defaultContextWindow: String(listing.entry.contextTokens),
+    contextWindowOptions: localContextWindowOptions(listing.entry.contextTokens, listing.entry.defaultContextTokens),
+    defaultContextWindow: String(listing.entry.defaultContextTokens),
     local: {
       downloadGb: listing.entry.downloadGb,
       downloaded: listing.downloaded,
@@ -76,15 +76,15 @@ export function toLocalModelListings(listings: readonly LocalModelListing[]): Lo
 }
 
 /**
- * Auto-compaction stops for on-device models. Their windows are far below the
- * 200K-and-up stops of hosted models, and a smaller window keeps every turn's
- * prompt read short on a Mac. The default is the model's full window.
+ * Auto-compaction stops for on-device models, from 8K up to the model's native
+ * window. The default is the largest window tested on this Mac; larger ones are
+ * there to choose, and read more slowly.
  */
-export function localContextWindowOptions(maximum: number) {
-  const stops = [...[8_192, 16_384, 32_768, 65_536].filter((n) => n < maximum), maximum];
+export function localContextWindowOptions(maximum: number, defaultTokens: number) {
+  const stops = [...[8_192, 16_384, 32_768, 65_536, 131_072].filter((n) => n < maximum), maximum];
   return stops.map((tokens) => ({
     value: String(tokens),
     label: `${Math.round(tokens / 1024)}K`,
-    ...(tokens === maximum ? { isDefault: true as const } : {}),
+    ...(tokens === defaultTokens ? { isDefault: true as const } : {}),
   }));
 }
