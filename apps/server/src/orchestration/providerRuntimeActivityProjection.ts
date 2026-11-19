@@ -431,7 +431,7 @@ export function projectProviderRuntimeActivities(
   const providerTurnId = toTurnId(event.turnId) ?? null;
   const nativeTurnId =
     providerTurnId !== null &&
-    ((event.provider === "opencode" && providerTurnId.startsWith("opencode-turn-")) ||
+    (((event.provider === "opencode" || event.provider === "local") && providerTurnId.startsWith("opencode-turn-")) ||
       (event.provider === "codex" && /^01[a-f0-9]{2}/iu.test(providerTurnId)) ||
       (event.provider === "claudeAgent" &&
         /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/iu.test(providerTurnId)));

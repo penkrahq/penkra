@@ -13,6 +13,7 @@ const harnesses: Array<{
   { label: "ChatGPT", provider: "codex" },
   { label: "Claude", provider: "claudeAgent" },
   { label: "OpenCode", provider: "opencode" },
+  { label: "Local", provider: "local" },
 ];
 
 export interface MenuHarnessProps {

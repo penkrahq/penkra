@@ -31,7 +31,7 @@ export function pruneUnavailableComposerConnectionSelections(input: {
 }
 
 export function modelInternalProviderId(provider: ProviderKind, model: string): string | null {
-  return provider === "opencode" ? (model.split("/", 1)[0] ?? null) : null;
+  return provider === "opencode" || provider === "local" ? (model.split("/", 1)[0] ?? null) : null;
 }
 
 export function resolveAnonymousModelDiscoveryRoute(input: {

@@ -1,4 +1,5 @@
 import { ConnectionRateLimitsLive } from "../providerUsage/ConnectionRateLimits.ts";
+import { LocalModels } from "./Services/LocalModels.ts";
 import { ProviderAuthCircuitsLive } from "./providerAuthCircuit.ts";
 import { Effect, Layer } from "effect";
 
@@ -8,7 +9,8 @@ import { ServerSettingsLive } from "../serverSettings";
 import { makeClaudeAdapterLive } from "./Layers/ClaudeAdapter";
 import { makeCodexAdapterLive } from "./Layers/CodexAdapter";
 import { makeEventNdjsonLogger } from "./Layers/EventNdjsonLogger";
-import { makeOpenCodeAdapterLive } from "./Layers/OpenCodeAdapter";
+import { makeLocalAdapterLive, makeOpenCodeAdapterLive } from "./Layers/OpenCodeAdapter";
+import { LocalModelService } from "./localModels/localModelService.ts";
 import { ProviderAdapterRegistryLive } from "./Layers/ProviderAdapterRegistry";
 import { ProviderDiscoveryServiceLive } from "./Layers/ProviderDiscoveryService";
 import { ProviderCatalogLive } from "./Layers/ProviderCatalog.ts";
@@ -25,7 +27,7 @@ export function makeServerProviderLayer(
   } = {},
 ) {
   return Effect.gen(function* () {
-    const { logProviderEvents, providerEventLogPath } = yield* ServerConfig;
+    const { logProviderEvents, providerEventLogPath, stateDir } = yield* ServerConfig;
     const nativeEventLogger = logProviderEvents
       ? yield* makeEventNdjsonLogger(providerEventLogPath, {
           stream: "native",
@@ -49,10 +51,25 @@ export function makeServerProviderLayer(
     const openCodeAdapterLayer = makeOpenCodeAdapterLive(
       nativeEventLogger ? { nativeEventLogger } : {},
     ).pipe(Layer.provide(agentGatewayCredentialsLayer));
+    const localModels = yield* Effect.acquireRelease(
+      Effect.sync(
+        () =>
+          new LocalModelService({
+            stateDir,
+            log: (message) => Effect.runFork(Effect.logInfo(`local-models: ${message}`)),
+          }),
+      ),
+      (service) => Effect.promise(() => service.close()),
+    );
+    const localAdapterLayer = makeLocalAdapterLive({
+      ...(nativeEventLogger ? { nativeEventLogger } : {}),
+      localModels,
+    }).pipe(Layer.provide(agentGatewayCredentialsLayer));
     const adapterRegistryLayer = ProviderAdapterRegistryLive.pipe(
       Layer.provide(codexAdapterLayer),
       Layer.provide(claudeAdapterLayer),
       Layer.provide(openCodeAdapterLayer),
+      Layer.provide(localAdapterLayer),
       Layer.provideMerge(providerSessionDirectoryLayer),
     );
     const providerServiceLayer = makeManagedProviderServiceLive(
@@ -101,6 +118,7 @@ export function makeServerProviderLayer(
       Layer.provide(ServerSettingsLive),
     );
     return Layer.mergeAll(
+      Layer.succeed(LocalModels, localModels),
       providerServiceLayer,
       providerDiscoveryLayer,
       providerCatalogLayer,

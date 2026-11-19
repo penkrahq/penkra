@@ -1,3 +1,4 @@
+import type { LocalModelIdInput, LocalModelListing } from "./providerDiscovery";
 import type {
   ProviderCatalogScope,
   ProviderCatalogSnapshot,
@@ -1046,6 +1047,13 @@ export interface NativeApi {
   };
   filesystem: {
     browse: (input: FilesystemBrowseInput) => Promise<FilesystemBrowseResult>;
+  };
+  localModels: {
+    list: () => Promise<ReadonlyArray<LocalModelListing>>;
+    download: (input: LocalModelIdInput) => Promise<void>;
+    cancelDownload: (input: LocalModelIdInput) => Promise<void>;
+    /** Loads the model and pre-reads the agent prompt so the first turn is fast. */
+    warm: (input: LocalModelIdInput) => Promise<void>;
   };
   shell: {
     openInEditor: (cwd: string, editor: EditorId) => Promise<void>;

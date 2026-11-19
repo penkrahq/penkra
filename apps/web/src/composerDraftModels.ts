@@ -205,7 +205,7 @@ export function reconcileProviderScopedModelSelection(
   if (current.model === requested.model) {
     return makeModelSelection(requested.provider, requested.model, current.options);
   }
-  if (current.provider === "opencode") return requested;
+  if (current.provider === "opencode" || current.provider === "local") return requested;
 
   let preservedOptions = current.options;
   const effort =
@@ -230,7 +230,7 @@ export function reconcileProviderScopedModelSelection(
 }
 
 export function stripNonStickyModelOptions(selection: ModelSelection): ModelSelection {
-  if (selection.provider === "opencode") {
+  if (selection.provider === "opencode" || selection.provider === "local") {
     const { compactionThreshold: _threshold, ...rest } = selection.options ?? {};
     return makeModelSelection(
       selection.provider,

@@ -290,12 +290,9 @@ export function buildModelSelection(
           }
         : { provider, model };
     case "opencode":
+    case "local":
       return options
-        ? {
-            provider,
-            model,
-            options: options as OpenCodeModelOptions,
-          }
+        ? ({ provider, model, options: options as OpenCodeModelOptions } as ModelSelection)
         : { provider, model };
   }
 }

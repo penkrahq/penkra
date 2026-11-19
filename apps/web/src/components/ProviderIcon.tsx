@@ -52,10 +52,28 @@ const OpenCodeProviderIcon = ({
   );
 };
 
+// Local models run on this Mac; the glyph is the machine itself.
+const LocalProviderIcon = ({
+  className,
+  style,
+  title,
+  "aria-hidden": ariaHidden,
+  "aria-label": ariaLabel,
+}: SVGProps<SVGSVGElement> & { title?: string }) => (
+  <CentralIcon
+    name="chip"
+    label={ariaHidden === true || ariaHidden === "true" || typeof ariaLabel !== "string" ? undefined : ariaLabel}
+    title={title}
+    className={className}
+    style={style}
+  />
+);
+
 export const PROVIDER_ICON_COMPONENT_BY_PROVIDER: Record<ProviderKind, Icon> = {
   codex: OpenAI,
   claudeAgent: ClaudeAI,
   opencode: OpenCodeProviderIcon,
+  local: LocalProviderIcon,
 };
 
 export function providerIconToneClassName(

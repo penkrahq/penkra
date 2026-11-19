@@ -88,7 +88,18 @@ export function getComposerTraitSelection(
     0,
     ...reportedOptions.map((option) => parseContextTokenCount(option.value) ?? 0),
   );
-  const contextWindowOptions = maximum > 0 ? compactionThresholdOptions(maximum) : [];
+  // Use the model's own stops when it reports several (on-device models list
+  // small ones); otherwise derive the standard stops from its maximum.
+  const contextWindowOptions =
+    reportedOptions.length > 1
+      ? reportedOptions.map((option) => ({
+          value: option.value,
+          label: option.label,
+          ...(option.isDefault ? { isDefault: true as const } : {}),
+        }))
+      : maximum > 0
+        ? compactionThresholdOptions(maximum)
+        : [];
   const contextWindowDescriptor = contextWindowOptions.length
     ? {
         id: "compactionThreshold",

@@ -78,6 +78,7 @@ import { resolveProviderBinary } from "../managedProviderRuntime";
 import { parseGenericCliVersion } from "../providerVersion";
 import { buildCodexProcessEnv } from "../../codexProcessEnv.ts";
 
+import { localRuntimeSupported } from "../localModels/localModelRuntime.ts";
 export { parseClaudeAuthStatusFromOutput } from "../claudeAuthStatus";
 export type { CommandResult } from "../providerCliOutput";
 
@@ -87,6 +88,7 @@ const OPENCODE_HEALTH_TIMEOUT_MS = 20_000;
 const CODEX_PROVIDER = "codex" as const;
 const CLAUDE_AGENT_PROVIDER = "claudeAgent" as const;
 const OPENCODE_PROVIDER = "opencode" as const;
+const LOCAL_PROVIDER = "local" as const;
 type ProviderStatuses = ReadonlyArray<ServerProviderStatus>;
 const DISABLED_PROVIDER_STATUS_MESSAGE = "Provider is disabled in Penkra settings.";
 
@@ -94,10 +96,11 @@ const PROVIDERS = [
   CODEX_PROVIDER,
   CLAUDE_AGENT_PROVIDER,
   OPENCODE_PROVIDER,
+  LOCAL_PROVIDER,
 ] as const satisfies ReadonlyArray<ProviderKind>;
 
 const providerChildKind = (provider: ProviderKind): ProviderChildKind =>
-  provider === CLAUDE_AGENT_PROVIDER ? "claude" : provider;
+  provider === CLAUDE_AGENT_PROVIDER ? "claude" : provider === "local" ? "opencode" : provider;
 
 const providerCommandEnv = (provider: ProviderKind): NodeJS.ProcessEnv =>
   buildProviderChildEnvironment({ provider: providerChildKind(provider) });
@@ -957,6 +960,22 @@ export const makeCheckOpenCodeProviderStatus = (
 
 export const checkOpenCodeProviderStatus = makeCheckOpenCodeProviderStatus();
 
+/** Local models run on Penkra's own MLX runtime; it is installed when the first model is picked. */
+export const makeLocalProviderStatus = (): ServerProviderStatus => {
+  const checkedAt = new Date().toISOString();
+  if (!localRuntimeSupported()) {
+    return {
+      provider: LOCAL_PROVIDER,
+      status: "error",
+      available: false,
+      authStatus: "unknown",
+      checkedAt,
+      message: "Local models need a Mac with Apple silicon.",
+    };
+  }
+  return { provider: LOCAL_PROVIDER, status: "ready", available: true, authStatus: "authenticated", checkedAt };
+};
+
 // ── Snapshot helpers ────────────────────────────────────────────────
 
 export function providerStatusesEqual(
@@ -1210,6 +1229,11 @@ export function makeProviderHealthLive() {
                 ),
                 checkManagedProviderWhenEnabled(settings, OPENCODE_PROVIDER, (binaryPath) =>
                   makeCheckManagedProviderInstallationStatus(OPENCODE_PROVIDER, binaryPath),
+                ),
+                Effect.succeed(
+                  isProviderEnabledForSettings(LOCAL_PROVIDER, settings)
+                    ? Option.some(makeLocalProviderStatus())
+                    : Option.none<ServerProviderStatus>(),
                 ),
               ],
               {

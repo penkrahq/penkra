@@ -218,6 +218,21 @@ const PROVIDER_TARGET_OPTION_RULES = {
       }),
     },
   }),
+  local: defineProviderOptionConfig<"local">({
+    primaryOptionKey: "variant",
+    options: {
+      variant: providerOptionRule("string", [], "model-discovery"),
+      compactionThreshold: providerOptionRule("string", [], "model-discovery", {
+        advertised: false,
+        validation: { kind: "non-empty-string" },
+        allowsCustomValue: true,
+      }),
+      agent: providerOptionRule("string", [], "model-discovery", {
+        validation: { kind: "non-empty-string" },
+        allowsCustomValue: true,
+      }),
+    },
+  }),
 } as const satisfies Record<ProviderKind, ProviderTargetOptionConfig>;
 
 function providerDefaultModel(provider: ProviderKind): string | null {

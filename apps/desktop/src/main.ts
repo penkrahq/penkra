@@ -9089,17 +9089,23 @@ function configureMediaPermissions(): void {
 
     targetSession.setPermissionCheckHandler(
       (webContents, permission, requestingOrigin, details) =>
-        permission === "media" &&
+        permission === "fullscreen" ||
+        (permission === "media" &&
         isTrustedMediaPermissionRequest(
           webContents,
           webContents ? trustedRequester(webContents) : null,
           details,
           requestingOrigin,
-        ),
+        )),
     );
 
     targetSession.setPermissionRequestHandler(
       (webContents, permission, callback, details) => {
+        // Element fullscreen (video controls) needs a user gesture; always allow.
+        if (permission === "fullscreen") {
+          callback(true);
+          return;
+        }
         if (
           permission !== "media" ||
           !isTrustedMediaPermissionRequest(

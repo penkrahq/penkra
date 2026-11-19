@@ -18,7 +18,7 @@ export const ProviderCatalogKind = Schema.Literals([
 export type ProviderCatalogKind = typeof ProviderCatalogKind.Type;
 
 export const ProviderCatalogScope = Schema.Struct({
-  provider: Schema.Literals(["codex", "claudeAgent", "opencode"]),
+  provider: Schema.Literals(["codex", "claudeAgent", "opencode", "local"]),
   connectionId: Schema.NullOr(ProviderConnectionId),
   folderId: Schema.optional(FolderId),
 });

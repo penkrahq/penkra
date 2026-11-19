@@ -1,4 +1,5 @@
 import { CleanCoreListArchivedThreadsInput, CleanCoreRestoreThreadInput } from "./cleanCore";
+import { LocalModelIdInput } from "./providerDiscovery";
 import { Schema, Struct } from "effect";
 import { NonNegativeInt, FolderId, ThreadId, TrimmedNonEmptyString } from "./baseSchemas";
 import {
@@ -84,6 +85,12 @@ export const WS_METHODS = {
   projectsCreateLocalFilePreviewGrant: "folders.createLocalFilePreviewGrant",
   projectsWriteFile: "folders.writeFile",
   subscribeProjectWorkspaceChanges: "folders.subscribeWorkspaceChanges",
+
+  // Local (on-device) models
+  localModelsList: "localModels.list",
+  localModelsDownload: "localModels.download",
+  localModelsCancelDownload: "localModels.cancelDownload",
+  localModelsWarm: "localModels.warm",
 
   // Filesystem browse methods
   filesystemBrowse: "filesystem.browse",
@@ -200,6 +207,10 @@ const WebSocketRequestBody = Schema.Union([
   ),
   tagRequestBody(WS_METHODS.projectsWriteFile, ProjectWriteFileInput),
   tagRequestBody(WS_METHODS.subscribeProjectWorkspaceChanges, Schema.Struct({})),
+  tagRequestBody(WS_METHODS.localModelsList, Schema.Struct({})),
+  tagRequestBody(WS_METHODS.localModelsDownload, LocalModelIdInput),
+  tagRequestBody(WS_METHODS.localModelsCancelDownload, LocalModelIdInput),
+  tagRequestBody(WS_METHODS.localModelsWarm, LocalModelIdInput),
 
   // Filesystem browse
   tagRequestBody(WS_METHODS.filesystemBrowse, FilesystemBrowseInput),

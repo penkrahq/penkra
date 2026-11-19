@@ -42,6 +42,13 @@ export const PROVIDER_DESCRIPTORS = [
     supportsNativeTurnSteering: false,
     usage: null,
   },
+  {
+    kind: "local",
+    displayName: PROVIDER_DISPLAY_NAMES.local,
+    adapterImplemented: true,
+    supportsNativeTurnSteering: false,
+    usage: null,
+  },
 ] as const satisfies readonly ProviderDescriptor[];
 
 export const PROVIDER_DESCRIPTOR_BY_KIND = Object.fromEntries(

@@ -37,6 +37,7 @@ const PROVIDERS = [
   "codex",
   "claudeAgent",
   "opencode",
+  "local",
 ] as const satisfies ReadonlyArray<ProviderKind>;
 
 export function useProviderModelCatalog(input: {
@@ -103,20 +104,33 @@ export function useProviderModelCatalog(input: {
     ["models"],
     shouldDiscover("opencode"),
   );
+  // Local has no Connections: its catalog is the curated on-device list.
+  const localModels = useProviderCatalog(
+    { provider: "local", connectionId: null },
+    ["models"],
+    shouldDiscover("local"),
+  );
   const modelQueries = useMemo(
-    () => ({ codex: codexModels, claudeAgent: claudeModels, opencode: openCodeModels }),
-    [claudeModels, codexModels, openCodeModels],
+    () => ({
+      codex: codexModels,
+      claudeAgent: claudeModels,
+      opencode: openCodeModels,
+      local: localModels,
+    }),
+    [claudeModels, codexModels, openCodeModels, localModels],
   );
   const reloadCodexModels = codexModels.reload;
   const reloadClaudeModels = claudeModels.reload;
   const reloadOpenCodeModels = openCodeModels.reload;
+  const reloadLocalModels = localModels.reload;
   const reloadModelProvider = useCallback(
     (provider: ProviderKind) => {
       if (provider === "codex") return reloadCodexModels();
       if (provider === "claudeAgent") return reloadClaudeModels();
+      if (provider === "local") return reloadLocalModels();
       return reloadOpenCodeModels();
     },
-    [reloadCodexModels, reloadClaudeModels, reloadOpenCodeModels],
+    [reloadCodexModels, reloadClaudeModels, reloadOpenCodeModels, reloadLocalModels],
   );
   const codexFailed = codexModels.loadFailed;
   const claudeFailed = claudeModels.loadFailed;
@@ -161,8 +175,14 @@ export function useProviderModelCatalog(input: {
       opencode: filterProviderModelsForPicker("opencode", {
         models: openCodeModels.data?.models ?? [],
       }).models,
+      local: localModels.data?.models ?? [],
     }),
-    [claudeModels.data?.models, codexModels.data?.models, openCodeModels.data?.models],
+    [
+      claudeModels.data?.models,
+      codexModels.data?.models,
+      openCodeModels.data?.models,
+      localModels.data?.models,
+    ],
   );
 
   const modelOptionsByProvider = useMemo(() => {
@@ -209,8 +229,9 @@ export function useProviderModelCatalog(input: {
       codex: codexModels.loadFailed,
       claudeAgent: claudeModels.loadFailed,
       opencode: openCodeModels.loadFailed,
+      local: localModels.loadFailed,
     }),
-    [codexModels.loadFailed, claudeModels.loadFailed, openCodeModels.loadFailed],
+    [codexModels.loadFailed, claudeModels.loadFailed, openCodeModels.loadFailed, localModels.loadFailed],
   );
 
   const selectedQuery = modelQueries[input.selectedProvider];

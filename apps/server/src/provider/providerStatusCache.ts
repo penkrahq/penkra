@@ -14,6 +14,7 @@ const PROVIDER_STATUS_CACHE_IDS = [
   "codex",
   "claudeAgent",
   "opencode",
+  "local",
 ] as const satisfies ReadonlyArray<ServerProviderStatus["provider"]>;
 
 const decodeProviderStatusCache = Schema.decodeUnknownEffect(

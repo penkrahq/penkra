@@ -1,3 +1,4 @@
+import { installationHarnessFor } from "./localModels/localHarness.ts";
 // FILE: admittedThreadRuntime.ts
 // Purpose: Resolve managed launch and resume from the canonical thread row.
 
@@ -93,7 +94,7 @@ export const resolveSelectedThreadRuntime = Effect.fnUntraced(function* (
     return yield* validation("The thread native state changed before managed runtime launch.");
   }
   const state = row.value;
-  if (selection.harness === "opencode") {
+  if (installationHarnessFor(selection.harness) === "opencode") {
     const peers =
       yield* dependencies.sql`SELECT id FROM threads WHERE (native_state_id=${state.nativeStateId} OR provider='opencode' AND provider_session_id=${state.providerSessionId}) AND id<>${input.threadId} AND deleted_at IS NULL LIMIT 1`.pipe(
         Effect.mapError((cause) =>
@@ -108,7 +109,7 @@ export const resolveSelectedThreadRuntime = Effect.fnUntraced(function* (
   const hasConversation =
     state.providerSessionId === null
       ? false
-      : selection.harness === "opencode"
+      : installationHarnessFor(selection.harness) === "opencode"
         ? true
         : state.nativeStateId === null
           ? false
@@ -148,7 +149,7 @@ export const resolveSelectedThreadRuntime = Effect.fnUntraced(function* (
     })
     .pipe(Effect.mapError((cause) => validation(cause.message, cause)));
   const canResume =
-    selection.harness === "opencode" && hasConversation
+    installationHarnessFor(selection.harness) === "opencode" && hasConversation
       ? yield* Effect.tryPromise({
           try: async () =>
             (await hasOpenCodeDatabase(launch.nativeStateRoot)) ||

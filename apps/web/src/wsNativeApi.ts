@@ -363,6 +363,12 @@ export function createWsNativeApi(): NativeApi {
     filesystem: {
       browse: (input) => transport.request(WS_METHODS.filesystemBrowse, input),
     },
+    localModels: {
+      list: () => transport.request(WS_METHODS.localModelsList, {}),
+      download: (input) => transport.request(WS_METHODS.localModelsDownload, input),
+      cancelDownload: (input) => transport.request(WS_METHODS.localModelsCancelDownload, input),
+      warm: (input) => transport.request(WS_METHODS.localModelsWarm, input),
+    },
     shell: {
       openInEditor: (cwd, editor) =>
         transport.request(WS_METHODS.shellOpenInEditor, { cwd, editor }),

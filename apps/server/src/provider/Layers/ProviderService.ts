@@ -2565,8 +2565,10 @@ export function makeManagedProviderServiceLive(options?: ProviderServiceLiveOpti
                 new Error("The requested provider does not match the thread."),
               );
             const internalProvider =
-              provider === "opencode" ? parseOpenCodeModelSlug(state.value.model) : null;
-            if (provider === "opencode" && internalProvider === null)
+              provider === "opencode" || provider === "local"
+                ? parseOpenCodeModelSlug(state.value.model)
+                : null;
+            if ((provider === "opencode" || provider === "local") && internalProvider === null)
               return yield* Effect.fail(new Error("The OpenCode model has no provider prefix."));
             const launch = yield* launchResolver.resolve({
               threadId,

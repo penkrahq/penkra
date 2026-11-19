@@ -203,6 +203,8 @@ function configureAppSession(
   partitionSession.on("will-download", (event) => event.preventDefault());
   partitionSession.setPermissionCheckHandler((_webContents, permission, _origin, details) => {
     if (permission === "clipboard-sanitized-write") return true;
+    // Element fullscreen (video controls) needs a user gesture and is always allowed.
+    if (permission === "fullscreen") return true;
     // File System Access handles are granted by Chromium only after the user
     // chooses the exact file or directory in the native picker. Penkra does not
     // add a second permission vocabulary on top of that standard flow.
@@ -215,6 +217,7 @@ function configureAppSession(
   });
   partitionSession.setPermissionRequestHandler((_webContents, permission, callback, details) => {
     if (permission === "clipboard-sanitized-write") return callback(true);
+    if (permission === "fullscreen") return callback(true);
     if (permission === "fileSystem") return callback(true);
     const requested = standardPermissionNames(permission, details);
     if (requested.length === 0) return callback(false);

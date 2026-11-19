@@ -269,31 +269,21 @@ export function detachedHostPlatformPolicy(input: {
   platform: NodeJS.Platform;
   displays: ReadonlyArray<Rectangle>;
 }): DetachedHostPlatformPolicy {
-  const isLinux = input.platform === "linux";
   const rightmostDisplay = input.displays.reduce(
     (right, display) => Math.max(right, display.x + display.width),
     0,
   );
-  const offscreenPlacement = { x: rightmostDisplay + 10_000, y: 10_000 };
-  if (isLinux) {
-    // Linux window placement and showInactive behavior are not reliable across
-    // compositors. Keep the helper hidden and off every display; detached pointer
-    // delivery is consequently not advertised as supported on Linux.
-    return {
-      visibleHost: false,
-      canDeliverPointerInput: false,
-      placement: offscreenPlacement,
-      useSkipTaskbar: false,
-      useNonFocusableWindow: false,
-      forwardUserMouseEvents: false,
-    };
-  }
+  // Background tabs keep rendering in a hidden, off-display helper on every
+  // platform. Only a tab presented in a Penkra window is on screen; agents must
+  // present a tab before pointer input. Visible helpers stacked transparent
+  // windows over the shell window on macOS, which could mark it occluded and
+  // stop it painting.
   return {
-    visibleHost: true,
-    canDeliverPointerInput: true,
-    placement: { x: 0, y: 0 },
-    useSkipTaskbar: true,
-    useNonFocusableWindow: true,
+    visibleHost: false,
+    canDeliverPointerInput: false,
+    placement: { x: rightmostDisplay + 10_000, y: 10_000 },
+    useSkipTaskbar: input.platform !== "linux",
+    useNonFocusableWindow: input.platform !== "linux",
     forwardUserMouseEvents: false,
   };
 }
@@ -2521,6 +2511,9 @@ export class AppTabViewHost implements AppTabHost {
 
   #attachDetachedView(record: AppTabRecord, view: WebContentsView): void {
     const host = this.#ensureDetachedHost(view, record.bounds);
+    // The helper is hidden; keep timers running so background tabs continue
+    // loading and agents can observe them.
+    if (!view.webContents.isDestroyed()) view.webContents.setBackgroundThrottling(false);
     this.#removeChildView(host, view);
     host.contentView.addChildView(view);
     view.setVisible(

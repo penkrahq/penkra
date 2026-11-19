@@ -5,7 +5,9 @@
 
 import { useState } from "react";
 
+import type { useLocalModels } from "~/hooks/useLocalModels";
 import { StarFilledIcon, StarIcon } from "~/lib/icons";
+import { LocalModelRadioItem } from "./LocalModelRadioItem";
 import { cn } from "~/lib/utils";
 import {
   resolveModelGroupDefaultOpen,
@@ -34,6 +36,8 @@ type ProviderModelOptionGroupListProps = {
   favoriteModelSlugSet: ReadonlySet<string> | undefined;
   onToggleFavorite: (provider: FavoriteModelProvider, slug: string) => void;
   onAfterSelection?: () => void;
+  /** Present when provider is "local": on-device download state per slug. */
+  localModels?: Pick<ReturnType<typeof useLocalModels>, "bySlug" | "download" | "cancelDownload" | "warm">;
 };
 
 function ProviderModelRadioItem(
@@ -166,7 +170,22 @@ export function ProviderModelOptionGroupList(props: ProviderModelOptionGroupList
   return (
     <div className="flex flex-col gap-px">
       {props.groupedOptions.map((group) => {
-        const groupItems = group.options.map((modelOption) => (
+        const groupItems = group.options.map((modelOption) => {
+          const localModel =
+            props.provider === "local" ? props.localModels?.bySlug.get(modelOption.slug) : undefined;
+          if (localModel && props.localModels) {
+            return (
+              <LocalModelRadioItem
+                key={`${props.provider}:${modelOption.slug}`}
+                model={localModel}
+                onDownload={(slug) => void props.localModels!.download(slug)}
+                onCancelDownload={(slug) => void props.localModels!.cancelDownload(slug)}
+                onWarm={(slug) => void props.localModels!.warm(slug)}
+                {...(props.onAfterSelection ? { onAfterSelection: props.onAfterSelection } : {})}
+              />
+            );
+          }
+          return (
           <ProviderModelRadioItem
             key={`${props.provider}:${modelOption.slug}`}
             provider={props.provider}
@@ -176,7 +195,8 @@ export function ProviderModelOptionGroupList(props: ProviderModelOptionGroupList
             onToggleFavorite={props.onToggleFavorite}
             {...(props.onAfterSelection ? { onAfterSelection: props.onAfterSelection } : {})}
           />
-        ));
+          );
+        });
 
         if (group.label === null) {
           return (

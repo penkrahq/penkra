@@ -1,3 +1,4 @@
+import { installationHarnessFor } from "../localModels/localHarness.ts";
 import {
   ThreadId,
   type ProviderComposerCapabilities,
@@ -142,7 +143,7 @@ const make = Effect.gen(function* () {
       const installation = (yield* installations
         .list()
         .pipe(Effect.mapError(infrastructureError(operation)))).find(
-        (candidate) => candidate.harness === input.provider && candidate.lifecycle === "active",
+        (candidate) => candidate.harness === installationHarnessFor(input.provider) && candidate.lifecycle === "active",
       );
       if (!installation) return false;
       const catalog = yield* listModels({
@@ -160,7 +161,7 @@ const make = Effect.gen(function* () {
           connectionId: input.connectionId,
           installationId: installation.id,
           internalProviderId:
-            input.provider === "opencode" ? selected.model.split("/", 1)[0]! : null,
+            input.provider === "opencode" || input.provider === "local" ? selected.model.split("/", 1)[0]! : null,
           nativeStateIdentity: providerModelDiscoveryStateIdentity({
             provider: input.provider,
             connectionId: input.connectionId,

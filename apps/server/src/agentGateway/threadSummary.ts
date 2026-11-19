@@ -172,7 +172,7 @@ export function normalizeTranscriptTurnIdentity(
 
 function isKnownProviderNativeTurnId(provider: string | undefined, turnId: string): boolean {
   return (
-    (provider === "opencode" && turnId.startsWith("opencode-turn-")) ||
+    ((provider === "opencode" || provider === "local") && turnId.startsWith("opencode-turn-")) ||
     (provider === "codex" && /^01[a-f0-9]{2}/iu.test(turnId)) ||
     (provider === "claudeAgent" &&
       /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/iu.test(turnId))

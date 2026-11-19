@@ -1,4 +1,10 @@
 import { randomUUID } from "node:crypto";
+import { LocalAdapter, type LocalAdapterShape } from "../Services/LocalAdapter.ts";
+import type { LocalModelService } from "../localModels/localModelService.ts";
+import {
+  buildLocalOpenCodeProviderConfig,
+  localModelDescriptors,
+} from "../localModels/localOpenCodeConfig.ts";
 import { makeKeyedLock } from "../../keyedLock.ts";
 import { rm } from "node:fs/promises";
 import path from "node:path";
@@ -106,7 +112,7 @@ import {
   providerPermissionDecision,
 } from "../providerPermissionPolicy.ts";
 
-type OpenCodeCompatibleProvider = Extract<ProviderKind, "opencode">;
+type OpenCodeCompatibleProvider = Extract<ProviderKind, "opencode" | "local">;
 
 interface OpenCodeCompatibleAdapterConfig {
   readonly provider: OpenCodeCompatibleProvider;
@@ -235,7 +241,21 @@ export interface OpenCodeAdapterLiveOptions {
   readonly beforeSessionInstall?: Effect.Effect<void>;
   readonly loadSharedMcpConfig?: (homeDir: string) => Promise<string>;
   readonly prepareGatewayPlugin?: typeof ensureOpenCodeGatewayPlugin;
+  /** Set for the Local provider: on-device models served through Penkra's loopback proxy. */
+  readonly localModels?: LocalModelService;
 }
+
+export const LOCAL_ADAPTER_CONFIG: OpenCodeCompatibleAdapterConfig = {
+  provider: "local",
+  displayName: "Local",
+  defaultBinaryPath: "opencode",
+  providerOptionsKey: "local",
+  runtimeEventSource: "opencode.sdk.event",
+  turnIdPrefix: "local-turn",
+  defaultAgent: "build",
+  planAgent: "plan",
+  cliSpec: OPENCODE_CLI_SPEC,
+};
 
 function nowIso(): string {
   return new Date().toISOString();
@@ -1026,9 +1046,38 @@ const stopOpenCodeContext = Effect.fn("stopOpenCodeContext")(function* (
 });
 
 export function makeOpenCodeAdapterLive(options?: OpenCodeAdapterLiveOptions) {
-  const adapterConfig = options?.adapterConfig ?? OPENCODE_ADAPTER_CONFIG;
+  return Layer.effect(OpenCodeAdapter, makeOpenCodeCompatibleAdapter(options)).pipe(
+    Layer.provide(
+      options?.runtime ? Layer.succeed(OpenCodeRuntime, options.runtime) : OpenCodeRuntimeLive,
+    ),
+    Layer.provide(NodeServices.layer),
+  );
+}
+
+/** The Local provider: the same OpenCode harness, configured for on-device models only. */
+export function makeLocalAdapterLive(
+  options: Omit<OpenCodeAdapterLiveOptions, "adapterConfig" | "localModels"> & {
+    readonly localModels: LocalModelService;
+  },
+) {
   return Layer.effect(
-    OpenCodeAdapter,
+    LocalAdapter,
+    makeOpenCodeCompatibleAdapter({ ...options, adapterConfig: LOCAL_ADAPTER_CONFIG }) as unknown as Effect.Effect<
+      LocalAdapterShape,
+      never,
+      Effect.Services<ReturnType<typeof makeOpenCodeCompatibleAdapter>>
+    >,
+  ).pipe(
+    Layer.provide(
+      options.runtime ? Layer.succeed(OpenCodeRuntime, options.runtime) : OpenCodeRuntimeLive,
+    ),
+    Layer.provide(NodeServices.layer),
+  );
+}
+
+function makeOpenCodeCompatibleAdapter(options?: OpenCodeAdapterLiveOptions) {
+  const adapterConfig = options?.adapterConfig ?? OPENCODE_ADAPTER_CONFIG;
+  return (
     Effect.gen(function* () {
       const serverConfig = yield* ServerConfig;
       const sql = yield* SqlClient.SqlClient;
@@ -1109,7 +1158,10 @@ export function makeOpenCodeAdapterLive(options?: OpenCodeAdapterLiveOptions) {
               const plugins = config.plugin ?? [];
               if (!Array.isArray(plugins) || !plugins.every((plugin) => typeof plugin === "string"))
                 throw new Error("OpenCode plugin configuration must contain file paths.");
-              return JSON.stringify({ ...config, plugin: [...plugins, pluginPath] });
+              const local = options?.localModels
+                ? await buildLocalOpenCodeProviderConfig(options.localModels)
+                : {};
+              return JSON.stringify({ ...config, ...local, plugin: [...plugins, pluginPath] });
             },
             catch: (cause) =>
               new OpenCodeRuntimeError({
@@ -3818,7 +3870,12 @@ export function makeOpenCodeAdapterLive(options?: OpenCodeAdapterLiveOptions) {
             Effect.gen(function* () {
               const data: { -readonly [K in keyof ProviderCatalogData]: ProviderCatalogData[K] } =
                 {};
-              if (kinds.has("models")) {
+              if (kinds.has("models") && options?.localModels) {
+                const localModels = options.localModels;
+                data.models = yield* Effect.promise(() => localModels.list()).pipe(
+                  Effect.map(localModelDescriptors),
+                );
+              } else if (kinds.has("models")) {
                 const response = yield* runOpenCodeSdk("provider.list", () =>
                   client.provider.list(),
                 ).pipe(Effect.mapError(toAdapterRequestError));
@@ -3957,12 +4014,7 @@ export function makeOpenCodeAdapterLive(options?: OpenCodeAdapterLiveOptions) {
           return Stream.fromQueue(runtimeEvents);
         },
       } as OpenCodeAdapterShape;
-    }),
-  ).pipe(
-    Layer.provide(
-      options?.runtime ? Layer.succeed(OpenCodeRuntime, options.runtime) : OpenCodeRuntimeLive,
-    ),
-    Layer.provide(NodeServices.layer),
+    })
   );
 }
 

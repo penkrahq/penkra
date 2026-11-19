@@ -7,7 +7,7 @@ import { Schema } from "effect";
 import { ProviderConnectionId, TrimmedNonEmptyString } from "./baseSchemas";
 import { ProviderOptionDescriptor } from "./model";
 
-const ProviderDiscoveryKind = Schema.Literals(["codex", "claudeAgent", "opencode"]);
+const ProviderDiscoveryKind = Schema.Literals(["codex", "claudeAgent", "opencode", "local"]);
 
 export const ProviderSkillInterface = Schema.Struct({
   displayName: Schema.optional(TrimmedNonEmptyString),
@@ -233,6 +233,14 @@ export const ProviderModelDescriptor = Schema.Struct({
   contextWindowOptions: Schema.optional(Schema.Array(ProviderContextWindowDescriptor)),
   defaultContextWindow: Schema.optional(TrimmedNonEmptyString),
   availableConnectionIds: Schema.optional(Schema.Array(Schema.NullOr(ProviderConnectionId))),
+  // On-device models (Local provider): size, download state, and why this Mac can't run it.
+  local: Schema.optional(
+    Schema.Struct({
+      downloadGb: Schema.Number,
+      downloaded: Schema.Boolean,
+      unavailableReason: Schema.optional(TrimmedNonEmptyString),
+    }),
+  ),
 });
 export type ProviderModelDescriptor = typeof ProviderModelDescriptor.Type;
 
@@ -259,3 +267,31 @@ export const ProviderListAgentsResult = Schema.Struct({
   cached: Schema.optional(Schema.Boolean),
 });
 export type ProviderListAgentsResult = typeof ProviderListAgentsResult.Type;
+
+// ── Local (on-device) models ───────────────────────────────────────────
+
+export const LocalModelDownloadState = Schema.Union([
+  Schema.Struct({ kind: Schema.Literal("idle") }),
+  Schema.Struct({
+    kind: Schema.Literal("downloading"),
+    receivedBytes: Schema.Number,
+    totalBytes: Schema.Number,
+  }),
+  Schema.Struct({ kind: Schema.Literal("failed"), message: TrimmedNonEmptyString }),
+]);
+export type LocalModelDownloadState = typeof LocalModelDownloadState.Type;
+
+export const LocalModelListing = Schema.Struct({
+  slug: TrimmedNonEmptyString,
+  name: TrimmedNonEmptyString,
+  note: Schema.String,
+  downloadGb: Schema.Number,
+  minMemoryGb: Schema.Number,
+  downloaded: Schema.Boolean,
+  unavailableReason: Schema.NullOr(TrimmedNonEmptyString),
+  download: LocalModelDownloadState,
+});
+export type LocalModelListing = typeof LocalModelListing.Type;
+
+export const LocalModelIdInput = Schema.Struct({ slug: TrimmedNonEmptyString });
+export type LocalModelIdInput = typeof LocalModelIdInput.Type;

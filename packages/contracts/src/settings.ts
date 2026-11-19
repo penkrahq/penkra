@@ -62,6 +62,9 @@ export const ServerSettings = Schema.Struct({
     opencode: OpenCodeServerProviderSettings.pipe(
       Schema.withDecodingDefault(Effect.sync(() => ({}))),
     ),
+    local: OpenCodeServerProviderSettings.pipe(
+      Schema.withDecodingDefault(Effect.sync(() => ({}))),
+    ),
   }).pipe(Schema.withDecodingDefault(Effect.sync(() => ({})))),
   skills: SkillsServerSettings.pipe(Schema.withDecodingDefault(Effect.sync(() => ({})))),
   conversations: ConversationServerSettings.pipe(Schema.withDecodingDefault(Effect.sync(() => ({})))),
@@ -113,6 +116,7 @@ export const ServerSettingsPatch = Schema.Struct({
           experimentalWebSockets: Schema.optionalKey(Schema.Boolean),
         }),
       ),
+      local: Schema.optionalKey(Schema.Struct(ManagedProviderSettingsBasePatch)),
     }),
   ),
   skills: Schema.optionalKey(

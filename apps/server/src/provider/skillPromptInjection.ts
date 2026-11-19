@@ -35,6 +35,7 @@ export function shouldInlineSkillForProvider(provider: ProviderKind, skillPath: 
       // Claude Code only loads skills from .claude/skills folders.
       return !segments.has(".claude");
     case "opencode":
+    case "local":
       return true;
   }
 }

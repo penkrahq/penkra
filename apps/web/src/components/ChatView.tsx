@@ -1,3 +1,4 @@
+import { installationHarnessFor } from "../lib/installationHarness";
 import { Schema } from "effect";
 import { KEYBINDINGS } from "@penkra/shared/keybindings";
 import { loadThread, useThreadList, getThreadListById, useThreadSummary } from "../threadListStore";
@@ -353,6 +354,7 @@ import { getComposerTraitSelection } from "./chat/composerTraits";
 import { resolveRuntimeModelDescriptor } from "./chat/runtimeModelCapabilities";
 import { ProviderHealthBanner } from "./chat/ProviderHealthBanner";
 import { ThreadErrorBanner } from "./chat/ThreadErrorBanner";
+import { LocalModelDownloadBanner } from "./chat/LocalModelDownloadBanner";
 import {
   RateLimitBanner,
   deriveLatestRateLimitStatus,
@@ -497,6 +499,8 @@ function getProviderStartOptionsCustomBinaryPath(
       return normalizeCustomBinaryPath(providerOptions?.claudeAgent?.binaryPath);
     case "opencode":
       return normalizeCustomBinaryPath(providerOptions?.opencode?.binaryPath);
+    case "local":
+      return null;
   }
 }
 
@@ -1561,7 +1565,10 @@ function ChatViewContent({
         )
         .map((connection) => connection.harness) ?? []),
       ...(providerConnectionsQuery.data?.anonymousRoutes
-        .filter((route) => activeInstallations.has(route.harness))
+        .filter((route) =>
+          // Local runs on the managed OpenCode installation.
+          activeInstallations.has(installationHarnessFor(route.harness)),
+        )
         .map((route) => route.harness) ?? []),
     ]);
   }, [providerConnectionsQuery.data]);
@@ -1612,6 +1619,7 @@ function ChatViewContent({
       codex: resolveHint("codex"),
       claudeAgent: resolveHint("claudeAgent"),
       opencode: resolveHint("opencode"),
+      local: resolveHint("local"),
     };
   }, [
     activeProject?.defaultModelSelection,
@@ -1630,7 +1638,7 @@ function ChatViewContent({
         }
       >
     > = {};
-    for (const provider of ["codex", "claudeAgent", "opencode"] as const) {
+    for (const provider of ["codex", "claudeAgent", "opencode", "local"] as const) {
       const explicitlySelected = Object.prototype.hasOwnProperty.call(
         selectedConnectionByProvider,
         provider,
@@ -1718,7 +1726,7 @@ function ChatViewContent({
     const authorizedModelsByProvider = Object.fromEntries(
       Object.entries(modelOptionsByProvider).map(([providerValue, options]) => {
         const provider = providerValue as ProviderKind;
-        if (!activeInstallations.has(provider)) return [provider, []];
+        if (!activeInstallations.has(installationHarnessFor(provider))) return [provider, []];
         const isManagedHarness =
           snapshot.authenticationMethods.some((method) => method.harness === provider) ||
           snapshot.anonymousRoutes.some((route) => route.harness === provider);
@@ -5121,8 +5129,9 @@ function ChatViewContent({
     },
     [handleModelPickerOpenChange],
   );
+  // Local models run on this Mac: there is no account or Connection to choose.
   const renderComposerConnectionSection = (close: () => void) =>
-    providerConnectionsQuery.data !== undefined ? (
+    selectedProvider !== "local" && providerConnectionsQuery.data !== undefined ? (
       <ComposerConnectionSection
         provider={selectedProvider}
         connections={composerConnectionCandidates}
@@ -6358,6 +6367,9 @@ function ChatViewContent({
           );
         }}
         onReauthenticate={handleManageConnections}
+      />
+      <LocalModelDownloadBanner
+        modelSlug={selectedProvider === "local" ? (selectedModelSelection.model ?? null) : null}
       />
       <RateLimitBanner
         rateLimitStatus={visibleActiveRateLimitStatus}

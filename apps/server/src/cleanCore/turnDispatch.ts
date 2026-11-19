@@ -148,8 +148,13 @@ export const TurnDispatchLive = Layer.effect(
                   options && "workingContextWindow" in options
                     ? options.workingContextWindow
                     : undefined;
-                const threshold =
-                  maximum > 0
+                // Models with their own stops (on-device models) are honored as listed.
+                const ownStop = model?.contextWindowOptions?.find(
+                  (item) => item.value === (selectedThreshold ?? legacy),
+                );
+                const threshold = ownStop
+                  ? Number(ownStop.value)
+                  : maximum > 0
                     ? resolveCompactionThreshold(maximum, selectedThreshold ?? legacy)
                     : 400_000;
                 yield* Effect.logInfo("provider.compaction.threshold", {

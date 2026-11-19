@@ -19,7 +19,7 @@ import {
 
 export const ORCHESTRATION_WS_METHODS = { importThread: "orchestration.importThread" } as const;
 
-export const ProviderKind = Schema.Literals(["codex", "claudeAgent", "opencode"]);
+export const ProviderKind = Schema.Literals(["codex", "claudeAgent", "opencode", "local"]);
 export type ProviderKind = typeof ProviderKind.Type;
 export const ProviderApprovalPolicy = Schema.Literals([
   "untrusted",
@@ -62,10 +62,18 @@ export const OpenCodeModelSelection = Schema.Struct({
 });
 export type OpenCodeModelSelection = typeof OpenCodeModelSelection.Type;
 
+export const LocalModelSelection = Schema.Struct({
+  provider: Schema.Literal("local"),
+  model: TrimmedNonEmptyString,
+  options: Schema.optional(OpenCodeModelOptions),
+});
+export type LocalModelSelection = typeof LocalModelSelection.Type;
+
 export const ModelSelection = Schema.Union([
   CodexModelSelection,
   ClaudeModelSelection,
   OpenCodeModelSelection,
+  LocalModelSelection,
 ]);
 export type ModelSelection = typeof ModelSelection.Type;
 
@@ -92,6 +100,7 @@ export const ProviderStartOptions = Schema.Struct({
   codex: Schema.optional(CodexProviderStartOptions),
   claudeAgent: Schema.optional(ClaudeProviderStartOptions),
   opencode: Schema.optional(OpenCodeProviderStartOptions),
+  local: Schema.optional(OpenCodeProviderStartOptions),
 });
 export type ProviderStartOptions = typeof ProviderStartOptions.Type;
 

@@ -20,7 +20,7 @@ export function providerNativeResumeIdentity(
       ? nonEmpty((cursor as Record<string, unknown>).resume)
       : null;
   }
-  if (harness === "opencode") {
+  if (harness === "opencode" || harness === "local") {
     if (typeof cursor === "string") return nonEmpty(cursor);
     return cursor && typeof cursor === "object" && !Array.isArray(cursor)
       ? nonEmpty((cursor as Record<string, unknown>).openCodeSessionId)

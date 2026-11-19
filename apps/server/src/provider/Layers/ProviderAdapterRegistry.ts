@@ -8,6 +8,7 @@
  * @module ProviderAdapterRegistryLive
  */
 import { Effect, Layer } from "effect";
+import { LocalAdapter } from "../Services/LocalAdapter.ts";
 
 import { ProviderUnsupportedError, type ProviderAdapterError } from "../Errors.ts";
 import type { ProviderAdapterShape } from "../Services/ProviderAdapter.ts";
@@ -28,7 +29,12 @@ const makeProviderAdapterRegistry = (options?: ProviderAdapterRegistryLiveOption
     const adapters =
       options?.adapters !== undefined
         ? options.adapters
-        : [yield* CodexAdapter, yield* ClaudeAdapter, yield* OpenCodeAdapter];
+        : [
+            yield* CodexAdapter,
+            yield* ClaudeAdapter,
+            yield* OpenCodeAdapter,
+            yield* LocalAdapter,
+          ];
     const byProvider = new Map(adapters.map((adapter) => [adapter.provider, adapter]));
 
     const getByProvider: ProviderAdapterRegistryShape["getByProvider"] = (provider) => {

@@ -2,6 +2,7 @@
 // Purpose: Fail-closed launch resolution with selected-only credentials and deterministic isolation.
 
 import { mkdir } from "node:fs/promises";
+import { installationHarnessFor } from "../localModels/localHarness.ts";
 import { Effect, Layer, Option } from "effect";
 
 import { ServerConfig } from "../../config.ts";
@@ -65,7 +66,7 @@ export const makeProviderLaunchResolver = Effect.gen(function* () {
       );
       if (
         Option.isNone(installation) ||
-        installation.value.harness !== input.harness ||
+        installation.value.harness !== installationHarnessFor(input.harness) ||
         installation.value.lifecycle !== "active"
       ) {
         return yield* fail("The selected managed installation is not active for this harness.");
@@ -190,7 +191,7 @@ export const makeProviderLaunchResolver = Effect.gen(function* () {
           await Promise.all(
             [
               profileRoot,
-              ...(input.harness === "opencode" ? [] : [nativeStateRoot]),
+              ...(installationHarnessFor(input.harness) === "opencode" ? [] : [nativeStateRoot]),
               environment.isolation.homePath,
               environment.isolation.xdgConfigHome,
               environment.isolation.xdgDataHome,
@@ -237,7 +238,7 @@ export const makeProviderLaunchResolver = Effect.gen(function* () {
         profileRoot,
         nativeStateRoot,
         isolationKey: providerOpaquePathKey(
-          input.harness === "codex" || input.harness === "opencode"
+          input.harness === "codex" || installationHarnessFor(input.harness) === "opencode"
             ? `${installation.value.id}:${credentialIdentity}`
             : `${installation.value.id}:${credentialIdentity}:${input.nativeStateIdentity}`,
         ),

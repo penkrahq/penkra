@@ -186,7 +186,7 @@ export const makeThreadLifecycle = Effect.gen(function* () {
                 ),
               );
           }
-          if (row.provider === "opencode" && providerSessionId !== null) {
+          if ((row.provider === "opencode" || row.provider === "local") && providerSessionId !== null) {
             const peers =
               yield* sql`SELECT id FROM threads WHERE provider='opencode' AND provider_session_id=${providerSessionId} AND id<>${input.threadId} AND deleted_at IS NULL LIMIT 1`;
             if (peers.length !== 0)

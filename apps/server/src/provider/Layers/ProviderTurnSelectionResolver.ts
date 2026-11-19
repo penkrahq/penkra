@@ -48,7 +48,7 @@ function internalProviderIdForModel(
   harness: string,
   modelId: string,
 ): Effect.Effect<string | null, ProviderTurnSelectionResolutionError> {
-  if (harness === "opencode") {
+  if (harness === "opencode" || harness === "local") {
     const parsed = parseOpenCodeModelSlug(modelId);
     return parsed === null
       ? fail(

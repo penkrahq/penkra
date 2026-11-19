@@ -226,6 +226,11 @@ const composerProviderRegistry: Record<ProviderKind, ProviderRegistryEntry> = {
     renderTraitsMenuContent: (input) => renderTraitsMenuContentForProvider("opencode", input),
     renderTraitsPicker: (input) => renderTraitsPickerForProvider("opencode", input),
   },
+  local: {
+    getState: (input) => getProviderStateFromCapabilities(input),
+    renderTraitsMenuContent: (input) => renderTraitsMenuContentForProvider("local", input),
+    renderTraitsPicker: (input) => renderTraitsPickerForProvider("local", input),
+  },
 };
 
 export function getComposerProviderState(input: ComposerProviderStateInput): ComposerProviderState {

@@ -178,6 +178,7 @@ export function resolvePromptEffortFromModelSelection(
     case "claudeAgent":
       return modelSelection.options?.effort ?? null;
     case "opencode":
+    case "local":
       return null;
   }
 }

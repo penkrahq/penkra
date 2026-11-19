@@ -383,6 +383,7 @@ const PROVIDER_SKILL_ORIGIN_PREFERENCES = {
   codex: ["codex", "agents"],
   claudeAgent: ["claude"],
   opencode: ["opencode", "claude", "agents"],
+  local: ["opencode", "claude", "agents"],
 } as const satisfies Partial<Record<ProviderKind, readonly SkillsHomeOrigin[]>>;
 
 function homeRootsForOrigin(

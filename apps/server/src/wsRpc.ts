@@ -1,4 +1,6 @@
 import { ModelSelection } from "@penkra/contracts";
+import { LocalModels } from "./provider/Services/LocalModels.ts";
+import { localModelIdFromSlug, toLocalModelListings } from "./provider/localModels/localOpenCodeConfig.ts";
 import { randomUUID, timingSafeEqual } from "node:crypto";
 import { ProviderAuthCircuits } from "./provider/providerAuthCircuit.ts";
 import { PLAY_TURN_RECOVERY_PROMPT } from "./cleanCore/sendMessage.ts";
@@ -171,6 +173,7 @@ const makeWsRpcHandlersLayer = () =>
       const providerAdapterRegistry = yield* ProviderAdapterRegistry;
       const providerDiscoveryService = yield* ProviderDiscoveryService;
       const providerCatalog = yield* ProviderCatalogService;
+      const localModels = yield* LocalModels;
       const authCircuits = yield* ProviderAuthCircuits;
       const providerHealth = yield* ProviderHealth;
       const providerService = yield* ProviderService;
@@ -310,6 +313,32 @@ const makeWsRpcHandlersLayer = () =>
             clientId,
             { key: "folders.workspace-changes" },
             workspaceWatcher.stream,
+          ),
+        [WS_METHODS.localModelsList]: () =>
+          rpcEffect(
+            Effect.promise(() => localModels.list()).pipe(Effect.map(toLocalModelListings)),
+            "Failed to list local models",
+          ),
+        [WS_METHODS.localModelsDownload]: (input) =>
+          rpcEffect(
+            Effect.sync(() => {
+              // Runs in the background; the picker polls list() for progress and errors.
+              void localModels.download(localModelIdFromSlug(input.slug)).catch(() => {});
+            }),
+            "Failed to start the download",
+          ),
+        [WS_METHODS.localModelsCancelDownload]: (input) =>
+          rpcEffect(
+            Effect.sync(() => localModels.cancelDownload(localModelIdFromSlug(input.slug))),
+            "Failed to cancel the download",
+          ),
+        [WS_METHODS.localModelsWarm]: (input) =>
+          rpcEffect(
+            Effect.sync(() => {
+              // Fire and forget: warming takes as long as the prompt read.
+              void localModels.warm(localModelIdFromSlug(input.slug)).catch(() => {});
+            }),
+            "Failed to warm the model",
           ),
         [WS_METHODS.filesystemBrowse]: (input) =>
           rpcEffect(workspaceEntries.browse(input), "Failed to browse filesystem"),

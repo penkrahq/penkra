@@ -9,6 +9,7 @@ export const NATIVE_RESUME_PROBE_MODEL_PREFERENCES = {
   claudeAgent: ["haiku", "sonnet"],
   codex: ["gpt-6-luna"],
   opencode: ["deepseek-v4.1-flash"],
+  local: ["qwen3.5-4b"],
 } as const satisfies Record<ProviderKind, readonly string[]>;
 
 function matchesPreference(provider: ProviderKind, slug: string, preference: string): boolean {
@@ -16,7 +17,7 @@ function matchesPreference(provider: ProviderKind, slug: string, preference: str
   if (provider === "claudeAgent") {
     return normalized.split(/[^a-z0-9]+/u).includes(preference);
   }
-  if (provider === "opencode") return normalized.endsWith(`/${preference}`);
+  if (provider === "opencode" || provider === "local") return normalized.endsWith(`/${preference}`);
   return normalized === preference;
 }
 

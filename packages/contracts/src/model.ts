@@ -96,6 +96,7 @@ export const ProviderModelOptions = Schema.Struct({
   codex: Schema.optional(CodexModelOptions),
   claudeAgent: Schema.optional(ClaudeModelOptions),
   opencode: Schema.optional(OpenCodeModelOptions),
+  local: Schema.optional(OpenCodeModelOptions),
 });
 export type ProviderModelOptions = typeof ProviderModelOptions.Type;
 
@@ -151,6 +152,7 @@ export const MODEL_OPTIONS_BY_PROVIDER = {
   codex: [] as readonly ModelDefinition[],
   claudeAgent: [] as readonly ModelDefinition[],
   opencode: [] as readonly ModelDefinition[],
+  local: [] as readonly ModelDefinition[],
 } satisfies Record<ProviderKind, readonly ModelDefinition[]>;
 
 export type ModelOptionsByProvider = typeof MODEL_OPTIONS_BY_PROVIDER;
@@ -163,6 +165,7 @@ export const DEFAULT_MODEL_BY_PROVIDER: Record<ProviderWithDefaultModel, ModelSl
   codex: "",
   claudeAgent: "",
   opencode: "",
+  local: "",
 };
 
 // Draft-only callers use the empty value until live provider discovery supplies a model.
@@ -176,6 +179,7 @@ export const MODEL_SLUG_ALIASES_BY_PROVIDER: Record<ProviderKind, Record<string,
   // it unchanged: a selector alias is not a valid substitute for that identity.
   claudeAgent: {},
   opencode: {},
+  local: {},
 };
 
 // ── Agent mention aliases ─────────────────────────────────────────────
@@ -206,4 +210,5 @@ export const PROVIDER_DISPLAY_NAMES: Record<ProviderKind, string> = {
   codex: "ChatGPT",
   claudeAgent: "Claude",
   opencode: "OpenCode",
+  local: "Local",
 };

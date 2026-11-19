@@ -70,6 +70,8 @@ export interface ProviderConnectionManifest {
   };
 }
 
+export const LOCAL_OPENCODE_PROVIDER_ID = "penkra-local";
+
 const noInternalProvider = (internalProviderId: string | null) => internalProviderId === null;
 
 async function validateHttpCredential(input: {
@@ -285,6 +287,35 @@ const MANIFESTS = new Map<ProviderKind, ProviderConnectionManifest>([
         label: "Free",
         internalProviderIds: ["opencode"],
         authorizesInternalProvider: (internalProviderId) => internalProviderId === "opencode",
+      },
+    },
+  ],
+  [
+    "local",
+    {
+      // On-device models: no account, one anonymous route to Penkra's local model proxy.
+      harness: "local",
+      childKind: "opencode",
+      buildStateEnvironment: ({ profileRoot }) => ({
+        isolation: {
+          homePath: `${profileRoot}/home`,
+          xdgConfigHome: `${profileRoot}/xdg-config`,
+          xdgDataHome: `${profileRoot}/xdg-data`,
+          xdgCacheHome: `${profileRoot}/xdg-cache`,
+          xdgStateHome: `${profileRoot}/xdg-state`,
+        },
+        overrides: {
+          OPENCODE_DB: `${profileRoot}/opencode.db`,
+        },
+      }),
+      staticCredentialMethods: [],
+      managedLoginMethods: [],
+      anonymous: {
+        groupLabel: "This Mac",
+        label: "On-device",
+        internalProviderIds: [LOCAL_OPENCODE_PROVIDER_ID],
+        authorizesInternalProvider: (internalProviderId) =>
+          internalProviderId === LOCAL_OPENCODE_PROVIDER_ID,
       },
     },
   ],

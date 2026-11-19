@@ -1,4 +1,5 @@
 import { CleanCoreGetBootstrapResult } from "./cleanCore";
+import { LocalModelIdInput, LocalModelListing } from "./providerDiscovery";
 import {
   CleanCoreListArchivedNavigationResult,
   CleanCoreListArchivedThreadsInput,
@@ -195,6 +196,27 @@ export const WsSubscribeProjectWorkspaceChangesRpc = Rpc.make(
     stream: true,
   },
 );
+
+export const WsLocalModelsListRpc = Rpc.make(WS_METHODS.localModelsList, {
+  payload: Schema.Struct({}),
+  success: Schema.Array(LocalModelListing),
+  error: WsRpcError,
+});
+
+export const WsLocalModelsDownloadRpc = Rpc.make(WS_METHODS.localModelsDownload, {
+  payload: LocalModelIdInput,
+  error: WsRpcError,
+});
+
+export const WsLocalModelsCancelDownloadRpc = Rpc.make(WS_METHODS.localModelsCancelDownload, {
+  payload: LocalModelIdInput,
+  error: WsRpcError,
+});
+
+export const WsLocalModelsWarmRpc = Rpc.make(WS_METHODS.localModelsWarm, {
+  payload: LocalModelIdInput,
+  error: WsRpcError,
+});
 
 export const WsFilesystemBrowseRpc = Rpc.make(WS_METHODS.filesystemBrowse, {
   payload: FilesystemBrowseInput,
@@ -656,6 +678,10 @@ export const WsFeatureRpcGroup = RpcGroup.make(
   WsFoldersCreateLocalFilePreviewGrantRpc,
   WsFoldersWriteFileRpc,
   WsSubscribeProjectWorkspaceChangesRpc,
+  WsLocalModelsListRpc,
+  WsLocalModelsDownloadRpc,
+  WsLocalModelsCancelDownloadRpc,
+  WsLocalModelsWarmRpc,
   WsFilesystemBrowseRpc,
   WsShellOpenInEditorRpc,
   WsServerGetConfigRpc,

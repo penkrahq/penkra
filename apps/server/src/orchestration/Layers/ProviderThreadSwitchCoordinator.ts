@@ -60,7 +60,7 @@ export const makeProviderThreadSwitchCoordinator = Effect.gen(function* () {
   const config = yield* ServerConfig;
 
   const AdmissionThread = Schema.Struct({
-    provider: Schema.Literals(["codex", "claudeAgent", "opencode"]),
+    provider: Schema.Literals(["codex", "claudeAgent", "opencode", "local"]),
     connectionId: Schema.NullOr(ProviderConnectionId),
     nativeStateId: Schema.NullOr(Schema.String),
     providerSessionId: Schema.NullOr(Schema.String),
@@ -210,7 +210,7 @@ export const makeProviderThreadSwitchCoordinator = Effect.gen(function* () {
       const id = randomUUID();
       if (thread.nativeStateId === null || thread.providerSessionId === null) {
         nativeState = { id, providerSessionId: null };
-      } else if (selection.harness === "opencode") {
+      } else if (selection.harness === "opencode" || selection.harness === "local") {
         const peers =
           yield* sql`SELECT id FROM threads WHERE (provider='opencode' AND provider_session_id=${thread.providerSessionId} OR native_state_id=${thread.nativeStateId}) AND id<>${input.command.threadId} AND deleted_at IS NULL LIMIT 1`.pipe(
             Effect.mapError((cause) =>

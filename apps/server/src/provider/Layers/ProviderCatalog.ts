@@ -1,3 +1,4 @@
+import { installationHarnessFor } from "../localModels/localHarness.ts";
 import type {
   ProviderCatalogChanged,
   ProviderCatalogData,
@@ -247,7 +248,7 @@ const make = Effect.gen(function* () {
       const manifest = getProviderConnectionManifest(scope.provider);
       if (!manifest) return yield* fail("This provider has no managed catalog.");
       const installation = (yield* installations.list()).find(
-        (candidate) => candidate.harness === scope.provider && candidate.lifecycle === "active",
+        (candidate) => candidate.harness === installationHarnessFor(scope.provider) && candidate.lifecycle === "active",
       );
       if (!installation)
         return yield* fail("The provider's managed installation is not available.");

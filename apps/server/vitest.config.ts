@@ -18,6 +18,7 @@ export default mergeConfig(
         "src/auth/Layers/BootstrapCredentialService.test.ts",
         "src/provider/pinnedProviderRuntimes.test.ts",
         "src/provider/providerPermissionPolicy.test.ts",
+        "src/provider/localModels/*.test.ts",
         "src/agentGateway/Layers/AgentGateway.test.ts",
         "src/remoteLink/pushSender.test.ts",
         "src/remoteLink/relaySessionStart.test.ts",

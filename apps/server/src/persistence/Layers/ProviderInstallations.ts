@@ -2,6 +2,7 @@
 // Purpose: Atomically activates verified installations while retaining prior generations.
 
 import { ProviderInstallation, ProviderKind } from "@penkra/contracts";
+import { installationHarnessFor } from "../../provider/localModels/localHarness.ts";
 import { Effect, Layer, Option, Schema } from "effect";
 import * as SqlClient from "effect/sql/SqlClient";
 import * as SqlSchema from "effect/sql/SqlSchema";
@@ -114,7 +115,7 @@ const makeProviderInstallationRepository = Effect.gen(function* () {
       ),
     list: () => mapped("ProviderInstallationRepository.list", listRows()),
     getActiveRecord: (harness) =>
-      mapped("ProviderInstallationRepository.getActiveRecord", selectActiveRecord(harness)),
+      mapped("ProviderInstallationRepository.getActiveRecord", selectActiveRecord(installationHarnessFor(harness))),
     getRecord: (id) => mapped("ProviderInstallationRepository.getRecord", selectRecord({ id })),
     reactivate: (id, activatedAt) =>
       mapped(

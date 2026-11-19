@@ -4,6 +4,7 @@
 // Depends on: provider availability metadata, shared menu primitives, and picker trigger styling.
 
 import { type ModelSlug, type ProviderKind, type ServerProviderStatus } from "@penkra/contracts";
+import { useLocalModels } from "~/hooks/useLocalModels";
 import { resolveSelectableModel } from "@penkra/shared/model";
 import * as Schema from "effect/Schema";
 import { type ReactNode, useDeferredValue, useRef, useState } from "react";
@@ -189,6 +190,7 @@ export const ProviderModelMenuItems = function ProviderModelMenuItems(
   );
   const deferredModelSearchQuery = useDeferredValue(modelSearchQuery);
   const activeProvider = props.lockedProvider ?? props.provider;
+  const localModels = useLocalModels();
   const hiddenProviders = props.hiddenProviders;
   const providerOrder = props.providerOrder;
   const hiddenProviderSet = new Set<ProviderKind>(hiddenProviders ?? []);
@@ -316,6 +318,7 @@ export const ProviderModelMenuItems = function ProviderModelMenuItems(
             favoriteProvider={favoriteProvider}
             favoriteModelSlugSet={favoriteModelSlugSet}
             onToggleFavorite={toggleFavoriteModel}
+            {...(provider === "local" ? { localModels } : {})}
             {...(onAfterSelection ? { onAfterSelection } : {})}
           />
         </MenuRadioGroup>

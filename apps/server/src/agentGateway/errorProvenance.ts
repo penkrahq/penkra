@@ -17,7 +17,7 @@ import { sanitizeDiagnosticValue } from "./diagnosticSanitizer.ts";
 const MAX_CAUSE_DEPTH = 4;
 const MAX_DETAIL_CHARS = 1_000;
 const MAX_METADATA_CHARS = 256;
-const KNOWN_PROVIDERS: ReadonlySet<ProviderKind> = new Set(["codex", "claudeAgent", "opencode"]);
+const KNOWN_PROVIDERS: ReadonlySet<ProviderKind> = new Set(["codex", "claudeAgent", "opencode", "local"]);
 
 export interface GatewayErrorProvenance {
   readonly source:

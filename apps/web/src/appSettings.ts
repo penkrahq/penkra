@@ -103,6 +103,7 @@ const BUILT_IN_MODEL_SLUGS_BY_PROVIDER: Record<ProviderKind, ReadonlySet<string>
   codex: new Set(getModelOptions("codex").map((option) => option.slug)),
   claudeAgent: new Set(getModelOptions("claudeAgent").map((option) => option.slug)),
   opencode: new Set(getModelOptions("opencode").map((option) => option.slug)),
+  local: new Set<string>(),
 };
 
 const withDefaults =
@@ -123,7 +124,10 @@ const PersistedProviderKind = Schema.String.pipe(
     ProviderKind,
     SchemaTransformation.transform({
       decode: (provider) =>
-        provider === "codex" || provider === "claudeAgent" || provider === "opencode"
+        provider === "codex" ||
+        provider === "claudeAgent" ||
+        provider === "opencode" ||
+        provider === "local"
           ? provider
           : "codex",
       encode: (provider) => provider,
@@ -212,7 +216,7 @@ export interface AppModelOption extends ProviderModelOption {
 const DEFAULT_APP_SETTINGS = AppSettingsSchema.make({});
 let serverSettingsMigrationInFlight = false;
 
-const PROVIDER_CUSTOM_MODEL_CONFIG: Record<ProviderKind, ProviderCustomModelConfig> = {
+const PROVIDER_CUSTOM_MODEL_CONFIG: Record<Exclude<ProviderKind, "local">, ProviderCustomModelConfig> = {
   codex: {
     provider: "codex",
     settingsKey: "customCodexModels",
@@ -484,6 +488,8 @@ export function getCustomModelsForProvider(
   settings: Pick<AppSettings, CustomModelSettingsKey>,
   provider: ProviderKind,
 ): readonly string[] {
+  // Local models are a curated list; there are no custom slugs.
+  if (provider === "local") return [];
   return settings[PROVIDER_CUSTOM_MODEL_CONFIG[provider].settingsKey] ?? [];
 }
 
@@ -491,6 +497,7 @@ export function getDefaultCustomModelsForProvider(
   defaults: Pick<AppSettings, CustomModelSettingsKey>,
   provider: ProviderKind,
 ): readonly string[] {
+  if (provider === "local") return [];
   return defaults[PROVIDER_CUSTOM_MODEL_CONFIG[provider].defaultSettingsKey] ?? [];
 }
 
@@ -498,6 +505,7 @@ export function patchCustomModels(
   provider: ProviderKind,
   models: string[],
 ): Partial<Pick<AppSettings, CustomModelSettingsKey>> {
+  if (provider === "local") return {};
   return {
     [PROVIDER_CUSTOM_MODEL_CONFIG[provider].settingsKey]: models,
   };
@@ -510,6 +518,7 @@ export function getCustomModelsByProvider(
     codex: getCustomModelsForProvider(settings, "codex"),
     claudeAgent: getCustomModelsForProvider(settings, "claudeAgent"),
     opencode: getCustomModelsForProvider(settings, "opencode"),
+    local: [],
   };
 }
 
@@ -642,6 +651,7 @@ export function getCustomModelOptionsByProvider(
     codex: getAppModelOptions("codex", customModelsByProvider.codex),
     claudeAgent: getAppModelOptions("claudeAgent", customModelsByProvider.claudeAgent),
     opencode: getAppModelOptions("opencode", customModelsByProvider.opencode),
+    local: [],
   };
 }
 
@@ -682,6 +692,8 @@ export function getCustomBinaryPathForProvider(
     case "claudeAgent":
       return "";
     case "opencode":
+      return "";
+    case "local":
       return "";
   }
 }
