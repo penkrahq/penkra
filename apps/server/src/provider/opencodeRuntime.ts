@@ -123,7 +123,14 @@ export class OpenCodeRuntimeError extends Data.TaggedError(OPENCODE_RUNTIME_ERRO
 
 export function openCodeRuntimeErrorDetail(cause: unknown): string {
   if (OpenCodeRuntimeError.is(cause)) return cause.detail;
-  if (cause instanceof Error && cause.message.trim().length > 0) return cause.message.trim();
+  if (cause instanceof Error && cause.message.trim().length > 0) {
+    // Node's fetch reports only "fetch failed"; the socket reason is on `cause`.
+    const inner = cause.cause as { code?: unknown; message?: unknown } | undefined;
+    const reason = [inner?.code, inner?.message]
+      .filter((part): part is string => typeof part === "string" && part.length > 0)
+      .join(" ");
+    return reason ? `${cause.message.trim()} (${reason})` : cause.message.trim();
+  }
   if (cause && typeof cause === "object") {
     const anyCause = cause as Record<string, unknown>;
     const status = (anyCause.response as { status?: number } | undefined)?.status;

@@ -325,8 +325,7 @@ Reference usage: opening/closing a project and the sidebar sections in `apps/web
 
 ## SQLite ownership and recovery
 
-- Never open, query, copy, rename, replace, restore, or run a SQLite utility against a Penkra `state.sqlite` while its desktop or backend may be running. Read-only SQLite connections can still participate in WAL recovery, checkpoint, and close-time cleanup.
-- Live diagnosis must use Penkra's registered Thread/diagnostic surfaces or backend APIs. The database file is not a live diagnostic API.
+- While Penkra runs, read its `state.sqlite` only through a read-only connection (`sqlite3 'file:<path>?mode=ro'`) and short queries. Never write to it, copy its files, rename, replace, restore, or run maintenance (`VACUUM`, checkpoints, `penkra-database`) while its desktop or backend may be running.
 - Offline verification uses `penkra-database verify <absolute-database-path>`. It acquires the same lifecycle lock as the backend and refuses to run while a Penkra owner is live. Do not substitute the system `sqlite3` binary, an IDE database extension, a generic SQLite browser, or a hand-written Node/Bun script.
 - Stop every Penkra process for the target numbered root before verification or recovery. Numbered Dev slots have separate databases; resolve the exact slot instead of assuming `~/Penkra_Dev`.
 - Penkra database owners require SQLite 3.51.3 or newer. A runtime that cannot report or satisfy that version must fail closed before WAL mode is enabled.

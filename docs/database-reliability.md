@@ -11,13 +11,13 @@ do not share desktop profiles, embedded backends, lifecycle locks, or databases.
 
 The embedded backend owns its database for its complete process lifetime. It first acquires
 `state.sqlite.lifecycle-lock`, then opens one SQLite connection, requires SQLite 3.51.3 or newer,
-sets `locking_mode=EXCLUSIVE`, enables WAL, and proves the exclusive lock with a transaction before
+enables WAL before
 running migrations or application work. A second Penkra backend targeting the same canonical path
 must fail without opening the database.
 
 The lifecycle directory is a Penkra process-ownership guard. Generic SQLite programs do not honor
-it. SQLite's own exclusive lock is the second boundary and must remain active until the owning
-connection closes.
+it. The runtime uses SQLite's normal WAL locking, so read-only diagnostic connections can query the
+live database; nothing else may write to it.
 
 Do not open and close any additional file descriptor for `state.sqlite` after SQLite acquires that
 lock. Traditional POSIX record locks are process-associated: closing a second descriptor for the

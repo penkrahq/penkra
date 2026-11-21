@@ -136,13 +136,20 @@ async function launchWithoutInspector(executablePath, version) {
     [
       "-NoProfile",
       "-Command",
-      "(Get-Item -LiteralPath $args[0]).VersionInfo.ProductVersion",
-      executablePath,
+      "(Get-Item -LiteralPath $env:PENKRA_UPGRADE_EXE).VersionInfo.ProductVersion",
     ],
-    { encoding: "utf8", timeout: 60_000 },
+    {
+      encoding: "utf8",
+      timeout: 60_000,
+      env: { ...process.env, PENKRA_UPGRADE_EXE: executablePath },
+    },
   );
   assert.ifError(stamped.error);
-  assert.equal(stamped.stdout.trim().match(/^\d+\.\d+\.\d+/)?.[0], version, "Installed Penkra.exe version");
+  assert.equal(
+    stamped.stdout.trim().match(/^\d+\.\d+\.\d+/)?.[0],
+    version,
+    `Installed Penkra.exe version (stdout=${JSON.stringify(stamped.stdout)} stderr=${JSON.stringify(stamped.stderr)})`,
+  );
   const logPath = resolvePackagedDesktopSmokeLogPath(stateRoot, version);
   const logOffset = existsSync(logPath) ? readFileSync(logPath, "utf8").length : 0;
   const child = spawn(executablePath, [], { env, stdio: ["ignore", "ignore", "pipe"] });
