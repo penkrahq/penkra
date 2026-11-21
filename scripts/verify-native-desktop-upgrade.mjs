@@ -1,7 +1,7 @@
 // Exercises real installation mechanisms only on disposable native CI runners.
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
-import { spawnSync } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
 import {
   createReadStream,
   existsSync,
@@ -127,6 +127,40 @@ async function launch(executablePath, version, launchEnv = env) {
   evidence.stages.push({ stage: "launched", version });
   return page;
 }
+// Builds from 0.15.0 disable Node's inspect CLI fuse, so Playwright cannot attach
+// to them. Start the upgraded install as a plain process; its own versioned
+// startup log carries the backend and required Apps readiness proof.
+async function launchWithoutInspector(executablePath, version) {
+  const stamped = spawnSync(
+    "powershell.exe",
+    [
+      "-NoProfile",
+      "-Command",
+      "(Get-Item -LiteralPath $args[0]).VersionInfo.ProductVersion",
+      executablePath,
+    ],
+    { encoding: "utf8", timeout: 60_000 },
+  );
+  assert.ifError(stamped.error);
+  assert.equal(stamped.stdout.trim().match(/^\d+\.\d+\.\d+/)?.[0], version, "Installed Penkra.exe version");
+  const logPath = resolvePackagedDesktopSmokeLogPath(stateRoot, version);
+  const logOffset = existsSync(logPath) ? readFileSync(logPath, "utf8").length : 0;
+  const child = spawn(executablePath, [], { env, stdio: ["ignore", "ignore", "pipe"] });
+  child.stderr?.on("data", (data) => process.stderr.write(data));
+  let exited;
+  child.on("exit", (code, signal) => {
+    exited = { code, signal };
+    console.log(`[native-upgrade] upgraded process exited: ${code}, ${signal}`);
+  });
+  await until(() => {
+    if (exited) throw new Error(`Upgraded ${version} exited early: ${JSON.stringify(exited)}`);
+    if (!existsSync(logPath)) return false;
+    const result = inspectPackagedDesktopStartupLog(readFileSync(logPath, "utf8").slice(logOffset));
+    if (result.failure) throw new Error(result.failure);
+    return result.hasProof;
+  }, `backend and required Apps readiness for ${version}`);
+  evidence.stages.push({ stage: "launched", version, inspector: false });
+}
 try {
   if (platform === "win") {
     const installed = join(root, "installed");
@@ -139,7 +173,7 @@ try {
     application = undefined;
     await terminateProcessesInsideRoot(root);
     run(candidate, ["/S", "/currentuser", `/D=${installed}`]);
-    await launch(executable, candidateVersion);
+    await launchWithoutInspector(executable, candidateVersion);
     evidence.stages.push({ stage: "nsis-install-and-upgrade", installed: true });
   } else {
     const installed = join(root, "Penkra.AppImage");
