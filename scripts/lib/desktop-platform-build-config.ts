@@ -28,6 +28,20 @@ export const BROWSER_EXTENSIONS_EXTRA_RESOURCE = {
   filter: ["**/*"],
 } as const;
 
+/**
+ * Electron fuses for every packaged build. The inspect fuse is off so a running
+ * Penkra cannot be opened to a debugger with SIGUSR1 or --inspect (operator,
+ * 2026-11-21). RunAsNode stays on: the server and App controllers run as
+ * `Penkra <script>` with ELECTRON_RUN_AS_NODE. Unlisted fuses keep their defaults.
+ */
+export const PENKRA_ELECTRON_FUSES = {
+  runAsNode: true,
+  enableNodeCliInspectArguments: false,
+  // Unsigned local builds are not re-signed after the fuses change; without
+  // this macOS kills them. Signed builds are signed after the flip either way.
+  resetAdHocDarwinSignature: true,
+} as const;
+
 export interface DesktopPlatformBuildConfig {
   readonly asarUnpack?: ReadonlyArray<string>;
   readonly dmg?: Record<string, unknown>;

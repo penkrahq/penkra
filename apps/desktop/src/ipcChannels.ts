@@ -28,6 +28,7 @@ export const DESKTOP_IPC_CHANNELS = {
     shellShortcut: "desktop:panel-focus-shell-shortcut",
     resolveShellShortcut: "desktop:panel-focus-resolve-shell-shortcut",
     closePanelTab: "desktop:panel-focus-close-panel-tab",
+    reloadPanelTab: "desktop:panel-focus-reload-panel-tab",
   },
   updateState: "desktop:update-state",
   updateGetState: "desktop:update-get-state",
@@ -161,6 +162,7 @@ export const DESKTOP_IPC_CHANNELS = {
     setContext: "desktop:app-tabs-set-context",
     navigate: "desktop:app-tabs-navigate",
     close: "desktop:app-tabs-close",
+    reload: "desktop:app-tabs-reload",
   },
   appDiagnostics: {
     list: "desktop:app-diagnostics-list",

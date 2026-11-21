@@ -29,7 +29,7 @@ import {
 import { startChatForActiveSurface } from "../lib/startContainerChat";
 import { isOrdinarySpaceProject } from "../lib/spaces";
 import { resolveShortcutCommand } from "../keybindings";
-import { closeSelectedPanelTabForFolder } from "../lib/panelShortcuts";
+import { closeSelectedPanelTabForFolder, selectedPanelTabForFolder } from "../lib/panelShortcuts";
 import { useRightDockStore } from "../rightDockStore";
 import { useStore } from "../store";
 import { useSpacesUiStore } from "../spacesUiStore";
@@ -491,6 +491,16 @@ function ChatRouteGlobalShortcuts() {
         closePane: (targetFolderId, paneId) =>
           store.closePane(FolderId.make(targetFolderId), paneId),
       });
+    });
+  }, []);
+
+  useEffect(() => {
+    return window.desktopBridge?.panelFocus?.onReloadPanelTab(({ folderId }) => {
+      const paneId = selectedPanelTabForFolder(
+        useRightDockStore.getState().dockStateByFolderId[folderId],
+      );
+      if (!paneId) return;
+      void window.desktopBridge?.appTabs?.reload({ tabId: paneId, folderId }).catch(() => {});
     });
   }, []);
 

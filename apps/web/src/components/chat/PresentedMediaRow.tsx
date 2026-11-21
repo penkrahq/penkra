@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 
 import { type WorkLogPresentedMedia } from "../../session-logic";
-import { ChevronLeftIcon, ChevronRightIcon, PlayIcon } from "~/lib/icons";
+import { ChevronLeftIcon, ChevronRightIcon, Maximize2, PlayIcon } from "~/lib/icons";
 import { toAttachmentPreviewUrl } from "~/lib/wsHttpUrl";
 import { cn } from "~/lib/utils";
 import type { ExpandedImagePreview } from "./ExpandedImagePreview";
@@ -16,7 +16,13 @@ function isVisualMedia(item: WorkLogPresentedMedia): boolean {
   return item.type === "image" || presentedVideoMimeType(item) !== null;
 }
 
-function PresentedVideo({ item }: { item: WorkLogPresentedMedia }) {
+function PresentedVideo({
+  item,
+  onExpand,
+}: {
+  item: WorkLogPresentedMedia;
+  onExpand: () => void;
+}) {
   const ref = useRef<HTMLVideoElement>(null);
   const [playbackFailed, setPlaybackFailed] = useState(false);
   useEffect(() => {
@@ -25,18 +31,40 @@ function PresentedVideo({ item }: { item: WorkLogPresentedMedia }) {
       video?.pause();
     };
   }, []);
+  const expand = () => {
+    ref.current?.pause();
+    onExpand();
+  };
   return (
     <>
-      <video
-        ref={ref}
-        src={mediaUrl(item.attachmentId)}
-        controls
-        playsInline
-        preload="metadata"
-        className="block max-h-[28rem] max-w-full"
-        aria-label={item.name}
-        onError={() => setPlaybackFailed(true)}
-      />
+      <div className="group/video relative">
+        <video
+          ref={ref}
+          src={mediaUrl(item.attachmentId)}
+          controls
+          playsInline
+          preload="metadata"
+          // Like photos, videos expand into the in-window overlay, not native fullscreen.
+          controlsList="nofullscreen"
+          data-penkra-video
+          disablePictureInPicture
+          className="block max-h-[28rem] max-w-full"
+          aria-label={item.name}
+          onError={() => setPlaybackFailed(true)}
+          onDoubleClick={(event) => {
+            event.preventDefault();
+            expand();
+          }}
+        />
+        <button
+          type="button"
+          className="absolute right-2 top-2 flex size-7 items-center justify-center rounded-full bg-black/60 text-white opacity-0 transition-opacity group-hover/video:opacity-100 focus-visible:opacity-100 motion-reduce:transition-none"
+          aria-label={`Expand ${item.name}`}
+          onClick={expand}
+        >
+          <Maximize2 className="size-3.5" />
+        </button>
+      </div>
       {playbackFailed ? (
         <p role="alert" className="mt-1 text-xs text-muted-foreground">
           This video could not be played. Use Open to view it with your configured app.
@@ -60,7 +88,12 @@ function PresentedItem({
     return (
       <figure className="my-2 max-w-full" data-presented-media-id={item.attachmentId}>
         <div className="w-fit max-w-full overflow-hidden rounded-xl border border-border">
-          <PresentedVideo item={item} />
+          <PresentedVideo
+            item={item}
+            onExpand={() =>
+              onImageExpand({ images: [{ src: url, name: item.name, kind: "video" }], index: 0 })
+            }
+          />
         </div>
         <figcaption className="mt-1 flex items-center gap-2 text-xs text-muted-foreground">
           <span className="truncate">{item.name}</span>
@@ -119,9 +152,11 @@ function PresentedMediaGallery({
   const index = Math.min(selectedIndex, items.length - 1);
   const selected = items[index]!;
   const imageItems = items.filter((item) => item.type === "image");
-  const images = imageItems.map((item) => ({
+  // The overlay steps through photos and videos alike, in gallery order.
+  const media = items.map((item) => ({
     src: mediaUrl(item.attachmentId),
     name: item.name,
+    kind: presentedVideoMimeType(item) ? ("video" as const) : ("image" as const),
   }));
   const selectedIsVideo = presentedVideoMimeType(selected) !== null;
   const navigationKind = imageItems.length === items.length ? "image" : "media";
@@ -145,19 +180,18 @@ function PresentedMediaGallery({
               className="flex min-w-0 flex-col items-center"
               data-presented-media-id={selected.attachmentId}
             >
-              <PresentedVideo key={selected.attachmentId} item={selected} />
+              <PresentedVideo
+                key={selected.attachmentId}
+                item={selected}
+                onExpand={() => onImageExpand({ images: media, index })}
+              />
             </div>
           ) : (
             <button
               type="button"
               className="flex w-full items-center justify-center"
               onClick={() =>
-                onImageExpand({
-                  images,
-                  index: imageItems.findIndex(
-                    (item) => item.attachmentId === selected.attachmentId,
-                  ),
-                })
+                onImageExpand({ images: media, index })
               }
               aria-label={`Expand ${selected.name}`}
               data-presented-media-id={selected.attachmentId}

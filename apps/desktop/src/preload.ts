@@ -37,14 +37,15 @@ for (const type of ["mousedown", "keydown"] as const) {
       if (!event.isTrusted) return;
       const context = shellPanelContext(event.target);
       ipcRenderer.sendSync(IPC.panelFocus.shellInteraction, context.insidePanel);
-      if (
-        type === "keydown" &&
-        shouldRouteShellPanelClose(process.platform, event as KeyboardEvent, context.insidePanel)
-      ) {
+      const command =
+        type === "keydown"
+          ? shouldRouteShellPanelClose(process.platform, event as KeyboardEvent, context.insidePanel)
+          : null;
+      if (command) {
         event.preventDefault();
         event.stopImmediatePropagation();
         ipcRenderer.send(IPC.panelFocus.resolveShellShortcut, {
-          command: "close",
+          command,
           ...context,
         });
       }
@@ -149,6 +150,15 @@ contextBridge.exposeInMainWorld("desktopBridge", {
       };
       ipcRenderer.on(IPC.panelFocus.closePanelTab, wrapped);
       return () => ipcRenderer.removeListener(IPC.panelFocus.closePanelTab, wrapped);
+    },
+    onReloadPanelTab: (listener) => {
+      const wrapped = (_event: Electron.IpcRendererEvent, input: unknown) => {
+        if (!input || typeof input !== "object" || Array.isArray(input)) return;
+        const folderId = (input as { folderId?: unknown }).folderId;
+        if (typeof folderId === "string") listener({ folderId });
+      };
+      ipcRenderer.on(IPC.panelFocus.reloadPanelTab, wrapped);
+      return () => ipcRenderer.removeListener(IPC.panelFocus.reloadPanelTab, wrapped);
     },
   },
   getZoomFactor: () => {
@@ -309,6 +319,7 @@ contextBridge.exposeInMainWorld("desktopBridge", {
     setContext: (input) => ipcRenderer.invoke(IPC.appTabs.setContext, input),
     navigate: (input) => ipcRenderer.invoke(IPC.appTabs.navigate, input),
     close: (input) => ipcRenderer.invoke(IPC.appTabs.close, input),
+    reload: (input) => ipcRenderer.invoke(IPC.appTabs.reload, input),
     onListingRequested: (listener) => {
       const wrapped = (_event: Electron.IpcRendererEvent, input: Parameters<typeof listener>[0]) =>
         listener(input);

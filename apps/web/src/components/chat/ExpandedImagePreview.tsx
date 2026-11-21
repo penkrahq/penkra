@@ -1,6 +1,8 @@
 export interface ExpandedImageItem {
   src: string;
   name: string;
+  /** Videos expand into the same in-window overlay as photos, never native fullscreen. */
+  kind?: "image" | "video";
 }
 
 export interface ExpandedImagePreview {

@@ -599,6 +599,8 @@ export interface DesktopAppTabsBridge {
     state?: unknown;
   }) => Promise<void>;
   close: (input: { tabId: string; folderId: string }) => Promise<void>;
+  /** Reload the App's page, or restart its renderer on the same tab (Cmd+R). */
+  reload: (input: { tabId: string; folderId: string }) => Promise<void>;
   onListingRequested: (
     listener: (input: { appId: string }) => void,
   ) => () => void;
@@ -821,6 +823,9 @@ export interface DesktopBridge {
   onMenuAction: (listener: (action: string) => void) => () => void;
   panelFocus?: {
     onClosePanelTab: (
+      listener: (input: { folderId: string }) => void,
+    ) => () => void;
+    onReloadPanelTab: (
       listener: (input: { folderId: string }) => void,
     ) => () => void;
   };

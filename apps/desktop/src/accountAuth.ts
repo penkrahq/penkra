@@ -6,7 +6,7 @@
 import { createHash } from "node:crypto";
 import { resolve } from "node:path";
 
-import { app, type BrowserWindow, type IpcMain, type WebContents } from "electron";
+import { app, powerMonitor, type BrowserWindow, type IpcMain, type WebContents } from "electron";
 import { electronClient } from "@better-auth/electron/client";
 import { storage } from "@better-auth/electron/storage";
 import { createAuthClient } from "better-auth/client";
@@ -25,6 +25,8 @@ import { ACCOUNT_STORAGE_PREFIX, AccountSessionCache } from "./accountSessionCac
 export const PENKRA_DESKTOP_AUTH_CLIENT_ID = "penkra-desktop";
 const AUTH_CHANNEL_PREFIX = "penkra-account";
 const AUTH_CALLBACK_TIMEOUT_MS = 20_000;
+/** A running Penkra checks in this often, so the server keeps renewing its session. */
+export const ACCOUNT_SESSION_CHECK_INTERVAL_MS = 12 * 60 * 60 * 1000;
 type AuthIntent = "sign-in" | "sign-up";
 type PenkraElectronAuthClient = ReturnType<typeof createAuthClient> & {
   authenticate: (input: { token: string }) => Promise<{
@@ -262,6 +264,7 @@ export function configurePenkraAccountAuth(input: {
   input.ipcMain.removeHandler(DESKTOP_IPC_CHANNELS.accountAuth.getState);
   input.ipcMain.handle(DESKTOP_IPC_CHANNELS.accountAuth.getState, async (event) => {
     if (!input.isShellRenderer(event.sender)) return authError("Authentication failed.");
+    if (!reconcileExpiredCookie("getState")) return { status: "unauthenticated" };
     const user = sessionCache.read();
     return user ? { status: "authenticated", user } : { status: "unauthenticated" };
   });
@@ -327,7 +330,29 @@ export function configurePenkraAccountAuth(input: {
       console.error("[account-auth] Invalid-session cleanup failed.", error);
     }
   };
-  void app.whenReady().then(async () => {
+  /**
+   * A saved user with no usable cookie is signed out: the cookie expired or
+   * was removed, so every account call would refuse while the window still
+   * showed the account. Returns whether the session is still usable.
+   */
+  const reconcileExpiredCookie = (path: string) => {
+    if (pendingIntent !== null || callbackTimeout !== null) return true;
+    if (signInClient.getCookie()) return true;
+    let user: DesktopAccountUser | null = null;
+    try {
+      user = sessionCache.read();
+    } catch {
+      user = null;
+    }
+    if (user) void invalidateSession(callbackAttempt, "session-absent", path);
+    return false;
+  };
+
+  let checking = false;
+  const checkSession = async (trigger: "launch" | "interval" | "resume") => {
+    if (checking) return;
+    if (trigger !== "launch" && !reconcileExpiredCookie(`check:${trigger}`)) return;
+    checking = true;
     const epoch = callbackAttempt;
     const startedAt = performance.now();
     try {
@@ -337,9 +362,10 @@ export function configurePenkraAccountAuth(input: {
         if (result.error.status === 401)
           await invalidateSession(epoch, "unauthorized", "/get-session");
         else
-          console.warn("[account-auth] Launch session check failed.", {
+          console.warn("[account-auth] Session check failed.", {
             serviceOrigin,
             epoch,
+            trigger,
             status: result.error.status,
             reason: result.error.message,
             elapsedMs: performance.now() - startedAt,
@@ -354,17 +380,30 @@ export function configurePenkraAccountAuth(input: {
       sessionCache.write(user);
       notify(DESKTOP_IPC_CHANNELS.accountAuth.userUpdated, user);
     } catch (error) {
-      console.warn("[account-auth] Launch session check failed.", {
+      console.warn("[account-auth] Session check failed.", {
         serviceOrigin,
         epoch,
+        trigger,
         reason: error instanceof Error ? error.message : String(error),
         elapsedMs: performance.now() - startedAt,
       });
+    } finally {
+      checking = false;
     }
+  };
+  void app.whenReady().then(async () => {
+    await checkSession("launch");
+    // Check in while running, so a Penkra left open keeps its session renewed.
+    setInterval(() => void checkSession("interval"), ACCOUNT_SESSION_CHECK_INTERVAL_MS).unref();
+    powerMonitor.on("resume", () => void checkSession("resume"));
   });
 
   return {
-    getCookie: () => signInClient.getCookie(),
+    getCookie: () => {
+      const cookie = signInClient.getCookie();
+      if (!cookie) reconcileExpiredCookie("account-call");
+      return cookie;
+    },
     getAccountId: async () => sessionCache.read()?.id ?? null,
     fetch: async (request, options) => {
       const epoch = callbackAttempt;

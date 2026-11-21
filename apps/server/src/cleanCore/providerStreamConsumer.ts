@@ -89,6 +89,8 @@ export type CleanCoreProviderEvent =
       readonly type: "provider.exited" | "provider.failed";
       readonly threadIds: ReadonlyArray<string>;
       readonly reason?: string;
+      /** Set when a restart cut the turn off: it continues on its own, so nobody is notified. */
+      readonly restart?: true;
       readonly at: string;
     };
 
@@ -289,7 +291,7 @@ const notificationBeforeWrite = (event: CleanCoreProviderEvent) =>
     const ids =
       event.type === "turn.ended"
         ? [event.threadId]
-        : event.type === "provider.exited" || event.type === "provider.failed"
+        : (event.type === "provider.exited" || event.type === "provider.failed") && !event.restart
           ? event.threadIds
           : [];
     for (const id of ids) {
@@ -433,6 +435,7 @@ export const settleRunningThreadsOnStartup = (publisher: ThreadPublisher, at: st
       type: "provider.exited",
       threadIds: rows.map((row) => row.id),
       at,
+      restart: true,
     });
     return rows.map((row) => row.id);
   });

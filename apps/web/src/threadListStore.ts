@@ -19,6 +19,7 @@ import type {
 import { useSyncExternalStore } from "react";
 
 import { ensureNativeApi } from "./nativeApi";
+import { addWsTransportStateListener, type WsTransportState } from "./wsTransportEvents";
 
 let threads: readonly CleanCoreThreadSummary[] = [];
 let byId = new Map<string, CleanCoreThreadSummary>();
@@ -126,13 +127,27 @@ function readThreadPage(
     .then((page) => {
       for (const listener of pageReadListeners) listener(page.threads);
       const next = new Map(byId);
+      // A page read can be the first to see a change whose push was missed (a
+      // turn that ended during a reconnect). Rows it changes go to the row
+      // listeners too, so the thread's shell and session follow the list.
+      const changed: CleanCoreThreadSummary[] = [];
       for (const thread of page.threads) {
         const stored = next.get(thread.id);
-        if (stored === undefined || stored.updatedAt <= thread.updatedAt)
+        if (stored === undefined || stored.updatedAt <= thread.updatedAt) {
           next.set(thread.id, thread);
+          if (
+            stored !== undefined &&
+            (stored.updatedAt !== thread.updatedAt || stored.state !== thread.state)
+          )
+            changed.push(thread);
+        }
       }
       pages = new Map(pages).set(key, { nextCursor: page.nextCursor, loading: false });
       setThreads(next);
+      for (const thread of changed) {
+        const change = { kind: "thread", threadId: thread.id } as ThreadRowChange;
+        for (const listener of rowListeners.keys()) listener(change, thread);
+      }
     })
     .catch((error) => {
       pages = new Map(pages);
@@ -170,11 +185,45 @@ export async function refreshThreadPage(threadId: ThreadId): Promise<void> {
   await loadThread(threadId);
 }
 
+/**
+ * The sidebar stream carries only changes made while it is connected, so a
+ * change published during a reconnect (a turn ending as the socket drops) was
+ * never applied and the row stayed "running". After the connection reopens,
+ * read every loaded page again, and every row that still says running.
+ */
+function resyncAfterReconnect(): void {
+  for (const key of pages.keys()) {
+    const [spaceId, folderId] = JSON.parse(key) as [SpaceId, FolderId | null];
+    if (!pendingPages.has(key))
+      void readThreadPage({ spaceId, folderId }, null).catch(() => undefined);
+  }
+  // Pages cover the listed rows; a row read on its own that still says running
+  // is the one a missed turn end leaves spinning.
+  for (const thread of byId.values()) {
+    if (thread.state !== "running") continue;
+    void loadThread(thread.id)
+      .then((row) => {
+        const change = { kind: "thread", threadId: thread.id } as ThreadRowChange;
+        for (const listener of rowListeners.keys()) listener(change, row);
+      })
+      .catch(() => undefined);
+  }
+}
+
 /** Applies the publisher's thread change so the store stays live. */
 function startLiveUpdates(): void {
   if (liveSubscription !== null) return;
   const api = ensureNativeApi();
-  liveSubscription = api.cleanCore.onSidebarChange((change) => {
+  let previous: WsTransportState | null = null;
+  const stopTransport = addWsTransportStateListener(
+    (state) => {
+      const reopened = state === "open" && previous !== null && previous !== "open";
+      previous = state;
+      if (reopened) resyncAfterReconnect();
+    },
+    { replayCurrent: true },
+  );
+  const stopChanges = api.cleanCore.onSidebarChange((change) => {
     if (change.kind === "thread" || change.kind === "thread.created") {
       void loadThread(change.threadId)
         .then(() => {
@@ -187,6 +236,10 @@ function startLiveUpdates(): void {
         });
     }
   });
+  liveSubscription = () => {
+    stopTransport();
+    stopChanges();
+  };
 }
 
 export function useThreadList(): readonly CleanCoreThreadSummary[] {

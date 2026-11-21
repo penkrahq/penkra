@@ -111,7 +111,7 @@ import {
   AppFileWatchStore,
   AppSimulatorSurfaceStore,
 } from "./appTabResourceStores";
-import { resolveBackendNodeArgs } from "./backendNodeOptions";
+import { packagedNodeArgs, resolveBackendNodeArgs } from "./backendNodeOptions";
 import { ActiveWorkPowerBlocker } from "./activeWorkPowerBlocker";
 import { DesktopRunningWorkClient } from "./desktopRunningWorkClient";
 import { stripPackagedDiagnosticsQaEnvironment } from "./diagnosticsQaEnvironment";
@@ -760,6 +760,7 @@ function routePanelShortcut(
   command: PanelShortcutCommand,
   folderId: string | null,
   sourceId: number,
+  appTabId: string | null = null,
 ): void {
   if (window.isDestroyed()) return;
   const windowId = window.id;
@@ -783,6 +784,20 @@ function routePanelShortcut(
         folderId: effect.folderId,
       });
       return;
+    case "reload-panel-tab": {
+      // An App's own keys name its tab; shell keys ask the shell which tab is selected.
+      const tabs = desktopAppRuntime?.appTabs;
+      if (appTabId && tabs) {
+        void tabs.reloadTab(appTabId).catch((error: unknown) =>
+          console.warn(`[panel-shortcut] reload failed tab=${appTabId}`, error),
+        );
+      } else {
+        window.webContents.send(IPC.panelFocus.reloadPanelTab, {
+          folderId: effect.folderId,
+        });
+      }
+      return;
+    }
     case "none":
       return;
   }
@@ -5130,11 +5145,14 @@ function backendNodeArgs(): string[] {
     BACKEND_MAX_OLD_SPACE_ENV_KEYS.map((key) => process.env[key]).find(
       (value) => value !== undefined && value.trim().length > 0,
     ) ?? null;
-  return resolveBackendNodeArgs({
-    configuredMaxOldSpaceMb,
-    existingNodeOptions: process.env.NODE_OPTIONS,
-    totalMemoryBytes: OS.totalmem(),
-  });
+  return [
+    ...resolveBackendNodeArgs({
+      configuredMaxOldSpaceMb,
+      existingNodeOptions: process.env.NODE_OPTIONS,
+      totalMemoryBytes: OS.totalmem(),
+    }),
+    ...packagedNodeArgs(app.isPackaged),
+  ];
 }
 
 function backendEnv(): NodeJS.ProcessEnv {
@@ -5873,12 +5891,15 @@ function registerIpcHandlers(): void {
       return;
     const { command, insidePanel, folderId } = input as Record<string, unknown>;
     if (
-      (command !== "new-window" && command !== "find" && command !== "close") ||
+      (command !== "new-window" &&
+        command !== "find" &&
+        command !== "close" &&
+        command !== "reload") ||
       typeof insidePanel !== "boolean"
     )
       return;
     recordPanelInteraction(window.id, insidePanel, "shell-shortcut");
-    if (command === "close" && !insidePanel) return;
+    if ((command === "close" || command === "reload") && !insidePanel) return;
     routePanelShortcut(
       window,
       command,
@@ -7935,6 +7956,16 @@ function registerIpcHandlers(): void {
     if (!backendHttpUrl) throw new Error("The backend is not ready.");
     await tabs.close(tabId, input.folderId);
   });
+  ipcMain.handle(IPC.appTabs.reload, async (event, input: unknown) => {
+    const { tabId } = parseAppTabIdRequest(input);
+    const tabs = requireShellAppTabs(event.sender.id);
+    const folderId =
+      input && typeof input === "object" && "folderId" in input ? input.folderId : null;
+    const tab = tabs.list().find((candidate) => candidate.id === tabId);
+    if (!tab) return;
+    if (tab.folderId !== folderId) throw new Error("The App tab belongs to a different folder.");
+    await tabs.reloadTab(tabId);
+  });
 
   const parseOpenWithInput = (input: unknown) => {
     if (!input || typeof input !== "object" || Array.isArray(input)) {
@@ -9240,6 +9271,7 @@ if (hasSingleInstanceLock) {
           command,
           owner.tab.folderId,
           contents.id,
+          owner.tab.id,
         );
       }
     });

@@ -1,7 +1,7 @@
 import type { Input } from "electron";
 import { isDesktopNewWindowShortcut } from "./menuShortcuts";
 
-export type PanelShortcutCommand = "new-window" | "find" | "close";
+export type PanelShortcutCommand = "new-window" | "find" | "close" | "reload";
 
 /** Host-controlled shortcut chords; shell W is gated at DOM capture time. */
 export function resolvePanelShortcut(
@@ -16,6 +16,7 @@ export function resolvePanelShortcut(
   const key = input.key.toLowerCase();
   if (key === "f") return "find";
   if (key === "w") return "close";
+  if (key === "r") return "reload";
   return null;
 }
 
@@ -23,11 +24,12 @@ export type PanelShortcutEffect =
   | { readonly kind: "new-window" }
   | { readonly kind: "open-find" }
   | { readonly kind: "close-panel-tab"; readonly folderId: string }
+  | { readonly kind: "reload-panel-tab"; readonly folderId: string }
   | { readonly kind: "none" };
 
 /**
  * Turns a resolved chord into the effect it should have in the window that
- * received it. `close` targets the selected panel tab only while the panel is
+ * received it. `close` and `reload` target the selected panel tab only while the panel is
  * focused; otherwise existing shortcut handlers keep the key. The panel
  * focus check lives here so every platform shares one tested decision.
  */
@@ -41,37 +43,46 @@ export function resolvePanelShortcutEffect(
   if (!panelFocused) return { kind: "none" };
   return folderId === null || folderId.length === 0
     ? { kind: "none" }
-    : { kind: "close-panel-tab", folderId };
+    : command === "reload"
+      ? { kind: "reload-panel-tab", folderId }
+      : { kind: "close-panel-tab", folderId };
 }
 
-/** The shell handles W at DOM capture time, after identifying the actual key target. */
+/** The shell handles W and R at DOM capture time, after identifying the actual key target. */
+export function shellPanelTabShortcut(
+  platform: NodeJS.Platform,
+  event: Pick<KeyboardEvent, "key" | "metaKey" | "ctrlKey" | "shiftKey" | "altKey" | "repeat">,
+): "close" | "reload" | null {
+  const primary =
+    platform === "darwin" ? event.metaKey && !event.ctrlKey : event.ctrlKey && !event.metaKey;
+  if (!primary || event.shiftKey || event.altKey || event.repeat) return null;
+  const key = event.key.toLowerCase();
+  return key === "w" ? "close" : key === "r" ? "reload" : null;
+}
+
 export function isShellPanelCloseShortcut(
   platform: NodeJS.Platform,
   event: Pick<KeyboardEvent, "key" | "metaKey" | "ctrlKey" | "shiftKey" | "altKey" | "repeat">,
 ): boolean {
-  const primary =
-    platform === "darwin" ? event.metaKey && !event.ctrlKey : event.ctrlKey && !event.metaKey;
-  return (
-    primary && !event.shiftKey && !event.altKey && !event.repeat && event.key.toLowerCase() === "w"
-  );
+  return shellPanelTabShortcut(platform, event) === "close";
 }
 
 export function shouldRouteShellPanelClose(
   platform: NodeJS.Platform,
   event: Parameters<typeof isShellPanelCloseShortcut>[1],
   insidePanel: boolean,
-): boolean {
-  return insidePanel && isShellPanelCloseShortcut(platform, event);
+): "close" | "reload" | null {
+  return insidePanel ? shellPanelTabShortcut(platform, event) : null;
 }
 
-/** Leave an unfocused panel's W with its existing renderer, terminal, or menu handler. */
+/** Leave an unfocused panel's W and R with its existing renderer, terminal, or menu handler. */
 export function preventBeforeInputShortcut(
   event: Pick<Electron.Event, "preventDefault">,
   command: PanelShortcutCommand,
   panelFocused: boolean,
   fromShell: boolean,
 ): boolean {
-  if (command === "close" && (!panelFocused || fromShell)) return false;
+  if ((command === "close" || command === "reload") && (!panelFocused || fromShell)) return false;
   event.preventDefault();
   return true;
 }

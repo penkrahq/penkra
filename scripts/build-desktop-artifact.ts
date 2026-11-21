@@ -23,7 +23,10 @@ import {
 } from "@penkra/shared/requiredAppsRelease";
 
 import { BRAND_ASSET_PATHS } from "./lib/brand-assets.ts";
-import { createDesktopPlatformBuildConfig } from "./lib/desktop-platform-build-config.ts";
+import {
+  createDesktopPlatformBuildConfig,
+  PENKRA_ELECTRON_FUSES,
+} from "./lib/desktop-platform-build-config.ts";
 import {
   PENKRA_ACCOUNT_AUTH_SCHEME,
   PENKRA_DESKTOP_SCHEME,
@@ -670,6 +673,7 @@ const createBuildConfig = Effect.fn("createBuildConfig")(function* (
       buildResources: "apps/desktop/resources",
     },
     forceCodeSigning: signed,
+    electronFuses: PENKRA_ELECTRON_FUSES,
   };
   buildConfig.publish = mockUpdates
     ? [

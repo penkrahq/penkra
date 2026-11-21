@@ -571,15 +571,24 @@ export const settleRunningItems = (threadId: string, at: string, turnId?: string
         UPDATE thread_items
         SET status = CASE WHEN kind = 'question' THEN 'cancelled' ELSE 'interrupted' END, updated_at = ${at},
             data = CASE WHEN kind = 'turn' THEN json_set(data, '$.endedAt', ${at}) ELSE data END
-        WHERE thread_id = ${threadId} AND (status IN ('running', 'streaming') OR (kind='question' AND status='open'))
+        WHERE rowid IN (
+          SELECT rowid FROM thread_items WHERE thread_id = ${threadId} AND status IN ('running','streaming')
+          UNION ALL
+          SELECT rowid FROM thread_items WHERE thread_id = ${threadId} AND kind = 'question' AND status = 'open'
+        )
       `;
     } else {
       yield* sql`
         UPDATE thread_items
         SET status = CASE WHEN kind = 'question' THEN 'cancelled' ELSE 'interrupted' END, updated_at = ${at},
             data = CASE WHEN kind = 'turn' THEN json_set(data, '$.endedAt', ${at}) ELSE data END
-        WHERE thread_id = ${threadId} AND (status IN ('running', 'streaming') OR (kind='question' AND status='open'))
-          AND (turn_id = ${turnId} OR turn_id IS NULL)
+        WHERE rowid IN (
+          SELECT rowid FROM thread_items WHERE thread_id = ${threadId} AND status IN ('running','streaming')
+            AND (turn_id = ${turnId} OR turn_id IS NULL)
+          UNION ALL
+          SELECT rowid FROM thread_items WHERE thread_id = ${threadId} AND kind = 'question' AND status = 'open'
+            AND (turn_id = ${turnId} OR turn_id IS NULL)
+        )
       `;
     }
   });

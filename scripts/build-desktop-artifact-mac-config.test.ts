@@ -13,6 +13,7 @@ import {
   NODE_PTY_ASAR_UNPACK_GLOBS,
   PARCEL_WATCHER_ASAR_UNPACK_GLOBS,
   REQUIRED_APPS_EXTRA_RESOURCE,
+  PENKRA_ELECTRON_FUSES,
 } from "./lib/desktop-platform-build-config.ts";
 import { BRAND_ASSET_PATHS } from "./lib/brand-assets.ts";
 import { APP_DATA_USAGE_DESCRIPTION, APPLE_EVENTS_USAGE_DESCRIPTION } from "./lib/macos-privacy.ts";
@@ -167,5 +168,15 @@ describe("createDesktopPlatformBuildConfig", () => {
       BRAND_ASSET_PATHS.productionMacLegacyIconPng,
       BRAND_ASSET_PATHS.productionMacIconPng,
     );
+  });
+});
+
+describe("Electron fuses", () => {
+  it("keeps run-as-node for the server and turns the inspector off", () => {
+    assert.deepStrictEqual(PENKRA_ELECTRON_FUSES, {
+      runAsNode: true,
+      enableNodeCliInspectArguments: false,
+      resetAdHocDarwinSignature: true,
+    });
   });
 });

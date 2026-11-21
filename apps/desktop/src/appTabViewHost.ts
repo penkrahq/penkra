@@ -1190,6 +1190,41 @@ export class AppTabViewHost implements AppTabHost {
     return this.hostedPageState(tabId);
   }
 
+  /**
+   * Cmd+R on a focused App tab: reload the web page it shows, or else start a
+   * fresh App renderer on the same tab, route and state (the App-update path,
+   * so the shell pane and tab ID stay put).
+   */
+  async reloadTab(tabId: string): Promise<void> {
+    const record = this.#require(tabId);
+    if (record.page) {
+      this.reloadHostedPage(tabId, record.page.id);
+      return;
+    }
+    traceAppTabHost("renderer-reload-requested", { tabId });
+    const appId = record.app.appId;
+    const spaceId = record.descriptor.spaceId;
+    const snapshot = this.captureForUpdate(appId, spaceId).find((tab) => tab.id === tabId);
+    if (!snapshot) return;
+    // Retiring drops the tab's window presentations; the shell doesn't know the
+    // renderer changed, so put the new one back where the old one was shown.
+    const shown = [...(this.#presentationsByTabId.get(tabId)?.entries() ?? [])].filter(
+      ([, presentation]) => presentation.visible,
+    );
+    this.retireRenderer(tabId, "app-updated");
+    await this.restoreAfterUpdate(appId, spaceId, [snapshot]);
+    if (!this.#records.has(tabId)) return;
+    for (const [windowId, presentation] of shown) {
+      await this.presentInWindow({
+        tabId,
+        windowId,
+        folderId: presentation.folderId,
+        threadId: presentation.threadId,
+        bounds: presentation.bounds,
+      });
+    }
+  }
+
   stopHostedPage(tabId: string, pageId: string): AppBrowserSessionState {
     this.#requireHostedPage(this.#require(tabId), pageId).view.webContents.stop();
     return this.hostedPageState(tabId);

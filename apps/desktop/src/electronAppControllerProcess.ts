@@ -6,6 +6,7 @@ import { fork as forkNodeProcess, type ChildProcess } from "node:child_process";
 
 import type { AppControllerProcess, AppControllerProcessFactory } from "./appControllerHost";
 import type { AppRendererRpcHost } from "./appRendererRpc";
+import { packagedNodeArgs } from "./backendNodeOptions";
 
 export interface ElectronAppControllerProcessFactoryOptions {
   runnerPath: string;
@@ -17,6 +18,8 @@ export interface ElectronAppControllerProcessFactoryOptions {
     input: unknown;
   }): Promise<unknown>;
   fork?: typeof forkNodeProcess;
+  /** Packaged apps start controllers that ignore SIGUSR1. */
+  packaged?: boolean;
   startupTimeoutMs?: number;
 }
 
@@ -58,7 +61,7 @@ export class ElectronAppControllerProcessFactory implements AppControllerProcess
           {
             cwd: input.installedApp.packagePath,
             execPath: process.execPath,
-            execArgv: [],
+            execArgv: packagedNodeArgs(this.#options.packaged === true),
             env: appControllerEnvironment(process.env),
             serialization: "advanced",
             stdio: ["ignore", "pipe", "pipe", "ipc"],

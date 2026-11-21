@@ -64,3 +64,14 @@ export function resolveBackendNodeArgs(input: {
     }),
   );
 }
+
+/**
+ * Penkra's own Node processes (the server, App controllers) run with
+ * ELECTRON_RUN_AS_NODE, which the Electron inspect fuse does not cover. In a
+ * packaged app they ignore SIGUSR1, so no local process can open a debugger on
+ * them (operator, 2026-11-21).
+ */
+export const DISABLE_SIGNAL_INSPECTOR_ARG = "--disable-sigusr1";
+export function packagedNodeArgs(packaged: boolean): string[] {
+  return packaged ? [DISABLE_SIGNAL_INSPECTOR_ARG] : [];
+}

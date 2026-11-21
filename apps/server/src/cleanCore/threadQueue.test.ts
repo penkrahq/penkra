@@ -5,9 +5,16 @@ import { Effect } from "effect";
 import * as SqlClient from "effect/sql/SqlClient";
 
 import { enqueueMessage, planSend, readThreadQueue } from "./threadQueue.ts";
-import { createThread, makeThreadPublisher, setThreadArchived, setThreadState } from "./threadStore.ts";
+import {
+  createThread,
+  makeThreadPublisher,
+  setThreadArchived,
+  setThreadState,
+} from "./threadStore.ts";
 import { settleRunningThreadsOnStartup } from "./providerStreamConsumer.ts";
-import { shouldResumeAfterRestart } from "./resumeThread.ts";
+import { resumeThreadsCutOffByRestart, shouldResumeAfterRestart } from "./resumeThread.ts";
+import { ThreadPublisher } from "./ThreadPublisher.ts";
+import { ThreadSender } from "./ThreadSender.ts";
 import { runMigrations } from "../persistence/Migrations.ts";
 import * as NodeSqliteClient from "../persistence/NodeSqliteClient.ts";
 
@@ -91,22 +98,48 @@ it.effect("a restart returns the threads it cut off, and only the right ones res
     Effect.gen(function* () {
       yield* runMigrations();
       yield* seedThreadFolderFixture("core-test-folder", "space-1");
-      for (const id of ["user-turn", "resume-turn", "archived", "idle"]) yield* createThread(thread(id));
+      for (const id of ["user-turn", "resume-turn", "archived", "idle"])
+        yield* createThread(thread(id));
       yield* userItem("user-turn", 1, "user");
       yield* userItem("resume-turn", 1, "user");
       yield* userItem("resume-turn", 2, "recovery");
       yield* userItem("archived", 1, "user");
       yield* setThreadArchived("archived", restartAt, restartAt, null);
-      for (const id of ["user-turn", "resume-turn", "archived"]) yield* setThreadState(id, "running", "turn-1", null, restartAt);
+      for (const id of ["user-turn", "resume-turn", "archived"])
+        yield* setThreadState(id, "running", "turn-1", null, restartAt);
 
-      const cutOff = yield* settleRunningThreadsOnStartup(makeThreadPublisher(), restartAt);
+      const base = makeThreadPublisher();
+      const notified: Array<{ threadId: string; body: string }> = [];
+      const publisher: typeof base = {
+        ...base,
+        publishNotification: (notification) => {
+          notified.push({ threadId: notification.threadId, body: notification.body });
+          base.publishNotification(notification);
+        },
+      };
+      const cutOff = yield* settleRunningThreadsOnStartup(publisher, restartAt);
       assert.deepStrictEqual([...cutOff].sort(), ["archived", "resume-turn", "user-turn"]);
+      // The cut-off itself notifies nobody: those threads continue on their own.
+      assert.deepStrictEqual(notified, []);
 
       // A turn the user started continues; a cut-off automatic continuation
       // doesn't (no restart loop); archived threads stay put.
       assert.strictEqual(yield* shouldResumeAfterRestart("user-turn"), true);
       assert.strictEqual(yield* shouldResumeAfterRestart("resume-turn"), false);
       assert.strictEqual(yield* shouldResumeAfterRestart("archived"), false);
+
+      // Only a thread that will not continue tells the operator it stopped.
+      const sent: string[] = [];
+      yield* resumeThreadsCutOffByRestart(cutOff).pipe(
+        Effect.provideService(ThreadPublisher, publisher as never),
+        Effect.provideService(ThreadSender, {
+          send: (input: { threadId: string }) => Effect.sync(() => void sent.push(input.threadId)),
+        } as never),
+      );
+      assert.deepStrictEqual(sent, ["user-turn"]);
+      assert.deepStrictEqual(notified, [
+        { threadId: "resume-turn", body: "Stopped before finishing" },
+      ]);
     }),
   ),
 );

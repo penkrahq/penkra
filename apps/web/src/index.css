@@ -2326,3 +2326,9 @@ diffs-container {
   -webkit-background-clip: text;
   animation: ultrathink-rainbow 10s linear infinite;
 }
+
+/* Chat videos expand into the in-window overlay like photos; Chromium's own
+   fullscreen control would take over the whole window, so it never shows. */
+video[data-penkra-video]::-webkit-media-controls-fullscreen-button {
+  display: none;
+}

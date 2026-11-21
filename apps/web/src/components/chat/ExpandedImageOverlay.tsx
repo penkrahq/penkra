@@ -30,7 +30,7 @@ export function ExpandedImageOverlay({
       data-expanded-image-overlay
       role="dialog"
       aria-modal="true"
-      aria-label="Expanded image preview"
+      aria-label={expandedImageItem.kind === "video" ? "Expanded video" : "Expanded image preview"}
       onClick={(event) => {
         if (event.target === event.currentTarget) onClose();
       }}
@@ -64,7 +64,25 @@ export function ExpandedImageOverlay({
         >
           <XIcon />
         </Button>
-        <ImageViewport key={expandedImageItem.src} image={expandedImageItem} onClose={onClose} />
+        {expandedImageItem.kind === "video" ? (
+          // Only the video takes input; a tap beside it reaches the dismiss layer.
+          <div className="!pointer-events-none flex min-h-0 w-full flex-1 items-center justify-center">
+            <video
+              key={expandedImageItem.src}
+              src={expandedImageItem.src}
+              controls
+              autoPlay
+              playsInline
+              controlsList="nofullscreen"
+          data-penkra-video
+              disablePictureInPicture
+              className="pointer-events-auto max-h-full max-w-full rounded-md"
+              aria-label={expandedImageItem.name}
+            />
+          </div>
+        ) : (
+          <ImageViewport key={expandedImageItem.src} image={expandedImageItem} onClose={onClose} />
+        )}
         <p className="mt-2 max-w-full shrink-0 truncate text-center text-[length:var(--app-font-size-ui,12px)] text-muted-foreground/80">
           {expandedImageItem.name}
           {expandedImage.images.length > 1

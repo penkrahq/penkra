@@ -3,6 +3,7 @@
 // Layer: Desktop main-process bootstrap
 
 import {
+  app,
   BrowserWindow,
   safeStorage,
   shell,
@@ -297,6 +298,7 @@ export async function startDesktopAppRuntime(input: {
     rpc,
     processes: new ElectronAppControllerProcessFactory({
       runnerPath: input.appControllerRunnerPath,
+      packaged: app.isPackaged,
       rpc,
       serviceCall: async (request) => {
         const identity = { appId: request.appId, spaceId: request.spaceId };
