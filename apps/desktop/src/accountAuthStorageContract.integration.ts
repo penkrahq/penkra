@@ -30,6 +30,8 @@ const native = vi.hoisted(() => {
 });
 vi.mock("electron", () => ({
   app: native.app,
+  // The runtime checks its session in again on wake; this contract test has no sleep.
+  powerMonitor: { on: () => undefined },
   safeStorage: native.safeStorage,
   default: {
     app: native.app,
