@@ -8,7 +8,11 @@ export const runStartupStage = <A, E, R>(
   Effect.gen(function* () {
     const startedAt = yield* Clock.currentTimeMillis;
     yield* Effect.logInfo("server startup stage started", { stage });
-    const value = yield* effect;
+    const value = yield* effect.pipe(
+      Effect.tapCause((cause) =>
+        Effect.logError("server startup stage failed", { stage, cause }),
+      ),
+    );
     const completedAt = yield* Clock.currentTimeMillis;
     yield* Effect.logInfo("server startup stage completed", {
       stage,
