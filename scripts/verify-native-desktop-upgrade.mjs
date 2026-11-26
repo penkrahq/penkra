@@ -130,20 +130,34 @@ async function launch(executablePath, version, launchEnv = env) {
 // Builds from 0.15.0 disable Node's inspect CLI fuse, so Playwright cannot attach
 // to them. Start the upgraded install as a plain process; its own versioned
 // startup log carries the backend and required Apps readiness proof.
-async function launchWithoutInspector(executablePath, version) {
-  const stamped = spawnSync(
-    "powershell.exe",
-    [
-      "-NoProfile",
-      "-Command",
-      "(Get-Item -LiteralPath $env:PENKRA_UPGRADE_EXE).VersionInfo.ProductVersion",
-    ],
-    {
-      encoding: "utf8",
-      timeout: 60_000,
-      env: { ...process.env, PENKRA_UPGRADE_EXE: executablePath },
-    },
-  );
+// Builds from 0.15.0 disable the inspect fuse, so a 0.15.0 or newer build can never be
+// driven through Playwright, whether it is the installed build or the upgrade candidate.
+const hasInspector = (version) => {
+  const [major, minor] = version.split(".").map(Number);
+  return major === 0 && minor < 15;
+};
+async function launchWithoutInspector(
+  executablePath,
+  version,
+  launchEnv = env,
+  launchArgs = [],
+  stamp = platform === "win",
+) {
+  const stamped = !stamp
+    ? { stdout: version, stderr: "" }
+    : spawnSync(
+        "powershell.exe",
+        [
+          "-NoProfile",
+          "-Command",
+          "(Get-Item -LiteralPath $env:PENKRA_UPGRADE_EXE).VersionInfo.ProductVersion",
+        ],
+        {
+          encoding: "utf8",
+          timeout: 60_000,
+          env: { ...process.env, PENKRA_UPGRADE_EXE: executablePath },
+        },
+      );
   assert.ifError(stamped.error);
   assert.equal(
     stamped.stdout.trim().match(/^\d+\.\d+\.\d+/)?.[0],
@@ -152,7 +166,10 @@ async function launchWithoutInspector(executablePath, version) {
   );
   const logPath = resolvePackagedDesktopSmokeLogPath(stateRoot, version);
   const logOffset = existsSync(logPath) ? readFileSync(logPath, "utf8").length : 0;
-  const child = spawn(executablePath, [], { env, stdio: ["ignore", "ignore", "pipe"] });
+  const child = spawn(executablePath, launchArgs, {
+    env: launchEnv,
+    stdio: ["ignore", "ignore", "pipe"],
+  });
   child.stderr?.on("data", (data) => process.stderr.write(data));
   let exited;
   child.on("exit", (code, signal) => {
@@ -168,6 +185,10 @@ async function launchWithoutInspector(executablePath, version) {
   }, `backend and required Apps readiness for ${version}`);
   evidence.stages.push({ stage: "launched", version, inspector: false });
 }
+async function stopLaunched() {
+  if (platform === "linux") await stopNativeUpgradeProcesses(join(stateRoot, "user-data"));
+  await terminateProcessesInsideRoot(root);
+}
 try {
   if (platform === "win") {
     const installed = join(root, "installed");
@@ -175,9 +196,11 @@ try {
     run(previous, ["/S", "/currentuser", `/D=${installed}`]);
     const executable = join(installed, "Penkra.exe");
     assert.ok(existsSync(executable), "NSIS did not install Penkra.exe");
-    await launch(executable, previousVersion);
-    await application.close();
-    application = undefined;
+    if (hasInspector(previousVersion)) {
+      await launch(executable, previousVersion);
+      await application.close();
+      application = undefined;
+    } else await launchWithoutInspector(executable, previousVersion);
     await terminateProcessesInsideRoot(root);
     run(candidate, ["/S", "/currentuser", `/D=${installed}`]);
     await launchWithoutInspector(executable, candidateVersion);
@@ -201,59 +224,77 @@ try {
       ELECTRON_DISABLE_SANDBOX: "1",
     };
     delete updateEnv.PENKRA_DISABLE_AUTO_UPDATE;
-    const allowed = new Set(
-      readdirSync(candidateDirectory).filter((name) =>
-        statSync(join(candidateDirectory, name)).isFile(),
-      ),
-    );
-    server = createServer((request, response) => {
-      const name = decodeURIComponent(new URL(request.url, "http://localhost").pathname.slice(1));
-      if (!allowed.has(name) || basename(name) !== name) {
-        response.writeHead(404).end();
-        return;
-      }
-      response.writeHead(200, { "Content-Length": statSync(join(candidateDirectory, name)).size });
-      createReadStream(join(candidateDirectory, name)).pipe(response);
-    });
-    await new Promise((resolveListen) => server.listen(0, "127.0.0.1", resolveListen));
-    const feed = `http://127.0.0.1:${server.address().port}`;
-    const page = await launch(executable, previousVersion, updateEnv);
-    await application.evaluate(configureNativeUpgradeFeed, { url: feed, launchLog });
-    await page.evaluate(() => window.desktopBridge.checkForUpdates());
-    // Penkra normally starts preparation as soon as an update is discovered.
-    // Join that real lifecycle rather than treating an already-running download as failure.
-    await until(
-      async () => {
-        const state = await page.evaluate(() => window.desktopBridge.getUpdateState());
-        if (state.status === "error") throw new Error(JSON.stringify(state));
-        if (state.status === "available")
-          await page.evaluate(() => window.desktopBridge.downloadUpdate());
-        return state.downloadedVersion === candidateVersion;
-      },
-      "candidate download and artifact verification",
-      180_000,
-    );
-    const candidateLogPath = resolvePackagedDesktopSmokeLogPath(stateRoot, candidateVersion);
-    const beforeLog = existsSync(candidateLogPath)
-      ? readFileSync(candidateLogPath, "utf8").length
-      : 0;
-    const install = await page
-      .evaluate(() => window.desktopBridge.installUpdate())
-      .catch((error) => ({ transportClosed: String(error) }));
-    if (!install.transportClosed) assert.equal(install.accepted, true, JSON.stringify(install));
-    const expected = sha(candidate);
-    await until(
-      () => existsSync(installed) && sha(installed) === expected,
-      "production updater installs exact candidate bytes",
-    );
-    await until(() => {
-      if (!existsSync(candidateLogPath)) return false;
-      const log = readFileSync(candidateLogPath, "utf8").slice(beforeLog);
-      const result = inspectPackagedDesktopStartupLog(log);
-      if (result.failure) throw new Error(result.failure);
-      return result.hasProof;
-    }, "updated application restarts and boots its backend");
-    evidence.stages.push({ stage: "appimage-download-install-restart", sha256: expected });
+    if (!hasInspector(previousVersion)) {
+      // The installed build cannot be driven, so its in-app updater cannot be started
+      // from here. Do what the production updater does with the same image: start the
+      // installed build, stop it, replace the image with the exact candidate bytes and
+      // start it again against the same preserved state. Windows already works this way.
+      const flags = ["--no-sandbox", "--disable-gpu"];
+      await launchWithoutInspector(executable, previousVersion, updateEnv, flags, false);
+      await stopLaunched();
+      copyFileSync(candidate, installed);
+      chmodSync(installed, 0o755);
+      assert.equal(sha(installed), sha(candidate), "installed image is not the candidate bytes");
+      const { APPDIR: _appDir, ...candidateEnv } = updateEnv;
+      await launchWithoutInspector(installed, candidateVersion, candidateEnv, flags, false);
+      evidence.stages.push({ stage: "appimage-replace-and-restart", sha256: sha(installed) });
+    } else {
+      const allowed = new Set(
+        readdirSync(candidateDirectory).filter((name) =>
+          statSync(join(candidateDirectory, name)).isFile(),
+        ),
+      );
+      server = createServer((request, response) => {
+        const name = decodeURIComponent(new URL(request.url, "http://localhost").pathname.slice(1));
+        if (!allowed.has(name) || basename(name) !== name) {
+          response.writeHead(404).end();
+          return;
+        }
+        response.writeHead(200, {
+          "Content-Length": statSync(join(candidateDirectory, name)).size,
+        });
+        createReadStream(join(candidateDirectory, name)).pipe(response);
+      });
+      await new Promise((resolveListen) => server.listen(0, "127.0.0.1", resolveListen));
+      const feed = `http://127.0.0.1:${server.address().port}`;
+      const page = await launch(executable, previousVersion, updateEnv);
+      await application.evaluate(configureNativeUpgradeFeed, { url: feed, launchLog });
+      await page.evaluate(() => window.desktopBridge.checkForUpdates());
+      // Penkra normally starts preparation as soon as an update is discovered.
+      // Join that real lifecycle rather than treating an already-running download as failure.
+      await until(
+        async () => {
+          const state = await page.evaluate(() => window.desktopBridge.getUpdateState());
+          if (state.status === "error") throw new Error(JSON.stringify(state));
+          if (state.status === "available")
+            await page.evaluate(() => window.desktopBridge.downloadUpdate());
+          return state.downloadedVersion === candidateVersion;
+        },
+        "candidate download and artifact verification",
+        180_000,
+      );
+      const candidateLogPath = resolvePackagedDesktopSmokeLogPath(stateRoot, candidateVersion);
+      const beforeLog = existsSync(candidateLogPath)
+        ? readFileSync(candidateLogPath, "utf8").length
+        : 0;
+      const install = await page
+        .evaluate(() => window.desktopBridge.installUpdate())
+        .catch((error) => ({ transportClosed: String(error) }));
+      if (!install.transportClosed) assert.equal(install.accepted, true, JSON.stringify(install));
+      const expected = sha(candidate);
+      await until(
+        () => existsSync(installed) && sha(installed) === expected,
+        "production updater installs exact candidate bytes",
+      );
+      await until(() => {
+        if (!existsSync(candidateLogPath)) return false;
+        const log = readFileSync(candidateLogPath, "utf8").slice(beforeLog);
+        const result = inspectPackagedDesktopStartupLog(log);
+        if (result.failure) throw new Error(result.failure);
+        return result.hasProof;
+      }, "updated application restarts and boots its backend");
+      evidence.stages.push({ stage: "appimage-download-install-restart", sha256: expected });
+    }
   }
   assert.equal(readFileSync(sentinel, "utf8"), "preserve-native-upgrade-state");
   evidence.stages.push({ stage: "state-preserved" });
