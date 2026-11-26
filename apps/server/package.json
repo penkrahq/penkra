@@ -31,7 +31,7 @@
     "@noble/ciphers": "2.4.0",
     "@noble/curves": "2.4.0",
     "@noble/hashes": "2.4.0",
-    "@opencode-ai/sdk": "1.19.3",
+    "@opencode-ai/sdk": "1.19.6",
     "@penkra/sdk": "workspace:*",
     "@pierre/diffs": "^1.2.12",
     "@xterm/headless": "^6.0.0",
