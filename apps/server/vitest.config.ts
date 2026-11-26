@@ -10,6 +10,7 @@ export default mergeConfig(
         "src/localImageRoute.test.ts",
         "src/workspace/Layers/WorkspacePaths.test.ts",
         "src/cleanCore/threadQueue.test.ts",
+        "src/cleanCore/deliverMessageStop.test.ts",
         "src/persistence/SqliteSafety.test.ts",
         "src/provider/providerConnectionManifests.test.ts",
         "src/provider/providerCredentialBroker.test.ts",

@@ -4,7 +4,7 @@ import {
   type ProviderKind,
   type ProviderRuntimeEvent,
 } from "@penkra/contracts";
-import { Deferred, Effect, Fiber } from "effect";
+import { Cause, Deferred, Effect, Exit, Fiber } from "effect";
 import { describe, expect, it, vi } from "vitest";
 
 import type {
@@ -589,6 +589,27 @@ describe("ThreadRuntime ownership", () => {
       );
     },
   );
+
+  it("a stop during start reaches the caller waiting on the start as an interrupt-only failure", async () => {
+    // The delivery that is waiting on `ensure` must be able to tell this apart from a
+    // real error: it settles the admitted message instead of leaving it `sending`.
+    await Effect.runPromise(
+      Effect.gen(function* () {
+        const runtime = makeThreadRuntime();
+        const entered = yield* Deferred.make<void>();
+        const start = yield* runtime
+          .ensure(thread, "opencode", () =>
+            Deferred.succeed(entered, undefined).pipe(Effect.andThen(Effect.never)),
+          )
+          .pipe(Effect.forkChild);
+        yield* Deferred.await(entered);
+        yield* runtime.interrupt(thread, () => Effect.void);
+        const exit = yield* Fiber.await(start);
+        expect(Exit.isFailure(exit)).toBe(true);
+        expect(Exit.isFailure(exit) && Cause.hasInterruptsOnly(exit.cause)).toBe(true);
+      }),
+    );
+  });
 
   it("reports failed start cleanup but retires its continuation instead of blocking future starts", async () => {
     await Effect.runPromise(

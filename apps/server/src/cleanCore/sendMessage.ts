@@ -14,6 +14,8 @@ import { enqueueMessage, planSend, readThreadQueue, type QueuedMessage } from ".
 import { type ThreadPublisher } from "./threadStore.ts";
 import { encodeUserItemAdmission } from "./userItemAdmission.ts";
 
+export const STOPPED_BEFORE_DELIVERED = "Stopped before it was delivered.";
+
 export const PLAY_TURN_RECOVERY_PROMPT =
   "The previous turn did not finish. Continue the existing task from the current state. Verify the current state before repeating any action whose outcome may be uncertain.";
 
@@ -115,16 +117,25 @@ export const sendMessage = (
         // An admitted start is busy even before its provider turn-start event.
         const pending = yield* sql`SELECT 1 FROM thread_items WHERE thread_id=${input.threadId}
         AND kind='user' AND status='sending' LIMIT 1`;
-        const state = thread.state === "running" ||
+        const state =
+          thread.state === "running" ||
           (pending.length === 0 && (yield* driver.isRunning(input.threadId)))
-          ? "running" : thread.state;
-        const automatic = (input.dispatchMode === undefined || input.dispatchMode === "auto") &&
-          input.autoSteer === true && state === "running" && input.supportsSteer &&
+            ? "running"
+            : thread.state;
+        const automatic =
+          (input.dispatchMode === undefined || input.dispatchMode === "auto") &&
+          input.autoSteer === true &&
+          state === "running" &&
+          input.supportsSteer &&
           queue.length + pending.length === 0;
         const plan = planSend({
           state,
-          dispatchMode: input.dispatchMode === "steer" || input.dispatchMode === "queue"
-            ? input.dispatchMode : automatic ? "steer" : "queue",
+          dispatchMode:
+            input.dispatchMode === "steer" || input.dispatchMode === "queue"
+              ? input.dispatchMode
+              : automatic
+                ? "steer"
+                : "queue",
           supportsSteer: input.supportsSteer,
           queueLength: queue.length + pending.length,
         });
@@ -199,8 +210,26 @@ export const deliverMessage = (
     if (dispatch !== null) yield* driver.dispatch(dispatch, plan);
   }).pipe(
     Effect.catchCause((cause) => {
-      // Server shutdown leaves the admission for the existing startup cut-off.
-      if (Cause.hasInterruptsOnly(cause)) return Effect.failCause(cause);
+      // A stop while the provider is still starting interrupts that start, and the
+      // interrupt reaches this delivery. The message was admitted but will never be
+      // acknowledged, so settle it as failed (it stays Failed and joins the next send,
+      // and the queue behind it moves on). On server shutdown this write is best effort:
+      // the startup cut-off settles anything left in `sending`.
+      if (Cause.hasInterruptsOnly(cause))
+        return settleMessage(
+          publisher,
+          {
+            type: "failed",
+            threadId: input.threadId,
+            messageId: input.message.messageId,
+            error: STOPPED_BEFORE_DELIVERED,
+          },
+          new Date().toISOString(),
+        ).pipe(
+          Effect.catchCause(() => Effect.void),
+          Effect.uninterruptible,
+          Effect.andThen(Effect.failCause(cause)),
+        );
       const failure = Cause.squash(cause);
       const error = failure instanceof Error ? failure.message : String(failure);
       return settleMessage(
