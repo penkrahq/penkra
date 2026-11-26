@@ -14,6 +14,10 @@ export type GatewayOAuthReadResponse = {
    */
   required: boolean;
   /**
+   * Whether the administrator configured a device authorization endpoint.
+   */
+  supportsDeviceAuth?: boolean;
+  /**
    * Null when the effective provider does not use gateway OAuth.
    */
   status: GatewayOAuthStatus | null;

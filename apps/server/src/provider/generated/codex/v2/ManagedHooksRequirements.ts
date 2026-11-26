@@ -4,6 +4,8 @@
 import type { ConfiguredHookMatcherGroup } from "./ConfiguredHookMatcherGroup";
 
 export type ManagedHooksRequirements = {
+  PreModelRequest: Array<ConfiguredHookMatcherGroup>;
+  PostModelRequest: Array<ConfiguredHookMatcherGroup>;
   managedDir: string | null;
   windowsManagedDir: string | null;
   PreToolUse: Array<ConfiguredHookMatcherGroup>;

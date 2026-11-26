@@ -6,6 +6,10 @@ import type { JsonValue } from "../serde_json/JsonValue";
 export type McpServerToolCallParams = {
   threadId: string;
   server: string;
+  /**
+   * Exact registration scope; omission preserves legacy name-only selection.
+   */
+  environmentId?: string | null;
   tool: string;
   arguments?: JsonValue;
   _meta?: JsonValue;

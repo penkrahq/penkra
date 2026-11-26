@@ -16,6 +16,10 @@ export type McpServerElicitationRequestParams = {
    */
   turnId: string | null;
   serverName: string;
+  /**
+   * Registration scope, not necessarily the server's execution environment.
+   */
+  environmentId: string | null;
 } & (
   | {
       mode: "openai/userVerification";

@@ -11,6 +11,7 @@ import type { ActivePermissionProfile } from "./ActivePermissionProfile";
 import type { ApprovalsReviewer } from "./ApprovalsReviewer";
 import type { AskForApproval } from "./AskForApproval";
 import type { SandboxPolicy } from "./SandboxPolicy";
+import type { ThreadEnvironment } from "./ThreadEnvironment";
 
 export type ThreadSettings = {
   /**
@@ -18,6 +19,11 @@ export type ThreadSettings = {
    */
   disabledPluginIds: Array<string>;
   cwd: AbsolutePathBuf;
+  /**
+   * Environments configured for future turns, in priority order, primary first.
+   * `null` means the server does not expose the selection; [] means none are selected.
+   */
+  environments: Array<ThreadEnvironment> | null;
   approvalPolicy: AskForApproval;
   approvalsReviewer: ApprovalsReviewer;
   sandboxPolicy: SandboxPolicy;

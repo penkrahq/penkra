@@ -7,5 +7,9 @@ export type ThreadUsage = {
   threadId: string;
   estimatedUsageCreditsMicros: bigint;
   estimatedUsageUsdMicros: bigint | null;
+  /**
+   * Native dollar usage, independent of credit estimates. None means unknown, not zero.
+   */
+  nativeUsageUsdMicros?: bigint | null;
   groups: Array<ThreadUsageBreakdownGroup>;
 };

@@ -4,7 +4,11 @@
 
 export type HooksListParams = {
   /**
-   * When empty, defaults to the current session working directory.
+   * Working directories to inspect when no thread is specified. An empty list uses the session cwd.
    */
   cwds?: Array<string>;
+  /**
+   * List a loaded thread's hooks, including its selected environments. Omit `cwds` in this mode.
+   */
+  threadId?: string | null;
 };

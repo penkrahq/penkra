@@ -9,6 +9,7 @@ export type ProjectListParams = {
   limit?: number | null;
   /**
    * Defaults to position. Recency sorting always places empty projects last.
+   * Use the returned order; numeric positions are not exposed in project responses.
    */
   sortKey?: ProjectSortKey | null;
   /**

@@ -4,6 +4,7 @@
 import type { ReasoningEffort } from "../ReasoningEffort";
 import type { ReasoningSummary } from "../ReasoningSummary";
 import type { ApprovalsReviewer } from "./ApprovalsReviewer";
+import type { TurnEnvironmentParams } from "./TurnEnvironmentParams";
 
 /**
  * Experimental settings changes for one running turn, not future turns.
@@ -19,6 +20,11 @@ export type TurnSettingsUpdateParams = {
    * Already captured steps and pending approvals retain their original reviewer.
    */
   approvalsReviewer?: ApprovalsReviewer | null;
+  /**
+   * Replace the environments for subsequent steps of this turn, not future turns.
+   * Omitted/null preserves the selection; [] clears it. An already-started step is unchanged.
+   */
+  environments?: Array<TurnEnvironmentParams> | null;
   /**
    * Omission or `null` leaves the model unchanged.
    */

@@ -20,6 +20,10 @@ export type HookMetadata = {
   sourcePath: AbsolutePathBuf;
   source: HookSource;
   pluginId: string | null;
+  /**
+   * The owning execution environment, if this hook came from its requirements.
+   */
+  environmentId: string | null;
   displayOrder: bigint;
   enabled: boolean;
   isManaged: boolean;

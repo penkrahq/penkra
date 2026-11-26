@@ -10,6 +10,7 @@ import type { SleepItem } from "../SleepItem";
 import type { WebSearchItem } from "../WebSearchItem";
 import type { JsonValue } from "../serde_json/JsonValue";
 import type { AgentMessageDelivery } from "./AgentMessageDelivery";
+import type { AgentMessageModeration } from "./AgentMessageModeration";
 import type { AsyncUserInputQuestion } from "./AsyncUserInputQuestion";
 import type { CollabAgentState } from "./CollabAgentState";
 import type { CollabAgentTool } from "./CollabAgentTool";
@@ -31,11 +32,24 @@ import type { PatchApplyStatus } from "./PatchApplyStatus";
 import type { SubAgentActivityKind } from "./SubAgentActivityKind";
 import type { UserInput } from "./UserInput";
 
-export type ThreadItem =
+/**
+ * A thread item and its recorded lifecycle times. The payload stays flat on the wire.
+ */
+export type ThreadItem = {
+  /**
+   * Unix timestamp in milliseconds when the item started, if recorded.
+   */
+  startedAtMs?: number | null;
+  /**
+   * Unix timestamp in milliseconds when the item completed, if recorded.
+   */
+  completedAtMs?: number | null;
+} & (
   | { type: "userMessage"; id: string; clientId: string | null; content: Array<UserInput> }
   | { type: "hookPrompt"; id: string; fragments: Array<HookPromptFragment> }
   | {
       type: "agentMessage";
+      moderation: AgentMessageModeration | null;
       id: string;
       text: string;
       phase: MessagePhase | null;
@@ -101,6 +115,10 @@ export type ThreadItem =
       type: "mcpToolCall";
       id: string;
       server: string;
+      /**
+       * Registration scope, not necessarily the server's execution environment.
+       */
+      environmentId: string | null;
       tool: string;
       status: McpToolCallStatus;
       arguments: JsonValue;
@@ -197,4 +215,5 @@ export type ThreadItem =
   | ({ type: "imageGeneration" } & ImageGenerationItem)
   | { type: "enteredReviewMode"; id: string; review: string }
   | { type: "exitedReviewMode"; id: string; review: string }
-  | { type: "contextCompaction"; id: string };
+  | { type: "contextCompaction"; id: string }
+);

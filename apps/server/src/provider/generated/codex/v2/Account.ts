@@ -5,5 +5,14 @@ import type { PlanType } from "../PlanType";
 
 export type Account =
   | { type: "apiKey" }
-  | { type: "chatgpt"; email: string | null; planType: PlanType }
-  | { type: "amazonBedrock"; usesCodexManagedCredentials: boolean };
+  | {
+      type: "chatgpt";
+      email: string | null;
+      planType: PlanType;
+      /**
+       * Display name of the selected ChatGPT workspace, when available.
+       */
+      workspaceName: string | null;
+    }
+  | { type: "amazonBedrock"; usesCodexManagedCredentials: boolean }
+  | { type: "gcp" };

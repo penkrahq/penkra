@@ -15,7 +15,7 @@ export type PluginInterface = {
   termsOfServiceUrl: string | null;
   /**
    * Starter prompts for the plugin. Capped at 3 entries with a maximum of
-   * 128 characters per entry.
+   * 512 characters per entry.
    */
   defaultPrompt: Array<string> | null;
   brandColor: string | null;

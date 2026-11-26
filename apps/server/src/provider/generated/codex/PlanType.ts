@@ -20,4 +20,6 @@ export type PlanType =
   | "edu"
   | "edu_plus"
   | "edu_pro"
+  | "sci"
+  | "sci_plus"
   | "unknown";

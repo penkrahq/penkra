@@ -5,6 +5,10 @@ import type { McpServerOauthClientRegistration } from "./McpServerOauthClientReg
 
 export type McpServerOauthLoginParams = {
   name: string;
+  /**
+   * Exact registration scope; omission preserves legacy name-only selection.
+   */
+  environmentId?: string | null;
   threadId?: string | null;
   /**
    * Registration strategy for this login only; omission selects automatic discovery.

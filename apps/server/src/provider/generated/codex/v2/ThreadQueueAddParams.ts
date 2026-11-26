@@ -7,4 +7,8 @@ export type ThreadQueueAddParams = {
   threadId: string;
   input: Array<UserInput>;
   clientUserMessageId: string;
+  /**
+   * ResponsesAPI metadata captured from the client submitting this input.
+   */
+  responsesapiClientMetadata?: { [key in string]?: string } | null;
 };

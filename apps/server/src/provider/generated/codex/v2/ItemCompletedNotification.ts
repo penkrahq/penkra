@@ -8,6 +8,11 @@ export type ItemCompletedNotification = {
   threadId: string;
   turnId: string;
   /**
+   * Native content tokens for the completed assistant message, including a sampled footer.
+   * Null when unavailable. Completion telemetry is not part of the stored thread item.
+   */
+  contentTokenCount?: number | null;
+  /**
    * Unix timestamp (in milliseconds) when this item lifecycle completed.
    */
   completedAtMs: number;

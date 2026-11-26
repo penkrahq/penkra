@@ -17,6 +17,7 @@ import type { InAppBrowserRequirements } from "./InAppBrowserRequirements";
 import type { ManagedHooksRequirements } from "./ManagedHooksRequirements";
 import type { ModelsRequirements } from "./ModelsRequirements";
 import type { NetworkRequirements } from "./NetworkRequirements";
+import type { OtelRequirements } from "./OtelRequirements";
 import type { ResidencyRequirement } from "./ResidencyRequirement";
 import type { SandboxMode } from "./SandboxMode";
 import type { WindowsSandboxImplementation } from "./WindowsSandboxImplementation";
@@ -65,4 +66,5 @@ export type ConfigRequirements = {
   checkForUpdateOnStartup: boolean | null;
   allowLoginShell: boolean | null;
   feedback: FeedbackRequirements | null;
+  otel: OtelRequirements | null;
 };

@@ -74,6 +74,11 @@ export type ThreadStartParams = {
    */
   daybreakEnabled?: boolean | null;
   /**
+   * False opts this new root out of Daybreak propagation unless managed policy
+   * requires it. Omitted, null, or true uses the configured enrollment rule.
+   */
+  daybreakProgramPropagationEnrolled?: boolean | null;
+  /**
    * Optional sticky environments for this thread.
    *
    * Omitted selects the default environment when environment access is

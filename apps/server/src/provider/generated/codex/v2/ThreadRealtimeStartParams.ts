@@ -79,6 +79,11 @@ export type ThreadRealtimeStartParams = {
   realtimeEndInstructions?: string | null;
   prompt?: string | null | null;
   realtimeSessionId?: string | null;
+  /**
+   * Client-generated identifier for the product voice session. This is distinct from
+   * `realtimeSessionId`.
+   */
+  voiceSessionId?: string | null;
   transport?: ThreadRealtimeStartTransport | null;
   /**
    * Overrides the configured realtime protocol version for this session only.

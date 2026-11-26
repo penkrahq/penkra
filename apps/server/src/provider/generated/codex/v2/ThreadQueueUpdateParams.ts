@@ -7,4 +7,8 @@ export type ThreadQueueUpdateParams = {
   threadId: string;
   queuedSubmissionId: string;
   input: Array<UserInput>;
+  /**
+   * Non-empty metadata replaces the input's metadata; omission or an empty map preserves it.
+   */
+  responsesapiClientMetadata?: { [key in string]?: string } | null;
 };

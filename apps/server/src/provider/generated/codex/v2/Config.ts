@@ -7,6 +7,7 @@ import type { ReasoningEffort } from "../ReasoningEffort";
 import type { ReasoningSummary } from "../ReasoningSummary";
 import type { Verbosity } from "../Verbosity";
 import type { WebSearchMode } from "../WebSearchMode";
+import type { WebSearchProvider } from "../WebSearchProvider";
 import type { JsonValue } from "../serde_json/JsonValue";
 import type { AnalyticsConfig } from "./AnalyticsConfig";
 import type { ApprovalsReviewer } from "./ApprovalsReviewer";
@@ -37,6 +38,10 @@ export type Config = {
   forced_chatgpt_workspace_id: ForcedChatgptWorkspaceIds | null;
   forced_login_method: ForcedLoginMethod | null;
   web_search: WebSearchMode | null;
+  /**
+   * Effective tools.client_search_provider hint. Model-selected providers take precedence.
+   */
+  client_search_provider: WebSearchProvider | null;
   tools: ToolsV2 | null;
   instructions: string | null;
   developer_instructions: string | null;
