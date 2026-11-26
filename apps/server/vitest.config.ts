@@ -38,6 +38,7 @@ export default mergeConfig(
         "src/persistence/MigrationBackup.test.ts",
         "src/restoreMigrationBackup.test.ts",
         "src/provider/ThreadRuntime.test.ts",
+        "src/provider/guardedCommit.test.ts",
         "src/codexAppServerManager.test.ts",
         "src/wsRpc.auth.test.ts",
         "src/auth/Layers/ServerAuth.test.ts",

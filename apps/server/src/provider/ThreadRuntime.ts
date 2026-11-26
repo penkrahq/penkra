@@ -1,3 +1,5 @@
+import { statfs } from "node:fs/promises";
+import { homedir } from "node:os";
 import type {
   ProviderKind,
   ProviderConnectionId,
@@ -16,6 +18,22 @@ import {
   makeProviderLifecycleCoordinator,
   type ProviderLifecycleLease,
 } from "./providerLifecycleCoordinator.ts";
+
+const LOW_DISK_BYTES = 2 * 1024 ** 3;
+
+/** A full disk makes provider databases fail writes, which looks like a hung start. */
+const lowDiskHint = () =>
+  Effect.promise(async () => {
+    try {
+      const stats = await statfs(homedir());
+      const free = stats.bavail * stats.bsize;
+      return free < LOW_DISK_BYTES
+        ? ` The disk is almost full (${(free / 1024 ** 3).toFixed(1)} GB free): free up space and send again.`
+        : "";
+    } catch {
+      return "";
+    }
+  });
 
 export type ThreadRuntimeStopReason =
   | "user-stop"
@@ -398,11 +416,13 @@ export function makeThreadRuntime(options: {
         const started = yield* adapter
           .startSession(input)
           .pipe(Effect.timeoutOption(PROVIDER_START_SESSION_TIMEOUT));
-        if (Option.isNone(started))
+        if (Option.isNone(started)) {
+          const lowDisk = yield* lowDiskHint();
           return yield* new ProviderValidationError({
             operation: "ThreadRuntime.ensure",
-            issue: `Provider '${adapter.provider}' did not finish starting within ${Duration.toMillis(PROVIDER_START_SESSION_TIMEOUT)}ms for thread '${input.threadId}'.`,
+            issue: `Provider '${adapter.provider}' did not finish starting within ${Duration.toMillis(PROVIDER_START_SESSION_TIMEOUT)}ms for thread '${input.threadId}'.${lowDisk}`,
           });
+        }
         return started.value;
       }).pipe(
         Effect.onExit((exit) =>

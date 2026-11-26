@@ -57,6 +57,7 @@ import {
   type ProviderSessionDirectoryPersistenceError,
 } from "../Errors.ts";
 import { PENDING_INTERACTION_NOT_FOUND_FAILURE_CODE } from "@penkra/shared/threadSummary";
+import { guardCommit } from "../guardedCommit.ts";
 import { ProviderAdapterRegistry } from "../Services/ProviderAdapterRegistry.ts";
 import type { ProviderManagedLaunchContext } from "../Services/ProviderAdapter.ts";
 import { ProviderService, type ProviderServiceShape } from "../Services/ProviderService.ts";
@@ -1220,7 +1221,10 @@ const makeProviderService = (options?: ProviderServiceLiveOptions) =>
             !current(event) ||
             !options?.consumeRuntimeDeltaRun
           ) {
-            yield* processRuntimeEvent(event);
+            yield* guardCommit(
+              { eventType: event.type, threadIds: [event.threadId] },
+              processRuntimeEvent(event),
+            );
             index++;
             continue;
           }
@@ -1231,28 +1235,32 @@ const makeProviderService = (options?: ProviderServiceLiveOptions) =>
             run.push(normalizeProviderRuntimeEvent(next));
             index++;
           }
-          yield* Effect.uninterruptible(
-            Effect.gen(function* () {
-              const commit = Effect.gen(function* () {
-                const admitted = run.filter(current);
-                if (admitted.length !== 0) yield* options.consumeRuntimeDeltaRun!(admitted);
-                for (const delta of admitted)
-                  if (canonicalEventLogger) yield* canonicalEventLogger.write(delta, null);
-                return admitted;
-              });
-              const threadIds = [...new Set(run.map((delta) => delta.threadId))].toSorted();
-              const committed = yield* threadIds.reduceRight(
-                (operation, threadId) => withNativeCommitLock(threadId, operation),
-                commit,
-              );
-              for (const delta of committed) yield* PubSub.publish(runtimeEventPubSub, delta);
-            }),
+          yield* guardCommit(
+            { eventType: "content.delta", threadIds: [...new Set(run.map((d) => d.threadId))] },
+            Effect.uninterruptible(
+              Effect.gen(function* () {
+                const commit = Effect.gen(function* () {
+                  const admitted = run.filter(current);
+                  if (admitted.length !== 0) yield* options.consumeRuntimeDeltaRun!(admitted);
+                  for (const delta of admitted)
+                    if (canonicalEventLogger) yield* canonicalEventLogger.write(delta, null);
+                  return admitted;
+                });
+                const threadIds = [...new Set(run.map((delta) => delta.threadId))].toSorted();
+                const committed = yield* threadIds.reduceRight(
+                  (operation, threadId) => withNativeCommitLock(threadId, operation),
+                  commit,
+                );
+                for (const delta of committed) yield* PubSub.publish(runtimeEventPubSub, delta);
+              }),
+            ),
           );
         }
       });
 
-    // The provider stream itself is the completion boundary. A failed canonical
-    // write fails the consumer; there is no journal replay, retry or quarantine.
+    // The provider stream itself is the completion boundary. Commits are retried
+    // and then dropped with a logged error (see guardCommit), so a failed
+    // canonical write never ends the consumer.
     yield* Effect.forEach(adapters, (adapter) =>
       Stream.runForEachArray(adapter.streamEvents, processRuntimeEvents).pipe(
         Effect.orDie,
