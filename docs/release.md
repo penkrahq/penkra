@@ -30,6 +30,26 @@ Every release platform runs `bun run providers:verify`: it streams the three com
 artifacts and checks their actual hashes without selecting new versions. Native contracts run
 locally during the bump; hash verification is not a substitute for cross-platform runtime QA.
 
+### Keeping the pins current
+
+Pins only move when someone bumps them, and 0.14.x through 0.15.1 shipped five weeks behind
+(Codex 0.163.0 while 0.172.0 was out, which hid GPT-6.2: it needs client 0.166.0). So:
+
+- The weekly **Provider runtime updates** workflow (`.github/workflows/provider-runtimes.yml`)
+  runs `providers:check`, runs `providers:bump` (the real-binary contract gate) for each
+  provider with a newer stable version, and opens one pull request per provider that passes.
+  A failing gate opens an issue and leaves the pin alone. It never publishes or activates
+  anything; a person merges the pull request and cuts the release.
+- Before every release, run `bun run providers:check` and merge or consciously skip each open
+  `provider-bump/*` pull request. "Unchanged" in the release notes must be a decision.
+- **OpenCode 2.x is not proposed automatically.** Upstream still publishes 1.x as `latest`
+  (npm and GitHub); 2.x ships only as GitHub binaries with no matching `@opencode-ai/sdk`.
+  `providers:bump opencode 2.4.2 --sdk-version=1.19.6` runs the contract gate against it and
+  fails: 2.x removes `--pure` and the `export`/`import` commands the adapter uses, serves from
+  a background service with a server password, and the session-routing and
+  question/interrupt/request-failure contracts time out. Moving to 2.x is an adapter port, not
+  a bump. The contract harness accepts the `v` prefix 2.x prints (`opencode v2.4.2`).
+
 Include a **Provider runtimes** section in release notes, listing `old → new` for Codex, Claude
 Code (and Agent SDK), and OpenCode (and SDK); write `unchanged` where applicable. A new model
 requiring a newer CLI waits for a desktop release carrying that tested CLI.

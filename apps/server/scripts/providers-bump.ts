@@ -29,17 +29,30 @@ function writeJson(filePath: string, value: unknown) {
 export function bumpArguments(args: readonly string[]): {
   provider: PinnedProviderKind;
   version: string;
+  sdkVersion?: string;
 } {
-  const [provider, version] = args;
+  // OpenCode 2.x has no matching SDK on npm. The operator may pair it with an
+  // explicit SDK; the real-binary contract tests are then the gate for that pairing.
+  const sdkFlag = args.find((arg) => arg.startsWith("--sdk-version="));
+  const sdkVersion = sdkFlag?.slice("--sdk-version=".length);
+  const [provider, version] = args.filter((arg) => arg !== sdkFlag);
   if (
-    args.length !== 2 ||
+    args.length !== (sdkFlag ? 3 : 2) ||
+    (sdkFlag !== undefined &&
+      (provider !== "opencode" || !sdkVersion || !/^\d+\.\d+\.\d+$/.test(sdkVersion))) ||
     !PINNED_PROVIDER_KINDS.some((kind) => kind === provider) ||
     !version ||
     !/^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$/.test(version)
   ) {
-    throw new Error("Usage: bun run providers:bump <codex|claudeAgent|opencode> <exact-version>");
+    throw new Error(
+      "Usage: bun run providers:bump <codex|claudeAgent|opencode> <exact-version> [--sdk-version=<x.y.z> (opencode only)]",
+    );
   }
-  return { provider: provider as PinnedProviderKind, version };
+  return {
+    provider: provider as PinnedProviderKind,
+    version,
+    ...(sdkVersion ? { sdkVersion } : {}),
+  };
 }
 
 export function targetPlatform(
@@ -104,7 +117,7 @@ async function command(executable: string, args: string[], env = process.env) {
 }
 
 export async function bumpProvider(args: readonly string[]) {
-  const { provider, version } = bumpArguments(args);
+  const { provider, version, sdkVersion: requestedSdkVersion } = bumpArguments(args);
   const manifestPath = path.join(repository, "providerRuntimes.json");
   const originalManifest = await readFile(manifestPath, "utf8");
   const candidate = JSON.parse(originalManifest);
@@ -141,9 +154,9 @@ export async function bumpProvider(args: readonly string[]) {
     provider === "claudeAgent"
       ? claudeSdkVersion(await registryMetadata("@anthropic-ai/claude-agent-sdk"), version)
       : provider === "opencode"
-        ? version
+        ? (requestedSdkVersion ?? version)
         : undefined;
-  if (provider === "opencode") await registryMetadata("@opencode-ai/sdk", version);
+  if (provider === "opencode") await registryMetadata("@opencode-ai/sdk", sdkVersion);
   candidate.providers[provider] = {
     ...previous,
     version,

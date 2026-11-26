@@ -1,0 +1,102 @@
+name: Provider runtime updates
+
+# Weekly: find newer stable Codex / Claude Code / OpenCode versions, run the real-binary
+# contract gate (`providers:bump`) on each, and open a pull request for every one that
+# passes. A person still merges the pull request and cuts the release; nothing here
+# publishes or activates anything. A bump that fails the gate opens an issue instead.
+# OpenCode 2.x is never proposed: the check follows npm `latest` (1.x) and 2.x needs an
+# adapter port first (see docs/release.md).
+
+on:
+  schedule:
+    - cron: "17 14 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pull-requests: write
+  issues: write
+  actions: write
+
+concurrency:
+  group: provider-runtimes-${{ matrix.provider }}
+  cancel-in-progress: false
+
+jobs:
+  bump:
+    name: ${{ matrix.provider }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        provider: [codex, claudeAgent, opencode]
+    env:
+      GH_TOKEN: ${{ github.token }}
+      PROVIDER: ${{ matrix.provider }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          ref: main
+      - name: Setup workspace
+        uses: ./.github/actions/setup-workspace
+        with:
+          cache-suffix: provider-runtimes
+      - name: Find a newer version
+        id: check
+        shell: bash
+        run: |
+          set -euo pipefail
+          line="$(bun run providers:check | awk -F'\t' -v p="$PROVIDER" '$1 == p {print}')"
+          pinned="$(printf '%s' "$line" | sed -E 's/.*pinned=([^[:space:]]+).*/\1/')"
+          latest="$(printf '%s' "$line" | sed -E 's/.*latest=([^[:space:]]+).*/\1/')"
+          echo "pinned=$pinned" >> "$GITHUB_OUTPUT"
+          echo "latest=$latest" >> "$GITHUB_OUTPUT"
+          branch="provider-bump/${PROVIDER}-${latest}"
+          if [[ -z "$pinned" || -z "$latest" || "$pinned" == "$latest" ]]; then
+            echo "needed=false" >> "$GITHUB_OUTPUT"
+          elif [[ -n "$(git ls-remote --heads origin "$branch")" ]]; then
+            echo "A pull request branch for ${PROVIDER} ${latest} already exists."
+            echo "needed=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "needed=true" >> "$GITHUB_OUTPUT"
+          fi
+      - name: Verify the bump against the real binary
+        if: steps.check.outputs.needed == 'true'
+        shell: bash
+        run: bun run providers:bump "$PROVIDER" "${{ steps.check.outputs.latest }}"
+      - name: Typecheck the candidate
+        if: steps.check.outputs.needed == 'true'
+        run: bun run typecheck
+      - name: Open the pull request
+        if: steps.check.outputs.needed == 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          pinned="${{ steps.check.outputs.pinned }}"
+          latest="${{ steps.check.outputs.latest }}"
+          branch="provider-bump/${PROVIDER}-${latest}"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git checkout -b "$branch"
+          git add -A -- providerRuntimes.json bun.lock apps scripts
+          git commit -m "Provider runtimes: ${PROVIDER} ${pinned} -> ${latest}" \
+            -m "Verified by providers:bump against the real binary (weekly provider-runtimes workflow)."
+          git push origin "$branch"
+          gh pr create --base main --head "$branch" \
+            --title "Provider runtimes: ${PROVIDER} ${pinned} -> ${latest}" \
+            --body "Weekly provider update. \`providers:bump ${PROVIDER} ${latest}\` passed its real-binary contract tests and the workspace typechecks. Review the release notes for ${PROVIDER} ${latest}, merge, and list \`${pinned} -> ${latest}\` under **Provider runtimes** in the next release. Nothing was published or activated."
+          # Pushes made with the workflow token do not start CI; dispatch it for the branch.
+          gh workflow run ci.yml --ref "$branch"
+      - name: Report a failed gate
+        if: failure() && steps.check.outputs.needed == 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          latest="${{ steps.check.outputs.latest }}"
+          title="Provider runtimes: ${PROVIDER} ${latest} failed its contract gate"
+          if [[ -z "$(gh issue list --state open --search "\"$title\" in:title" --json number --jq '.[0].number')" ]]; then
+            gh issue create --title "$title" \
+              --body "The weekly provider-runtimes run could not verify ${PROVIDER} ${latest}: ${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}. Pinned stays at ${{ steps.check.outputs.pinned }}."
+          fi

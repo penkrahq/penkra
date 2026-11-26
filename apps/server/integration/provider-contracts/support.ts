@@ -47,7 +47,11 @@ export async function contractFixture(provider: PinnedProviderKind) {
     const actual = (await command(["--version"])).stdout.trim();
     const expected = PINNED_PROVIDER_RUNTIMES.providers[provider].version;
     assert(
-      actual.split(/\s+/).includes(expected),
+      // OpenCode 2.x prints "opencode v2.4.2"; earlier lines print the bare version.
+      actual
+        .split(/\s+/)
+        .map((token) => token.replace(/^v(?=\d)/, ""))
+        .includes(expected),
       `Expected ${provider} ${expected}; executable returned ${actual}`,
     );
   } catch (error) {
