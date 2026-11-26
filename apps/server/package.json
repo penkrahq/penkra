@@ -25,7 +25,7 @@
     "test": "vitest run --maxWorkers=5 --fileParallelism --silent=passed-only"
   },
   "dependencies": {
-    "@anthropic-ai/claude-agent-sdk": "0.3.307",
+    "@anthropic-ai/claude-agent-sdk": "0.3.332",
     "@anthropic-ai/sdk": "^0.100.0",
     "@effect/platform-node": "catalog:",
     "@noble/ciphers": "2.4.0",
